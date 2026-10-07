@@ -199,7 +199,10 @@ import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protoc
  * mirror holds; `note`: where the mirror comes from.
  */
 export interface McpSource {
+  /** `asOf`: live, when it was read; a mirror, the newest change its copy holds (the home machine's own clock). */
   source: "live" | "mirror"; asOf: string; note?: string;
+  /** A mirror's copy: its file under the mirrors folder, and when that file last changed here. */
+  copy?: { file: string; copiedAt: string };
   /** A mirror whose follower has stopped or fallen behind its replica: since when (when known), and why. */
   stale?: { since: string | null; why: string };
 }

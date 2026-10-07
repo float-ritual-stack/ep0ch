@@ -47,6 +47,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const made = await garden.request<{ id: string }>("create", { parentId: null, text: "Seed swap list\nRunner beans for the allotment next door.", author: "agent" });
     note = { id: made.id, uri: formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: made.id }) };
     await attic.request("create", { parentId: null, text: "Trunk contents\nOld maps of the canal.", author: "agent" });
+    await garden.request("pages.follow", { address: "Allotment plan", author: "agent" });
     here = scratchDir("ep0ch-mirror-");
     mirrorsFolder = join(here, "mirrors");
     mkdirSync(join(mirrorsFolder, FAR), { recursive: true });
@@ -70,9 +71,10 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
   test("list_outlines shows each mirror with its freshness and access, and one never copied as unreachable", async () => {
     const listed = JSON.parse((await tool("list_outlines")).text) as { outlines: Record<string, unknown>[] };
     expect(listed.outlines).toEqual([
-      { outline: "garden-notes", machine: FAR, uri: `ep0ch://garden-notes@${FAR}`, source: "mirror", asOf: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), access: "read", note: expect.stringContaining(`garden-notes lives on ${FAR}`) },
-      { outline: "attic-notes", machine: FAR, uri: `ep0ch://attic-notes@${FAR}`, source: "mirror", asOf: expect.any(String), access: "none",
-        stale: { since: "2026-03-14T08:00:00.000Z", why: "the mirror is at txid 3, the replica at 5" }, note: expect.stringContaining("read-only copy is stale since 2026-03-14T08:00:00.000Z") },
+      { outline: "garden-notes", machine: FAR, uri: `ep0ch://garden-notes@${FAR}`, source: "mirror", asOf: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), access: "read", note: expect.stringContaining(`garden-notes lives on ${FAR}`),
+        copy: { file: `${FAR}/garden-notes.sqlite`, copiedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) } },
+      { outline: "attic-notes", machine: FAR, uri: `ep0ch://attic-notes@${FAR}`, source: "mirror", asOf: expect.any(String), access: "none", copy: expect.objectContaining({ file: `${FAR}/attic-notes.sqlite` }),
+        stale: { since: "2026-03-14T08:00:00.000Z", why: "the mirror is at txid 3, the replica at 5" }, note: expect.stringContaining("is stale since 2026-03-14T08:00:00.000Z") },
       { outline: "cellar-notes", machine: FAR, uri: `ep0ch://cellar-notes@${FAR}`, source: "unreachable", note: expect.stringMatching(/^cellar-notes lives on far-box; .*'s read-only copy hasn't arrived yet/) },
     ]);
   });
@@ -86,6 +88,16 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const resource = await call("resources/read", { uri: note.uri });
     expect(resource.result.reachability.source).toBe("mirror");
     expect((await tool("outline_find", { query: "Seed", outline: "garden-notes@another-box" })).text).toContain("is on another machine");
+  });
+
+  test("a ref on a mirror resolves as on a live outline: [[page]] and ((id)) in the copy, never made there", async () => {
+    const page = await tool("outline_read", { ref: "[[Allotment plan]]", outline: "garden-notes" });
+    expect(page.isError).toBe(false);
+    expect(JSON.parse(page.text).record.title).toBe("Allotment plan");
+    expect(JSON.parse((await tool("outline_links", { ref: `((${note.id}))`, outline: "garden-notes" })).text).id).toBe(note.id);
+    const missing = await tool("outline_read", { ref: "[[Greenhouse]]", outline: "garden-notes" });
+    expect(missing.isError).toBe(true);
+    expect(missing.text).not.toContain("read-only copy");
   });
 
   test("the access setting is the one the copy carries; the refusal says to grant it on the outline's own machine", async () => {
@@ -131,6 +143,40 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     follow("garden-notes");
     clock += 16_000;
     expect((await tool("outline_read", { uri: note.uri })).isError).toBe(false);
+  }, 30_000);
+
+  test("while the backup job restores beside the follower, the copy holding the newer change is served, and named", async () => {
+    // The follower's copy stops; the backup job's restore (in .restic/) has a change it lacks.
+    const resticDir = join(mirrorsFolder, ".restic", FAR);
+    mkdirSync(resticDir, { recursive: true });
+    await Bun.sleep(20);
+    const later = await garden.request<{ id: string }>("create", { parentId: null, text: "Compost turned\nTwice this week.", author: "agent" });
+    const source = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
+    try { source.run("VACUUM INTO ?", [join(resticDir, "garden-notes.sqlite")]); } finally { source.close(); }
+    clock += 16_000;
+    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: later.id });
+    const read = JSON.parse((await tool("outline_read", { uri })).text);
+    expect(read.record.body).toContain("Twice this week");
+    expect(read.reachability.copy.file).toBe(`.restic/${FAR}/garden-notes.sqlite`);
+    expect(read.reachability.note).toContain(`.restic/${FAR}/garden-notes.sqlite`);
+    // The follower catches up: on a tie it is the follower's copy again.
+    follow("garden-notes");
+    clock += 16_000;
+    expect(JSON.parse((await tool("outline_read", { uri })).text).reachability.copy.file).toBe(`${FAR}/garden-notes.sqlite`);
+    // A change that moves no block's time (the access revoked) still makes the restored copy the newer one.
+    await garden.configureMcpAccess("none");
+    try {
+      const again = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
+      try { rmSync(join(resticDir, "garden-notes.sqlite"), { force: true }); again.run("VACUUM INTO ?", [join(resticDir, "garden-notes.sqlite")]); } finally { again.close(); }
+      clock += 16_000;
+      const revoked = await tool("outline_read", { uri });
+      expect(revoked.isError).toBe(true);
+      expect(revoked.text).toContain("MCP access is none for garden-notes");
+    } finally { await garden.configureMcpAccess("read"); }
+    follow("garden-notes");
+    clock += 16_000;
+    expect((await tool("outline_read", { uri })).isError).toBe(false);
+    rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 
   test("config: mirrors are <outline>@<machine>, in a folder that isn't the outlines folder", () => {

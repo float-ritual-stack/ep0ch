@@ -12,7 +12,7 @@ import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@e
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailSummary } from "./mcp-netmail";
-import { actorOf, applyWrite, isWriteTool, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, applyWrite, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -66,7 +66,7 @@ export interface McpOutlineListing {
   /** What a write to it becomes: applied or proposed here, or queued for its home machine; absent when it takes none. */
   writes?: "applied" | "proposals" | "queued";
   /** A mirror's queued writes: how many wait, the oldest, and when its home machine last pulled. */
-  queue?: { waiting: number; oldest: string | null; lastPull: string | null };
+  queue?: { waiting: number; oldest: string | null; lastPull: string | null; said?: string };
   note?: string;
 }
 
@@ -120,8 +120,20 @@ const toolText = (value: unknown): ToolResult => ({ content: [{ type: "text", te
 const toolError = (message: string): ToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const stringField = (value: Record<string, unknown>, key: string): string | undefined => typeof value[key] === "string" ? value[key] : undefined;
-const numberField = (value: Record<string, unknown>, key: string): number | undefined => typeof value[key] === "number" ? value[key] : undefined;
-const clampLimit = (value: unknown, fallback: number, max: number) => Number.isInteger(value) && typeof value === "number" && value > 0 ? Math.min(value, max) : fallback;
+
+/** A tool's `limit`: absent is the default; anything but a whole number from 1 to the maximum is refused, saying both. */
+interface LimitRule { fallback: number; max: number }
+const limitOf = (value: unknown, { fallback, max }: LimitRule): number | { error: string } => {
+  if (value === undefined) return fallback;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max) return value;
+  return { error: `limit is a whole number from 1 to ${max} (default ${fallback}); got ${JSON.stringify(value)}.` };
+};
+const FIND_LIMIT: LimitRule = { fallback: 30, max: 30 };
+const LIST_LIMIT: LimitRule = { fallback: 30, max: 100 };
+const LINKS_LIMIT: LimitRule = { fallback: 50, max: 200 };
+const limitSchema = ({ fallback, max }: LimitRule, what: string) => ({ type: "integer", minimum: 1, maximum: max, default: fallback, description: `${what}: 1 to ${max}, default ${fallback}` });
+
+const MCP_WRITE_TOOL_NAMES = MCP_WRITE_TOOLS.join(", ");
 
 /** The MCP protocol versions these servers speak, newest first: a client's own is echoed, any other gets the newest. */
 export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"] as const;
@@ -151,24 +163,36 @@ function namedOutline(input: unknown): NamedOutline | { error: string } | undefi
   return machine ? { outline, machine } : { outline };
 }
 
-/** The board a tool or resource read addresses, and the block in it: a URI names its own outline; a ref, `outline`'s. */
-async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
-  if (typeof input !== "string" || !input.trim()) return { error: "Give ref or uri as a block id, ((id)) or ep0ch:// outline URI." };
-  let named: NamedOutline | undefined, id: string;
-  try {
-    // One parser for a uuid, ((uuid)) and the URI; a URI names its own outline, checked before its id is read anywhere.
-    const parsed = parseAddressedBlock(input.trim());
-    if ("outline" in parsed) named = { outline: parsed.outline, machine: parsed.machine };
-    else {
-      const which = namedOutline(outlineInput);
-      if (which && "error" in which) return which;
-      named = which;
+/**
+ * The board a tool or resource read addresses, and the block in it. A URI names its own outline (and an `outline`
+ * naming another is refused); a ref is in `outline`'s, resolved there by the Claude mod's resolver (an id, ((id)),
+ * [[page]] or Work ID), once the outline's access lets this caller read it. `refs: false`: a URI only (resources/read).
+ */
+async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
+  if (typeof input !== "string" || !input.trim()) return { error: refs ? "Give ref (a block id, ((id)), [[page]] or Work ID) or uri (an ep0ch:// block URI)." : "Give uri: an ep0ch:// block URI." };
+  const text = input.trim();
+  const which = namedOutline(outlineInput);
+  if (which && "error" in which) return which;
+  if (text.startsWith("ep0ch://") || !refs) {
+    let parsed;
+    try { parsed = parseAddressedBlock(text); } catch (e) { return { error: (e as Error).message }; }
+    if (!("outline" in parsed)) return { error: `${JSON.stringify(text)} isn't an ep0ch:// block URI.` };
+    if (which && !namesOutline({ outline: which.outline, machine: which.machine ?? parsed.machine }, parsed)) {
+      return { error: `uri names ${parsed.outline}@${parsed.machine} and outline names ${which.outline}${which.machine ? `@${which.machine}` : ""}: give one, or make them agree.` };
     }
-    id = parsed.blockId;
-  } catch (e) { return { error: (e as Error).message }; }
-  if (!named && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}), or give an ep0ch:// URI.` };
-  const served = await outlines.board(named);
+    const served = await outlines.board({ outline: parsed.outline, machine: parsed.machine });
+    if ("error" in served) return served;
+    return { ...served, id: parsed.blockId, uri: blockUri(served.board, parsed.blockId) };
+  }
+  if (!which && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}), or give an ep0ch:// URI.` };
+  const served = await outlines.board(which);
   if ("error" in served) return served;
+  // Nothing is looked up in an outline this caller may not read, not even whether a page or Work ID exists.
+  const status = await requireReadAccess(outlines, served);
+  if ("error" in status) return status;
+  let id: string;
+  try { id = (await resolveBoardRef(served.board, text)).id; }
+  catch (e) { return { error: `${(e as Error).message} (in ${served.board.address.outline}@${served.board.address.machine})` }; }
   return { ...served, id, uri: blockUri(served.board, id) };
 }
 
@@ -236,6 +260,17 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>):
   return toolText(envelope(target.board, target.uri, read.access, read.record, read.record.revision));
 }
 
+/** Where a search found a note: its ancestors' titles, or `(root)` for a top-level note (never an empty path). */
+const ROOT_PATH = "(root)";
+const pathOf = (path: string) => path || ROOT_PATH;
+
+/** What a search's ranking was, in words a caller can act on. */
+const semanticSays = (asked: boolean, semantic: { status: string; message?: string } | undefined) => {
+  if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); pass semantic: true to ask for a semantic re-ranking" };
+  const status = semantic?.status ?? "unavailable";
+  return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
+};
+
 async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
   const named = namedOutline(args.outline);
   if (named && "error" in named) return toolError(named.error);
@@ -246,48 +281,64 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
   const query = stringField(args, "query")?.trim() ?? "";
-  const limit = clampLimit(args.limit, 30, query ? 30 : 100);
+  const limit = limitOf(args.limit, query ? FIND_LIMIT : LIST_LIMIT);
+  if (typeof limit !== "number") return toolError(limit.error);
+  const askSemantic = args.semantic === true;
   // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
   // already cut at the service's own limit).
-  let rows: Found[], more: boolean, semantic: unknown;
+  let rows: Found[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
   if (query) {
-    const found = await board.searchBlocks(query);
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
+    const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id) }));
     more = found.matches.length > limit || found.completeness.kind !== "complete";
-    semantic = found.semantic;
+    search = semanticSays(askSemantic, found.semantic);
   } else {
     const every = everyNote(await board.index());
-    rows = every.slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
+    rows = every.slice(0, limit).map(f => ({ ...f, path: pathOf(f.path), uri: blockUri(board, f.id) }));
     more = every.length > limit;
   }
   const completeness = { kind: more ? "truncated" : "complete", limit, more };
-  return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, query, limit, access: { level: status.level }, completeness, ...(semantic ? { semantic } : {}), matches: rows });
+  return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, query, limit, access: { level: status.level }, completeness, ...(search ? { search } : {}), matches: rows });
 }
 
+/** One group of an answer cut at `limit`: how many it shows, how many there are (null: more than the service read). */
+const groupCompleteness = (shown: number, total: number | null) => ({ complete: total !== null && shown === total, shown, total, more: total === null || total > shown });
+
 async function linkData(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+  const limit = limitOf(args.limit, LINKS_LIMIT);
+  if (typeof limit !== "number") return toolError(limit.error);
   const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
   if ("error" in target) return toolError(target.error);
   const board = target.board;
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
-  const limit = clampLimit(numberField(args, "limit"), 50, 200);
-  const backlinks = await board.backlinks(target.id, limit);
   const record = read.record;
+  // The service keeps the note itself among its backlinks (the door's "this note" toggle); here it's noise, so one
+  // more is asked for. The record's backlinks are the same relation, whole: their count is the total, so this answer
+  // and outline_read's record always agree.
+  const sources = (await board.backlinks(target.id, limit + 1)).sources.filter(s => s.blockId !== target.id).slice(0, limit);
+  const links = mcpRecord(record).links;
+  const linksTotal = record.truncated?.includes("links") ? null : links.length;
+  const resourcesTotal = record.truncated?.includes("resources") ? null : record.resources.length;
   return toolText({
     uri: target.uri,
     id: target.id,
     title: previewTitle(record.title),
     reachability: read.access,
-    links: mcpRecord(record).links,
-    resources: record.resources,
-    // The service keeps the note itself among its backlinks (the door's "this note" toggle); here it's noise.
-    backlinks: backlinks.sources.filter(s => s.blockId !== target.id),
-    completeness: backlinks.completeness,
+    limit,
+    links: links.slice(0, limit),
+    resources: record.resources.slice(0, limit),
+    backlinks: sources,
+    completeness: {
+      links: groupCompleteness(Math.min(limit, links.length), linksTotal),
+      resources: groupCompleteness(Math.min(limit, record.resources.length), resourcesTotal),
+      backlinks: groupCompleteness(sources.length, record.backlinks.length),
+    },
   });
 }
 
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
-  const target = await addressedBlock(outlines, uriValue);
+  const target = await addressedBlock(outlines, uriValue, undefined, false);
   if ("error" in target) throw invalidParams(target.error);
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) throw new RpcError(-32002, read.error);
@@ -308,45 +359,77 @@ function toolsFor(outlines: McpOutlines) {
   const grant = outlines.kind === "local" ? "this outline's local MCP access grant" : "the outline's MCP access grant (`ep0ch mcp access read`)";
   const addressSchema = {
     type: "object",
-    properties: { uri: { type: "string" }, ref: { type: "string" }, outline: outlineProperty(outlines) },
+    properties: {
+      uri: { type: "string", description: "The block's ep0ch:// URI; it names its outline (an outline that names another is refused)" },
+      ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123), as the outline's own links name it" },
+      outline: outlineProperty(outlines),
+    },
     additionalProperties: false,
     oneOf: [{ required: ["uri"] }, { required: ["ref"] }],
   };
   return [
     {
       name: "list_outlines",
-      description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror (and as of when) or unreachable, and its MCP access setting.",
+      description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror or unreachable, and its MCP access setting. " +
+        "A mirror's asOf is the newest change its copy holds, and copy says which file is served and when it last changed here. tools says whether the write tools are offered, and that a client caches its tool list until it reconnects.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
       name: "outline_read",
-      description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. Requires ${grant}. Input: exactly one of uri or ref.`,
+      description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
+        `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: addressSchema,
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find; source and asOf say whether it searched the live outline or a read-only mirror. Requires ${grant}. Empty query lists recent/index rows.`,
-      inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" }, outline: outlineProperty(outlines) }, additionalProperties: false },
+      description: `Search ${which} with the same ranker as ep0ch find: lexical (title, text, properties) unless semantic is true, and search says which ranking it got and why. ` +
+        `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
+      inputSchema: { type: "object", properties: {
+        query: { type: "string" },
+        limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
+        semantic: { type: "boolean", default: false, description: "Ask for a semantic re-ranking (Jev) of the lexical candidates; the answer's search says whether it happened" },
+        outline: outlineProperty(outlines),
+      }, additionalProperties: false },
     },
     {
       name: "outline_links",
-      description: `Read a block's authored outlinks, resources and backlinks in ${which}. Requires ${grant}. Input: exactly one of uri or ref.`,
-      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, limit: { type: "number" } } },
+      description: `Read a block's authored outlinks, resources and backlinks in ${which}, each group cut at limit; completeness says per group whether it is whole, how many it shows and the total. Requires ${grant}. Input: exactly one of uri or ref.`,
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, limit: limitSchema(LINKS_LIMIT, "Entries per group (links, resources, backlinks)") } },
     },
   ];
 }
 
 /** Whether the write tools are offered: to a remote caller, when some outline it can reach takes writes. */
+const writesOffered = (outlines: McpOutlines, caller: McpCaller | undefined, listed: McpOutlineListing[]) =>
+  !!caller && outlines.kind === "remote" && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
-  if (!caller || outlines.kind !== "remote") return false;
-  return (await outlines.list()).some(o => !!o.writes);
+  return !!caller && outlines.kind === "remote" && writesOffered(outlines, caller, await outlines.list());
+}
+
+/** Said wherever access changes: a connected client keeps the tool list it fetched. */
+export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when it connected (claude.ai until the connector reconnects): reconnect it to see the write tools appear or go";
+
+async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined): Promise<ToolResult> {
+  const listed = await outlines.list();
+  if (outlines.kind !== "remote") return toolText({ outlines: listed });
+  const writes = writesOffered(outlines, caller, listed);
+  const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
+  return toolText({
+    outlines: listed,
+    tools: {
+      writes,
+      said: writes
+        ? `write tools (${MCP_WRITE_TOOL_NAMES}) are offered: ${taking.join(", ")} take${taking.length === 1 ? "s" : ""} writes. If they aren't among your tools, ${RECONNECT_HINT}`
+        : `no outline here takes writes, so only the read tools are offered; after \`ep0ch mcp access propose\` or \`full\` on an outline, ${RECONNECT_HINT}`,
+    },
+  });
 }
 
 async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller): Promise<ToolResult> {
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const args = objectFields(params.arguments) ?? {};
-  if (params.name === "list_outlines") return toolText({ outlines: await outlines.list() });
+  if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "outline_read") return readRecord(outlines, args);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
@@ -539,9 +622,15 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   const board = await boardFor(parsed.boardArgs);
   if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
   try {
+    const was = parsed.level ? (await board.mcpAccessStatus()).level : undefined;
     const status = parsed.level ? await board.configureMcpAccess(parsed.level) : await board.mcpAccessStatus();
-    if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status }, null, 2));
-    else write(`MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${ACCESS_SAYS[status.level]}`);
+    // Whether the gateway's write tools come or go with this change: a connected client won't see it until it reconnects.
+    const toolsChanged = was !== undefined && !!writesAt(was) !== !!writesAt(status.level);
+    if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status, ...(toolsChanged ? { reconnect: RECONNECT_HINT } : {}) }, null, 2));
+    else {
+      write(`MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${ACCESS_SAYS[status.level]}`);
+      if (toolsChanged) write(`  ${RECONNECT_HINT}`);
+    }
     return 0;
   } finally { board.close(); }
 }

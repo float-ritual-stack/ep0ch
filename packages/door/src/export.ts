@@ -63,6 +63,8 @@ export function resolveLinks(r: BlockRecord, files: ReadonlyMap<string, { file: 
   const source = whole ? r.text : r.body;
   const cuts: { start: number; end: number; with: string }[] = [];
   for (const l of r.links) {
+    // A property naming a block ([source-block::<id>]) stays a property: rewriting it would lose its key.
+    if (l.kind === "property") continue;
     const f = l.target ? files.get(l.target) : undefined;
     if (!f) continue;
     for (const [start, end] of whole ? l.spans : l.bodySpans) {

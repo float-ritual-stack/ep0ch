@@ -9,7 +9,7 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
 import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
-import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
+import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf, parseEnvFile } from "./config";
 
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;
@@ -236,6 +236,10 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
     const p = s.netmail.pull, inc = incidents.get(`netmail-pull:${p.hub}`);
     out.push(inc ? { name: `netmail from ${p.hub}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `netmail from ${p.hub}`, status: p.ok ? "ok" : "unknown", detail: `pulled ${ago(p.at)}: ${p.detail}` });
+  } else {
+    // A hub named, and no pull yet: the gateway's list_outlines says "lastPull: null" for this machine meanwhile.
+    const hub = f.config.kept?.EP0CH_MCP_HUB ?? parseEnvFile(f.config.text ?? "").EP0CH_MCP_HUB;
+    if (hub) out.push({ name: `netmail from ${hub}`, status: "info", detail: `no pull recorded yet: the backup job pulls ${hub}'s queued remote MCP writes every run`, fix: "ep0ch mcp pull" });
   }
   if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
   // The push channel: Herdr's notification always; ntfy to the phone when its secrets group is there.

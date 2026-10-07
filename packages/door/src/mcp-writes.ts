@@ -99,6 +99,7 @@ interface AgentTools {
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; deduplicated?: boolean }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
+  resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
 }
 type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
@@ -110,6 +111,15 @@ const clientOf = (board: WriteBoard) => ({
   request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
   requireCompatibleService: () => board.info(),
 });
+
+/**
+ * The block a ref names in an outline: its id, `((id))`, `[[page]]`, a Work ID (PIE-123) or a pi-outliner:// link,
+ * resolved by the outliner's own `resolveRef`, the one the Claude mod's tools use. Reads only: a page that doesn't
+ * resolve is an error, never a new page. A title is refused, as there.
+ */
+export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{ id: string; fragmentId?: string }> {
+  return (await loadAgentTools()).resolveRef(clientOf(board), ref);
+}
 
 export interface ApplyOptions {
   /** The outline's access setting where it is applied now. */
@@ -173,7 +183,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
 
 const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
-  ref: { type: "string", description: "The block's id or ((id)), in `outline`" },
+  ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123)" },
 };
 const REVISION = { type: "integer", minimum: 1, description: "The revision outline_read returned. A note that changed since gets a proposal, never an overwrite." };
 

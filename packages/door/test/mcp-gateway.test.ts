@@ -2,12 +2,14 @@
 // are signed here with a test key set and a fake Clerk issuer; outlines are a scratch host's, with fictional notes.
 // Real HTTP throughout: a hand-rolled client against the gateway on a loopback port.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { gatewayConfig, issuerFromPublishableKey, machineOutlines, mcpServeCommand, startGateway, verifyBearer, type Gateway } from "../src/mcp-gateway";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest, SocketBoard } from "../src/socket";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, scratchDir } from "./scratch";
 
 const ISSUER = "https://fake-clerk.example.test";
 const RESOURCE = "https://mcp.example.test/mcp";
@@ -206,6 +208,121 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     // The note it names has it as a backlink, as before.
     const named = JSON.parse((await tool("outline_links", { uri: note.uri })).text);
     expect(named.backlinks.map((b: { blockId: string }) => b.blockId)).toContain(made.id);
+  });
+
+  test("list_outlines lists every outline in this machine's outlines folder, with its access", async () => {
+    const listed = JSON.parse((await tool("list_outlines", {})).text) as { outlines: { outline: string; source: string; access?: string }[]; tools: { writes: boolean; said: string } };
+    expect(listed.outlines).toContainEqual(expect.objectContaining({ outline: scratch.name, machine, source: "live", access: "read" }));
+    expect(listed.outlines).toContainEqual(expect.objectContaining({ outline: "quiet-pond", machine, source: "live", access: "none" }));
+    // Nothing here takes writes; the answer says a client caches its tool list until it reconnects.
+    expect(listed.tools).toEqual({ writes: false, said: expect.stringContaining("reconnect") });
+  });
+
+  test("an outline whose host doesn't answer is still listed, as unreachable, never left out", async () => {
+    // A folder with an outline in it and no host on its socket: the list used to ask the host for names, and a host
+    // that didn't answer in time left every live outline out of list_outlines.
+    const folder = scratchDir("ep0ch-mcp-nohost-");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "reed-bed.sqlite"), "");
+    const was = process.env.EP0CH_OUTLINES;
+    process.env.EP0CH_OUTLINES = folder;
+    const lonely = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no carrier" }));
+    try {
+      const rows = await lonely.list();
+      expect(rows).toEqual([expect.objectContaining({ outline: "reed-bed", machine, source: "unreachable", note: expect.stringContaining("reed-bed") })]);
+    } finally { lonely.close(); process.env.EP0CH_OUTLINES = was; }
+  });
+
+  test("a ref is the Claude mod's: an id, ((id)), [[page]] or Work ID, resolved in the named outline", async () => {
+    await board.request("work-ids.configure", { prefix: "SHED" });
+    const made = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Mend the wheelbarrow\nThe tyre is flat.", author: "agent" });
+    const { workId } = await board.request<{ workId: string }>("work-ids.allocate", { blockId: made.id, expectedRevision: made.revision });
+    const page = (await board.request<{ block: { id: string } }>("pages.follow", { address: "Tool shed", author: "agent" })).block;
+    for (const [ref, id] of [[workId, made.id], [`[[${workId}]]`, made.id], ["[[Tool shed]]", page.id], [made.id, made.id], [`((${made.id}))`, made.id]] as const) {
+      const read = await tool("outline_read", { ref, outline: scratch.name });
+      expect(read.isError).toBe(false);
+      expect(JSON.parse(read.text).record.id).toBe(id);
+      const links = await tool("outline_links", { ref, outline: scratch.name });
+      expect(JSON.parse(links.text).id).toBe(id);
+    }
+    // A title is refused as the mod refuses it; a page that doesn't resolve is never made.
+    expect((await tool("outline_read", { ref: "Mend the wheelbarrow", outline: scratch.name })).text).toContain("titles aren't accepted");
+    const missing = await tool("outline_read", { ref: "[[No such shed]]", outline: scratch.name });
+    expect(missing.isError).toBe(true);
+    expect((await board.request<{ status: string }>("pages.resolve", { address: "No such shed" })).status).toBe("missing");
+    // An outline this caller can't read isn't asked whether a page or Work ID exists in it.
+    const refused = await tool("outline_read", { ref: "[[Pond survey]]", outline: "quiet-pond" });
+    expect(refused.text).toContain("MCP access is none for quiet-pond");
+  });
+
+  test("record.backlinks and outline_links agree, property references included, in both directions", async () => {
+    const make = async (text: string) => board.request<{ id: string; revision: number }>("create", { parentId: null, text, author: "agent" });
+    const source = await make("Rain gauge readings");
+    const proof = await make(`Gauge calibrated [source-block::${source.id}]`);
+    // The source names the proof back: each is the other's link and backlink.
+    await board.request("update", { blockId: source.id, text: `Rain gauge readings [proof::${proof.id}]`, expectedRevision: source.revision, mutation: { author: "agent", actorId: "test-agent" } });
+    const oneWay = await make(`Gauge moved [source-block::${source.id}]`);
+    const read = async (id: string) => JSON.parse((await tool("outline_read", { ref: id, outline: scratch.name })).text).record;
+    const links = async (id: string) => JSON.parse((await tool("outline_links", { ref: id, outline: scratch.name })).text);
+    for (const id of [source.id, proof.id, oneWay.id]) {
+      const [record, linked] = [await read(id), await links(id)];
+      expect(linked.backlinks.map((b: { blockId: string }) => b.blockId).sort()).toEqual(record.backlinks);
+      expect(linked.links.map((l: { target: string }) => l.target)).toEqual(record.links.map((l: { target: string }) => l.target));
+    }
+    expect((await read(source.id)).backlinks.sort()).toEqual([proof.id, oneWay.id].sort());
+    expect((await read(proof.id)).backlinks).toEqual([source.id]);
+    // A note that only links out has no backlinks: its link target is never one.
+    expect((await read(oneWay.id)).backlinks).toEqual([]);
+    expect((await read(oneWay.id)).links.map((l: { target: string }) => l.target)).toEqual([source.id]);
+  });
+
+  test("outline_links cuts each group at limit and says per group whether it is whole, what it shows and the total", async () => {
+    const make = async (text: string) => board.request<{ id: string }>("create", { parentId: null, text, author: "agent" });
+    const [a, b] = [await make("Hose reel"), await make("Water butt")];
+    const hub = await make(`Watering kit\nSee ((${a.id})) and ((${b.id})).`);
+    await make(`Summer list\nCheck ((${hub.id})).`);
+    await make(`Autumn list\nDrain ((${hub.id})).`);
+    const one = JSON.parse((await tool("outline_links", { ref: hub.id, outline: scratch.name, limit: 1 })).text);
+    expect(one.links).toHaveLength(1);
+    expect(one.backlinks).toHaveLength(1);
+    expect(one.completeness).toEqual({
+      links: { complete: false, shown: 1, total: 2, more: true },
+      resources: { complete: true, shown: 0, total: 0, more: false },
+      backlinks: { complete: false, shown: 1, total: 2, more: true },
+    });
+    const all = JSON.parse((await tool("outline_links", { ref: hub.id, outline: scratch.name })).text);
+    expect(all.completeness.links).toEqual({ complete: true, shown: 2, total: 2, more: false });
+    expect(all.completeness.backlinks).toEqual({ complete: true, shown: 2, total: 2, more: false });
+  });
+
+  test("limit 0, a fraction or one past the maximum is refused, naming the default and the maximum", async () => {
+    for (const limit of [0, -1, 2.5, 31, "5"]) {
+      const r = await tool("outline_find", { query: "Lantern", outline: scratch.name, limit });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("limit is a whole number from 1 to 30 (default 30)");
+    }
+    expect((await tool("outline_links", { uri: note.uri, limit: 0 })).text).toContain("from 1 to 200 (default 50)");
+    expect((await tool("outline_find", { query: "", outline: scratch.name, limit: 100 })).isError).toBe(false);
+  });
+
+  test("a uri and an outline that names another outline are refused, naming both", async () => {
+    const r = await tool("outline_read", { uri: note.uri, outline: "quiet-pond" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain(`uri names ${scratch.name}@${machine} and outline names quiet-pond`);
+    expect((await tool("outline_read", { uri: note.uri, outline: scratch.name })).isError).toBe(false);
+    expect((await tool("outline_read", { uri: note.uri, outline: `${scratch.name}@${machine}` })).isError).toBe(false);
+  });
+
+  test("a search says how it was ranked and why; a top-level note's path is (root)", async () => {
+    const lexical = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name })).text);
+    expect(lexical.search).toMatchObject({ asked: false, status: "lexical", said: expect.stringContaining("semantic: true") });
+    expect(lexical.matches.find((m: { id: string }) => m.id === note.id).path).toBe("(root)");
+    const asked = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name, semantic: true })).text);
+    expect(asked.search.asked).toBe(true);
+    // No Jev key in a scratch host: it says so rather than claiming a ranking it didn't get.
+    if (asked.search.status !== "ranked") expect(asked.search.said).toContain("isn't available here");
+    const listed = JSON.parse((await tool("outline_find", { query: "", outline: scratch.name })).text);
+    expect(listed.matches.every((m: { path: string }) => m.path !== "")).toBe(true);
   });
 
   test("outline_find's completeness is about the answer: the limit asked for, and whether there are more", async () => {

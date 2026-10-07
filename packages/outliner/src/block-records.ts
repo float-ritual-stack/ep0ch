@@ -4,7 +4,7 @@
 import { blockRecord, type BlockRecord, type BlockRecordInput } from "@ep0ch/outline-core/block-record";
 import { readAuthoredLinks, type AuthoredLinksDataSource } from "./authored-links";
 import { checklistItems } from "./checklist-items";
-import { outlinerReferenceOccurrences, type OutlinerReferenceOccurrence } from "./reference-occurrences";
+import { outlinerReferenceOccurrences, propertyReferenceOccurrences, type OutlinerReferenceOccurrence } from "./reference-occurrences";
 import { parsePropertyRecords } from "./properties";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { blockDisplayTitle } from "./references";
@@ -70,6 +70,22 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       if (authored.outlinks.completeness.kind !== "complete") truncated.push("links");
       if (authored.resources.completeness.kind !== "complete") truncated.push("resources");
     } else if (authored.kind === "source-too-large") truncated.push("links", "resources");
+    // A property whose value is a block's id ([source-block::<id>]) links to it, as the backlink relation reads it
+    // (backlinks.ts `sourceOccurrences`): so a record's links and its targets' backlinks are each other's inverse.
+    // Each target once, after the links written in the text; one the text already links isn't repeated.
+    const linked = new Set(links.map(l => l.target));
+    const byTarget = new Map<string, BlockRecordInput["links"][number]>();
+    for (const o of propertyReferenceOccurrences(text, properties)) {
+      const target = o.blockId === id || linked.has(o.blockId) ? undefined : source.get(o.blockId);
+      if (!target) continue;
+      const had = byTarget.get(target.id);
+      if (had) { had.spans.push([o.start, o.end]); continue; }
+      byTarget.set(target.id, {
+        kind: "property", key: o.propertyKey, text: text.slice(o.start, o.end), label: o.propertyKey,
+        status: target.effectiveDeletedRootId ? "deleted" : "ready", target: target.id, spans: [[o.start, o.end]],
+      });
+    }
+    links.push(...byTarget.values());
     records.push(blockRecord({
       block,
       title: blockDisplayTitle(block),

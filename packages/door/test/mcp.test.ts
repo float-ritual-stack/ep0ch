@@ -56,6 +56,15 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     const configured: string[] = [];
     expect(await mcpCommand(["mcp", "access", "read", "--json"], { input: linesOf([]), write: line => configured.push(line), err: line => configured.push(line) })).toBe(0);
     expect(JSON.parse(configured[0]!) as { level: string; canRead: boolean }).toMatchObject({ level: "read", canRead: true });
+    // Reads to proposals adds the gateway's write tools: a connected client won't see them until it reconnects.
+    const said: string[] = [];
+    expect(await mcpCommand(["mcp", "access", "propose"], { input: linesOf([]), write: line => said.push(line), err: line => said.push(line) })).toBe(0);
+    expect(said.join("\n")).toContain("reconnect it to see the write tools appear or go");
+    said.length = 0;
+    expect(await mcpCommand(["mcp", "access", "full"], { input: linesOf([]), write: line => said.push(line), err: line => said.push(line) })).toBe(0);
+    expect(said.join("\n")).not.toContain("reconnect");
+    expect(await mcpCommand(["mcp", "access", "read"], { input: linesOf([]), write: line => said.push(line), err: line => said.push(line) })).toBe(0);
+    expect(said.join("\n")).toContain("reconnect");
 
     const out: string[] = [];
     const requests = [

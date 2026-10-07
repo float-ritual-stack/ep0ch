@@ -2,7 +2,9 @@
 // often asleep or behind a VPN, so the remote MCP gateway reads a copy on its own machine instead, and never depends on
 // the laptop answering. The copy is kept current from the outline's own backups: the laptop's Litestream replicates it
 // to the bucket, and `litestream restore -f` here follows that replica into `<mirrors>/<machine>/<name>.sqlite` (the
-// door README's "Remote MCP gateway"). That file is Litestream's; nothing here writes to it.
+// door README's "Remote MCP gateway"). That file is Litestream's; nothing here writes to it. While a follower still
+// runs, the backup job's restic restore lands beside it, in `<mirrors>/.restic/<machine>/` (backup/jobs.ts
+// `mirrorFolder`); whichever of the two holds the newer change is served, and every answer names which (`copy`).
 //
 // To read it, the gateway snapshots the followed file whenever it has changed (`VACUUM INTO`, from a read-only
 // connection) and serves the snapshot from an outline host of its own, in this process, opened `readOnly` (the
@@ -56,12 +58,15 @@ export function mirrorsConfig(env: Env): MirrorsConfig | { error: string } {
   return { folder, mirrors };
 }
 
-interface Generation { dir: string; host: OutlineHost; board: NotesBoard; asOf: string; marker: string; homeInstanceId: string | null }
+interface Generation { dir: string; host: OutlineHost; board: NotesBoard; asOf: string; marker: string; homeInstanceId: string | null; copy: MirrorCopy }
 
-/** What a mirror read gives: the copy's board and the newest change it holds. */
+/** Which copy is served: its path under the mirrors folder, and when it last changed here. */
+export interface MirrorCopy { file: string; copiedAt: string }
+
 /** Stale: the copy's follower has stopped, or is behind the replica it follows; `since` when that's known. */
 export interface MirrorStale { since: string | null; why: string }
-export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorStale; homeInstanceId: string | null }
+/** What a mirror read gives: the copy's board, the newest change it holds, and which copy it is. */
+export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorStale; homeInstanceId: string | null; copy: MirrorCopy }
 
 /** How often a read asks whether the follower keeps up (it lists the replica's files), and how long it waits. */
 const HEALTH_EVERY_MS = 60_000;
@@ -85,6 +90,8 @@ const followerHealth = async (follow: string): Promise<MirrorStale | null> => {
 export class OutlineMirror {
   /** The file Litestream follows the replica into. */
   readonly follow: string;
+  /** Where the backup job restores it while a follower still writes `follow`. */
+  readonly restic: string;
   private readonly work: string;
   private current: Generation | null = null;
   private readonly retiring = new Set<Generation>();
@@ -100,12 +107,13 @@ export class OutlineMirror {
   constructor(readonly outline: string, readonly machine: string, folder: string, private readonly log: (line: string) => void = console.error, private readonly now: () => number = Date.now,
     private readonly askHealth: (follow: string) => Promise<MirrorStale | null> = followerHealth) {
     this.follow = join(folder, machine, `${outline}.sqlite`);
+    this.restic = join(folder, ".restic", machine, `${outline}.sqlite`);
     // This process's own folder: another gateway on the same mirrors serves from its own.
     this.work = join(folder, ".serve", machine, outline, String(process.pid));
   }
 
-  /** Whether a copy has arrived (Litestream's follow made the file). */
-  exists(): boolean { return existsSync(this.follow); }
+  /** Whether a copy has arrived (Litestream's follow, or the backup job's restore, made the file). */
+  exists(): boolean { return existsSync(this.follow) || existsSync(this.restic); }
 
   /**
    * The newest copy's board, checked for a newer one at most every CHECK_EVERY_MS; or why there's none, worded to
@@ -120,7 +128,7 @@ export class OutlineMirror {
     }
     if (!this.current) return { error: `can't be read: ${this.problem ?? "unknown"}` };
     const stale = await this.staleness();
-    return { board: this.current.board, asOf: this.current.asOf, homeInstanceId: this.current.homeInstanceId, ...(stale ? { stale } : {}) };
+    return { board: this.current.board, asOf: this.current.asOf, homeInstanceId: this.current.homeInstanceId, copy: this.current.copy, ...(stale ? { stale } : {}) };
   }
 
   /**
@@ -129,7 +137,7 @@ export class OutlineMirror {
    */
   private async staleness(): Promise<MirrorStale | null> {
     if (!this.health || this.now() - this.health.at >= HEALTH_EVERY_MS) {
-      this.asking ??= this.askHealth(this.follow)
+      this.asking ??= this.askHealth(this.servedFile())
         .then(stale => { this.health = { at: this.now(), stale }; }, e => { this.log(`mcp mirror ${this.outline}@${this.machine}: can't check its follower: ${(e as Error).message}`); this.health = { at: this.now(), stale: this.health?.stale ?? null }; })
         .finally(() => { this.asking = null; });
       await Promise.race([this.asking, Bun.sleep(HEALTH_WAIT_MS)]);
@@ -137,9 +145,39 @@ export class OutlineMirror {
     return this.health?.stale ?? null;
   }
 
-  /** The followed file's state: a change in either file is a newer copy. */
-  private marker(): string {
-    return ["", "-wal"].map(suffix => { try { const s = statSync(this.follow + suffix); return `${s.mtimeMs}:${s.size}`; } catch { return "-"; } }).join("/");
+  /** The copy served now (the follower's file until one is), for the health question. */
+  private servedFile(): string { return this.current?.copy.file === this.relative(this.restic) ? this.restic : this.follow; }
+
+  private relative(path: string): string { return path.slice(join(this.follow, "..", "..").length + 1); }
+
+  /** A file's state: a change in it or its WAL is a newer copy. */
+  private static markerOf(path: string): string {
+    return ["", "-wal"].map(suffix => { try { const s = statSync(path + suffix); return `${s.mtimeMs}:${s.size}`; } catch { return "-"; } }).join("/");
+  }
+
+  /** Both copies' state: a change in either may make the other one the newer. */
+  private marker(): string { return `${OutlineMirror.markerOf(this.follow)}|${OutlineMirror.markerOf(this.restic)}`; }
+
+  /**
+   * The copy at the later point in its outline's history (the follower's on a tie): the service's change sequence,
+   * which every change advances, an access setting's too (block times alone would miss a revoked grant). Read from
+   * read-only connections; a copy that can't be read loses.
+   */
+  private freshest(): string {
+    const position = (path: string) => {
+      if (!existsSync(path)) return null;
+      try {
+        const db = new Database(path, { readonly: true });
+        try {
+          db.exec("PRAGMA busy_timeout = 5000;");
+          const v = Number((db.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as { value: string } | null)?.value);
+          return Number.isFinite(v) ? v : null;
+        } finally { db.close(); }
+      } catch { return null; }
+    };
+    const follow = position(this.follow), restic = position(this.restic);
+    if (restic !== null && (follow === null || restic > follow)) return this.restic;
+    return existsSync(this.follow) ? this.follow : this.restic;
   }
 
   private async refresh(): Promise<void> {
@@ -147,7 +185,7 @@ export class OutlineMirror {
     const marker = this.marker();
     if (this.current?.marker === marker) return;
     try {
-      const next = await this.build(marker);
+      const next = await this.build(this.freshest(), marker);
       if (this.closed) { await this.drop(next); return; }
       if (this.current) this.retire(this.current);
       this.current = next;
@@ -161,16 +199,17 @@ export class OutlineMirror {
     }
   }
 
-  /** A snapshot of the followed file, consistent (taken again while it changed underneath), in its own folder. */
-  private snapshot(target: string, marker: string): string {
+  /** A snapshot of a copy, consistent (taken again while it changed underneath), in its own folder. */
+  private snapshot(from: string, target: string): void {
+    let marker = OutlineMirror.markerOf(from);
     for (let attempt = 0; ; attempt++) {
       rmSync(target, { force: true });
-      const source = new Database(this.follow, { readonly: true });
+      const source = new Database(from, { readonly: true });
       try {
         source.exec("PRAGMA busy_timeout = 5000;");
         source.run("VACUUM INTO ?", [target]);
       } finally { source.close(); }
-      const after = this.marker();
+      const after = OutlineMirror.markerOf(from);
       if (after === marker) break;
       if (attempt === 2) throw new Error("the copy kept changing while it was read");
       marker = after;
@@ -181,16 +220,16 @@ export class OutlineMirror {
       if (check?.quick_check !== "ok") throw new Error(`the snapshot failed its check (${check?.quick_check ?? "no answer"})`);
     } finally { copy.close(); }
     chmodSync(target, 0o600);
-    return marker;
   }
 
-  private async build(marker: string): Promise<Generation> {
+  private async build(from: string, marker: string): Promise<Generation> {
     if (this.made === 0) this.clearLeftovers();
     const dir = join(this.work, String(++this.made));
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     let host: OutlineHost | undefined;
     try {
-      marker = this.snapshot(join(dir, `${this.outline}.sqlite`), marker);
+      const copiedAt = new Date(Math.max(...["", "-wal"].map(suffix => { try { return statSync(from + suffix).mtimeMs; } catch { return 0; } }))).toISOString();
+      this.snapshot(from, join(dir, `${this.outline}.sqlite`));
       const homeInstanceId = instanceIdOf(join(dir, `${this.outline}.sqlite`));
       const OutlineHost = await loadOutlineHost();
       host = new OutlineHost({ outlinesFolder: dir, readOnly: true, log: line => this.log(`mcp mirror ${this.outline}@${this.machine}: ${line}`) });
@@ -201,7 +240,8 @@ export class OutlineMirror {
         await board.info();
         let newest = 0;
         for (const b of await board.index()) if (Number.isFinite(b.updatedAt) && b.updatedAt > newest) newest = b.updatedAt;
-        return { dir, host, board, marker, homeInstanceId, asOf: new Date(newest || statSync(this.follow).mtimeMs).toISOString() };
+        // The marker taken before the snapshot: a change during it is picked up at the next check.
+        return { dir, host, board, marker, homeInstanceId, copy: { file: this.relative(from), copiedAt }, asOf: new Date(newest || Date.parse(copiedAt)).toISOString() };
       } catch (e) { board.close(); throw e; }
     } catch (e) {
       await host?.close().catch(() => {});
