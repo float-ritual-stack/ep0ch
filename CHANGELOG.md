@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Scroll past the end (PIE-622)
+
+- **A note's last line no longer hugs the bottom edge.** In every reader (detail, preview, the desk's, a river column,
+  the BBS reader) the wheel, `j`, space and PgDn go on past the last line until it sits at the middle, blank under it.
+- **End (or `G`) goes to the last line, then past it.** The first press puts it on the bottom edge; the second brings it
+  to the middle. `scroll to=end` does the same for an agent, and `view.get` says `atEnd` and `past`.
+- **Drafts keep room round the cursor.** Typing on the last line keeps about three blank rows under it, and the wheel
+  scrolls a draft past its end as a reader does.
+- **`ep0ch act reader.overscroll rows=none`** stops at the last line as before; `rows=half` is the default, a number of
+  rows scrolls that far. Kept for the next start, as the theme is. Shown in the kitchen sink's `scroll` section.
+
 ### A schema change is one `ep0ch install --apply` (PIE-617)
 
 - **Install migrates the outlines itself.** When the code it updates to opens a newer schema, the plan says so
