@@ -2,6 +2,13 @@
 import { KITTY_QUERY, kittyHint } from "./kitty";
 import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
+import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
+
+/**
+ * Whether the door asks its terminal for the Program Status Protocol (OSC 7501) and, when it answers, reports its own
+ * status to it: `EP0CH_PROGRAM_STATUS=0` (or off, no) never does.
+ */
+export const programStatusWanted = (env: Record<string, string | undefined> = process.env) => !/^(0|off|no|false)$/i.test(env.EP0CH_PROGRAM_STATUS?.trim() ?? "");
 import { paintable } from "./text";
 
 export type Key =
@@ -105,7 +112,8 @@ function terminalGuard(): { dismiss(): void } | null {
   } catch { return null; }
 }
 
-export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
+/** `pst`: the terminal answered the Program Status Protocol's query (OSC 7501): the door reports its own status to it. */
+export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean }
 
 /** How a program is run in a terminal handed to it: its folder, its environment, a line printed first. */
 export interface HandoverOpts { cwd?: string; env?: Record<string, string>; banner?: string }
@@ -288,6 +296,9 @@ export class KeyDecoder {
       if (m) { this.info.cellH = Number(m[1]); this.info.cellW = Number(m[2]); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
       if (m) { this.pending = p.slice(m[0].length); this.mouseKey(m); continue; }
+      // An OSC the terminal answered (the Program Status Protocol's query, OSC 7501 ; ?): read whole, never typed.
+      m = p.match(/^\x1b\](\d*);([^\x07\x1b]*)(?:\x07|\x1b\\)/);
+      if (m) { if (this.probing && m[1] === String(PROGRAM_STATUS_OSC) && isStatusQueryReply(m[2]!)) this.info.pst = true; this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
@@ -296,7 +307,7 @@ export class KeyDecoder {
       // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
       const report = parseReport(p);
       if (report) { this.pending = p.slice(report.length); const k = reportKey(report); if (k) this.keyHandler(k); continue; }
-      if (/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) {
+      if ((/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) || (/^\x1b\][^\x07\x1b]*\x1b?$/.test(p) && p.length < 4096)) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
         setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
         return;
@@ -384,7 +395,8 @@ export class Term extends Rows {
     await new Promise<void>(resolve => {
       const timer = setTimeout(() => { decoder.probing = null; resolve(); }, 400);
       decoder.probing = { kitty: null, done: () => { clearTimeout(timer); decoder.probing = null; resolve(); } };
-      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
+      // The Program Status Protocol's query goes before the DA query that ends the probe: its answer, if any, comes first.
+      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${programStatusWanted() ? PROGRAM_STATUS_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
     });
     if (hint !== null) this.info.kitty = hint;
     if (this.kbd) this.write(KBD_PUSH);

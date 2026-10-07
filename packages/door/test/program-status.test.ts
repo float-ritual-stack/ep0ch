@@ -4,7 +4,10 @@
 // person comes back to the tile, everything gone on a full reset. Only `sh`, `printf`, `stty`, `dd`, `od` and `sleep` run.
 import { afterEach, describe, expect, test } from "bun:test";
 import { cttyPrefix, PtyPane } from "../src/desk/pty";
-import { waitingCounts, waitingOnYou } from "../src/desk/program-status";
+import { doorReport, StatusReporter, TileStatus, waitingCounts, waitingOnYou, type StatusHolder } from "../src/desk/program-status";
+import type { StatusInput, StatusReport } from "@ep0ch/outline-core/program-status";
+import { Painter } from "../src/display";
+import { KeyDecoder, type TermInfo } from "../src/term";
 import { waitingText } from "../src/app";
 import { until } from "./scratch";
 
@@ -72,4 +75,71 @@ describe.skipIf(!cttyPrefix() || !Bun.which("tic") || !Bun.which("infocmp") || !
     await until(() => /pst=\w+/.test(draw(p)) && draw(p).includes("vt100=ok"), "tput", 5000);
     expect(draw(p)).toContain("pst=yes");
   }, 15_000);
+});
+
+describe("the door as a program: what it reports to the terminal it runs in", () => {
+  const holder = (name: string, place: string, ...reports: StatusReport[]): StatusHolder => {
+    const status = new TileStatus();
+    for (const r of reports) status.records.apply(r);
+    return { status, statusName: () => name, tileId: `t-${name}`, place };
+  };
+
+  test("the root holds what asks most across the tiles, each tile with records a child under its layout", () => {
+    const want = doorReport([
+      holder("claude", "desk", { state: "blocked", id: "", kind: "permission", app: "claude-code", msg: "Allow Bash?" }),
+      holder("build", "drawer", { state: "working", id: "", progress: 30 }),
+      holder("quiet", "desk"),
+    ]);
+    expect([...want.keys()]).toEqual(["desk/claude", "drawer/build", ""]);
+    expect(want.get("")).toEqual({ state: "blocked", app: "ep0ch", kind: "permission", msg: "claude needs you: Allow Bash?" });
+    expect(want.get("desk/claude")).toEqual({ state: "blocked", id: "desk/claude", kind: "permission", app: "claude-code", title: "claude", msg: "Allow Bash?" });
+    expect(want.get("drawer/build")).toMatchObject({ state: "working", progress: 30, title: "build" });
+    expect(doorReport([])).toEqual(new Map([["", { state: "idle", app: "ep0ch" }]]));
+  });
+
+  test("two tiles of one name get ids of their own", () => {
+    const want = doorReport([holder("sh", "desk", { state: "done", id: "" }), holder("sh", "desk", { state: "error", id: "" })]);
+    expect(new Set(want.keys()).size).toBe(3);
+  });
+
+  test("each terminal is told only what changed, a child that went as its clear, and everything cleared at the end", () => {
+    const out: string[] = [];
+    const r = new StatusReporter(s => out.push(s));
+    const a = { state: "working", id: "desk/a" } as const, root = { state: "working", app: "ep0ch" } as const;
+    r.sync(new Map<string, StatusInput>([["desk/a", a], ["", root]]));
+    expect(out.pop()).toBe("\x1b]7501;state=working:id=desk/a\x1b\\\x1b]7501;state=working:app=ep0ch\x1b\\");
+    r.sync(new Map<string, StatusInput>([["desk/a", a], ["", root]]));
+    expect(out).toEqual([]);
+    r.sync(new Map<string, StatusInput>([["", { state: "idle", app: "ep0ch" }]]));
+    expect(out.pop()).toBe("\x1b]7501;state=clear:id=desk/a\x1b\\\x1b]7501;state=idle:app=ep0ch\x1b\\");
+    r.clear();
+    expect(out.pop()).toBe("\x1b]7501;state=clear\x1b\\");
+  });
+
+  test("a terminal that answered the query is reported to; one that didn't, never", () => {
+    const written: string[] = [];
+    const term = (pst: boolean) => ({ info: { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false, pst }, write: (s: string) => written.push(s), paint() {}, invalidate() {} });
+    new Painter(term(false)).programStatus(doorReport([]));
+    expect(written).toEqual([]);
+    new Painter(term(true)).programStatus(doorReport([]));
+    expect(written).toEqual(["\x1b]7501;state=idle:app=ep0ch\x1b\\"]);
+  });
+
+  test("the probe reads the terminal's answer, and an OSC reply is never typed as keys", () => {
+    const info = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false } as TermInfo;
+    const d = new KeyDecoder(info), keys: unknown[] = [];
+    d.keyHandler = k => keys.push(k);
+    let done = false;
+    d.probing = { kitty: null, done: () => { done = true; } };
+    d.feed("\x1b]7501;?\x1b\\\x1b[?62;22c");
+    expect(info.pst).toBe(true);
+    expect(done).toBe(true);
+    d.probing = null;
+    d.feed("\x1b]7501;?\x07\x1b]11;rgb:0000/0000/0000\x1b\\x");
+    expect(keys).toEqual([{ kind: "char", ch: "x" }]);
+    const quiet = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false } as TermInfo, q = new KeyDecoder(quiet);
+    q.probing = { kitty: null, done() {} };
+    q.feed("\x1b[?62c");
+    expect(quiet.pst).toBeUndefined();
+  });
 });

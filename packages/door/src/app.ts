@@ -33,7 +33,7 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
-import { onStatusChange, waitingCounts } from "./desk/program-status";
+import { doorReport, onStatusChange, waitingCounts } from "./desk/program-status";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -349,6 +349,16 @@ export class App implements Ctx {
   /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
   home?: { choose(c: HomeChoice): void; cancel?(): void };
   private readonly offStatus: () => void;
+  private reportTimer: Timer | null = null;
+  /**
+   * The door's own program status to its terminal (`doorReport`: the root the most urgent across its terminal tiles,
+   * each tile a child), at most five times a second however fast its programs report: the spec asks a terminal to
+   * rate-limit what a record causes outside it, and the door is that terminal for its tiles.
+   */
+  private reportStatus() {
+    if (this.reportTimer || this.closed) return;
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (!this.closed) this.display.programStatus?.(doorReport()); }, 200);
+  }
   /** Where the status bar's waiting-on-you count sits, for a click (host.waiting). */
   private waitingAt: { from: number; to: number; row: number } | null = null;
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
@@ -373,7 +383,9 @@ export class App implements Ctx {
     (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
-    this.offStatus = onStatusChange(() => this.redraw());
+    // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
+    this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); });
+    this.reportStatus();
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
@@ -832,6 +844,9 @@ export class App implements Ctx {
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
     this.offStatus();
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    // What the door reported to its terminal goes with it (OSC 7501 clear).
+    this.display.programStatus?.(null);
     this.disarm();
     this.display.dispose();
     this.done();

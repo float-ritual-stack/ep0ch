@@ -12,8 +12,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ATTENTION, parseProgramStatus, PROGRAM_STATUS_QUERY, PROGRAM_STATUS_TERMINFO, statusDisplayText, StatusRecords,
-  type StatusRecord,
+  ATTENTION, encodeProgramStatus, parseProgramStatus, PROGRAM_STATUS_QUERY, PROGRAM_STATUS_TERMINFO, statusDisplayText,
+  StatusRecords, statusSegment, type StatusInput, type StatusRecord,
 } from "@ep0ch/outline-core/program-status";
 import { C, fg } from "../style";
 
@@ -24,6 +24,8 @@ export interface StatusHolder {
   statusName(): string;
   /** Its tile id (`t3`, a drawer tab's `k2`), once it has one. */
   readonly tileId: string | null;
+  /** The layout it was started in (`desk`, `daily`): its child id in the door's own report. */
+  readonly place?: string | null;
 }
 
 /** One terminal tile's records and when they last changed. */
@@ -133,4 +135,49 @@ export function terminfoWithPst(stateDir: string): string | null {
     if (tic.status !== 0) return null;
     return (terminfoTried = dir);
   } catch { return null; }
+}
+
+// ── the door as a program: what it reports to the terminal it runs in ─────────
+
+/**
+ * The door's own report (the door as a program in Ghostty, Rex, maybe Herdr): the root record holds what asks most of
+ * the person across its terminal tiles (idle when nothing does), and each tile with records is a child,
+ * `<layout>/<tile>` (`desk/claude`, `drawer/shell`), with its program's app and words and the tile's name as its
+ * title. Herdr's sidebar (or any terminal) can then see what waits inside a door without reading its screen.
+ */
+export function doorReport(holders: readonly StatusHolder[] = statusHolders()): Map<string, StatusInput> {
+  const want = new Map<string, StatusInput>();
+  let top: { r: StatusRecord; name: string } | null = null;
+  for (const h of holders) {
+    const r = h.status.urgent();
+    if (!r) continue;
+    const name = h.statusName();
+    let id = `${statusSegment(h.place || "door")}/${statusSegment(name)}`;
+    if (want.has(id)) id = `${id.slice(0, 64)}-${statusSegment(h.tileId ?? String(want.size))}`.slice(0, 128);
+    want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(r.progress !== undefined ? { progress: r.progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
+    if (!top || ATTENTION[r.state] > ATTENTION[top.r.state]) top = { r, name };
+  }
+  const msg = top && top.r.state !== "idle" ? `${top.name} ${statusMark(top.r).word}${top.r.msg ? `: ${statusDisplayText(top.r.msg)}` : ""}` : undefined;
+  want.set("", { state: top?.r.state ?? "idle", app: "ep0ch", ...(top?.r.state === "blocked" && top.r.kind ? { kind: top.r.kind } : {}), ...(msg ? { msg } : {}) });
+  return want;
+}
+
+/**
+ * What one terminal has been told (the door's own, or a session's client's): `sync` writes only what changed since, a
+ * child that went as `clear` for its id, all in one write. A terminal attached later starts with nothing told.
+ */
+export class StatusReporter {
+  private told = new Map<string, string>();
+  constructor(private readonly write: (bytes: string) => void) {}
+  sync(want: ReadonlyMap<string, StatusInput>): void {
+    let out = "";
+    for (const id of this.told.keys()) if (!want.has(id)) { out += encodeProgramStatus({ state: "clear", id }); this.told.delete(id); }
+    for (const [id, r] of want) {
+      const seq = encodeProgramStatus(r);
+      if (this.told.get(id) !== seq) { out += seq; this.told.set(id, seq); }
+    }
+    if (out) this.write(out);
+  }
+  /** Every record this door put on the terminal goes (it quits, or the terminal detaches). */
+  clear(): void { if (this.told.size) { this.told.clear(); this.write(encodeProgramStatus({ state: "clear" })); } }
 }

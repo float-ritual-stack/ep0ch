@@ -17,6 +17,8 @@ export interface Hello {
   cols: number; rows: number; cellW: number; cellH: number;
   /** The terminal answered the Kitty graphics query (or EP0CH_KITTY says so). */
   kitty: boolean;
+  /** The terminal answered the Program Status Protocol's query (OSC 7501): the session reports its status to it. Left out by an older client: none. */
+  pst?: boolean;
   /** The client's process, and where it runs (its tty, `EP0CH_NEST`): `session list` and `peek` say which is which. */
   pid: number; tty?: string; nest?: string;
   /** The client application's own host pane, when there is one (for example Tern), independent of the terminal/daemon. */
