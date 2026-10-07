@@ -69,6 +69,14 @@ describe("a styled heading is the heading it was", () => {
     expect(rows("## Beds [heading::dots]\nx", 100, { headings: reg }).join("\n")).toContain("·");
   });
 
+  test("odd lines: a heading with only its style, a long styled rule when narrow, a rule right under a heading, a setext underline", () => {
+    expect(rows("## [heading::band]\nx", 100)).toEqual(["##", "x"]);
+    for (const l of rows(`${"-".repeat(80)} [rule::fade]`, 40)) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(40);
+    expect(rows("## Section\n--- [rule::fade]", 100)[1]).toMatch(/^▓.*▓$/);
+    expect(rows("A paragraph\n--- [rule::fade]", 100).join("\n")).toContain("[rule::fade]");
+    expect(rows("A paragraph\n*** [rule::fade]", 100)[1]).toMatch(/^▓.*▓$/);
+  });
+
   test("an unknown style draws the heading as written, without the property", () => {
     expect(rows("## Beds [heading::nope]\nx", 100)).toEqual(["## Beds", "x"]);
   });

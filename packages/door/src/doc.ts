@@ -465,7 +465,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       }
     }
     // A heading or a rule with a style (PIE-599): its band or track, else as written without the style's property.
-    const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && (i === 0 || !src[i - 1]!.trim()) ? styledRule(line, W, env) : null);
+    // A `---` under a paragraph line is that line's setext underline, never a rule; `***` and `___` always are rules.
+    const prev = i ? src[i - 1]! : "";
+    const setext = /^ {0,3}-/.test(line) && !!prev.trim() && !HEADING.test(prev);
+    const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
     if (styled) { out.push(...styled.rows); continue; }
     out.push(...prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box))));
   }
@@ -588,7 +591,9 @@ function styleOf(line: string, env: DocEnv): { style: HeadingStyle | null; text:
 function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number } | null {
   const st = styleOf(line, env);
   if (!st || st.kind !== "heading" || (st.style === null && st.text === line)) return null;
-  const h = st.text.match(HEADING)!;
+  // `## [heading::band]` is a heading with no text: drawn as written.
+  const h = st.text.match(HEADING);
+  if (!h) return { rows: prose(st.text, W, fold, literal), headRow: 0 };
   const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
   return band ? { rows: band.rows, headRow: band.textRow } : { rows: prose(st.text, W, fold, literal), headRow: 0 };
 }
@@ -598,7 +603,7 @@ function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | 
   const st = styleOf(line, env);
   if (!st || st.kind !== "rule" || (st.style === null && st.text === line)) return null;
   const track = st.style && drawTrack(st.style, W);
-  return { rows: track ?? [fg(C.dark) + st.text.trim() + RESET] };
+  return { rows: track ?? wrap(st.text.trim(), W).map(l => fg(C.dark) + l + RESET) };
 }
 
 /**
