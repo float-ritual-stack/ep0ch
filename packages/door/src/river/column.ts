@@ -27,6 +27,8 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineInput } from "../surface/line";
+import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
+import { filterTargetAtCursor } from "../completion";
 import { Fold } from "../fold";
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
 
@@ -124,6 +126,9 @@ function indexOf(board: SocketBoard): OutlineIndex {
   return i;
 }
 
+/** A column's filter line: its words are `key:value` (the property index and schemas complete them) or text. */
+const filterInput = (text = "") => new LineInput(text, false, { complete: { grammar: "filter" } });
+
 // ── a column ─────────────────────────────────────────────────────────────────
 
 export class RiverColumn extends ReaderPane {
@@ -139,7 +144,7 @@ export class RiverColumn extends ReaderPane {
   error?: string;
   /** An input state of its own: the filter being typed (`/`), or the properties `#` offers. */
   mode: "" | "filter" | "tags" = "";
-  input = new LineInput();
+  input = filterInput();
   tagChoices: [string, string][] = [];
   /** Text the person selected in the column's drawn rows (PIE-419); only y copies it. */
   text: Selection | null = null;
@@ -212,7 +217,7 @@ export class RiverColumn extends ReaderPane {
   headLabel() { const st = this.surface.state(); return `${fg(C.dark)}${this.items ? this.listed() : ""}${st ? `${fg(C.yellow)} · ${st}` : ""}${RESET}`; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
-    if (this.mode === "filter") return paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
+    if (this.mode === "filter") return completionOf(this.input) ? paint(`|08${COMPLETION_HINT}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
     return "j k notes and links · ⏎ open beside · space replies · b links · / filter this column · # same property · s split · v select";
@@ -225,7 +230,7 @@ export class RiverColumn extends ReaderPane {
   override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
-  blur() { if (this.mode) { this.mode = ""; this.input = new LineInput(); } }
+  blur() { if (this.mode) { this.mode = ""; this.input = filterInput(); } }
   focused(desk: DeskApi) { this.justFocused = true; this.desk = desk; }
 
   /** A note opened into this column (an open from the column before it): it becomes that note's column. */
@@ -326,7 +331,8 @@ export class RiverColumn extends ReaderPane {
     if (this.surface.editing && this.surface.msg) return super.render(w, h, focused, desk);
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
-    const foot = this.mode === "filter" ? [paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
+    const popup = this.mode === "filter" ? this.popupRows(w, h) : null;
+    const foot = this.mode === "filter" ? [...(popup?.lines ?? []), paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
     // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
     // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
     const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
@@ -336,9 +342,24 @@ export class RiverColumn extends ReaderPane {
     const sticky = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), this.top - this.digestAt) : null;
     this.sticky = (sticky?.lines ?? []).map((_, r) => ({ card: -1, replies: false, links: sticky!.links.filter(l => l.row === r) }));
     this.headRows = head.length + this.sticky.length;
+    // Where the popup went, so a click on a candidate chooses it: right under the cards drawn above it.
+    const pc = popup && completerOf(this.input);
+    if (pc && popup) pc.drawn = { row: this.headRows + view.length, items: popup.rows };
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
     const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
     return { lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
+  }
+
+  /**
+   * The filter's completion popup (PIE-626): its keys and values from the outline's property index, drawn above the
+   * line being typed, over the cards. Where it went is kept, so a click on a candidate chooses it.
+   */
+  private popupRows(w: number, h: number): { lines: string[]; rows: (number | null)[] } | null {
+    const pop = completionOf(this.input), c = completerOf(this.input);
+    if (c) c.drawn = null;
+    if (!pop || !c) return null;
+    const rows: (number | null)[] = [];
+    return { lines: renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(0, h - 3)), rows), rows };
   }
 
   private tagLines(w: number): string[] {
@@ -518,7 +539,7 @@ export class RiverColumn extends ReaderPane {
         return true;
       }
       if (c === "s") { this.run(desk, "column.split"); return true; }
-      if (c === "/") { this.mode = "filter"; this.input = new LineInput(filterText(this.filter)); desk.redraw(); return true; }
+      if (c === "/") { this.mode = "filter"; this.input = filterInput(filterText(this.filter)); desk.redraw(); return true; }
       if (c === "#") { this.tagChoices = followable(this.flat()[this.sel]?.m ?? (this.source.kind === "block" ? this.rootOf() ?? undefined : undefined)); this.mode = "tags"; desk.redraw(); return true; }
       if (k.kind === "esc" && (this.linked() || current)) { this.surface.clearLink(); desk.redraw(); return true; }
     }
@@ -527,6 +548,8 @@ export class RiverColumn extends ReaderPane {
 
   /** The filter being typed, or a property being chosen: ⏎ (or a digit) ends it in an action, esc cancels. */
   private modal(k: Key, desk: DeskApi): boolean {
+    // An open completion popup takes ⏎, tab, esc and the arrows first (the line's own keys); what it leaves goes on below.
+    if (this.mode === "filter" && completionOf(this.input) && this.input.key(k)) { desk.redraw(); return true; }
     if (k.kind === "esc") { this.mode = ""; desk.redraw(); return true; }
     if (this.mode === "tags") {
       const t = this.tagChoices[k.kind === "char" && !k.ctrl ? Number(k.ch) - 1 : -1];
@@ -608,6 +631,8 @@ export class RiverColumn extends ReaderPane {
     }
     if (k.action !== "down") return true;
     this.seen();
+    // A candidate of the filter's completion popup: chosen as ⏎ does.
+    if (this.mode === "filter" && completerOf(this.input)?.click(y)) { desk.redraw(); return true; }
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
@@ -785,6 +810,18 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column, or act on another column",
     args: { id: { type: "string", optional: true, about: "which listed note; default the selected one" }, open: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
     run: ({ id, open }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).replies(id, open, desk) }),
+  }),
+  "column.complete": def({
+    summary: "what a filter's word offers in a river column's `/`: text=<the filter as typed, ending in the word> (`ty`, `type:`, `-status:do`) answers the keys, or the values of the key before its colon, each with the insertion a choice writes, from the outline's property index (`properties.catalog`, most used first) and the component schemas. Nothing on screen moves and nothing is typed: an agent's filter is `column.filter query=`",
+    keys: "typing in /: ↑↓ choose, ⏎ or tab insert, esc dismiss, a click on a candidate, ctrl+space asks again",
+    touches: "nothing", replay: "safe",
+    args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
+    async run({ text }, { desk, tile }) {
+      const t = filterTargetAtCursor(text, text.length);
+      if (!t) throw new ActionRefused(`nothing to complete: the text should end in a property key or a key: with its value begun (it ends ${JSON.stringify(text.slice(-20))})`);
+      const r = await lookupCompletion(desk.ctx.board as unknown as CompletionBoard, { ...t, words: true }, null);
+      return { tile, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, context: it.context })) };
+    },
   }),
   "column.scroll": def({
     summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: "PgUp PgDn, the wheel",

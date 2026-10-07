@@ -4326,7 +4326,7 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
  */
 function searchOverlay(d: Desk, q: string): DeskPicker {
   let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
-  const input = new LineInput(q);
+  const input = new LineInput(q, false, { complete: false });   // the one search's plain words (`tree.search`): no property grammar to complete
   const near = () => d.current?.id;
   const stop = () => { if (timer) clearTimeout(timer); timer = null; seq++; };
   const askJev = (n: number, t: string) => {

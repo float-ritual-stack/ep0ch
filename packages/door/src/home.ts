@@ -402,7 +402,7 @@ async function connect(pane: HomePane, desk: DeskApi, machine: string) {
 /** `a`: the machines in ssh config not listed yet, filtered as it's typed; a name typed that isn't there is offered too. */
 function addPicker(pane: HomePane, desk: DeskApi) {
   const names = sshConfigNames().filter(n => !pane.machines.has(n));
-  const input = new LineInput("");
+  const input = new LineInput("", false, { complete: false });   // an ssh config name: not outline text
   desk.overlay?.(new ListPicker<string, unknown>({
     name: "home-add", input,
     items: () => {

@@ -316,7 +316,7 @@ export class BacklinksPane implements Pane {
       } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); said = o.stage === "all" ? "backlinks: every stage" : `backlinks: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
-      else if (c === "filter") { this.draft ??= new LineInput(o.filter); said = ""; }
+      else if (c === "filter") { this.draft ??= new LineInput(o.filter, false, { complete: false }); said = ""; }   // plain words over rows already listed
     });
     return said;
   }

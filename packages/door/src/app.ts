@@ -6,6 +6,7 @@ import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./di
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
 import { Dispatcher } from "./surface/dispatch";
+import { stopCompletion, useCompletion } from "./surface/completer";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
@@ -383,6 +384,8 @@ export class App implements Ctx {
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
     (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
+    // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
+    useCompletion(board, () => this.redraw());
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
@@ -407,6 +410,7 @@ export class App implements Ctx {
    */
   retire(): void {
     this.closed = true;
+    stopCompletion(this.board);
     this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);

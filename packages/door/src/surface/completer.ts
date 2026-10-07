@@ -8,11 +8,12 @@
 // never keeps a key it doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do.
 import { subject, type Msg } from "../board";
 import {
-  completionTargetAtCursor, completionWindow, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
+  completionTargetAtCursor, completionWindow, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
   type CompletionTarget,
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
+import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
 import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
@@ -36,7 +37,24 @@ export const COMPLETION_ROWS = 8;
 export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inserts · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog">;
+
+/**
+ * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
+ * reads its text and cursor, and a choice is spliced in. One completer for both, never one per surface.
+ */
+export interface CompletionField {
+  readonly lines: readonly string[];
+  readonly row: number;
+  readonly col: number;
+  readonly busy: boolean;
+  readonly text: string;
+  near?: string;
+  note: string;
+  /** What a line completes: a draft has none of this and completes text. */
+  readonly complete?: LineCompletion;
+  splice(start: number, end: number, text: string, lines?: Record<number, string>, by?: Actor): void;
+}
 
 export interface CompletionItem {
   label: string;
@@ -71,7 +89,7 @@ export interface CompletionLookup {
 }
 
 /** The note a draft's search asks from: its own note, else the note it's about (a comment's, a new card's view). */
-export const nearOf = (d: Draft | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
+export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
 export interface LookupOptions { semantic?: boolean; near?: string }
@@ -94,7 +112,10 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
-  if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key" || target.kind === "yaml-value") {
+  if (target.kind === "filter-key" || target.kind === "filter-value") {
+    items = await filterCandidates(board, target);
+    empty = target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}`;
+  } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key" || target.kind === "yaml-value") {
     // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
     const src = { board, redraw: () => {} };
     items = propertyCandidates(await componentsReady(src), target, src);
@@ -150,6 +171,32 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
 }
 
 /**
+ * A filter's keys or a property's values, from the outline's property index (`properties.catalog`: what its notes carry,
+ * most used first) and then the component schemas (what a key can hold, used or not): the same two sources the
+ * outliner's filter completion and the editors' `[key::` completion read, never a list of its own.
+ */
+async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
+  const value = target.kind === "filter-value", q = target.query.trim().toLowerCase();
+  const [catalog, schemas] = await Promise.all([
+    board.propertyCatalog(value ? target.key : undefined, q, 100).catch(() => []),
+    componentsReady({ board, redraw: () => {} }).catch(() => []),
+  ]);
+  const out: CompletionItem[] = [], seen = new Set<string>();
+  if (!value) {
+    const counts = new Map<string, number>();
+    for (const c of catalog) counts.set(c.key, (counts.get(c.key) ?? 0) + c.count);
+    for (const [key, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) { seen.add(key); out.push({ label: `${key} (${n})`, insertion: `${key}:`, kind: "property", context: `${n} block${n === 1 ? "" : "s"} carry it` }); }
+    for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key) && c.key.toLowerCase().startsWith(q)) { seen.add(c.key); out.push({ label: c.key, insertion: `${c.key}:`, kind: "property", context: c.detail }); }
+  } else {
+    // A filter's word has no spaces to hold: a value with one is left out there (a field's value may have them).
+    const fits = (v: string) => !target.words || !/\s/.test(v);
+    for (const c of catalog) if (!seen.has(c.value) && fits(c.value)) { seen.add(c.value); out.push({ label: `${c.value} (${c.count})`, insertion: c.value, kind: "value", context: `${c.count} block${c.count === 1 ? "" : "s"} have ${target.key}:${c.value}` }); }
+    for (const c of valueCandidates(schemas, target.key ?? "", q, false)) if (!seen.has(c.label) && fits(c.label) && c.label.toLowerCase().startsWith(q)) { seen.add(c.label); out.push({ label: c.label, insertion: c.insertion, kind: "value", context: c.detail }); }
+  }
+  return out.slice(0, COMPLETION_LIMIT);
+}
+
+/**
  * The schemas' keys or values for a property target: a key with where it goes and what it means, a value with its
  * meaning and a preview, the variation it makes drawn small (one row of it: a style's glyph track, a callout's frame).
  */
@@ -202,7 +249,7 @@ export function calloutCandidates(types: CalloutRegistry, query: string): Comple
  * named address still names that note, the note isn't gone, the fragment is still there once. Throws
  * with the reason (and changes nothing) when it doesn't.
  */
-export async function insertCompletion(board: CompletionBoard, d: Draft, target: CompletionTarget, item: CompletionItem, own: OwnNote | undefined, still: () => boolean, by: Actor = USER, commit?: () => void): Promise<boolean> {
+export async function insertCompletion(board: CompletionBoard, d: CompletionField, target: CompletionTarget, item: CompletionItem, own: OwnNote | undefined, still: () => boolean, by: Actor = USER, commit?: () => void): Promise<boolean> {
   if (item.blockId) {
     if (item.address) {
       const r = await board.completePages(item.address, COMPLETION_LIMIT);
@@ -247,10 +294,16 @@ export class Completer {
   private generation = 0;
   private accepting = false;
   private prefix: string | null | undefined;
-  constructor(private readonly d: Draft, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
+  constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
-  /** The token the cursor is in, if any. */
-  target(): CompletionTarget | null { return completionTargetAtCursor(this.d.lines[this.d.row] ?? "", this.d.col, this.d.lines, this.d.row); }
+  /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
+  target(): CompletionTarget | null {
+    const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
+    if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
+    const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
+    if (t || !c || !c.valueKey) return t;
+    return { kind: "filter-value", start: 0, end: line.length, query: line.slice(0, f.col), key: c.valueKey };
+  }
 
   /** The popup still belongs where the cursor is (the wheel, or an agent's edit.text, can move it without a key). */
   get shown(): CompletionState | null {
@@ -392,10 +445,10 @@ export class Completer {
   }
 }
 
-const byDraft = new WeakMap<Draft, Completer>();
+const byDraft = new WeakMap<CompletionField, Completer>();
 
-/** The draft's completer, made on first use; null when the board can't look anything up (a test double). */
-export function completerFor(d: Draft, board: unknown, redraw: () => void, own?: () => OwnNote | undefined): Completer | null {
+/** The draft's (or line's) completer, made on first use; null when the board can't look anything up (a test double). */
+export function completerFor(d: CompletionField, board: unknown, redraw: () => void, own?: () => OwnNote | undefined): Completer | null {
   const had = byDraft.get(d);
   if (had) return had;
   const b = board as Partial<CompletionBoard> | null;
@@ -406,47 +459,98 @@ export function completerFor(d: Draft, board: unknown, redraw: () => void, own?:
 }
 
 /** The draft's completer, if it has one. */
-export const completerOf = (d: Draft): Completer | null => byDraft.get(d) ?? null;
+export const completerOf = (d: CompletionField): Completer | null => byDraft.get(d) ?? null;
 
 /** The draft's popup, if one is open (for drawing). */
-export const completionOf = (d: Draft): CompletionState | null => byDraft.get(d)?.shown ?? null;
+export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 
 /**
- * A key in a draft, with completion first: while the popup has candidates, up/down choose and Enter/Tab
- * insert; Esc closes the popup (and only the popup). Tab or Ctrl+Space in a token asks again; Tab
- * anywhere else indents as before. Every other key goes to the draft, then the popup follows the cursor.
+ * The popup's own keys, for a draft or a line: while it has candidates, up/down choose and Enter/Tab insert; Esc closes
+ * the popup (and only the popup). Tab or Ctrl+Space in a token asks again; Tab anywhere else is the field's. True when
+ * the popup took the key.
+ */
+function popupKey(d: CompletionField, k: Key, c: Completer): boolean {
+  if (c.state && !c.shown) c.dismiss();
+  const s = c.state;
+  if (s) {
+    if (k.kind === "esc") { c.dismiss(); return true; }
+    if (s.items.length && !s.loading) {
+      if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
+      if (k.kind === "enter" || k.kind === "tab") { void c.accept(); return true; }
+    }
+  }
+  if (k.kind === "tab" || isCtrlSpace(k)) {
+    if (c.target()) { void c.refresh(); return true; }
+    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML"; return true; }
+  }
+  return false;
+}
+
+/**
+ * After a key the field took: the popup opens and refreshes only on typing. Moving the cursor never opens it (landing
+ * inside `[[garden]]` or after an unclosed `((` must not take the next Down or Enter): an open popup follows the cursor
+ * within its token and closes once the cursor leaves it. Tab or Ctrl+Space asks.
+ */
+function followCursor(c: Completer, changed: boolean, open: CompletionTarget | undefined): void {
+  if (changed) { void c.refresh(); return; }
+  const now = c.target();
+  if (open && now && now.kind === open.kind && now.start === open.start) void c.refresh(); else c.dismiss();
+}
+
+/**
+ * A key in a draft, with completion first (`popupKey`). Every other key goes to the draft, then the popup follows the
+ * cursor. An Esc the draft took (arming discard) doesn't bring it back.
  */
 export function completionKey(d: Draft, k: Key, c: Completer | null): DraftAction {
   if (!c || d.busy || k.kind === "mouse") return d.key(k);
   // A line break or tab inside a paste is text: it never chooses a candidate.
   if ("pasted" in k || k.kind === "paste") { c.dismiss(); return d.key(k); }
-  if (c.state && !c.shown) c.dismiss();
-  const s = c.state;
-  if (s) {
-    if (k.kind === "esc") { c.dismiss(); return "keep"; }
-    if (s.items.length && !s.loading) {
-      if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return "keep"; }
-      if (k.kind === "enter" || k.kind === "tab") { void c.accept(); return "keep"; }
-    }
-  }
-  if (k.kind === "tab" || isCtrlSpace(k)) {
-    if (c.target()) { void c.refresh(); return "keep"; }
-    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML"; return "keep"; }
-  }
+  if (popupKey(d, k, c)) return "keep";
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
-  // The popup opens and refreshes only on typing. Moving the cursor never opens it (landing inside
-  // `[[garden]]` or after an unclosed `((` must not take the next Down or Enter): an open popup
-  // follows the cursor within its token and closes once the cursor leaves it. Tab or Ctrl+Space asks.
-  // An Esc the draft took (arming discard) doesn't bring it back.
   if (a !== "keep" || k.kind === "esc") { c.dismiss(); return a; }
-  if (d.text !== before) { void c.refresh(); return a; }
-  const now = c.target();
-  if (open && now && now.kind === open.kind && now.start === open.start) void c.refresh(); else c.dismiss();
+  followCursor(c, d.text !== before, open);
   return a;
 }
+
+// ── a line completes like a draft (PIE-626) ─────────────────────────────────────────────────────────────────────
+
+/** The connection a line made now belongs to: the door's (App sets it when it starts, `useCompletion`). */
+let ambient: { board: SocketBoard; redraw: () => void } | null = null;
+export function useCompletion(board: SocketBoard | null, redraw: () => void = () => {}): void { ambient = board && { board, redraw }; }
+/** The door ended: lines made after it complete nothing (a line made earlier keeps its own connection). */
+export function stopCompletion(board: SocketBoard): void { if (ambient?.board === board) ambient = null; }
+
+/** A draft's completer from the session's connection, else the door's (a comment's session has none of its own). */
+export function defaultCompleter(d: CompletionField, board?: unknown, redraw?: () => void): Completer | null {
+  return completerFor(d, board ?? ambient?.board, redraw ?? ambient?.redraw ?? (() => {}));
+}
+
+const openAt = new WeakMap<LineInput, CompletionTarget | undefined>();
+/** A line's completer, made on first use, from the connection the line was made under. */
+export function lineCompleter(i: LineInput): Completer | null {
+  const host = i.completionHost as { board: SocketBoard; redraw: () => void } | null;
+  return host ? completerFor(i, host.board, host.redraw) : null;
+}
+
+// What every `LineInput.key` does around its own: the popup first, then it follows the typing.
+lineCompletionHooks.ambient = () => ambient;
+lineCompletionHooks.before = (i, k) => {
+  const c = lineCompleter(i);
+  if (!c || k.kind === "mouse") return false;
+  if ("pasted" in k || k.kind === "paste") { c.dismiss(); return false; }
+  const took = popupKey(i, k, c);
+  openAt.set(i, c.state?.target);
+  return took;
+};
+lineCompletionHooks.after = (i, k, took, was) => {
+  const c = lineCompleter(i);
+  if (!c || k.kind === "mouse") return;
+  if (!took || k.kind === "esc") { c.dismiss(); return; }
+  followCursor(c, i.text !== was, openAt.get(i));
+};
 
 /**
  * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
@@ -463,7 +567,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const room = Math.max(1, h - Number(header) - Number(footer) - 1);
   const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
-  const heading = { callout: "callout types", key: "properties", "yaml-key": "properties", value: "values", "yaml-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
   if (header) rows.push(null), out.push(line(` ${heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;

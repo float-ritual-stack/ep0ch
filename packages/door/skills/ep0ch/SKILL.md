@@ -225,7 +225,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `step.set`; `board.hub` lists or shows a board. On the desk, `tile.open kind=query view=<view id>` puts a
   saved view's cards in a tile.
 - **The river** is a screen spec on the desk too: its columns are `river.column` tiles in a flow (`library`, then
-  `column`, `column2`…). `open id= from=<column>` puts a note in the column after it; `column.select`, `column.filter`,
+  `column`, `column2`…). `open id= from=<column>` puts a note in the column after it; `column.select`, `column.filter`, `column.complete` (what a filter's word offers),
   `column.tag` act in a column (never the one the person has the keys in); `tile.widen` and `tile.hold` (held full) shape it.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 

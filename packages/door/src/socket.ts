@@ -558,6 +558,14 @@ export class SocketBoard implements Board {
     return (await this.request<{ workIdPrefix?: string }>("references.resolve", { text: "" })).workIdPrefix ?? null;
   }
 
+  /**
+   * The outline's property index (`properties.catalog`): the keys starting with `prefix` (each value of each, counted), or
+   * with `key` the values of that key starting with `prefix`; most used first. What a filter's completion offers.
+   */
+  async propertyCatalog(key: string | undefined, prefix: string, limit = 30): Promise<{ key: string; value: string; count: number }[]> {
+    return this.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(key ? { key } : {}), prefix, limit });
+  }
+
   /** The outline's callout types (PIE-538): the types its notes declare with `[callout-type::name]`, and what's wrong with any. */
   async calloutTypes(): Promise<{ types: CalloutType[]; problems: string[]; complete: boolean }> {
     return this.request<{ types: CalloutType[]; problems: string[]; complete: boolean }>("callouts.types", {});
