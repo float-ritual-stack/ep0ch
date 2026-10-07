@@ -227,6 +227,14 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The river** is a screen spec on the desk too: its columns are `river.column` tiles in a flow (`library`, then
   `column`, `column2`…). `open id= from=<column>` puts a note in the column after it; `column.select`, `column.filter`, `column.complete` (what a filter's word offers),
   `column.tag` act in a column (never the one the person has the keys in); `tile.widen` and `tile.hold` (held full) shape it.
+- **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
+  `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
+  done as seen (`status.seen`) is theirs; yours is refused.
+- **Reading a note to its end:** `scroll to=end` goes to the last line, then past it; `view.get` says `atEnd` and
+  `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
+- **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`
+  names the outline's session folder, and `ep0ch act|peek|open|where` find the door from it; `ep0ch where` says when
+  your environment is stale.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 
 ## When something looks wrong

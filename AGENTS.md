@@ -200,14 +200,26 @@ MacBook). It does not support every version a client ever connected with.
   of two test slots, is capped in CPU and memory (where there's a systemd user manager, as on float-2), and
   whatever it leaves running is stopped with it. Everything agent-env runs has `oom_score_adj` 1000, so when memory
   runs out the kernel kills a test before the outline host (it once killed the host during a whole-suite run).
-  Several agents testing at once froze float-2 (4 cores), so never `--parallel` here. Run in the foreground: a
-  background run's notification may never reach you, so don't end a turn waiting on one. Judge a run by its exit
-  code: grepping colourised output for "fail" hides failures (153 outliner tests were red for a day that way).
+  Several agents testing at once froze float-2 (4 cores), so never `--parallel` here. Heavy suites (a whole
+  package, `--each`) go only through `scripts/box-test`, never on float-2. Run in the foreground, or poll your own
+  background run (read its output file, check its pid) until it exits: a background run's notification may never
+  reach you, so don't end a turn idling for one. Judge a run by its exit code: grepping colourised output for
+  "fail" hides failures (153 outliner tests were red for a day that way).
+- **Never kill what you didn't start.** No `pkill` or `pkill -f <pattern>`, no `kill` of a pid or process group you
+  didn't launch: a pattern matches other agents' runs (one `pkill -f "box-test door"` killed several agents' suites).
+  Stop your own by the pid you were given (or `scripts/agent-env <name> --clean`), after checking `pstree` for what
+  it owns.
+- **Merge with `gh pr merge <n> --squash`, then delete only the remote branch,** after `gh pr view <n> --json state`
+  says `MERGED` (`gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). Never `gh pr merge -d`/`--delete-branch`: it also deletes the
+  local branch and its worktree, which can be another agent's.
+- **A roadmap item's title is plain words.** No `[key::value]` property syntax in it: the title is read as the
+  block's text, and the header parser takes the brackets as properties.
 - **Scratch files are yours alone.** A session's tmp folder is shared by every agent in it: write PR bodies and
   scratch files in a private `mktemp -d` there, and re-read a body before `gh pr create/edit --body-file` (one
   agent's draft was once published on another's PR).
 - **Rebase on the way in, hand the sha on the way out.** main moves many times a day: rebase before the final test
-  run, keep `PROTOCOL` one above main's when you bump it, and after merging tell the deployer (the person, or the
+  run, keep `PROTOCOL` one above main's when you bump it (when several open PRs bump at once, the deployer
+  allocates the numbers: ask before you pick one), and after merging tell the deployer (the person, or the
   agent they made the deployer) the merge sha. A protocol or schema bump also says, in the PR, exactly what to
   run on each machine (migration commands with real values).
 - **A second opinion before merging** catches what one reviewer misses: pipe the diff to Codex

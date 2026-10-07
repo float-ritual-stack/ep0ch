@@ -34,6 +34,10 @@ Then:
 | `ep0ch --ws garden` | an outline by name, from anywhere (a name nobody has yet is created on this machine; on another, only with `--create`) |
 | `ep0ch --machine box-a` | the door here, the outline on that machine (an ssh config name), over a shared forward |
 | `ep0ch --remote box-a` | this terminal on the door session running there |
+| `ep0ch --screen library` | any screen by name (`--screen <name> [<target>]`); `library` is the component library, a page for each component |
+| `ep0ch revisions <note>` | a note's earlier texts (the newest 100); `--restore` saves one as the note |
+| `ep0ch backup status` | the 15-minute restic backups: `list`, `run`, `restore <outline> --to <path>` |
+| `ep0ch mcp access read\|propose\|full` | what claude.ai may do on an outline through the MCP gateway; `ep0ch mcp pull` and `queue status` for the laptop's queued writes |
 | `ep0ch --showcase` | every shared part of the door, live, on its own seeded outline of made-up notes |
 | `ep0ch find <words>`, `ep0ch show <id>` | the service's forgiving search, and a note drawn as the door draws it, at your shell |
 | an ssh login | lands straight in the door where the host's login shell runs `ep0ch` (the door README, "Getting started") |
@@ -64,6 +68,9 @@ machine = "box-a"   # optional
 bun run check   # tsc in every package
 bun run test    # every package's suite, each against scratch services it starts itself
 ```
+
+On a shared machine, whole suites go through `scripts/box-test [--on float-box|boxd]`, and anything that starts a
+door or a scratch host through `scripts/agent-env <name> [--test] -- <cmd>` ([CONTRIBUTING](CONTRIBUTING.md#verification)).
 
 Tests never touch a real outline. The schema has one version: a database at any other version is refused,
 and a schema change ships as a one-off migration script that runs once, then is deleted.
