@@ -459,6 +459,20 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(JSON.parse(readFileSync(sessionFile(dir), "utf8")).place.outline).toBe(scratch.name);
   });
 
+  test("attaching with --screen <name> opens that screen in the running session and says so", async () => {
+    const a = await RawClient.attach(sessionSocket(dir), 150, 44, { args: ["--screen", "library"] });
+    await until(() => a.screen().includes("component library") || a.screen().includes("library ·"), "the library on the attached client", 10_000);
+    expect(a.screen()).toContain("library");
+    expect(a.screen()).toContain("opened library");
+    // Again, on the screen it is on: said, not silently nothing.
+    const b = await RawClient.attach(sessionSocket(dir), 150, 44, { args: ["--screen", "library"] });
+    await until(() => b.screen().includes("already on library"), "the already-there note", 10_000);
+    a.send({ t: "detach" }); b.send({ t: "detach" });
+    await until(() => a.closed && b.closed, "the detach", 5000);
+    // The person's way back to the desk the session started on.
+    await control({ cmd: "act", action: "screen.back" });
+  }, 30_000);
+
   test("detach and attach again: the layout, a terminal tile's program and scrollback, and an unsaved draft are all there", async () => {
     const a = await RawClient.attach(sessionSocket(dir), 150, 44);
     await until(() => a.screen().includes("outline"), "the desk on the client", 10_000);

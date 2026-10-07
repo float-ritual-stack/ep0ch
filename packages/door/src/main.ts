@@ -158,6 +158,14 @@ if (args[0] === "doctor" || args[0] === "install") {
 }
 if (args[0] === "backup") { const { backupCommand } = await import("./backup/cli"); process.exit(await backupCommand(args)); }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
+// A screen nobody knows is refused before the door takes the terminal, with the names there are. A name that may be a
+// screen a person made (a screen note, PIE-565) is the door's to find once it has read the outline's screen notes.
+const asked = screenArg(args);
+if (asked && !args.includes("--remote")) {
+  const { knownScreen, unknownScreen } = await import("./screens");
+  const { screenNameProblem } = await import("./desk/screen-spec");
+  if (!knownScreen(asked.name) && screenNameProblem(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
+}
 // The showcase lives on its own seeded outline, never the one this folder names: `ep0ch --showcase [--reset]` is
 // `ep0ch try --showcase [--reset]`. With --ws (as try-it.sh itself runs it) it opens the screen on that outline.
 const tryArgs = args[0] === "try" ? args.slice(1) : showcaseTry(args);
@@ -195,14 +203,6 @@ if (screenAt >= 0 && args[screenAt + 2]?.startsWith("ep0ch://")) {
     console.error(`ep0ch: ${(e as Error).message}`);
     process.exit(2);
   }
-}
-// A screen nobody knows is refused before the door takes the terminal, with the names there are. A name that may be a
-// screen a person made (a screen note, PIE-565) is the door's to find once it has read the outline's screen notes.
-const asked = screenArg(args);
-if (asked && !args.includes("--remote")) {
-  const { knownScreen, unknownScreen } = await import("./screens");
-  const { screenNameProblem } = await import("./desk/screen-spec");
-  if (!knownScreen(asked.name) && screenNameProblem(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
 }
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.

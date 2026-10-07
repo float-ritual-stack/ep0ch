@@ -289,9 +289,9 @@ export async function serve(args: string[]): Promise<never> {
             if (asked && !h.watch && !same) {
               appliedScreen = true;
               void app.dispatch.act({ action: "screen.open", args: { ...asked } }, USER).then(
-                () => app.redraw(),
-                e => { app.flash((e as Error).message, 8000); app.redraw(); });
-            }
+                () => { app.flash(`opened ${asked.name}${asked.target ? ` on ${asked.target}` : ""} · attached to the running session`, 6000); app.redraw(); },
+                e => { app.flash(`${(e as Error).message} · \`${ep0ch(process.env, place)}--screen ${asked.name}${asked.target ? ` ${asked.target}` : ""}\` asks again`, 8000); app.redraw(); });
+            } else if (asked && !h.watch) { appliedScreen = true; app.flash(`already on ${asked.name} · attached to the running session`, 5000); }
           } catch (e) {
             app.flash((e as Error).message, 8000);
           }
