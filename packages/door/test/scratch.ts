@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { HERDR_VARS } from "../src/desk/pty";
 
-/** Jev's key (the outliner's search-ranking.ts and note assistance read it): a scratch host never gets it. */
+/** Jev's key (the outliner's search-ranking.ts reads it): a scratch host never gets it. */
 const NO_JEV = ["TYPESAFE_API_KEY"];
 
 /** The outliner package: EP0CH_OUTLINER, else this repository's packages/outliner. */
@@ -78,7 +78,6 @@ export class Scratch {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       EP0CH_OUTLINES: this.outlines, EP0CH_DEFAULT_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config"),
-      OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
     // No Jev key: a scratch host answers searches with text matches only, never a paid call.
     for (const k of [...HERDR_VARS, ...NO_JEV, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
@@ -151,7 +150,6 @@ export class ScratchHost {
   async start(defaultOutline?: string): Promise<string> {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>), ...this.env,
-      OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
     for (const k of [...HERDR_VARS, ...NO_JEV, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     if (defaultOutline) env.EP0CH_DEFAULT_WS = defaultOutline;

@@ -13,8 +13,8 @@ export function readCaptureBefore(database:Database,attemptId:string,blockId:str
   return row?.recovery_json ? (JSON.parse(row.recovery_json) as {before:Block[]}).before.find(block=>block.id===blockId) : undefined;
 }
 
-/** Resolve immutable before-images already owned by Inbox recovery. No new
- * authored note, execution request, or independent copy of the original. */
+/** Resolve the immutable before-images the removed Inbox agent preserved (PIE-613: read only, nothing
+ * writes them now). No new authored note, execution request, or independent copy of the original. */
 export function captureHistoryProducer(database:Database){
   return defineComputedProducer({id:CAPTURE_HISTORY_PRODUCER,version:1,inputSchema,
     permissions:["inbox.history.read"],determinism:"deterministic",cachePolicy:"content-addressed",outputMediaTypes:["text/markdown"],
@@ -33,40 +33,4 @@ export function captureHistoryResource(database:Database,catalog:ResourceCatalog
   if(existing)return existing.resource_id;
   const source=catalog.listSources().find(source=>source.provider==="computed"&&source.boundary.registry==="outliner.capture-history")??catalog.createSource({name:"Capture history",provider:"computed",boundary:{registry:"outliner.capture-history",allowedPermissions:["inbox.history.read"]}});
   return catalog.createComputedInvocation({sourceId:source.id,producerId:CAPTURE_HISTORY_PRODUCER,inputs:{attemptId,blockId},dependencies:[]}).resourceId;
-}
-
-/** Follow saved output lineage for pre-link captures as well as ordinary sources.
- * Each recursive step visits only older receipts, never the mutable source text. */
-export function captureOriginalResources(database:Database,catalog:ResourceCatalog,block:Block,attemptId:string):string[]{
-  type Receipt={ordinal:number,id:string,source_id:string,recovery_json:string|null};
-  type Saved={before:Block[],createdIds:string[]};
-  let remainingReceipts=128;
-  const properties=(value:Block)=>value.properties.filter(p=>p.key==='raw-capture').map(p=>p.value);
-  const resolve=(value:Block,fallback:string,beforeOrdinal=Number.MAX_SAFE_INTEGER,depth=0):string[]=>{
-    const linked=properties(value);if(linked.length)return linked;
-    if(depth>=32||remainingReceipts<=0)return [captureHistoryResource(database,catalog,'lineage-unavailable:'+value.id,value.id)];
-    const rows=database.query(`SELECT rowid AS ordinal,id,source_id,recovery_json FROM inbox_agent_results
-      WHERE rowid<? AND json_extract(result_json,'$.state') IN ('applied','undone')
-      AND (source_id=? OR EXISTS(SELECT 1 FROM json_each(result_json,'$.outputIds') WHERE value=?))
-      ORDER BY rowid LIMIT ?`).all(beforeOrdinal,value.id,value.id,remainingReceipts+1) as Receipt[];
-    if(rows.length>remainingReceipts)return [captureHistoryResource(database,catalog,'lineage-unavailable:'+value.id,value.id)];
-    remainingReceipts-=rows.length;
-    if(!rows.length)return [captureHistoryResource(database,catalog,fallback,value.id)];
-    const originals:string[]=[];
-    for(const [index,row] of rows.entries()){
-      const saved=row.recovery_json?JSON.parse(row.recovery_json) as Saved:undefined;
-      if(index===0){
-        if(row.source_id===value.id||!saved?.createdIds.includes(value.id)){
-          const prior=saved?.before.find(b=>b.id===value.id);
-          originals.push(...(prior&&properties(prior).length?properties(prior):[captureHistoryResource(database,catalog,row.id,value.id)]));
-        }
-      }
-      if(row.source_id!==value.id){
-        const source=saved?.before.find(b=>b.id===row.source_id);
-        originals.push(...(source?resolve(source,row.id,row.ordinal,depth+1):[captureHistoryResource(database,catalog,row.id,row.source_id)]));
-      }
-    }
-    return [...new Set(originals)];
-  };
-  return resolve(block,attemptId);
 }

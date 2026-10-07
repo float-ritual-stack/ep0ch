@@ -43,12 +43,6 @@ export class EditRecoveryClient {
   refresh(record:EditRecovery):Promise<EditRecovery> {
     return this.client.request({action:"edit-recovery.refresh",recoveryId:record.id,expectedRevision:record.revision});
   }
-  assist(record:EditRecovery):Promise<EditRecovery> {
-    return this.client.request({action:"edit-recovery.assist",recoveryId:record.id,expectedRevision:record.revision},130_000);
-  }
-  cancel(record:EditRecovery):Promise<unknown> {
-    return this.client.request({action:"edit-recovery.cancel",recoveryId:record.id});
-  }
   discard(record:EditRecovery):Promise<EditRecovery> {
     return this.client.request({action:"edit-recovery.discard",recoveryId:record.id,expectedRevision:record.revision});
   }

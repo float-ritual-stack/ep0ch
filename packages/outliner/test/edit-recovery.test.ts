@@ -28,11 +28,11 @@ test("retains original/base/prelaunch/latest and mechanically merges the reporte
   expect(repository.get(record.id).originalDraft).toBe(draft);
 });
 
-test("stale model and save attempts preserve writing without overwriting a newer note",()=>{
+test("stale proposals and save attempts preserve writing without overwriting a newer note",()=>{
   const{store,repository}=fixture(),base=store.create("Note\n\nBase");
   const record=repository.start({id:crypto.randomUUID(),blockId:base.id,baseText:base.text,baseRevision:base.revision,prelaunchText:base.text,draftText:"Note\n\nLocal",source:"save-conflict"});
   store.update(base.id,"Note\n\nAnother writer",base.revision,mutation);
-  expect(()=>repository.propose(record.id,record.revision,{text:"Merged",basedOnRevision:base.revision,source:"agent",unresolved:[],explanation:"Proposed"})).toThrow("note changed");
+  expect(()=>repository.propose(record.id,record.revision,{text:"Merged",basedOnRevision:base.revision,source:"manual",unresolved:[],explanation:"Proposed"})).toThrow("note changed");
   expect(()=>repository.commit(record.id,record.revision,"Local",base.revision,mutation)).toThrow();
   expect(repository.get(record.id).originalDraft).toBe("Note\n\nLocal");
   const refreshed=repository.refresh(record.id,record.revision);
@@ -40,7 +40,7 @@ test("stale model and save attempts preserve writing without overwriting a newer
   expect(store.get(base.id)?.text).toBe("Note\n\nAnother writer");
 });
 
-test("restart retains pending recovery independently of note assistance and exact title matches",()=>{
+test("restart retains pending recovery independently of exact title matches",()=>{
   const f=fixture(),base=f.store.create("Same title\n\nFirst");f.store.create("Same title\n\nSecond");
   const record=f.repository.start({id:crypto.randomUUID(),blockId:base.id,baseText:base.text,baseRevision:base.revision,prelaunchText:base.text,draftText:"Same title\n\nUnicode 日本語\n```\nraw\n```",source:"external-editor"});
   f.store.close();const restarted=new OutlinerStore(join(f.dir,"outline.sqlite"));fixtures.find(x=>x.dir===f.dir)!.store=restarted;

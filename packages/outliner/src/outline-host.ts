@@ -56,7 +56,7 @@ export interface OutlineHostOptions {
   herdrRegistry?: HerdrRuntimeRegistry;
   /** `OUTLINER_PROMPT_DIR`: one prompt folder for every outline, used as is. */
   promptDirectory?: string;
-  /** Called once per outline after it opens (the Inbox agent starts here). A failure is logged. */
+  /** Called once per outline after it opens. A failure is logged. */
   onOpen?: (outline: HostedOutline) => void | Promise<void>;
   /** A fault on the host's listener after it started (the socket is gone); by default logged. */
   onListenerError?: (error: Error) => void;

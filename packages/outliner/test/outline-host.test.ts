@@ -382,7 +382,7 @@ test("a lone OutlinerServer refuses host requests", async () => {
 test("the host process and the CLI: create, import refusals, init and list go through the host", async () => {
   const root = scratch();
   const outlines = join(root, "outlines");
-  const env = { PATH: process.env.PATH, HOME: root, EP0CH_OUTLINES: outlines, XDG_CONFIG_HOME: join(root, "config"), OUTLINER_INBOX_AGENT: "0", EP0CH_DEFAULT_WS: "bob" };
+  const env = { PATH: process.env.PATH, HOME: root, EP0CH_OUTLINES: outlines, XDG_CONFIG_HOME: join(root, "config"), EP0CH_DEFAULT_WS: "bob" };
   const cli = (cwd: string, ...args: string[]) => {
     const run = Bun.spawnSync([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], { env, cwd, timeout: 15_000 });
     return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };

@@ -143,8 +143,8 @@ Never write to a real outline or touch the person's door. Their door may be on t
   writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
   outlines folder>` and `--ws <name>`, never at `~/outlines`.
 - **A scratch host by hand:** with `d=$(mktemp -d)`, `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden XDG_CONFIG_HOME=$d/config
-  OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh`
-  starts one: without the last three it reads the person's `~/.config` and its Inbox agent rewrites your notes),
+  bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh` starts one: without `XDG_CONFIG_HOME` it reads the
+  person's `~/.config`),
   then `EP0CH_OUTLINES=$d/outlines ep0ch outline create garden` (`ep0ch init` would write a `.ep0ch` into the
   folder you run it in). Its socket is `$d/outlines/.host/host.sock`.
 - **Real outline shapes without real writes:** `ep0ch try --ws <name> --copy` serves a private copy of that
@@ -223,7 +223,7 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 - Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
   and review them yourself (`/code-review` for code). Push fixes in one go; don't re-trigger reviews.
 - Don't commit lockfile churn from a local bun; commit `bun.lock` only when dependencies change.
-- Merge yourself once review is resolved: `gh pr merge --squash --delete-branch`. Check for bot reviews posted
+- Merge yourself once review is resolved: `gh pr merge --squash` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in; delete the remote branch alone with `gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). Check for bot reviews posted
   after the merge, and answer them in a follow-up PR.
 
 ## Deploy and back up

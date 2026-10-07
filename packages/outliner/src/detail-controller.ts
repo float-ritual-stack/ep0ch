@@ -4588,7 +4588,7 @@ export function createDetailController(
         markBlockCacheStale();
         invalidateBacklinks();
       }
-      if (event.domain === "selection" || event.domain === "browsing-context" || event.domain === "inbox") return;
+      if (event.domain === "selection" || event.domain === "browsing-context") return;
       if (isBufferMode()) {
         state.refreshPending = true;
         return;

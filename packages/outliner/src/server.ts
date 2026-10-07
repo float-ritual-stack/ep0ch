@@ -10,17 +10,10 @@ import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
 import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
-import { proposeEditMerge } from "./edit-merge-model";
-import {searchInboxHistory,visibleInboxSearch} from './inbox-search';
 import {rankSearchWithJev} from './search-ranking';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
-import { InboxWorker, assistantActivity } from "./inbox-worker";
-import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
-import { NoteAssistanceRepository } from "./note-assistance-repository";
-import type { NoteModel } from "./note-assistance-model";
-import type { InboxModel, InboxResult, InboxStatus } from "./inbox-types";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
@@ -253,13 +246,8 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
 export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
 
 export class OutlinerServer {
-  private inbox: InboxWorker | undefined;
-  private readonly inboxRepository: InboxRepository;
   private readonly mentions: MentionRepository;
   private readonly editRecovery: EditRecoveryRepository;
-  private readonly editMergeJobs = new Map<string, AbortController>();
-  private readonly noteRepository: NoteAssistanceRepository;
-  private inboxUnavailable = "Automatic Inbox cleanup is not enabled for this service";
   private activeGotoRankings = 0;
   private captureOwner: CaptureOwner | null = null;
   private captureTransfer?: {token: string; clientId: string; requestId: string; revision: number; deadline: number};
@@ -281,7 +269,7 @@ export class OutlinerServer {
   /** Set when an outline host accepts this outline's connections instead of a listener of its own. */
   private hosted = false;
   private host: (() => OutlinerHostStatus) | undefined;
-  /** This outline's side files (assistant sessions); by default the socket's folder. */
+  /** This outline's side files; by default the socket's folder. */
   readonly stateDirectory: string;
   /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_ACTIONS are answered. */
   readonly readOnly: boolean;
@@ -310,8 +298,6 @@ export class OutlinerServer {
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
-    this.inboxRepository = new InboxRepository(store);
-    this.noteRepository = new NoteAssistanceRepository(store);
     this.draftPatches = new DraftPatchRouter({
       store,
       holds: this.draftHolds,
@@ -328,8 +314,6 @@ export class OutlinerServer {
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
     });
-    // Baseline before accepting edits or awaiting provider configuration.
-    this.noteRepository.initialize();
     this.extensionSync = new ExtensionSync(store, {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
       resourceChanged: (resourceId) => this.broadcast({
@@ -457,7 +441,6 @@ export class OutlinerServer {
   }
 
   async close(): Promise<void> {
-    for (const job of this.editMergeJobs.values()) job.abort();
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.extensionSync.stop();
@@ -465,7 +448,6 @@ export class OutlinerServer {
     this.extensionCalls.stop();
     this.extensionRules.stop();
     this.agentRequests.stop();
-    await this.inbox?.stop();
     const server = this.server;
     if (!server && !this.hosted) return;
     this.hosted = false;
@@ -484,48 +466,6 @@ export class OutlinerServer {
     await closed.promise;
     this.server = null;
     if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
-  }
-
-  enableInbox(model: InboxModel, noteModel?: NoteModel): void {
-    if (this.inbox) throw new Error("Inbox processor already started");
-    if (!this.running) throw new Error("Start the service before its Inbox processor");
-    this.inbox = new InboxWorker(this.store, model, result => this.inboxChanged(result), {
-      repository: this.inboxRepository, notes: this.noteRepository, noteModel,
-      agentNames: () => this.extensionRegistry.agentNames(),
-    });
-    this.inbox.wake();
-  }
-
-  private inboxChanged(result?: InboxResult): void {
-    // The worker's writes were recorded as background changes; publish them before its status.
-    this.store.changes.flushBackground();
-    if (result?.state === "applied" || result?.state === "undone") {
-      for (const blockId of new Set([result.sourceId, ...result.outputIds])) this.refreshAttentionForBlock(blockId);
-    }
-    this.broadcast({ id: crypto.randomUUID(), domain: "inbox", action: "inbox.status", sequence: this.store.sequence });
-  }
-
-  setInboxUnavailable(message: string): void {
-    this.inboxUnavailable = message;
-    this.broadcast({ id: crypto.randomUUID(), domain: "inbox", action: "inbox.status", sequence: this.store.sequence });
-  }
-
-  private inboxStatus(attentionOnly = false, resultsOffset = 0): InboxStatus {
-    if (typeof attentionOnly !== "boolean") throw new Error("attentionOnly must be a boolean");
-    if (!Number.isSafeInteger(resultsOffset) || resultsOffset < 0) throw new Error("resultsOffset must be a nonnegative integer");
-    if (this.inbox) return this.inbox.status(attentionOnly, resultsOffset);
-    // Recovery and history do not depend on a currently usable model/provider.
-    const { results, attentionCount } = assistantActivity(this.store, this.inboxRepository, this.noteRepository, attentionOnly, resultsOffset);
-    return {
-      enabled: false, paused: true, state: "unavailable", message: this.inboxUnavailable,
-      pending: this.inboxRepository.pending().length, results: results.slice(0, 30).map(summarizeInboxResult), resultsTruncated: results.length > 30,
-      attentionCount, attentionOnly, resultsOffset: attentionOnly ? 0 : resultsOffset,
-    };
-  }
-
-  private requireInbox(): InboxWorker {
-    if (!this.inbox) throw new Error(this.inboxUnavailable);
-    return this.inbox;
   }
 
   private async socketIsActive(): Promise<boolean> {
@@ -1546,24 +1486,6 @@ export class OutlinerServer {
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
   ): Promise<OutlinerResponse> {
-    if (request.action === "edit-recovery.assist") {
-      let cancel: AbortController | undefined;
-      try {
-        const record = this.editRecovery.get(request.recoveryId);
-        if (record.revision !== request.expectedRevision || record.state !== "retained") throw Error("Recovery changed; reopen it before asking for a merge");
-        if (this.editMergeJobs.has(record.id)) throw Error("A merge is already running for this draft");
-        cancel = new AbortController();
-        this.editMergeJobs.set(record.id, cancel);
-        const proposal = await proposeEditMerge(record, {workspaceRoot:this.store.workspaceRoot,stateDirectory:this.stateDirectory,promptDirectory:this.promptDirectory}, cancel.signal);
-        cancel.signal.throwIfAborted();
-        const result = this.editRecovery.propose(record.id, record.revision, proposal);
-        return {id:request.id,ok:true,result,sequence:this.store.sequence};
-      } catch (error) {
-        return {id:request.id,ok:false,error:error instanceof Error ? error.message : String(error),sequence:this.store.sequence};
-      } finally {
-        if (cancel && this.editMergeJobs.get(request.recoveryId) === cancel) this.editMergeJobs.delete(request.recoveryId);
-      }
-    }
     if(request.action==="resources.describe"){
       try {
         // This built-in only reads an immutable Inbox before-image. It cannot
@@ -1574,21 +1496,6 @@ export class OutlinerServer {
         if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
         return this.handle(request,subscribedClient);
       } catch(error){return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
-    }
-    if (request.action === "inbox.search") {
-      try {
-        if(request.semantic!==undefined&&typeof request.semantic!=="boolean")throw new Error("semantic must be a boolean");
-        let result=searchInboxHistory(this.store,request.query);
-        if(request.semantic&&this.activeGotoRankings<2){
-          this.activeGotoRankings++;
-          try{result=await rankSearchWithJev(request.query,result,{promptDirectory:this.promptDirectory});}
-          finally{this.activeGotoRankings--;}
-          result.matches=result.matches.filter(match=>match.revisions.every(saved=>{
-            const current=this.store.get(saved.id);return current&&!current.effectiveDeletedRootId&&!current.deletedAt&&current.revision===saved.revision;
-          }));
-        }else if(request.semantic)result.semantic={status:"unavailable",message:"Jev busy; showing text matches"};
-        return {id:request.id,ok:true,result:visibleInboxSearch(result),sequence:this.store.sequence};
-      }catch(error){return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
     }
     if (request.action === "pages.complete" && request.semantic) {
       try {
@@ -1845,23 +1752,6 @@ export class OutlinerServer {
       let result: unknown;
       const action = request.action;
       switch (action) {
-        case "inbox.search": result = visibleInboxSearch(searchInboxHistory(this.store,request.query)); break;
-        case "inbox.status": result = this.inboxStatus(request.attentionOnly, request.resultsOffset); break;
-        case "inbox.result": {
-          const repository = this.noteRepository.hasResult(request.resultId) ? this.noteRepository : this.inboxRepository;
-          result = {...repository.getResult(request.resultId), beforeSource: repository.beforeSource(request.resultId)};
-          break;
-        }
-        case "inbox.pause": result = this.requireInbox().pause(); break;
-        case "inbox.resume": result = this.requireInbox().resume(); break;
-        case "inbox.retry": result = this.requireInbox().reconsider(request.sourceId, request.instructions); break;
-        case "inbox.undo": {
-          this.inboxChanged(this.noteRepository.hasResult(request.resultId)
-            ? this.noteRepository.undo(request.resultId)
-            : this.inboxRepository.undo(request.resultId, blocks => this.noteRepository.checkpointRestored(blocks)));
-          result = this.inboxStatus();
-          break;
-        }
         case "ping":
           result = {
             status: "ready",
@@ -2489,8 +2379,6 @@ export class OutlinerServer {
         case "capture.draft.get":
           result = this.store.quickCaptureDraft();
           break;
-        case "edit-recovery.assist":
-          throw Error("Merge proposals require asynchronous dispatch");
         case "draft.patch":
         case "draft.proposal.apply":
         case "draft.proposal.dismiss":
@@ -2512,12 +2400,7 @@ export class OutlinerServer {
           result = this.editRecovery.refresh(request.recoveryId,request.expectedRevision);
           break;
         case "edit-recovery.propose":
-          if (request.proposal.source !== "manual") throw Error("Agent proposals use the service merge operation");
           result = this.editRecovery.propose(request.recoveryId,request.expectedRevision,request.proposal);
-          break;
-        case "edit-recovery.cancel":
-          this.editMergeJobs.get(request.recoveryId)?.abort();
-          result = {retained:true};
           break;
         case "edit-recovery.commit":
           result = this.editRecovery.commit(request.recoveryId,request.expectedRevision,titled(request.text),request.basedOnRevision,request.mutation,request.identityChanges);
@@ -3149,7 +3032,6 @@ export class OutlinerServer {
         this.extensionRules.blockChanged(event.blockId, event.change!.actor, event.change!.kind as "create" | "edit" | "move" | "restore" | "delete");
       }
     }
-    if (events.some(event => event.domain === "content")) this.inbox?.wake();
     return events;
   }
 
@@ -3292,7 +3174,6 @@ export class OutlinerServer {
     if (!base) return;
     this.broadcast(base);
     if (base.domain === "content" && base.blockId) this.refreshAttentionForBlock(base.blockId);
-    if (base.domain === "content") this.inbox?.wake();
   }
 
   private accept(socket: Socket, buffered = ""): void {

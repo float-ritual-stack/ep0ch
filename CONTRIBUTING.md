@@ -148,7 +148,7 @@ how to check it (automated when possible), so it can be retired once a test or t
   litestream's folder mode failing quietly for an hour. Check: a test for the failure path's output.*
 - **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
   or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
-  `XDG_CONFIG_HOME`, `OUTLINER_INBOX_AGENT=0`.*
+  `XDG_CONFIG_HOME`.*
 - **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
   view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
   session drew every frame of a busy terminal tile, about 30% of a core). Still to check: the media cache's
@@ -222,8 +222,8 @@ timestamps.
   combined source and update the PR's evidence to the exact revision being reviewed.
 - CodeRabbit's generic docstring warning is advisory here. Add comments only when they explain a non-obvious
   invariant.
-- Merge yourself once review is resolved: `gh pr merge --squash --delete-branch`, then `git pull --ff-only` in the
-  live checkout.
+- Merge yourself once review is resolved: `gh pr merge --squash` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in; delete the remote branch alone with `gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). The live checkout
+  moves only through `ep0ch install --apply`, run by the deployer.
 
 ## Documentation
 

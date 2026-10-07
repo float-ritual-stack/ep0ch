@@ -10,7 +10,7 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
  */
 export function launchService(env: Record<string, string | undefined>) {
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], {
-    env: { PATH: process.env.PATH, OUTLINER_INBOX_AGENT: "0", ...env },
+    env: { PATH: process.env.PATH, ...env },
     stdout: "pipe", stderr: "pipe", stdin: "ignore",
     timeout: 15_000, killSignal: "SIGKILL",
   });

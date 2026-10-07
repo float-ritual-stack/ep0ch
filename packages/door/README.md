@@ -2262,7 +2262,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
 by keys and through the control socket, with the service's plans (`views.planWrite`; its planning is
 tested in the outliner's `test/view-writes.test.ts`). `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
 writes against a throwaway outline host they start themselves (`test/scratch.ts`: its own outlines folder,
-one outline, Inbox agents off). `test/platform.test.ts` covers which lanes a change asks again, a dropped
+one outline). `test/platform.test.ts` covers which lanes a change asks again, a dropped
 connection's catch-up, a host restart (graceful, with the door connected), a feed reset, and a host on another
 `PROTOCOL` refused with the side to update. `test/move.test.ts` also checks every lane after the
 moves against the outliner's own `saved-view-read.ts`, and `test/grammar.test.ts` the door's titles

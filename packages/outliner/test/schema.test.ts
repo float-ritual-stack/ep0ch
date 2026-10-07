@@ -4,11 +4,11 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rena
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
-import { readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
+import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
-import { migrate } from "../scripts/migrations/0002-outline-instance-id";
+import { DROPPED_TABLES, migrate } from "../scripts/migrations/0003-drop-agent-tables";
 
 const directories: string[] = [];
 function directory(): string {
@@ -94,29 +94,65 @@ test("the stamp script stamps a database whose shape matches, column order and f
   store.close();
 });
 
-test("the version 2 migration adds an outline instance id without touching blocks", () => {
-  const path = join(directory(), "outliner.sqlite");
-  unstamped(path, database => database.exec("PRAGMA user_version = 1"));
-  const before = readFileSync(path);
-  const migrated = migrate(path);
-  expect(migrated.migrated).toBe(true);
-  expect(migrated.outlineInstanceId).toBe(outlineInstanceId(path));
-  expect(userVersion(path)).toBe(2);
-  expect(migrate(path)).toEqual({ migrated: false, outlineInstanceId: migrated.outlineInstanceId });
-  const after = readFileSync(path);
-  expect(after.equals(before)).toBe(false);
+/** The tables schema version 2 had and 3 dropped, as version 2 created them, plus a preserved capture it keeps. */
+const VERSION_2_TABLES = `
+  CREATE TABLE inbox_agent_settings (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), paused INTEGER NOT NULL CHECK (paused IN (0, 1)));
+  INSERT INTO inbox_agent_settings (singleton, paused) VALUES (1, 0);
+  CREATE TABLE inbox_agent_instructions (source_id TEXT PRIMARY KEY, instructions TEXT NOT NULL);
+  CREATE TABLE inbox_retry_triggers (source_id TEXT PRIMARY KEY, trigger TEXT NOT NULL);
+  CREATE TABLE note_assistance_state (block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE, handled_revision INTEGER NOT NULL,
+    state_json TEXT NOT NULL CHECK (json_valid(state_json)));
+  INSERT INTO inbox_agent_results VALUES ('result', 'source', NULL, 'hash', '{}', '{"before":[]}', '2026-01-01T00:00:00.000Z');
+  INSERT INTO note_assistance_results VALUES ('assisted', 'source', 1, NULL, 'hash', '{}', '{"before":[]}', '2026-01-01T00:00:00.000Z');
+  PRAGMA user_version = 2;
+`;
+
+/** A version-2 database holding one note: the current schema plus the dropped tables. */
+function version2(path: string, change?: (database: Database) => void): string {
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toBe(outlineInstanceId(path));
+  const id = store.create("Kept through the migration").id;
+  store.close();
+  const database = new Database(path);
+  database.exec(VERSION_2_TABLES);
+  change?.(database);
+  database.close();
+  return id;
+}
+
+const tables = (path: string) => {
+  const database = new Database(path, { readonly: true });
+  try { return (database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(row => row.name); } finally { database.close(); }
+};
+
+test("the version 3 migration drops the agent state tables, keeping preserved captures and blocks", () => {
+  const path = join(directory(), "outliner.sqlite");
+  const noteId = version2(path);
+  const id = outlineInstanceId(path);
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`schema version 2; .*0003-drop-agent-tables\\.ts`));
+  const migrated = migrate(path);
+  expect(migrated).toEqual({ migrated: true, outlineInstanceId: id });
+  expect(userVersion(path)).toBe(3);
+  for (const table of DROPPED_TABLES) expect(tables(path)).not.toContain(table);
+  // The preserved history stays, row for row.
+  const kept = new Database(path, { readonly: true });
+  expect(kept.query("SELECT id, recovery_json FROM inbox_agent_results").all()).toEqual([{ id: "result", recovery_json: '{"before":[]}' }]);
+  expect(kept.query("SELECT id FROM note_assistance_results").all()).toEqual([{ id: "assisted" }]);
+  kept.close();
+  expect(schemaDifferences(schemaShape(new Database(path, { readonly: true })), freshSchemaShape())).toEqual([]);
+  expect(migrate(path)).toEqual({ migrated: false, outlineInstanceId: id });
+  const store = new OutlinerStore(path);
+  expect(store.outlineInstanceId).toBe(id);
+  expect(store.get(noteId)?.text).toBe("Kept through the migration");
   store.close();
 });
 
-test("a version 2 database missing its instance id is refused with the exact repair command, and 0002 repairs it", () => {
+test("a version 3 database missing its instance id is refused with the exact repair command, and 0003 repairs it", () => {
   const path = join(directory(), "outliner.sqlite");
   new OutlinerStore(path).close();
   const database = new Database(path);
   database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id; repair it with \`bun \\S+/scripts/migrations/0002-outline-instance-id\\.ts ${path}\``));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id; repair it with \`bun \\S+/scripts/migrations/0003-drop-agent-tables\\.ts ${path}\``));
   // Not while a store (a service) has it open.
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
@@ -128,18 +164,20 @@ test("a version 2 database missing its instance id is refused with the exact rep
   expect(migrate(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
   new OutlinerStore(path).close();
 });
-test("the version 2 migration refuses a version 1 database whose shape differs", () => {
-  const path = join(directory(), "outliner.sqlite");
-  unstamped(path, database => database.exec(`
-    PRAGMA user_version = 1;
-    CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);
-  `));
-  const before = readFileSync(path);
-  expect(() => migrate(path)).toThrow("does not match schema version 1");
-  expect(readFileSync(path).equals(before)).toBe(true);
-  expect(userVersion(path)).toBe(1);
-});
 
+test("the version 3 migration refuses a version 2 database whose shape differs, and one at another version", () => {
+  const path = join(directory(), "outliner.sqlite");
+  version2(path, database => database.exec("CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);"));
+  const before = readFileSync(path);
+  expect(() => migrate(path)).toThrow("does not match schema version 2");
+  expect(readFileSync(path).equals(before)).toBe(true);
+  expect(userVersion(path)).toBe(2);
+  expect(tables(path)).toContain("inbox_agent_settings");
+  const other = join(directory(), "outliner.sqlite");
+  unstamped(other, database => { insertOutlineInstanceId(database); database.exec("PRAGMA user_version = 1"); });
+  expect(() => migrate(other)).toThrow("is schema version 1, not 2");
+  expect(userVersion(other)).toBe(1);
+});
 
 test("a copied database file has a different outline instance id", () => {
   const root = directory();

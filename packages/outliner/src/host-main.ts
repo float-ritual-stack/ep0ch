@@ -1,7 +1,6 @@
 import { HerdrRuntimeRegistry } from "./herdr-registry";
 import { HerdrRegistryRunner } from "./herdr-runtime";
 import { OutlineHost } from "./outline-host";
-import { startOutlineInbox } from "./outline-inbox";
 import { resolveOutlinesFolder } from "./paths";
 import { recoverPaused } from "./litestream-guard";
 
@@ -55,10 +54,6 @@ try {
     },
     onOpen: outline => {
       console.error(`Outline "${outline.name}" open: ${outline.database}`);
-      startOutlineInbox(outline.server, {
-        workspaceRoot: outline.workspaceRoot, promptDirectory: outline.promptDirectory,
-        stateDirectory: outline.stateDirectory, stopped: () => stopping,
-      });
     },
   });
   await host.start();

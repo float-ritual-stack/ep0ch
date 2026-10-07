@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
-import {mkdir,readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdir} from 'node:fs/promises';
 import {visibleWidth} from '@earendil-works/pi-tui';
 import {OutlinerClient} from '../../src/client';
 import {OutlinerServer} from '../../src/server';
 import {OutlinerStore} from '../../src/store';
 import type {Block,BrowsingContextState} from '../../src/types';
-import type {InboxStatus} from '../../src/inbox-types';
 import {runHerdrScenario} from './herdr-runner';
 
 let sourceId='';
@@ -23,13 +21,6 @@ const result=await runHerdrScenario({
    await client.request({action:"work-ids.configure",prefix:"HUB"});
    await client.request<Block>({action:'create',text:'PREVIEW DESTINATION [page::PC-7]\n\n> [!summary] Destination content\n> Followed inside the local reader.'});
    const receipt=await client.request<{block:Block}>({action:'capture.create',source:'cli',requestId:'preview-links-source',text:`PREVIEW ORIGIN\n\nPC-7\n\n${'Paragraph to scroll and copy.\n\n'.repeat(30)}`});sourceId=receipt.block.id;
-   server.enableInbox(async({source})=>({plan:{summary:'Retained linked fixture',source:{text:source.text,disposition:'file'},notes:[],tasks:[],updates:[]},usage:{provider:'fixture',model:'fixture',inputTokens:0,outputTokens:0,cost:0,jevCalls:0,elapsedMs:0}}));
-   for(let i=0;i<200;i++){
-    const status=await client.request<InboxStatus>({action:'inbox.status'});
-    if(status.results.length&&!status.current)return;
-    await Bun.sleep(50);
-   }
-   throw Error('Fixture receipt did not finish');
   }finally{await server.close();store.close();}
  },
  async run(session){
@@ -41,7 +32,7 @@ const result=await runHerdrScenario({
   const point=(text:string,label:string)=>{
    const lines=text.split('\n');const row=lines.findIndex(line=>line.includes(label));
    // Tree's bar buttons are right-aligned; its identity ("● Tree") is the left-aligned anchor.
-   const anchorText=text.includes('Inbox agent')?'Inbox agent':(text.includes('● Tree')?'● Tree':'○ Tree');
+   const anchorText=(text.includes('● Tree')?'● Tree':'○ Tree');
    const anchor=lines.findIndex(line=>line.includes(anchorText));
    if(row<0||anchor<0)return null;
    const column=visibleWidth(lines[row]!.slice(0,lines[row]!.indexOf(label)))+1;
@@ -73,18 +64,6 @@ const result=await runHerdrScenario({
    await session.checkpoint(`tree-links-${columns}`);
   }
   await session.focus(panes.tree);await terminal.resize(180,70);
-  await session.keys(panes.tree,'alt+p','I');await session.waitVisible(panes.tree,'Inbox agent');
-  await session.waitVisible(panes.tree,'PC-7');
-  await click('PC-7');await session.waitVisible(panes.tree,'Preview · Source · current · PREVIEW DESTINATION');
-  await click('[‹]');await session.waitVisible(panes.tree,'PC-7');
-  // Dragging a link sends clipboard text and must not navigate.
-  const frame=await session.waitFor('native source restored',terminal.visible,text=>text.includes('PC-7'));const rows=frame.split('\n');const row=rows.findIndex(line=>line.includes('PC-7'));const column=visibleWidth(rows[row]!.slice(0,rows[row]!.indexOf('PC-7')));
-  await terminal.write(`\x1b[<0;${column+1};${row+1}M\x1b[<32;${column+4};${row+1}M\x1b[<0;${column+4};${row+1}m`);
-  await session.waitFor('clipboard text',()=>readFile(join(session.artifactDirectory,'attached-client.ansi'),'utf8'),text=>[...text.matchAll(/\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)/g)].some(match=>Buffer.from(match[1]!,'base64').toString().includes('PC')));
-  assert.ok((await session.visible(panes.tree)).includes('PC-7'));
-  await session.keys(panes.tree,'shift+tab','enter');await session.waitVisible(panes.tree,'PREVIEW DESTINATION');
-  await session.keys(panes.tree,'esc');await session.waitFor('Escape returns to Inbox list',()=>session.visible(panes.tree),text=>text.includes('○ Preview')&&!text.includes('● Preview'));
-  await session.checkpoint('inbox-click-copy-history');
  }
 });
 console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

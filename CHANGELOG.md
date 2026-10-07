@@ -10,6 +10,45 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Inbox agent and note assistance are gone (PIE-613)
+
+- **Removed:** the Inbox agent (Tree's `Shift+I` panel, its results, Pause, Undo, Reconsider and Inbox history
+  search), note assistance (automatic types, tags and answers, and **Assist this note**), and edit recovery's
+  **Ask agent** merge. Edit recovery itself stays: the mechanical merge, the versions, Edit draft, Save separate,
+  Discard and Restore. The Inbox note, Quick Capture and where new notes go are unchanged; file what lands in
+  the Inbox yourself or ask an agent to.
+- **Your original writing stays.** What the agent rewrote is still kept, read only: a cleaned note's **Original
+  capture** and **Before this rewrite** links still open the exact text it started from, and comments on those
+  originals still work. Note assistance's originals are kept too, not yet shown anywhere (PIE-345).
+- **Gone with them:** `OUTLINER_INBOX_AGENT`, `OUTLINER_NOTE_ASSISTANCE` and `OUTLINER_INBOX_TIMEOUT_MS`, the
+  `inbox.*`, `edit-recovery.assist` and `edit-recovery.cancel` actions, the `inbox` event, the prompt files
+  `inbox-editor.md`, `inbox-relationships.json`, `inbox-routing.json`, `note-assistance.json`, `note-answer.md`
+  and `edit-merge.md` (`goto-ranking.json` stays; old copies in an outline's `prompts/` are left alone and unused),
+  and the outline folder's `assistant-sessions/`, no longer written.
+- **What to run:** protocol is now 102 and the schema version 3, so the host and every client move together, and
+  the new host refuses an outline still at version 2 until it is migrated. On each machine, from its checkout:
+
+  ```sh
+  # float-2: pie and pie-hole
+  cd ~/projects/ep0ch && ep0ch install --apply        # backs up the outlines and moves the code
+  systemctl --user stop outliner-host.service
+  for o in pie pie-hole; do bun packages/outliner/scripts/migrations/0003-drop-agent-tables.ts ~/outlines/$o.sqlite; done
+  systemctl --user start outliner-host.service
+
+  # the MacBook: float-hub, sysops-log, bbs, boops, float-bbs-test, techno-breakout
+  cd ~/projects/ep0ch && ep0ch install --apply
+  launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host
+  for o in float-hub sysops-log bbs boops float-bbs-test techno-breakout; do
+    bun packages/outliner/scripts/migrations/0003-drop-agent-tables.ts ~/outlines/$o.sqlite
+  done
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.ep0ch.outliner-host.plist
+  ```
+
+  In one transaction it drops the four agent state tables (`inbox_agent_settings`, `inbox_agent_instructions`,
+  `inbox_retry_triggers`, `note_assistance_state`), keeps `inbox_agent_results` and `note_assistance_results` as
+  they are, and stamps version 3, or changes nothing and says why. It refuses a file a host is serving. The
+  `OUTLINER_INBOX_AGENT=0` and `OUTLINER_NOTE_ASSISTANCE=0` lines in the host's unit are now unused and harmless.
+
 ### Rules: when a block matches, draw this or run this (PIE-600)
 
 - **A rule note, no code.** Write a note like `Committee headings [rule-name::committee-bands] [rule-kind::heading:2]

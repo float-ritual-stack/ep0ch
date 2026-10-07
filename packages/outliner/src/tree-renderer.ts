@@ -5,7 +5,6 @@ import type {DocumentPreviewFrame} from "./document-preview-renderer";
 import {renderNavigationDestinationPreview} from './navigation-destination-menu';
 import {TREE_HINT_ROWS, treePreviewFrame} from './tree-preview';
 import { renderGotoFrame } from "./goto-renderer";
-import { renderInboxFrame } from "./inbox-renderer";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { currentAttentionMark } from "./attention";
 import {
@@ -478,11 +477,6 @@ export function renderTreeFrame(
   const clear = options.clearScreen === false ? "" : `${ESC}H${ESC}2J`;
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 
-  if (view.mode === "inbox" && view.inbox) {
-    const lines = renderInboxFrame(view.inbox, width, height, view.recoveryHelp ? `${view.recoveryHelp}\n${view.recoveryStatus}` : view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "inbox"));
-    return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [], preview:undefined };
-  }
-
   if (view.mode === "goto" && view.goto) {
     const lines = renderGotoFrame(view.goto, width, height, view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "goto"));
     return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [] };
@@ -512,7 +506,7 @@ export function renderTreeFrame(
   }
   if (!compact) {
     const counts = `${countLabel(view.physicalRowCount, "physical block")} · ${countLabel(view.occurrenceRowCount, "projected occurrence")}`;
-    output.push(truncateToWidth(`\x1b[2m${truncate(view.workspaceRoot, Math.max(1, Math.floor(width / 3)))} · ${view.inboxCue ? `${outlinerActionLink("tree.inbox.open", view.inboxCue)} · ` : ""}${counts}\x1b[0m`, width));
+    output.push(truncateToWidth(`\x1b[2m${truncate(view.workspaceRoot, Math.max(1, Math.floor(width / 3)))} · ${counts}\x1b[0m`, width));
     if (breadcrumb) output.push(breadcrumb.line);
     output.push(view.navigationDestinationLabel === undefined ? "─".repeat(width)
       : outlinerActionLink("tree.navigation.link", truncateToWidth(`Opens in: ${truncateToWidth(sanitizeDynamicText(view.navigationDestinationLabel), Math.max(1, width - 21))} / Change`, width)));

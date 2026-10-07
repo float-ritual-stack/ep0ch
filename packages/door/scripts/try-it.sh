@@ -46,7 +46,7 @@ serve() {
   # The -u list is HERDR_VARS in src/desk/pty.ts (test/runtime-parts.test.ts checks they match).
   (cd "$outliner" && exec env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u EP0CH_SOCKET -u EP0CH_WS \
     EP0CH_OUTLINES="$1/outlines" EP0CH_DEFAULT_WS="$2" XDG_CONFIG_HOME="$1/config" \
-    OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun src/host-main.ts >"$3" 2>&1) &
+    bun src/host-main.ts >"$3" 2>&1) &
   pid=$!
   sock="$1/outlines/.host/host.sock"
   # 0.2 s a check; EP0CH_TRY_START_CHECKS shortens the wait for tests.

@@ -1,6 +1,6 @@
 /**
- * The one text matcher every search uses: Tree's Goto (`tree.search`), Inbox
- * history (`inbox.search`), `[[` completion (`pages.complete`), the backlink
+ * The one text matcher every search uses: Tree's Goto (`tree.search`),
+ * `[[` completion (`pages.complete`), the backlink
  * filter, and the door's `((` popup, search overlay and list filters.
  *
  * It forgives what an editor, a person or a model changes without meaning to:

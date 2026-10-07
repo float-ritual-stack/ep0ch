@@ -7,8 +7,6 @@ import {OutlinerClient} from "../src/client";
 import type {Block, CaptureOwnerClaim, QuickCaptureDraft, QuickCaptureDraftSaveInput} from "../src/types";
 import type {EditRecovery} from "../src/edit-recovery";
 import {OutlinerStore} from "../src/store";
-import {InboxRepository} from "../src/inbox-repository";
-import {NoteAssistanceRepository} from "../src/note-assistance-repository";
 
 test("prepared capture retains one protected note through restart, edits and retried submission", () => {
   const directory = mkdtempSync(join(tmpdir(), "outliner-docked-capture-"));
@@ -20,18 +18,12 @@ test("prepared capture retains one protected note through restart, edits and ret
     expect(draft.blockId).toBeString();
     const blockId = draft.blockId!;
     expect(store.require(blockId).text).toBe("  A draft\n- keep this\n");
-    expect(new InboxRepository(store).pending().map(b=>b.id)).not.toContain(blockId);
-    let notes = new NoteAssistanceRepository(store); notes.initialize();
-    expect(notes.candidateFor(blockId)).toBeUndefined();
     store.close(); store = new OutlinerStore(path);
     expect(store.quickCaptureDraft()).toEqual(draft);
     const changed = "  A draft\n- keep this\n  - another step\n";
     draft = store.saveQuickCaptureDraft({...draft,text:changed,cursorRow:2,cursorColumn:4,expectedRevision:draft.revision,prepareBlock:true});
     expect(draft.blockId).toBe(blockId);
     expect(store.require(blockId).text).toBe(changed);
-    expect(new InboxRepository(store).pending().map(b=>b.id)).not.toContain(blockId);
-    notes = new NoteAssistanceRepository(store);
-    expect(notes.pending().map(c=>c.source.id)).not.toContain(blockId);
     expect(()=>store.capture("docked",changed,"cli",undefined,"user",undefined,draft.revision)).toThrow(/provenance/);
     const receipt = store.capture("docked", changed, "tree", undefined, "user", undefined, draft.revision);
     expect(receipt.block.id).toBe(blockId);
@@ -46,7 +38,6 @@ test("prepared capture retains one protected note through restart, edits and ret
     const replay = store.capture("docked", changed, "tree", undefined, "user", undefined, draft.revision);
     expect(replay).toMatchObject({deduplicated:true,block:{id:blockId}});
     expect(store.children(receipt.inboxBlockId)).toHaveLength(1);
-    expect(new InboxRepository(store).pending().map(b=>b.id)).toContain(blockId);
     expect(store.quickCaptureDraft()).toBeNull();
   } finally {store.close();rmSync(directory,{recursive:true,force:true});}
 });

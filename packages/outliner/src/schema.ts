@@ -19,10 +19,10 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * new one. It is run by hand on the outlines that matter and deleted once done
  * (git keeps it); for a large change, a fresh database plus `outliner import`
  * (src/outline-import.ts) is the other way. Every table is created here,
- * including those one subsystem uses alone (the Inbox agent, workflows), so a
+ * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -727,11 +727,10 @@ export const SCHEMA_SQL = `
     created_at TEXT NOT NULL
   );
 
-  -- The Inbox agent (inbox-repository.ts, inbox-attempts.ts).
-  CREATE TABLE IF NOT EXISTS inbox_agent_settings (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    paused INTEGER NOT NULL CHECK (paused IN (0, 1))
-  );
+  -- Preserved history, read only. The removed Inbox agent and note assistance (PIE-613) kept the
+  -- person's original writing here: each result's recovery_json holds the before-images of the notes
+  -- it rewrote. capture-history.ts reads inbox_agent_results ("Preserved capture", raw-capture and
+  -- before-rewrite links); nothing reads note_assistance_results yet (PIE-345). Nothing writes either.
   CREATE TABLE IF NOT EXISTS inbox_agent_results (
     id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
@@ -741,20 +740,7 @@ export const SCHEMA_SQL = `
     recovery_json TEXT CHECK (recovery_json IS NULL OR json_valid(recovery_json)),
     created_at TEXT NOT NULL
   );
-  INSERT OR IGNORE INTO inbox_agent_settings (singleton, paused) VALUES (1, 0);
   CREATE INDEX IF NOT EXISTS inbox_agent_results_source ON inbox_agent_results(source_id, suppressed_revision);
-  CREATE TABLE IF NOT EXISTS inbox_agent_instructions (
-    source_id TEXT PRIMARY KEY,
-    instructions TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS inbox_retry_triggers (source_id TEXT PRIMARY KEY, trigger TEXT NOT NULL);
-
-  -- Note assistance (note-assistance-repository.ts).
-  CREATE TABLE IF NOT EXISTS note_assistance_state (
-    block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-    handled_revision INTEGER NOT NULL,
-    state_json TEXT NOT NULL CHECK (json_valid(state_json))
-  );
   CREATE TABLE IF NOT EXISTS note_assistance_results (
     id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
@@ -788,14 +774,14 @@ const userVersion = (database: Database) => (database.query("PRAGMA user_version
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 
-/** The one-off script that gives a database its outline instance id (schema 1 → 2, and repairs a 2 without one). */
-const INSTANCE_ID_SCRIPT = join(import.meta.dir, "../scripts/migrations/0002-outline-instance-id.ts");
+/** The one-off script for schema 2 → 3, which also repairs a version-3 database without an outline instance id. */
+const UPGRADE_SCRIPT = join(import.meta.dir, "../scripts/migrations/0003-drop-agent-tables.ts");
 
 export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
   const value = row?.value;
   if (!value || !BLOCK_ID_PATTERN.test(value)) {
-    throw new Error(`The outline database ${path} has no valid outline instance id; repair it with \`bun ${INSTANCE_ID_SCRIPT} ${path}\` while no service serves it`);
+    throw new Error(`The outline database ${path} has no valid outline instance id; repair it with \`bun ${UPGRADE_SCRIPT} ${path}\` while no service serves it`);
   }
   return value.toLowerCase();
 }
@@ -809,7 +795,7 @@ export function insertOutlineInstanceId(database: Database, value = randomUUID()
 /** The one-off script that upgrades a database at `version`, when there is one. */
 const UPGRADES: Readonly<Record<number, string>> = {
   0: `bun ${join(import.meta.dir, "../scripts/migrations/0001-stamp.ts")} <database>`,
-  1: `bun ${INSTANCE_ID_SCRIPT} <database>`,
+  2: `bun ${UPGRADE_SCRIPT} <database>`,
 };
 
 /**
