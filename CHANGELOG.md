@@ -24,7 +24,7 @@ are its record. The outliner's entries from then are kept below, under
   (`semantic: true` asks); a top-level path is `(root)`; a mirror says which copy it serves (`copy`) and serves the
   newer of the follower's and the backup job's; `list_outlines` and `ep0ch mcp access` say to reconnect claude.ai's
   connector after an access change; a laptop that hasn't pulled its queued writes is said in `list_outlines` and doctor.
-- **Run:** PROTOCOL __P__: `ep0ch install --apply` on float-2 and the laptop, then restart the outline host, the MCP
+- **Run:** PROTOCOL 104: `ep0ch install --apply` on float-2 and the laptop, then restart the outline host, the MCP
   gateway (`ep0ch-mcp.service`) and every door.
 
 ### Write from claude.ai: remote MCP writes, and a queue for the laptop's outlines (PIE-615)
