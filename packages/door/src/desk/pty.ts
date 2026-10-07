@@ -10,6 +10,7 @@
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
 import { inLoginShell, isAgentCmd, programName } from "./drawer-program";
+import { inResize } from "../resize";
 import { scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
 import { unlink } from "node:fs/promises";
@@ -521,7 +522,10 @@ export class PtyPane implements Pane {
   render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
     if (!this.term) this.start(w, h);
-    else if (w !== this.cols || h !== this.rows) {
+    // While a resize goes on (src/resize.ts) the program keeps its size, and the tile shows it cut or padded: one size
+    // a frame each meant a SIGWINCH a frame, and a program's output made for one width arriving after the emulator had
+    // moved to the next was wrapped mid-word at that width, for good. The size it ends at is sent once, when it ends.
+    else if ((w !== this.cols || h !== this.rows) && !inResize()) {
       this.cols = w; this.rows = h;
       this.term.resize(w, h);
       if (this.running) try { this.proc?.resize(w, h); } catch { /* exiting */ }
