@@ -44,6 +44,7 @@ export const SEED = {
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
   recentFiles: "Files a session touched",
+  headings: "Headings and dividers",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -713,6 +714,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}]`, SEED_AGENT);
     for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
   }
+  notes.headings = await make(notes.root.id, HEADINGS);
+  await make(notes.headings.id, HEADING_STYLE_NOTE);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
@@ -751,6 +754,48 @@ export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
   const hits = await board.byProp(SHOWCASE_MARK.key, SHOWCASE_MARK.value, 5);
   return hits.find(m => m.parentId === null) ?? null;
 }
+
+/**
+ * Heading styles (PIE-599): every built-in pattern, alignment and row on a plain Markdown heading, a styled rule, a plain
+ * one, and a style the outline declares (the child note) so the look changes with no door change; each with a body to
+ * fold.
+ */
+const HEADINGS = [
+  `${SEED.headings} [page::${SEED.headings}]`,
+  "A heading keeps its Markdown; a style from the outline draws it inside a band. Narrow, it is the heading as written.",
+  "",
+  "# Your calls [heading::band]",
+  "The ones only you can make this week.",
+  "",
+  "## The plot [heading::tab]",
+  "Four raised beds, one left fallow.",
+  "",
+  "## Beds [heading::waffle]",
+  "Leeks, then the brassicas under netting.",
+  "",
+  "### Water butts [heading::uptime]",
+  "Two full, one leaking at the tap.",
+  "",
+  "--- [rule::fade]",
+  "",
+  "## Seed order [heading::plot]",
+  "Peas, broad beans and the climbing French beans.",
+  "",
+  "## Compost [heading::rule]",
+  "Turn the left bay in April.",
+  "",
+  "## Odd jobs [heading::dots]",
+  "Oil the shed hinge.",
+  "",
+  "---",
+  "",
+  "A plain rule above, and a plain heading below.",
+  "",
+  "## Plain",
+  "As Markdown writes it.",
+].join("\n");
+/** The outline's own style, the seed order's: dots, left, on the top row, green. */
+export const HEADING_STYLE_NOTE = "Plot heading style [heading-style::plot] [heading-pattern::dots] [heading-align::left] [heading-row::top] [heading-tone::green]";
 
 /** The first line without its property tokens: how the seed names a note. */
 export const titleOf = (m: Msg) => titleLine(m.text).text.replace(/\s{2,}/g, " ").trim();

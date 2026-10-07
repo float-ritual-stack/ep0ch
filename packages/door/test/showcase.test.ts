@@ -170,6 +170,41 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     for (const f of RECENT_FILES()) expect(existsSync(f.file)).toBe(true);
   });
 
+  test("heading styles (PIE-599): banded wide, as written narrow, nothing past the edge; the outline's own style changes the look with no door change", async () => {
+    const drawn = async (w: number) => (await drawNote(board, seeded.notes.headings.id, w))!.map(plain);
+    for (const w of [40, 80, 160]) {
+      const lines = await drawn(w), text = lines.join("\n");
+      const wide = lines.filter(l => Bun.stringWidth(l) > w);
+      expect(wide, `at ${w}: ${wide.slice(0, 3).join(" | ")}`).toEqual([]);
+      expect(text).not.toMatch(/\[heading::|\[rule::/);
+      if (w === 40) {
+        for (const h of ["# Your calls", "## The plot", "## Beds", "### Water butts", "## Seed order", "## Compost", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
+        expect(lines.map(l => l.trim()).filter(l => l === "---").length).toBe(2);
+      } else {
+        expect(text).toMatch(/[▓▒░]{3}.*Y O U R   C A L L S.*[▓▒░]{3}/);
+        expect(text).toMatch(/THE PLOT +▓/);
+        expect(text).toMatch(/─  (?:▾ )?COMPOST  ─/);
+        // The styled rule fades in from both edges; the plain one is as written.
+        expect(lines.some(l => /^ ?▓.*▓\s*$/.test(l) && !/[A-Za-z]/.test(l))).toBe(true);
+        expect(text).toContain("▾ ## Plain");
+        expect(text).not.toContain("## Beds");
+      }
+    }
+    // The plot style is a note in the outline: dots on the top row. Restyled to the rule pattern, the seed order is drawn
+    // on a rule band, by the same door.
+    const before = (await drawn(100)).find(l => l.includes("Seed order"))!;
+    expect(before).toMatch(/Seed order.*·/);
+    const style = (await board.byProp("heading-style", "plot", 5))[0]!;
+    const { revision, tokens } = await board.propertyTokens(style.id, "heading-pattern");
+    await board.patchProperties(style.id, revision, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: "rule" }], { kind: "user" });
+    // A door that connects now (as `ep0ch show` does) asks for the outline's styles and draws the new look.
+    const fresh = new SocketBoard(scratch.sock);
+    try {
+      await fresh.info();
+      expect((await drawNote(fresh, seeded.notes.headings.id, 100))!.map(plain).join("\n")).toMatch(/Seed order  ═{20,}/);
+    } finally { fresh.close(); }
+  }, 20_000);
+
   test("seeding twice is refused", async () => {
     await expect(seedShowcase(board)).rejects.toThrow(/already has a showcase/);
   });
@@ -367,6 +402,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
     // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
     esc: ["Allotment notebook", "Bike shed"],
+    // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
+    headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -447,6 +484,22 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "section", args: { name: "nope" }, as: "test-agent" })).rejects.toThrow(/no section nope/);
     // The shell's actions stay the App's on the showcase: the stage takes only its own (PIE-514).
     expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
+  }, 20_000);
+
+  test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "headings" }, as: "test-agent" })).toMatchObject({ key: "headings" });
+    await until(() => screen().includes("Water butts") && screen().includes("▾ ## Beds"), "both readers on the headings note", 8000);
+    expect(screen()).toMatch(/[▓▒░]{3}.*▾ Y O U R   C A L L S.*[▓▒░]/);
+    // The person goes in: ( ) in the wide reader stops on the first heading, f folds its section there only.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch(")");
+    ch("f");
+    await until(() => /▸ Y O U R   C A L L S · \d+ lines? folded/.test(screen()), "the first heading folded", 5000);
+    expect(screen()).toContain("▾ # Your calls");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {

@@ -12,6 +12,8 @@ import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
+import { BUILTIN_HEADING_STYLE_REGISTRY, styledLine, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { bandLetters, drawBand, drawTrack } from "./figures/banner";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -79,6 +81,11 @@ export interface DocEnv {
   keepTags?: boolean;
   /** The outline's callout types (src/callouts.ts): what `[!type]` draws as. Without it, the built-ins. */
   callouts?: CalloutRegistry;
+  /**
+   * The outline's heading styles (src/heading-styles.ts, PIE-599): what `## x [heading::band]`, `--- [rule::fade]` and
+   * a level's default draw as. Without it, the built-ins (named styles still draw; no level has a default).
+   */
+  headings?: HeadingStyleRegistry;
   /**
    * A callout's icon and type on body line `line` (its header): what tags them both as one control (the reader's
    * type choice, PIE-538), or null to leave them text. Without it (a draft's preview, an embed) they're text.
@@ -205,7 +212,8 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
       const level = h[1]!.length;
       let j = i + 1;
       while (j < src.length && !(block[j] === -1 && (src[j]!.match(HEADING)?.[1]!.length ?? 7) <= level)) j++;
-      add("heading", level, h[2]!, i, trim(i + 1, j));
+      // A heading's style (`[heading::band]`) isn't part of its name: restyling it keeps its fold.
+      add("heading", level, (styledLine(line)?.text ?? line).match(HEADING)?.[2] ?? h[2]!, i, trim(i + 1, j));
       continue;
     }
     const li = line.match(ITEM);
@@ -271,8 +279,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const fp = at.get(i);
     if (fp && env.folds && fp.kind !== "callout") {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
-      const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i), env.task && (box => env.task!(i, box)));
-      heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
+      const disclosure = { folded, selected, hidden: fp.hidden };
+      const styled = fp.kind === "heading" ? styledHeading(line, W, env, lit(i), disclosure) : null;
+      const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)));
+      heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
       continue;
@@ -454,6 +464,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         continue;
       }
     }
+    // A heading or a rule with a style (PIE-599): its band or track, else as written without the style's property.
+    const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && (i === 0 || !src[i - 1]!.trim()) ? styledRule(line, W, env) : null);
+    if (styled) { out.push(...styled.rows); continue; }
     out.push(...prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box))));
   }
   mark();
@@ -557,6 +570,46 @@ const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidd
 
 /** A list item's step box at the start of its text. */
 const BOX = /^\[[ xX~!]\](?=\s|$)/;
+
+/** The style a heading or rule line draws with: the one it names, else its level's (or every rule's) default. */
+function styleOf(line: string, env: DocEnv): { style: HeadingStyle | null; text: string; level: number; kind: "heading" | "rule" } | null {
+  const sl = styledLine(line);
+  if (!sl) return null;
+  const reg = env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
+  const style = sl.style !== null ? reg.style(sl.style) : sl.kind === "heading" ? reg.forLevel(sl.level) : reg.forRule();
+  return { style, text: sl.text, level: sl.level, kind: sl.kind };
+}
+
+/**
+ * A heading with a style (PIE-599): its band (src/figures/banner.ts) and the row its text is on; or, narrower than the
+ * figures' tier rule or too long for the band, the heading as `#` draws it, without the style's property. Null for a
+ * line that isn't a heading, or a heading with no style and no property.
+ */
+function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number } | null {
+  const st = styleOf(line, env);
+  if (!st || st.kind !== "heading" || (st.style === null && st.text === line)) return null;
+  const h = st.text.match(HEADING)!;
+  const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
+  return band ? { rows: band.rows, headRow: band.textRow } : { rows: prose(st.text, W, fold, literal), headRow: 0 };
+}
+
+/** A rule (`---`) with a style: its track, or as written when narrow. Null for a line that isn't one, or a plain one. */
+function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | null {
+  const st = styleOf(line, env);
+  if (!st || st.kind !== "rule" || (st.style === null && st.text === line)) return null;
+  const track = st.style && drawTrack(st.style, W);
+  return { rows: track ?? [fg(C.dark) + st.text.trim() + RESET] };
+}
+
+/**
+ * A styled heading's text as its band draws it: its disclosure, its letters as the style says, in the heading's bold
+ * and the style's tone (neutral: the accent for a #, white for ##, grey deeper), and what a fold hides.
+ */
+function headingLabel(text: string, level: number, style: HeadingStyle, fold?: Disclosure): string {
+  const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
+  const ink = fold?.selected ? C.yellow : style.tone !== "neutral" ? TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
+  return (glyph ? (fold!.selected ? fg(C.yellow) : fg(C.lcyan)) + glyph + " " : "") + BOLD + fg(ink) + styleMarks(bandLetters(text, style.letters), { bold: false }) + UNBOLD + RESET + (fold?.folded ? foldedNote(fold) : "");
+}
 
 /** Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). */
 function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null): string[] {

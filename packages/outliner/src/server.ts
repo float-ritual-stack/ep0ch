@@ -1,5 +1,6 @@
 import { queryRequestProblem } from "./block-query";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
+import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import type { RequestInput } from "./client";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
@@ -2622,6 +2623,13 @@ export class OutlinerServer {
           const declared = this.store.queryBlocks({ filters: [{ key: "callout-type" }], limit: 500 });
           const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
           result = { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
+          break;
+        }
+        case "headings.styles": {
+          // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles with notes.
+          const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], limit: 500 });
+          const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+          result = { ...headingStylesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
           break;
         }
         case "references.backlinks":
