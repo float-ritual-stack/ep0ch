@@ -29,7 +29,7 @@ import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSa
 import { copyNote, diffNote, oldUnsentLine, takeBackSpans, UNSENT_LABEL, unsentEntries, unsentView, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { inWindow, type Placement } from "../kitty";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
-import { backdrop, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type Backdrop } from "./hero-header";
+import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -504,7 +504,7 @@ export class NoteSurface {
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
   private hero: { line: number; full: number } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
-  private backdropShown: { image: string; line: number; step: number; of: number; drawn: "kitty" | "cells" | "making" | null } | null = null;
+  private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string } | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
@@ -732,39 +732,63 @@ export class NoteSurface {
   }
 
   /**
-   * The header's backdrop this render draws (PIE-598), or null: the note's hero image (the header image drawn above
-   * the title, else its first `[layout::hero]` image, else an image that is its first block), at the step for how far
-   * it has gone under the header: the header image's rows scrolled away, a body image's rows scrolled above the note,
-   * or (not drawn: cells) the rows scrolled past its line. Kept for describe (`header.backdrop`).
+   * The header's backdrop this render draws (PIE-598): the picture that has gone under the header (heroSources), at
+   * the step for how far it has gone; in follow mode, a picture still coming in is drawn over the one before it at
+   * full, so one fades into the next and the header never drops to plain between them. Kitty: their placements (the
+   * one before a layer lower); cells: the colours under each header cell. Kept for describe (`header.backdrop`).
    */
-  private heroBackdrop(m: Msg, doc: Doc, noteLines: number[], w: number, rows: number, host?: SurfaceHost): Backdrop | null {
+  private heroBackdrop(m: Msg, doc: Doc, noteLines: number[], w: number, rows: number, host?: SurfaceHost): { placements: Placement[]; grid: CellGrid | null } {
     this.backdropShown = null;
-    if (!heroHeaderOn() || !host || rows < 1) return null;
-    const pick = this.heroSource(m, doc, noteLines);
-    if (!pick) return null;
-    const entry = media(pick.path, pick.kind);
-    if (entry.state !== "ready") return null;
-    const step = heroStep(pick.gone);
-    const shade = backdrop(entry, pick.focus, pick.dim, step, w, rows, ...cellOf(host), !!host.ctx.graphics);
-    this.backdropShown = { image: pick.path.split("/").pop() ?? pick.path, line: pick.line + 1, step, of: HERO_STEPS, drawn: !step ? null : !shade ? "making" : "grid" in shade ? "cells" : "kitty" };
-    return shade;
+    const none = { placements: [], grid: null };
+    if (!heroHeaderOn() || !host || rows < 1) return none;
+    const mode = heroHeaderMode(), all = this.heroSources(m, doc, noteLines, mode);
+    if (!all.length) return none;
+    // The last that has gone under (the first, before any has); in first mode there's only the hero.
+    const at = Math.max(0, all.findLastIndex(x => x.gone > 0)), pick = all[at]!, step = heroStep(pick.gone);
+    const graphics = !!host.ctx.graphics, cell = cellOf(host);
+    const draw = (x: (typeof all)[number], n: number, over: { grid?: CellGrid; z?: number } = {}) => {
+      const entry = media(x.path, x.kind);
+      return entry.state === "ready" ? backdrop(entry, x.focus, x.dim, n, w, rows, ...cell, graphics, over) : null;
+    };
+    const before = mode === "follow" && at > 0 && step < HERO_STEPS ? all[at - 1]! : null;
+    const under = before ? draw(before, HERO_STEPS, { z: -3 }) : null;
+    const shade = draw(pick, step, under && "grid" in under ? { grid: under.grid } : {});
+    const name = (x: { path: string }) => x.path.split("/").pop() ?? x.path;
+    this.backdropShown = {
+      image: name(pick), line: pick.line + 1, step, of: HERO_STEPS, mode, drawn: !step && !under ? null : !shade && !under ? "making" : graphics ? "kitty" : "cells",
+      ...(before && under ? { over: name(before) } : {}),
+    };
+    if (!graphics) return { placements: [], grid: shade && "grid" in shade ? shade.grid : under && "grid" in under ? under.grid : null };
+    return { placements: [under, shade].flatMap(b => (b && "placement" in b ? [b.placement] : [])), grid: null };
   }
 
-  /** The image a header's backdrop is made from (heroBackdrop), with its note line and how far it has gone under (0–1). */
-  private heroSource(m: Msg, doc: Doc, noteLines: number[]): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number } | null {
+  /**
+   * The pictures a header's backdrop can be made from, in reading order, each with its note line and how far it has
+   * gone under the header (0–1): the header image's rows scrolled away, a body image's rows scrolled above the note,
+   * or (not drawn: cells) the rows scrolled past its line. First mode: the hero only (the header image drawn above the
+   * title, else the first `[layout::hero]` image, else an image that is the note's first block). Follow: the header
+   * image, then every image in the body.
+   */
+  private heroSources(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
+    const look = (spec: MediaSpec) => ({ ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) });
+    const out: ReturnType<NoteSurface["heroSources"]> = [];
     if (this.hero) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
-      return ref ? { path: ref.path, kind: ref.spec.kind, ...(ref.spec.focus ? { focus: ref.spec.focus } : {}), ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), line: ref.line, gone: clamp(this.scroll / Math.max(1, this.hero.full)) } : null;
+      if (ref) out.push({ path: ref.path, kind: ref.spec.kind, ...look(ref.spec), line: ref.line, gone: clamp(this.scroll / Math.max(1, this.hero.full)) });
+      if (mode === "first") return out;
     }
     const all = m.text.split("\n"), first = doc.media[0];
     const firstBlock = first && noteLines[first.line] !== undefined && all.slice(1, noteLines[first.line]).every(l => !l.trim()) ? first : undefined;
-    const x = doc.media.find(x => x.spec.layout === "hero") ?? firstBlock;
-    const line = x && noteLines[x.line];
-    if (!x || line === undefined || x.spec.kind !== "img") return null;
-    const im = x.image !== undefined ? doc.images[x.image] : undefined;
-    const gone = im ? (this.scroll - im.line) / Math.max(1, im.rows) : (this.scroll - x.row) / HERO_RAMP_ROWS;
-    return { path: x.path, kind: x.spec.kind, ...(x.spec.focus ? { focus: x.spec.focus } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), line, gone: clamp(gone) };
+    const body = mode === "follow" ? doc.media : [doc.media.find(x => x.spec.layout === "hero") ?? firstBlock].filter(x => x !== undefined);
+    for (const x of body) {
+      const line = noteLines[x.line];
+      if (line === undefined || x.spec.kind !== "img" || line === this.hero?.line) continue;
+      const im = x.image !== undefined ? doc.images[x.image] : undefined;
+      const gone = im ? (this.scroll - im.line) / Math.max(1, im.rows) : (this.scroll - x.row) / HERO_RAMP_ROWS;
+      out.push({ path: x.path, kind: x.spec.kind, ...look(x.spec), line, gone: clamp(gone) });
+    }
+    return out;
   }
 
   /** The note itself, under its header image if it has one (render). */
@@ -936,8 +960,8 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, own ? own.length + summaryRows.length : 3 + summaryRows.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host);
-    if (shade && "grid" in shade) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
-    if (shade && "placement" in shade) placements.unshift(shade.placement);
+    if (shade.grid) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    placements.unshift(...shade.placements);
     if (foot) {
       while (lines.length < h) lines.push("");
       lines.push(foot.line);
@@ -3869,7 +3893,7 @@ export class NoteSurface {
   }
 
   /** What the header's backdrop drew last (PIE-598: its image, note line, step, kitty or cells) and whether it's on. */
-  headerBackdrop() { return { backdrop: this.backdropShown, on: heroHeaderOn() }; }
+  headerBackdrop() { return { backdrop: this.backdropShown, on: heroHeaderOn(), mode: heroHeaderMode() }; }
 
   // Used by the actions below: each wraps the key path with the checks an agent needs.
 

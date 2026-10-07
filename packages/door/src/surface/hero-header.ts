@@ -5,19 +5,28 @@
 // no frame is ever bright. The crop is the header's
 // own box, around the image's middle or `[hero-focus::x,y]`. Kitty graphics: the media cache's muted variant, placed
 // under the header's text. Cells: one colour per cell from the same crop, under the text. Elsewhere (text out, no
-// colour): nothing. `reader.hero on=false` turns it off, kept for the next start as the theme is.
+// colour): nothing. `reader.hero on=false` turns it off, kept for the next start as the theme is; `mode=follow` makes
+// the header follow the note's pictures: each one that scrolls under takes over, fading in over the one before.
 import { coverCrop } from "../doc";
 import type { Placement } from "../kitty";
 import { cellColours, sized, type CellGrid, type Focus, type Look, type ReadyMedia } from "../media";
 import { bgRgb, glyphWidth, graphemes, pad, RESET } from "../style";
 import { theme, type Rgb } from "../theme";
 
-/** The person's setting (reader.hero, kept in the state dir as `reader-hero.json`); null for none (on). */
-let saved: boolean | null = null;
-/** Use the setting kept from last time (the door's start) or just chosen (reader.hero). */
-export function useHeroHeader(on: unknown) { saved = typeof on === "boolean" ? on : null; }
-/** Whether readers give their header the hero's backdrop. */
-export const heroHeaderOn = () => saved ?? true;
+/** Which picture the header takes: the note's hero only, or each picture in turn as it scrolls under. */
+export type HeroMode = "first" | "follow";
+export const HERO_MODES: readonly HeroMode[] = ["first", "follow"];
+/** The person's setting (reader.hero, kept in the state dir as `reader-hero.json`); unset: on, first. */
+let saved: { on?: boolean; mode?: HeroMode } = {};
+/** Use the setting kept from last time (the door's start) or just chosen (reader.hero): `{ on, mode }`. */
+export function useHeroHeader(v: unknown) {
+  const o = (v ?? {}) as { on?: unknown; mode?: unknown };
+  saved = { ...(typeof o.on === "boolean" ? { on: o.on } : {}), ...(HERO_MODES.includes(o.mode as HeroMode) ? { mode: o.mode as HeroMode } : {}) };
+}
+/** Whether readers give their header a picture's backdrop. */
+export const heroHeaderOn = () => saved.on ?? true;
+/** Which picture: the hero (first) or the last one scrolled under the header (follow). */
+export const heroHeaderMode = (): HeroMode => saved.mode ?? "first";
 
 /** The steps it comes in by, as the image goes under the header. */
 export const HERO_STEPS = 3;
@@ -35,6 +44,7 @@ const lookAt = (crop: Look["crop"], dim: number | undefined, n = HERO_STEPS): Lo
 const groundOf = (): Rgb => theme().ground ?? theme().palette[0]!;
 
 /** What a header's backdrop draws: its Kitty placement or its cells' colours, at the step shown. */
+export type { CellGrid };
 export type Backdrop = { step: number; placement: Placement } | { step: number; grid: CellGrid };
 
 /**
@@ -43,23 +53,24 @@ export type Backdrop = { step: number; placement: Placement } | { step: number; 
  * reaches it, and one not ready yet is drawn as the nearest that is), else a colour per cell, mixed with the ground
  * by the step. None ready: null, and the header stays plain until one is (never a bright frame).
  */
-export function backdrop(m: ReadyMedia, focus: Focus | undefined, dim: number | undefined, step: number, cols: number, rows: number, cellW: number, cellH: number, graphics: boolean): Backdrop | null {
+export function backdrop(m: ReadyMedia, focus: Focus | undefined, dim: number | undefined, step: number, cols: number, rows: number, cellW: number, cellH: number, graphics: boolean, over: { grid?: CellGrid; z?: number } = {}): Backdrop | null {
   if (step <= 0 || cols < 1 || rows < 1) return null;
   const crop = coverCrop(m, cols * cellW, rows * cellH, focus);
   const steps = Array.from({ length: HERO_STEPS }, (_, i) => i + 1).sort((a, b) => Math.abs(a - step) - Math.abs(b - step) || a - b);
   if (!graphics) {
     const full = cellColours(m, cols, rows, lookAt(crop, dim));
     if (!full) return null;
+    // Mixed by the step with what's under it: the picture before it (follow), else the ground.
     const g = groundOf(), a = step / HERO_STEPS;
-    return { step, grid: full.map(row => row.map(c => c.map((v, i) => Math.round(g[i]! + (v - g[i]!) * a)) as unknown as Rgb)) };
+    return { step, grid: full.map((row, r) => row.map((c, k) => { const u = over.grid?.[r]?.[k] ?? g; return c.map((v, i) => Math.round(u[i]! + (v - u[i]!) * a)) as unknown as Rgb; })) };
   }
   const made = steps.map(n => [n, sized(m, cols * cellW, rows * cellH, lookAt(crop, dim, n))] as const);
   const hit = made.find(([, p]) => p);
   if (!hit) return null;
   const [n, png] = hit as [number, NonNullable<(typeof made)[number][1]>];
   const px = crop ? { x: Math.round(crop.x * png.width), y: Math.round(crop.y * png.height), w: Math.max(1, Math.round(crop.w * png.width)), h: Math.max(1, Math.round(crop.h * png.height)) } : undefined;
-  // Under the text (z < 0), above the body's images' layer and the CRT's.
-  return { step: n, placement: { key: `hero-backdrop:${png.key}`, image: png, col: 0, row: 0, cols, rows, z: -2, ...(px ? { crop: px } : {}) } };
+  // Under the text (z < 0), above the body's images' layer and the CRT's; the picture it fades in over a layer lower.
+  return { step: n, placement: { key: `hero-backdrop:${png.key}`, image: png, col: 0, row: 0, cols, rows, z: over.z ?? -2, ...(px ? { crop: px } : {}) } };
 }
 
 /**

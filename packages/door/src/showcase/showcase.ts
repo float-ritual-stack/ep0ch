@@ -323,7 +323,7 @@ export const SECTIONS: Section[] = [
     },
   {
     key: "hero", need: "let a note's opening picture become its header's background as it scrolls away", part: "the header's backdrop (PIE-598, src/surface/hero-header.ts): NoteSurface finds the hero (the header image, a [layout::hero] image, or an image that is the note's first block) and how far it has gone under its sticky header; the media pipeline makes the muted, dimmed variant (src/media.ts Look mute, a PNG under Kitty graphics, one colour per cell otherwise); reader.hero turns it off, kept like the theme", files: "src/surface/hero-header.ts, src/media.ts, src/doc.ts (coverCrop), src/surface/note.ts, src/screens.ts (reader.hero)",
-    aside: "j, the wheel or space scrolls the picture up under the header: the header takes it, dimmed, by steps · [hero-focus::x,y] on the picture's line says what the crop keeps · `act reader.hero on=false` turns it off everywhere (kept for the next start) · Kitty draws the picture under the text; cells colour each cell from it",
+    aside: "j, the wheel or space scrolls the picture up under the header: the header takes it, dimmed, by steps · [hero-focus::x,y] on the picture's line says what the crop keeps · `act reader.hero on=false` turns it off everywhere, `mode=follow` makes the header follow each picture down the note (kept for the next start) · Kitty draws the picture under the text; cells colour each cell from it",
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · hero header", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.hero]]);
