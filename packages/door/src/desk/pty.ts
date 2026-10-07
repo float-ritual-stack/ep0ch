@@ -320,7 +320,8 @@ export class PtyPane implements Pane {
         const seen = this.exitTail + text;
         this.exitTail = seen.slice(-320);
         const gone = EXITED.exec(seen);
-        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; this.status.exited(); }
+        // Its records go once the emulator has read everything before the exit line (its reports included).
+        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; term.write("", () => this.status.exited()); }
       }
       term.write(d, () => this.soon());
     };
@@ -413,7 +414,8 @@ export class PtyPane implements Pane {
     this.exited = code;
     this.herdrPane = null;
     LIVE.delete(this);
-    this.status.exited();
+    // After the emulator has read all it wrote: a report in its last output never outlives it.
+    if (this.term) this.term.write("", () => this.status.exited()); else this.status.exited();
     try { proc.close(); } catch { /* already closed */ }
     this.soon();
     const f = this.onExit; this.onExit = null;

@@ -64,6 +64,8 @@ export function parseProgramStatus(body: string): ParsedStatus {
   if (utf8Length(body) + FRAME_BYTES > PROGRAM_STATUS_LIMITS.sequence) return { t: "ignored", why: "longer than 4096 bytes" };
   if (body.trim() === "?") return { t: "query" };
   const pairs = new Map<string, string>();
+  /** msg and title as text, decoded and checked pair by pair. */
+  const texts = new Map<string, string>();
   for (const raw of body.split(":")) {
     const eq = raw.indexOf("=");
     if (eq < 0) continue;
@@ -73,6 +75,13 @@ export function parseProgramStatus(body: string): ParsedStatus {
     // Every pair is held to its limits, a repeated one too: nothing of a report that broke one is applied.
     const over = overLimit(key, value);
     if (over) return { t: "ignored", why: over };
+    if (key === "msg" || key === "title") {
+      const text = decodeText(value);
+      if (text === null) return { t: "ignored", why: `${key} is not base64 of UTF-8` };
+      if (utf8Length(text) > (key === "msg" ? PROGRAM_STATUS_LIMITS.msgDecoded : PROGRAM_STATUS_LIMITS.titleDecoded)) return { t: "ignored", why: `${key} too long decoded` };
+      if (hasControl(text)) return { t: "ignored", why: `${key} holds a control character` };
+      texts.set(key, text);
+    }
     pairs.set(key, value);
   }
   const state = pairs.get("state");
@@ -82,13 +91,8 @@ export function parseProgramStatus(body: string): ParsedStatus {
   if (id !== undefined && !id.split("/").every(s => SEGMENT.test(s))) return { t: "ignored", why: "id outside the grammar" };
   const report: StatusReport = { state: state as StatusReport["state"], id: id ?? "" };
   for (const field of ["msg", "title"] as const) {
-    const v = pairs.get(field);
-    if (v === undefined) continue;
-    const text = decodeText(v);
-    if (text === null) return { t: "ignored", why: `${field} is not base64 of UTF-8` };
-    if (utf8Length(text) > (field === "msg" ? PROGRAM_STATUS_LIMITS.msgDecoded : PROGRAM_STATUS_LIMITS.titleDecoded)) return { t: "ignored", why: `${field} too long decoded` };
-    if (hasControl(text)) return { t: "ignored", why: `${field} holds a control character` };
-    report[field] = text;
+    const text = texts.get(field);
+    if (text !== undefined) report[field] = text;
   }
   const app = pairs.get("app");
   if (app !== undefined && APP.test(app)) report.app = app;
@@ -264,11 +268,13 @@ function base64(bytes: readonly number[]): string {
   return out;
 }
 
-/** Standard base64 (padding optional) of UTF-8, decoded; null when it isn't. */
+/** Standard base64 (padding optional, but right where it's there) of UTF-8, decoded; null when it isn't. */
 function decodeText(v: string): string | null {
   if (!BASE64.test(v)) return null;
-  const s = v.replace(/=+$/, "");
+  const s = v.replace(/=+$/, ""), pad = v.length - s.length;
   if (s.length % 4 === 1) return null;
+  // Padding, when given, fills the last group exactly: two after two characters, one after three.
+  if (pad && (v.length % 4 !== 0 || pad !== 4 - (s.length % 4))) return null;
   const bytes: number[] = [];
   let acc = 0, bits = 0;
   for (const ch of s) {

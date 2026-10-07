@@ -42,29 +42,38 @@ export function hasPst(env: Env = process.env): boolean {
 
 /**
  * Ask the terminal on stdin (the feature query, then CSI c): true when it answers the query before the device
- * attributes, false when only those come, or nothing within `ms`. Stdin is raw only while asking.
+ * attributes, false when only those come, or nothing within `ms`. Stdin is raw only while asking, and left as it was
+ * (raw or not, flowing or paused); whatever else was typed meanwhile is put back for its reader. Never asked while
+ * another reader has stdin (a full-screen program's own).
  */
 export async function askTerminal(write: (s: string) => unknown, ms = 300, stdin: NodeJS.ReadStream = process.stdin): Promise<boolean> {
-  if (!stdin.isTTY || typeof stdin.setRawMode !== "function") return false;
-  const wasRaw = stdin.isRaw;
-  stdin.setRawMode(true);
+  if (!stdin.isTTY || typeof stdin.setRawMode !== "function" || stdin.listenerCount("data") > 0) return false;
+  const wasRaw = stdin.isRaw, wasPaused = stdin.isPaused();
   let seen = "";
-  const answer = await new Promise<boolean>(done => {
-    const timer = setTimeout(() => finish(false), ms);
-    const onData = (d: Buffer) => {
-      seen += d.toString("latin1");
-      const q = /\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/.exec(seen);
-      if (q && isStatusQueryReply(q[1]!)) return finish(true);
-      if (/\x1b\[\?[\d;]*c/.test(seen)) finish(false);
-    };
-    const finish = (yes: boolean) => { clearTimeout(timer); stdin.off("data", onData); done(yes); };
-    stdin.on("data", onData);
-    stdin.resume();
-    write(`${PROGRAM_STATUS_QUERY}\x1b[c`);
-  });
-  stdin.pause();
-  stdin.setRawMode(wasRaw);
-  return answer;
+  let onData: ((d: Buffer) => void) | null = null;
+  try {
+    stdin.setRawMode(true);
+    return await new Promise<boolean>(done => {
+      const timer = setTimeout(() => done(false), ms);
+      onData = (d: Buffer) => {
+        seen += d.toString("latin1");
+        const q = /\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/.exec(seen);
+        if (q && isStatusQueryReply(q[1]!)) { clearTimeout(timer); done(true); }
+        else if (/\x1b\[\?[\d;]*c/.test(seen)) { clearTimeout(timer); done(false); }
+      };
+      stdin.on("data", onData);
+      stdin.resume();
+      write(`${PROGRAM_STATUS_QUERY}\x1b[c`);
+    });
+  } catch { return false; }
+  finally {
+    if (onData) stdin.off("data", onData);
+    if (wasPaused) stdin.pause();
+    try { stdin.setRawMode(wasRaw); } catch { /* the terminal went away */ }
+    // What the person typed during the probe isn't the terminal's answer: it goes back to whoever reads stdin next.
+    const rest = seen.replace(/\x1b\]7501;[^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[\?[\d;]*c/g, "");
+    if (rest) stdin.unshift(Buffer.from(rest, "latin1"));
+  }
 }
 
 /**

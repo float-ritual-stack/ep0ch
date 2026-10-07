@@ -357,7 +357,7 @@ export class App implements Ctx {
    */
   private reportStatus() {
     if (this.reportTimer || this.closed) return;
-    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (!this.closed) this.display.programStatus?.(doorReport()); }, 200);
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport()); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
   }
   /** Where the status bar's waiting-on-you count sits, for a click (host.waiting). */
   private waitingAt: { from: number; to: number; row: number } | null = null;

@@ -153,8 +153,13 @@ export function doorReport(holders: readonly StatusHolder[] = statusHolders()): 
     const r = h.status.urgent();
     if (!r) continue;
     const name = h.statusName();
-    let id = `${statusSegment(h.place || "door")}/${statusSegment(name)}`;
-    if (want.has(id)) id = `${id.slice(0, 64)}-${statusSegment(h.tileId ?? String(want.size))}`.slice(0, 128);
+    const layout = statusSegment(h.place || "door"), base = statusSegment(name);
+    let id = `${layout}/${base}`;
+    // Two tiles of one name: the later one's segment ends in its tile id, kept within a segment's 32 bytes.
+    for (let n = 0; want.has(id); n++) {
+      const tag = `-${statusSegment(h.tileId ?? "t").slice(0, 8)}${n ? n : ""}`;
+      id = `${layout}/${base.slice(0, 32 - tag.length)}${tag}`;
+    }
     want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(r.progress !== undefined ? { progress: r.progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
     if (!top || ATTENTION[r.state] > ATTENTION[top.r.state]) top = { r, name };
   }
@@ -179,6 +184,8 @@ export class StatusReporter {
     }
     if (out) this.write(out);
   }
+  /** Forget what the terminal was told (a program had it meanwhile, and may have changed or cleared it): the next sync says all again. */
+  forget(): void { this.told.clear(); }
   /** Every record this door put on the terminal goes (it quits, or the terminal detaches). */
   clear(): void { if (this.told.size) { this.told.clear(); this.write(encodeProgramStatus({ state: "clear" })); } }
 }

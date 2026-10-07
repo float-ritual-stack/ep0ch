@@ -106,6 +106,8 @@ export class Painter implements Display {
   private readonly reporter = new StatusReporter(s => this.term.write(s));
   /** What it was last asked to report, for after a program had the terminal. */
   private want: ReadonlyMap<string, StatusInput> | null = null;
+  /** A program had the terminal (and may have reported, cleared or reset its records): everything the door says, said again. */
+  retell(): void { this.reporter.forget(); if (this.want && this.term.info.pst) this.reporter.sync(this.want); }
   programStatus(want: ReadonlyMap<string, StatusInput> | null): void {
     if (!this.term.info.pst) return;
     this.want = want;
@@ -119,6 +121,6 @@ export class Painter implements Display {
     this.away = true;
     this.term.stop?.();
     try { return await runProgram(argv, o); }
-    finally { this.away = false; this.term.resume?.(); this.term.invalidate(); if (this.want) this.reporter.sync(this.want); }
+    finally { this.away = false; this.term.resume?.(); this.term.invalidate(); this.retell(); }
   }
 }

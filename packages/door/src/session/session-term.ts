@@ -257,6 +257,8 @@ export class SessionTerm implements Display {
     c.rows.invalidate();
     c.decoder.reset();
     this.sendGround(c);
+    // The program had that terminal: what the session reports there is said again, whole.
+    c.painter.retell();
     this.tellStatus(c);
     this.onClients();
     r.done(code);

@@ -45,6 +45,11 @@ describe("syntax", () => {
     ignored("state=done:msg=Q");               // one leftover character
     ignored(`state=done:msg=${Buffer.from([0xc3, 0x28]).toString("base64")}`);   // invalid UTF-8
     ignored(`state=done:msg=${Buffer.from([0xed, 0xa0, 0x80]).toString("base64")}`); // a surrogate
+    ignored("state=done:msg==");                // padding with nothing before it
+    ignored("state=done:msg=QQ=");              // one = where two belong
+    ignored("state=done:msg=QUI==");            // two where one belongs
+    expect(report("state=done:msg=QQ==").msg).toBe("A");
+    expect(report("state=done:msg=QUI=").msg).toBe("AB");
   });
 
   test("decoded text holding a control character is refused whole, C0, DEL and C1 alike", () => {
@@ -122,6 +127,8 @@ describe("limits: a report breaking one is discarded whole", () => {
   });
   test("a limit broken by a pair that a later one overrides still discards the report", () => {
     ignored(`state=done:msg=${"QUFB".repeat(700)}:msg=QQ`);
+    ignored(`state=done:msg=${b64("a".repeat(2049))}:msg=QQ`);   // within the encoded limit, over the decoded one
+    ignored(`state=done:title=${b64("bad\x07")}:title=QQ`);
   });
   test("records per terminal: past the cap the least recently updated goes", () => {
     const r = new StatusRecords(64);

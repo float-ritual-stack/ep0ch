@@ -97,9 +97,25 @@ describe("the door as a program: what it reports to the terminal it runs in", ()
     expect(doorReport([])).toEqual(new Map([["", { state: "idle", app: "ep0ch" }]]));
   });
 
-  test("two tiles of one name get ids of their own", () => {
+  test("two tiles of one name get ids of their own, within the grammar however long the name", () => {
     const want = doorReport([holder("sh", "desk", { state: "done", id: "" }), holder("sh", "desk", { state: "error", id: "" })]);
     expect(new Set(want.keys()).size).toBe(3);
+    const long = "a-very-long-terminal-tile-name-that-goes-on";
+    const three = doorReport([0, 1, 2].map(() => holder(long, "desk", { state: "working", id: "" })));
+    expect(new Set(three.keys()).size).toBe(4);
+    for (const id of three.keys()) if (id) expect(id.split("/").every(s => /^[A-Za-z0-9_.+-]{1,32}$/.test(s))).toBe(true);
+    const r = new StatusReporter(() => {});
+    expect(() => r.sync(three)).not.toThrow();
+  });
+
+  test("after a program had the terminal, everything the door says is said again", () => {
+    const written: string[] = [];
+    const p = new Painter({ info: { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false, pst: true }, write: (s: string) => written.push(s), paint() {}, invalidate() {} });
+    p.programStatus(doorReport([]));
+    p.programStatus(doorReport([]));
+    expect(written).toHaveLength(1);
+    p.retell();
+    expect(written).toEqual(["\x1b]7501;state=idle:app=ep0ch\x1b\\", "\x1b]7501;state=idle:app=ep0ch\x1b\\"]);
   });
 
   test("each terminal is told only what changed, a child that went as its clear, and everything cleared at the end", () => {

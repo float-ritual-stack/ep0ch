@@ -164,8 +164,9 @@ function reportStatus($: EngineInterface, r: StatusInput): void {
     if (!(await statusWanted)) return
     const seq = sequenceOf(r)
     if (seq === statusSent) return
-    statusSent = seq
-    await $.process.run(ttyArgv(seq), { timeoutMs: 3000 })
+    // Remembered as sent only once it was: a failed write is tried again with the next report, even the same one.
+    const ran = await $.process.run(ttyArgv(seq), { timeoutMs: 3000 })
+    statusSent = ran.exitCode === 0 ? seq : ''
   }).catch(() => {})
 }
 
