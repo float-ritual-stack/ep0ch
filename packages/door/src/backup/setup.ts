@@ -22,7 +22,13 @@ export interface BackupSetupFacts {
   /** systemd: the timer is active; launchd: the agent is loaded. null when it couldn't be asked. */
   loaded: boolean | null;
   /** `named`: the machine's name was given (EP0CH_BACKUP_MACHINE, or the settings file), not taken from the host name. */
-  config: { path: string; exists: boolean; machine: string; named: boolean; error?: string; kept?: Record<string, string> };
+  config: {
+    path: string; exists: boolean; machine: string; named: boolean; error?: string;
+    /** Settings given where install runs (EP0CH_BACKUP_MACHINE, KEPT_SETTINGS): the job reads the file, so they go into it. */
+    kept?: Record<string, string>;
+    /** The settings file as it is, when there is one. */
+    text?: string;
+  };
   restic: string | null;
   /** The with-secrets groups there are (names only), or null when with-secrets isn't here. */
   groups: string[] | null;
@@ -81,7 +87,8 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   return {
     platform: o.platform, units, loaded,
     config: { path: file, exists: existsSync(file), machine, named: "error" in c ? !!env.EP0CH_BACKUP_MACHINE?.trim() : c.machineFrom !== "hostname", ...("error" in c ? { error: c.error } : {}),
-      kept: Object.fromEntries(KEPT_SETTINGS.flatMap(k => (env[k]?.trim() ? [[k, env[k]!.trim()]] : []))) },
+      kept: Object.fromEntries(["EP0CH_BACKUP_MACHINE", ...KEPT_SETTINGS].flatMap(k => (env[k]?.trim() ? [[k, env[k]!.trim()]] : []))),
+      ...(existsSync(file) ? { text: (() => { try { return readFileSync(file, "utf8"); } catch { return ""; } })() } : {}) },
     restic: "error" in c ? o.which("restic") : c.restic.includes("/") ? (existsSync(c.restic) ? c.restic : null) : o.which(c.restic),
     groups,
     secrets: "error" in c ? [] : c.secrets,
@@ -137,15 +144,38 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
     if (u.have !== null && !u.have.includes(UNIT_MARK)) { foreign.push(u.path); continue; }
     writes.push({ path: u.path, text: u.want });
   }
-  if (!f.config.exists) writes.push({ path: f.config.path, text: `# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them.\nEP0CH_BACKUP_MACHINE=${f.config.machine}\n${Object.entries(f.config.kept ?? {}).map(([k, v]) => `${k}=${v}\n`).join("")}` });
+  // The settings file: made with the machine's name, or brought up to what this run was given (a renamed machine:
+  // the timer's job reads the file, never the shell install ran in, so a name only in the shell would change nothing).
+  const settings = settingsText(f.config.text ?? null, { EP0CH_BACKUP_MACHINE: f.config.machine, ...(f.config.kept ?? {}) }, !!f.config.text);
+  const changedSettings = settings.changed;
+  if (changedSettings.length || !f.config.exists) writes.push({ path: f.config.path, text: settings.text });
   if (foreign.length) missing.push(`${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "${UNIT_MARK}" line); move ${foreign.length === 1 ? "it" : "them"} away and rerun to let install write ${foreign.length === 1 ? "it" : "them"}`);
   if (missing.length) return { status: "manual", why: `first: ${missing.join("; ")}`, commands: [], writes: [], missing };
   const units = writes.filter(w => w.path !== f.config.path);
   if (!writes.length && f.loaded) return { status: "skip", why: `${f.platform === "linux" ? "ep0ch-backup.timer is active" : `${LAUNCHD_LABEL} is loaded`}; ${f.config.machine} backs up to ${f.repo}`, commands: [], writes: [], missing };
   const said = [...(units.length ? [`${units.length === f.units.length && f.units.every(u => u.have === null) ? "write" : "update"} ${units.map(w => w.path).join(", ")}`] : []),
-    ...(!f.config.exists ? [`write ${f.config.path} naming this machine ${f.config.machine} (its backups: ${f.repo})`] : []),
+    ...(!f.config.exists ? [`write ${f.config.path} naming this machine ${f.config.machine} (its backups: ${f.repo})`]
+      : changedSettings.length ? [`update ${f.config.path}: ${changedSettings.join(", ")} (the job reads the file; the next run backs up every outline to ${f.repo})`] : []),
     ...(f.loaded ? [] : [`load the ${f.platform === "linux" ? "timer" : "agent"}: every 15 minutes, each outline that changed goes to restic`])];
   return { status: "do", why: said.join("; "), commands: units.length || !f.loaded ? loadCommands(f) : [], writes, missing };
+}
+
+/**
+ * The settings file with these values set: lines for other keys and comments kept, a key given replaced in place, a new
+ * one added. `changed` says what moved (`EP0CH_BACKUP_MACHINE evans-macbook-pro → laptop`). With `keepFile` false (no
+ * file yet), the machine's name is the only setting the file starts from.
+ */
+export function settingsText(existing: string | null, set: Record<string, string>, keepFile = true): { text: string; changed: string[] } {
+  const lines = existing && keepFile ? existing.replace(/\n$/, "").split("\n") : ["# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them."];
+  const changed: string[] = [];
+  for (const [k, v] of Object.entries(set)) {
+    const at = lines.findIndex(l => new RegExp(`^\\s*(?:export\\s+)?${k}\\s*=`).test(l));
+    const was = at >= 0 ? lines[at]!.replace(/^[^=]*=\s*/, "").replace(/^(["'])(.*)\1$/, "$2").trim() : null;
+    if (was === v) continue;
+    if (at >= 0) lines[at] = `${k}=${v}`; else lines.push(`${k}=${v}`);
+    if (existing) changed.push(was === null ? `${k}=${v}` : `${k} ${was} → ${v}`);
+  }
+  return { text: `${lines.join("\n")}\n`, changed };
 }
 
 /** The argv install runs to load the units after writing them. */

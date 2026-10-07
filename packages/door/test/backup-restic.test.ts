@@ -298,6 +298,21 @@ describe("install and doctor", () => {
     expect(p.why).toContain("EP0CH_BACKUP_MIRRORS");
   });
 
+  test("a machine renamed at install (EP0CH_BACKUP_MACHINE in the shell): the settings file is updated, since the job reads only the file", () => {
+    const text = "# mine\nEP0CH_BACKUP_MACHINE=my-macbook\nEP0CH_BACKUP_MIRRORS=tower\n";
+    const units = facts().units.map(u => ({ ...u, have: u.want }));
+    const p = backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, machine: "laptop", named: true, kept: { EP0CH_BACKUP_MACHINE: "laptop" }, text } }));
+    expect(p.status).toBe("do");
+    expect(p.why).toContain("EP0CH_BACKUP_MACHINE my-macbook → laptop");
+    expect(p.writes).toEqual([{ path: facts().config.path, text: "# mine\nEP0CH_BACKUP_MACHINE=laptop\nEP0CH_BACKUP_MIRRORS=tower\n" }]);
+    // The file then names it: the job's config reads laptop, and nothing more to do.
+    const home = join(root, "renamed-home");
+    mkdirSync(join(home, ".config/ep0ch"), { recursive: true });
+    writeFileSync(join(home, ".config/ep0ch/backup.env"), p.writes[0]!.text);
+    expect(backupConfig({ HOME: home })).toMatchObject({ machine: "laptop", machineFrom: "file" });
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, machine: "laptop", named: true, kept: {}, text: p.writes[0]!.text } })).status).toBe("skip");
+  });
+
   test("current and loaded: nothing to do", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
     expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true } })).status).toBe("skip");
