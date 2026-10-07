@@ -48,7 +48,7 @@ export interface Summary {
   layoutMs: number; renderMs: number; tiles: Record<string, number>;
   bytes: number; bytesPerFrame: number; uploads: number; uploadBytes: number; places: number; deletes: number; scaled: number; grids: number;
   tickMs: number; cpuMs: number; rssMB: number;
-  /** The terminal tile: sizes sent to its program during the drag and on release, its width, and the width the program last said it was told. */
+  /** The terminal tile: sizes sent to its program during the drag and on release, its width as laid out, the width the program last said it was told, and whether its last rule is broken (1) or one row that wide (0). */
   pty: { sizes: number; cols: number; told: number; broken: number };
   /** Every frame's ms and every chunk's lag, for pooling runs. */
   ms: number[]; lag: number[];
@@ -71,8 +71,9 @@ export function broken(s: Summary, time = false): string[] {
     s.grids ? `${s.grids} cell grids made during the drag (none until it's let go)` : "",
     s.uploads ? `${s.uploads} images uploaded during the drag (none until it's let go)` : "",
     perCell > BUDGET.bytesPerCell ? `${perCell.toFixed(1)} bytes a cell a frame (at most ${BUDGET.bytesPerCell})` : "",
+    !s.pty.cols ? "no terminal tile laid out" : !s.pty.sizes ? "the terminal tile's program was never told the size the resize ended at" : "",
     s.pty.told !== s.pty.cols ? `the terminal tile's program was last told ${s.pty.told} columns, the tile is ${s.pty.cols}` : "",
-    s.pty.broken ? `${s.pty.broken} rows of the terminal tile's program wrapped at a width it wasn't drawn for` : "",
+    s.pty.broken ? "the terminal tile's last rule isn't one row as wide as its program was told" : "",
     s.pty.sizes > 2 ? `${s.pty.sizes} sizes sent to the terminal tile's program (one when the resize ends)` : "",
     (kitty ? s.settle.scaled : s.settle.grids) ? "" : `letting go made nothing for the new sizes (${kitty ? "scaled" : "grids"} 0)`,
     time && s.p95 > BUDGET.frameMs ? `p95 ${s.p95} ms (at most ${BUDGET.frameMs})` : "",
@@ -239,13 +240,14 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
     // The program's last word on its width, against the tile's: the size it ended at was sent, once.
     await Bun.sleep(300);
     const said = (wide?.text?.() as string[] | undefined ?? []).map(l => /^W(\d+)/.exec(l.trim())?.[1]).filter(Boolean).at(-1);
-    // Its rules, through the scrollback: one drawn for one width while the emulator had another is cut where the
-    // emulator's width ended and goes on at the left edge (a TUI's text, wrapped mid-word).
+    // Its last rule, drawn for the width it was last told: one row exactly that wide (a rule made for another width
+    // than the emulator's is cut where the emulator's ends). Earlier rules are left alone: a resize since reflowed them.
     const buf = wide?.term?.buffer.active, scroll: string[] = [];
     for (let i = 0; buf && i < buf.length; i++) scroll.push(buf.getLine(i)?.translateToString(true) ?? "");
-    let broken = 0, w = 0;
-    for (const r of scroll) { const m = /^W(\d+)$/.exec(r.trim()); if (m) { w = Number(m[1]); continue; } if (/^=+$/.test(r) && w && r.length !== w) broken++; }
-    const pty = { sizes: ptySizes, cols: wide?.cols ?? 0, told: Number(said ?? 0), broken };
+    const at = scroll.findLastIndex(r => /^W\d+$/.test(r.trim())), rule = at >= 0 ? scroll[at + 1] ?? "" : "";
+    // The tile's width as laid out, not the emulator's (which a final resize that never came would leave as it was).
+    const box = wide ? D.placed.rects.get(D.idOf(wide)) as { cols: number } | undefined : undefined;
+    const pty = { sizes: ptySizes, cols: box ? box.cols - 2 : 0, told: Number(said ?? 0), broken: /^=+$/.test(rule) && rule.length === Number(said ?? 0) ? 0 : 1 };
     const after = frames.splice(0);
     recording = false;
 
