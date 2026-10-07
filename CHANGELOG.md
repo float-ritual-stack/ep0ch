@@ -29,8 +29,6 @@ are its record. The outliner's entries from then are kept below, under
   script for the step, the import route. The door, `ep0ch` commands and the MCP gateway pass it on as it is.
 - **What to run:** nothing new. The next schema change is one `ep0ch install --apply` on each machine.
 
-
-
 ### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599)
 
 - **One heading, its own look.** `## Odd jobs [heading::dots] [heading-tone::amber]` takes amber for itself; any
