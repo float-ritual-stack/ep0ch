@@ -9,9 +9,11 @@ import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic"
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
 import { programStatusEmitter } from "@ep0ch/outliner/program-status-emit";
+import { Progress, progressMode, type Terminal } from "../setup/progress";
 export { BACKUP_USAGE };
 
-type IO = { out: (s: string) => void; err: (s: string) => void };
+/** `terminal`: where a person watches `run` (process.stdout by default): live steps there, as `ep0ch install` draws them. */
+type IO = { out: (s: string) => void; err: (s: string) => void; terminal?: Terminal };
 
 /** `--at`: an ISO time, or `<n>m|h|d` ago. */
 export function parseAt(v: string, now = Date.now()): number | null {
@@ -96,9 +98,19 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       // What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501); the timer's has none.
       const status = await programStatusEmitter("ep0ch-backup", { env });
       status.report({ state: "working", msg: "backing up the outlines" });
-      const r = await runAll(c, { say: s => { say(s); status.report({ state: "working", msg: s }); }, ...(args.includes("--drill") ? { drill: true } : {}) });
-      status.report(r.ok ? { state: "done", msg: "backup run finished" } : { state: "error", msg: "backup run failed: ep0ch backup status says what" });
-      return r.ok ? 0 : 1;
+      // At a terminal, each step spins with its time and ends ✓ (install's own reporter); under the timer, the plain lines.
+      const terminal = io.terminal ?? (io.out === console.log ? process.stdout : undefined);
+      const progress = new Progress({ mode: progressMode({ json: false, terminal, env }), out: say, terminal, env });
+      let task: ReturnType<Progress["task"]> | null = null;
+      const step = (title: string) => { task?.end(true); task = progress.task({ mark: "·", title }); status.report({ state: "working", msg: title }); };
+      const line = (s: string) => { if (task && progress.mode === "live") { if (/^[✓✗!]/.test(s)) task.say(s); else task.child(s); } else say(s); };
+      try {
+        const r = await runAll(c, { say: line, step, ...(args.includes("--drill") ? { drill: true } : {}) });
+        (task as ReturnType<Progress["task"]> | null)?.end(r.ok);
+        task = null;
+        status.report(r.ok ? { state: "done", msg: "backup run finished" } : { state: "error", msg: "backup run failed: ep0ch backup status says what" });
+        return r.ok ? 0 : 1;
+      } finally { progress.close(); }
     }
     case "status": {
       if (args.includes("--json")) io.out(JSON.stringify({ machine: c.machine, repo: c.repoOf(c.machine), state: readBackupState(c.state), alert: readAlert(c.state) }, null, 2));
