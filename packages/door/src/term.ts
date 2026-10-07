@@ -12,8 +12,11 @@ export const programStatusWanted = (env: Record<string, string | undefined> = pr
 import { paintable } from "./text";
 
 export type Key =
-  /** `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. */
-  | { kind: "char"; ch: string; ctrl?: boolean; pasted?: true }
+  /**
+   * `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. `shift` with `ctrl`: held
+   * with a ctrl+letter, as only the Kitty keyboard protocol can say (ctrl+shift+z, a draft's redo).
+   */
+  | { kind: "char"; ch: string; ctrl?: boolean; shift?: true; pasted?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
   /**
@@ -21,7 +24,8 @@ export type Key =
    * passes cmd+c on when it has no selection of its own). Its own kind: cmd+c is never the plain `c`.
    */
   | { kind: "super"; ch: string }
-  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete" }
+  /** `shift`: held with an arrow, Home or End (CSI 1;2 A…D H F): a draft selects as the cursor moves. Elsewhere it's the key. */
+  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true }
   /**
    * Enter. `shift`, `ctrl`: held with it, as only a terminal speaking the Kitty keyboard protocol can say (src/kbd.ts).
    * It's Enter wherever nothing reads them; in a draft Shift+Enter is a plain line break, as alt+enter.
@@ -317,6 +321,9 @@ export class KeyDecoder {
         [/^\x1b\[C|^\x1bOC/, { kind: "right" }], [/^\x1b\[D|^\x1bOD/, { kind: "left" }],
         [/^\x1b\[Z/, { kind: "backtab" }], [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
         [/^\x1b\[3~/, { kind: "delete" }], [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
+        [/^\x1b\[1;2A/, { kind: "up", shift: true }], [/^\x1b\[1;2B/, { kind: "down", shift: true }],
+        [/^\x1b\[1;2C/, { kind: "right", shift: true }], [/^\x1b\[1;2D/, { kind: "left", shift: true }],
+        [/^\x1b\[1;2H/, { kind: "home", shift: true }], [/^\x1b\[1;2F/, { kind: "end", shift: true }],
         [/^\x1b\[1;[39]D|^\x1b\x1b\[D/, { kind: "alt-left" }], [/^\x1b\[1;[39]C|^\x1b\x1b\[C/, { kind: "alt-right" }],
         [/^\x1b\[1;[39]A|^\x1b\x1b\[A/, { kind: "alt-up" }], [/^\x1b\[1;[39]B|^\x1b\x1b\[B/, { kind: "alt-down" }],
       ];

@@ -469,7 +469,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     expect(d.surface.describe().agentSelection.text).toBe("Water the seedlings");
   });
 
-  test("in an edit, a drag is the draft's selection and isn't copied; cmd+c copies it", async () => {
+  test("in an edit, a drag is the draft's selection and is copied when the button comes up (PIE-621); cmd+c copies it too", async () => {
     const { d, r } = await openCard();
     key(char("e"));
     await until(() => !!d.surface.editing && !!d.surface.draft, "the edit");
@@ -478,7 +478,9 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     const w = where(frame(), "Water the", r);
     drag(w, { x: w.x + 8, y: w.y });
     expect(draft.selectedText()).toBeTruthy();                       // the mouse selected in the draft
-    expect(copied()).toEqual([]);                                     // and nothing was copied
+    await until(() => copied().length > 0, "the drag's copy");
+    expect(copied()).toEqual([draft.selectedText()]);                // and copied it, as a reader's drag does
+    writes.length = 0;
     draft.place(1, 0); draft.place(1, 8, true);                     // as a drag in the draft leaves it
     key(CMD_C);
     await until(() => copied().length > 0, "the draft's copy");

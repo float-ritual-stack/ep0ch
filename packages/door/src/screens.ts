@@ -1118,7 +1118,7 @@ export class MessageReader implements Screen {
   private mouse(k: Extract<Key, { kind: "mouse" }>, ctx: Ctx, host: SurfaceHost) {
     const inside = k.y < ctx.t.rows - 2;
     if (k.action === "wheel-up" || k.action === "wheel-down") { if (inside) this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host); return; }
-    if (k.action === "down") { if (inside) this.surface.press(k.x, k.y, host); return; }
+    if (k.action === "down") { if (inside) this.surface.press(k.x, k.y, host, !!((k.mods ?? 0) & 4)); return; }
     if (k.action === "drag") { this.surface.drag(k.x, k.y, host); return; }
     if (k.action === "up") { this.surface.release(k.x, k.y, host); ctx.redraw(); }
   }

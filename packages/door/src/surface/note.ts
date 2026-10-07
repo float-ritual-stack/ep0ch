@@ -50,7 +50,7 @@ import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -441,6 +441,10 @@ export class NoteSurface {
   private gesture = new Gesture();
   /** A press landed in the draft's text: a drag from it selects there. */
   private editPress = false;
+  /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
+  private draftSelecting: Promise<void> | null = null;
+  /** The last press in a draft was a shift+click (it extended the selection). */
+  private shiftPress = false;
   private dragging = false;
   /**
    * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
@@ -1923,10 +1927,31 @@ export class NoteSurface {
     if (d.busy) return false;
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host) });
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host) });
     if (this.editPress) host.redraw();
     return this.editPress;
   }
+  /** The draft being written here, an edit's or a comment's, or null. */
+  private get writingDraft(): Draft | null {
+    return (this.drafting ?? (this.session?.mode === "compose" ? this.session.writing : null))?.draft ?? null;
+  }
+
+  /** A double click in a draft selects the word under the cursor, a triple click its line: two draft.place, as a drag would. */
+  private async selectInDraft(d: Draft, n: number, host: SurfaceHost) {
+    const line = d.lines[d.row] ?? "";
+    let from = 0, to = line.length;
+    if (n === 2) {
+      const word = /[\p{L}\p{N}_\-]/u, at = Math.min(d.col, line.length);
+      from = at; to = at;
+      while (from > 0 && word.test(line[from - 1]!)) from--;
+      while (to < line.length && word.test(line[to]!)) to++;
+      if (from === to) return;
+    }
+    const row = d.row + 1;
+    await this.runKey("draft.place", { line: row, col: from + 1 }, host);
+    await this.runKey("draft.place", { line: row, col: to + 1, extend: true }, host);
+  }
+
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
@@ -3669,12 +3694,20 @@ export class NoteSurface {
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
    * selected), except a second or third press on the same cell: it selects the word, then the row.
    */
-  press(x: number, y: number, host: SurfaceHost): void {
+  press(x: number, y: number, host: SurfaceHost, shift = false): void {
     this.use(host);
     this.dragging = false;
     const n = this.gesture.press(x, y);
-    // In a draft a press puts the cursor there, and a drag from it selects (Draft's own selection).
-    if (this.editing) { this.editPress = this.modes.press(x, y, host, false); if (this.editPress) host.redraw(); return; }
+    // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
+    // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
+    if (this.editing) {
+      this.editPress = this.modes.press(x, y, host, shift);
+      this.shiftPress = shift && this.editPress;
+      const d = this.writingDraft;
+      this.draftSelecting = this.editPress && d && n > 1 && !shift ? this.selectInDraft(d, n, host) : null;
+      if (this.editPress) host.redraw();
+      return;
+    }
     if (n < 2) return;
     const rows = this.selRows(), p = this.posAt(x, y);
     if (!rows || !p || !rows.cells(p.row).length) return;
@@ -3685,7 +3718,7 @@ export class NoteSurface {
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
     const g = this.gesture.pressed;
-    if (this.editing) { if (this.editPress && this.modes.press(x, y, host, true)) host.redraw(); return; }
+    if (this.editing) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y, host, true)) host.redraw(); return; }
     if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
     if (!this.dragging) {
       // After a double or triple click, the drag extends from the word or row it selected.
@@ -3708,13 +3741,28 @@ export class NoteSurface {
   release(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
     this.dragging = false;
+    // A shift+click in a draft extended its selection: the release copies it (copy on select), never places the cursor again.
+    if (this.shiftPress) {
+      this.shiftPress = false;
+      const d = this.writingDraft;
+      if (d?.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
+      host.redraw();
+      return true;
+    }
     if (r.click) {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
       const acted = this.click(x, y, host);
-      if (acted) this.gesture.forget();
+      // In a draft a click only places the cursor: the next on its cell is still a double click (the word).
+      if (acted && !this.editing) this.gesture.forget();
       return acted;
     }
-    // Not in a draft: a drag there is the draft's own selection, which typing or a paste replaces (cmd+c copies it).
+    // In a draft: the draft's own selection, copied the same way (draft.copy), when the mouse made it (a double or
+    // triple click's word or line once it's selected).
+    const d = this.editing && r.copy ? this.writingDraft : null;
+    if (d) {
+      void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
+      return true;
+    }
     const s = this.selection, rows = s && !this.editing && r.copy ? this.selRows() : null;
     if (s && rows && s.text(rows).trim()) void this.runKey("select.copy", {}, host);
     host.redraw();
@@ -4624,7 +4672,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.place": forwardDraft("draft.place"),
   "draft.scroll": forwardDraft("draft.scroll"),
   "draft.preview": forwardDraft("draft.preview"),
+  "draft.paste": forwardDraft("draft.paste"),
   "draft.undo": forwardDraft("draft.undo"),
+  "draft.redo": forwardDraft("draft.redo"),
   "draft.copy": forwardDraft("draft.copy"),
   "complete": def({
     summary: "completion, as typing [[, ((, [file::, > [!, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile). Property keys and values come from the component schemas (PIE-618)",

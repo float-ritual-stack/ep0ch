@@ -1375,10 +1375,13 @@ The board's new-card composer is the same control too.
 | `↑ ↓`, `PgUp PgDn` | move by the rows drawn: a wrapped line is several rows, the column kept |
 | `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer |
 | the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
-| a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
+| a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) and copies it when the button comes up (copy on select, as in a reader); a double click selects the word, a triple click the line, a shift+click from the cursor |
+| `Shift+←→↑↓`, `Shift+Home`, `Shift+End` | select from the cursor as it moves |
+| `Cmd+C`, `Alt+C`, or a click on `[copy]` | copy the selection to your clipboard (OSC 52), said `copied N chars`. `Cmd+C` reaches the door only through the Kitty keyboard protocol; `Alt+C` works in any terminal, tmux too |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
 | `[` and a key's first letters (`[head`), `[key::`, or a line of a `::graph-*` block's YAML | property completion (PIE-618), from the component schemas (below): the keys with where they go and what they mean, `Enter` writes `[heading-pattern::` and its values open at once, each with its meaning and a one-row preview of what it draws (a style's glyph track); `[heading::` lists the built-in styles and the outline's own. A `[` that starts no key a schema knows (a Markdown link's text) opens nothing |
-| `Ctrl+Z` | take back the last edit an agent patched into the draft (below), as one unit |
+| `Ctrl+Z` | undo the newest change (PIE-621): typing a word at a time (a word and the space after it, or up to a pause), a paste in one step however big, an insert, `$EDITOR`'s text, a reload, an edit an agent patched in (below). Back to where the draft started, and past a save: open the note again unchanged and `Ctrl+Z` goes on back. A paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes` |
+| `Ctrl+Y`, `Ctrl+Shift+Z` | redo what `Ctrl+Z` took back; any new change drops it. `Ctrl+Shift+Z` needs the Kitty keyboard protocol, `Ctrl+Y` works everywhere |
 | `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
 | `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
 
@@ -1795,9 +1798,10 @@ selected it says so. `EP0CH_COPY_ON_SELECT=0` turns copy on select off, as Herdr
 selection stays, and `y`, `cmd+c` or the `[y copy]` control on the header's rule copies it. The clipboard
 is written with OSC 52, so it works over SSH and through a multiplexer that passes OSC 52 on.
 
-In a draft (an edit, a comment, a new card) a drag selects the draft's text and isn't copied by itself,
-because typing or a paste replaces it there; `cmd+c` copies it. In a terminal tile `cmd+c` is the
-program's, as it came.
+In a draft (an edit, a comment, a new card) a drag selects the draft's text and is copied when the button
+comes up too (PIE-621), and so is a double click's word, a triple click's line and a shift+click's span;
+`shift+arrows` select by keys, and `cmd+c`, `alt+c` or the frame's `[copy]` copy. Typing or a paste still
+replaces what's selected there. In a terminal tile `cmd+c` is the program's, as it came.
 
 | Keys | Action |
 |---|---|
@@ -2217,7 +2221,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `composer.close` | `discard=true` with typed text: the board's new card or note closes, typed text put aside as unsent. The person's only | `Esc` (twice with typed text) |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (an agent's change lands there as a `draft.patch`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |
-| `draft.undo` | none: the last agent patch in the reader's draft (an agent: only its own) | `Ctrl+Z` in a draft |
+| `draft.undo`, `draft.redo` | none: the newest change in the reader's draft taken back, or put back (an agent: only its own steps; in the person's draft its last patch where it is now) | `Ctrl+Z`; `Ctrl+Y`, `Ctrl+Shift+Z` in a draft |
+| `draft.paste` | `text`: put in at the cursor as a paste does, one undo step | a paste in a draft |
+| `draft.copy` | none: the draft's selection, returned (the person's to their clipboard) | `Cmd+C`, `Alt+C`, `[copy]`, a drag's release |
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
 | `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes its embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |

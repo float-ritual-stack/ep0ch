@@ -107,6 +107,9 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
   return d;
 }
 
+/** A whole Markdown document pasted into a note by mistake (fictional): the undo section's big paste. */
+export const PANTRY_PASTE = ["", "# Pantry inventory", "", ...Array.from({ length: 36 }, (_, i) => `- ${["oats", "lentils", "rice", "flour", "honey", "tea"][i % 6]}, shelf ${1 + (i % 4)}, jar ${i + 1}`), "", "_Counted on a rainy Sunday._", ""].join("\n");
+
 export const SECTIONS: Section[] = [
   {
     key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, outline-core src/code-ranges.ts, src/inline.ts",
@@ -171,6 +174,21 @@ export const SECTIONS: Section[] = [
         // The person's own keys would do these: through the stage's dispatcher, in each reader's tile.
         void d.press(a, NOTE_ACTIONS, "edit");
         void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));
+      });
+    },
+  },
+  {
+    key: "undo", need: "copy text out of a draft; undo and redo anything typed or pasted, a big paste in one step", part: "the draft's one history (Draft.undos and redos behind draft.undo, ctrl+z, and draft.redo, ctrl+y or ctrl+shift+z: typing a word at a time, a paste or an agent's patch one step each, carried past a save when the note is opened again unchanged) and its copy (draft.copy: copy on select, a double click's word, shift+click and shift+arrows, cmd+c, alt+c, the frame's [copy]; OSC 52 through App.copy)", files: "src/edit.ts, src/surface/editor.ts, src/surface/note.ts, src/draft-session.ts, src/term.ts",
+    aside: "the edit has a whole pantry list pasted into it by mistake: one step, said on the status line (pasted 42 lines · ctrl+z undoes) · ctrl+z takes it back, ctrl+y puts it back · the first line's [page::…] is selected: let go of a drag (or double-click a word, shift+click, shift+arrows then cmd+c or alt+c, or the frame's [copy]) and it's on your clipboard, \"copied N chars\" · an agent's draft.copy only returns the text, never your clipboard",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · undo", panes: [r] }, show, [[r, n.labels]], d => {
+        // The person's own keys would do these: through the stage's dispatcher, in the reader's tile.
+        void d.press(r, NOTE_ACTIONS, "edit")
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3 }))
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.paste", { text: PANTRY_PASTE }))
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 1, col: (n.labels?.text.indexOf("[page::") ?? 0) + 1 }))
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 1, extend: true }));
       });
     },
   },

@@ -386,6 +386,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     search: ["search the board", "alotment notebok", "hit(s)", "Allotment notebook", "Allotment figures"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "■ unsent edit", "[diff]"],
+    // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
+    undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
@@ -453,8 +455,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 13 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 13 * 2 });
-    expect(S().sel).toBe(13);                                      // the spine section
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 14 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 14 * 2 });
+    expect(S().sel).toBe(14);                                      // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -831,6 +833,71 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await stage().dispatch.press("edit.close", { discard: true }, name);
     press({ kind: "esc" });
   }, 20_000);
+
+  test("undo (PIE-621): a big paste is one step, ctrl+z and ctrl+y by keys; copy by a drag's release and by shift+arrows then alt+c; an agent's undo and redo through act, its own only", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });
+    await until(() => marks.undo!.every(m => screen().includes(m)), `the undo section: ${marks.undo!.filter(m => !screen().includes(m)).join(" | ")}`, 8000);
+    const stage = () => S().stages.get(S().sel).top;
+    const draft = () => stage().pane("reader").surface.draft;
+    expect(draft().text).toContain("# Pantry inventory");
+    // An agent can't take back the person's paste: its undo is its own.
+    await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("this agent has no edit to undo");
+    // The person, by keys: into the stage and into the edit (⏎ enters one the keys aren't in yet), ctrl+z takes the
+    // whole paste back, ctrl+y puts it back, ctrl+z again.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    press({ kind: "enter" });
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => !draft().text.includes("Pantry"), "the paste undone in one step");
+    expect(draft().note).toContain("undid the paste (42 lines)");
+    press({ kind: "char", ch: "y", ctrl: true });
+    await until(() => draft().text.includes("Pantry"), "the paste redone");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => !draft().text.includes("Pantry"), "undone again");
+    expect(draft().dirty).toBe(false);
+    // By mouse: a drag across [page::…] on the first line, and its release copies it (OSC 52).
+    const before = written.length;
+    const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
+    const rows = sc.render(app).lines.map(plain);
+    const y = rows.findIndex(l => l.includes("Jar labels [page::Jar labels]"));
+    expect(y).toBeGreaterThan(0);
+    const x0 = rows[y]!.indexOf("[page::"), x1 = x0 + "[page::Jar labels]".length;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: x0 + 4, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: x1, y });
+    press({ kind: "mouse", action: "up", button: 0, x: x1, y });
+    await until(() => copies().length > 0, "the drag's selection copied on release");
+    expect(copies()).toEqual([osc52("[page::Jar labels]")]);
+    expect(draft().text).not.toContain("Pantry");                    // copying never types
+    // By keys: home, shift+→ over the title, then alt+c (cmd+c where the terminal sends it).
+    press({ kind: "home" });
+    for (let i = 0; i < "Jar".length; i++) press({ kind: "right", shift: true });
+    expect(draft().selectedText()).toBe("Jar");
+    press({ kind: "alt", ch: "c" });
+    await until(() => copies().length > 1, "alt+c copied the selection");
+    expect(copies().at(-1)).toBe(osc52("Jar"));
+    expect(screen()).toContain("[copy]");
+    // A double click's word, copied once it's selected.
+    const rows2 = sc.render(app).lines.map(plain), y2 = rows2.findIndex(l => l.includes("Rota: whoever fills")), x2 = rows2[y2]!.indexOf("whoever") + 2;
+    for (let i = 0; i < 2; i++) { press({ kind: "mouse", action: "down", button: 0, x: x2, y: y2 }); press({ kind: "mouse", action: "up", button: 0, x: x2, y: y2 }); }
+    await until(() => copies().length > 2, "the double click's word copied");
+    expect(copies().at(-1)).toBe(osc52("whoever"));
+    await stage().dispatch.press("edit.close", { discard: true }, "reader");
+    await until(() => !draft(), "the person's edit closed");
+    // An agent in an edit of its own, through act: its paste, its undo, its redo.
+    await app.act({ action: "edit", tile: "reader", as: "test-agent" });
+    await until(() => !!draft(), "the agent's edit open");
+    await app.act({ action: "draft.place", tile: "reader", args: { line: 1 }, as: "test-agent" });
+    expect(await app.act({ action: "draft.paste", tile: "reader", args: { text: " (wiped Sunday)" }, as: "test-agent" })).toMatchObject({ line: 1 });
+    expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
+    expect(await app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).toMatchObject({ left: 0, redo: 1 });
+    expect(draft().text.split("\n")[0]).not.toContain("wiped");
+    expect(await app.act({ action: "draft.redo", tile: "reader", as: "test-agent" })).toMatchObject({ redone: "redid the paste" });
+    expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
+    await app.act({ action: "edit.close", tile: "reader", args: { discard: true }, as: "test-agent" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
   test("the esc section: three nested things open (a zoom, a lit link, the tile menu); each Esc closes one, innermost first, then the keys come back to the index, then nothing to close, and the screen stays", async () => {
     (app as any).lastInput = 0;

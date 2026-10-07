@@ -17,14 +17,28 @@ import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type Dra
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;
-/** How many agent patches a draft keeps for ctrl+z. */
+/** How many agent patches a draft keeps for an agent's own undo. */
 const PATCH_UNDO_KEEP = 20;
+/** How many steps a draft's history keeps (PIE-621). */
+export const UNDO_KEEP = 300;
+/** Typing within this long of the last key, next to it, is the same undo step (ms). */
+export const TYPING_PAUSE_MS = 1200;
+/** A paste over this many lines or bytes says how big it was, and that ctrl+z takes it back. */
+export const BIG_PASTE_LINES = 20, BIG_PASTE_BYTES = 2048;
 
 /**
  * An agent's patch applied to a draft (PIE-501): one undo unit. Each span is where its replacement sits in
  * the text just after it, with the text it replaced and a little text either side for undo's own compare.
  */
 interface PatchUnit { patchId: string; by: Actor; spans: { start: number; text: string; was: string; before: string; after: string }[] }
+/**
+ * One step of a draft's history (PIE-621): the whole text before and after one change, who made it and what it was
+ * (`typing`, `the paste (340 lines)`, `tidy's edit`). Typing runs on into one step until a pause, a space or a jump
+ * elsewhere (`open` while it may); a paste, an insert, $EDITOR's text and each agent's patch are one step each.
+ * `unit`: the agent patch it was, so undoing it takes it off the draft's patches too; with `removes`, the patch it took
+ * back (an agent's own undo), so undoing that puts the patch back among them.
+ */
+export interface Step { before: string; after: string; by: Actor; what: string; at: number; caret: number; open: boolean; word?: boolean; unit?: PatchUnit; removes?: true }
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
@@ -76,14 +90,26 @@ export class Draft {
   near?: string;
   /** A note's text (an edit, a new card or note; not a comment): ⏎ on a first line of only `[page::x]` titles it (PIE-544). */
   titlesPages = false;
-  /** Agents' patches applied to this draft, newest last: ctrl+z (`draft.undo`) takes back the last one. */
+  /** Agents' patches applied to this draft, newest last: an agent's `draft.undo` takes back its own last one, wherever it is now. */
   patches: PatchUnit[] = [];
+  /**
+   * The draft's one history (PIE-621): every change, the person's typing and pastes and an agent's patches alike,
+   * oldest first. ctrl+z (`draft.undo`) takes back the newest, ctrl+y (`draft.redo`) puts back what it took; any
+   * new change drops what could be put back.
+   */
+  undos: Step[] = [];
+  redos: Step[] = [];
+  /** The text as of the last step recorded: the next step's `before`. */
+  private seen: string;
+  /** Pasted keys are going in (a paste typed out key by key): they become one step once the paste is all in. */
+  private pasting = false;
   /** Where agents' patches just landed, lit until `until`. */
   flashes: PatchFlash[] = [];
 
   constructor(readonly blockId: string, public base: number, text: string, props: Record<string, string> = {}) {
     this.baseProps = props;
     this.original = text;
+    this.seen = text;
     this.lines = text.split("\n");
     this.row = 0;
     this.col = this.lines[0]!.length;
@@ -113,21 +139,128 @@ export class Draft {
    * request line they write here (`@tidy …`) runs once quiet, before any save (`drafts.touch`).
    */
   onPersonTyped: (() => void) | null = null;
+  /** Its host draws it again (its session's): a paste typed out key by key is said once it's all in, after the keys drew. */
+  redraw: (() => void) | null = null;
 
-  /** `who` changed the text. */
-  wrote(who: Actor) {
+  /** `who` changed the text: a step of the draft's history (`what` it was), and they're among its writers. */
+  wrote(who: Actor, what = "typing") {
+    this.markWriter(who);
+    this.record(who, what);
+  }
+
+  private markWriter(who: Actor) {
     if (who.kind === "user") this.onPersonTyped?.();
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);
   }
 
+  // ── the history (PIE-621): undo and redo for every change ──────────────────
+
+  /**
+   * The text changed since the last step: a step from what it was to what it is. Typing joins the open typing step
+   * when it's the same party's, soon after and next to it; a space or line break typed after a word ends that step,
+   * so a step is a word and the space after it.
+   */
+  private record(by: Actor, what: string, unit?: PatchUnit, removes = false) {
+    if (this.pasting) return;
+    const before = this.seen, after = this.text;
+    if (after === before) return;
+    this.seen = after;
+    this.redos = [];
+    const c = changeOf(before, after), now = Date.now(), top = this.undos.at(-1);
+    const small = what === "typing" && c.added <= 2 && c.removed <= 2;
+    const typed = after.slice(c.at, c.at + c.added), space = c.added > 0 && !typed.trim(), word = !!typed.trim();
+    if (small && top?.open && top.what === "typing" && sameParty(top.by, by) && now - top.at < TYPING_PAUSE_MS && Math.abs(c.at - top.caret) <= 2) {
+      top.after = after; top.at = now; top.caret = c.at + c.added;
+      if (space && top.word) top.open = false;
+      if (word) top.word = true;
+      return;
+    }
+    if (top) top.open = false;
+    this.undos.push({ before, after, by: stripWith(by), what, at: now, caret: c.at + c.added, open: small, word, ...(unit ? { unit } : {}), ...(removes ? { removes: true as const } : {}) });
+    if (this.undos.length > UNDO_KEEP) this.undos.shift();
+  }
+
+  /** A paste typed out key by key that's still going in becomes its step now (before anything else changes the text). */
+  private settle() { if (this.pasting) this.pasted(USER); }
+
+  /** A paste is all in: one step, said when it's big. */
+  private pasted(by: Actor) {
+    this.pasting = false;
+    const before = this.seen;
+    const c = changeOf(before, this.text), text = this.text.slice(c.at, c.at + c.added);
+    const lines = text ? text.split("\n").length : 0;
+    this.record(by, lines > 1 ? `the paste (${lines} lines)` : "the paste");
+    if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.note = `pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`;
+  }
+
+  /** The text becomes `to` (an undo or redo): the cursor at the end of what changed, the view following it. */
+  private jump(to: string, by: Actor) {
+    const c = changeOf(this.text, to);
+    this.lines = to.split("\n");
+    this.seen = to;
+    const p = this.placeOf(c.at + c.added);
+    this.row = p.row; this.col = p.col;
+    this.anchor = null; this.goal = null; this.follow = true;
+    this.flashes = [];
+    this.discardArmed = false;
+    this.markWriter(by);
+  }
+
+  /**
+   * ctrl+z: the newest step taken back, whoever made it (the person's). An agent takes back only its own: the newest
+   * step when it's theirs, else its last patch where it is now (`undoPatch`). Says what it did.
+   */
+  undo(by: Actor): string {
+    this.settle();
+    this.record(USER, "a change");
+    const s = this.undos.at(-1);
+    if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return this.undoPatch(by);
+    if (!s) throw new ActionRefused("nothing to undo in this draft");
+    this.undos.pop();
+    s.open = false;
+    this.jump(s.before, by);
+    if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit);
+    this.redos.push(s);
+    return this.note = `undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`;
+  }
+
+  /** ctrl+y (ctrl+shift+z): the last step undo took back, put back. An agent puts back only its own. */
+  redo(by: Actor): string {
+    this.settle();
+    this.record(USER, "a change");
+    const s = this.redos.at(-1);
+    if (!s) throw new ActionRefused("nothing to redo in this draft");
+    if (by.kind === "agent" && !sameParty(s.by, by)) throw new ActionRefused("the next redo is someone else's change; an agent redoes only its own");
+    this.redos.pop();
+    this.jump(s.after, by);
+    if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit) : [...this.patches, s.unit];
+    this.undos.push(s);
+    return this.note = `redid ${s.what}`;
+  }
+
+  /** What ctrl+z would take back now, for the keys line: `typing`, `the paste (340 lines)`, `tidy's edit`. */
+  get undoable(): string | null { return this.undos.at(-1)?.what ?? null; }
+
+  /**
+   * A history carried over from an earlier draft of the same text (its session's: a save, then the note opened again
+   * unchanged), so ctrl+z goes back past the save to where that draft started (PIE-621).
+   */
+  adopt(steps: Step[]) {
+    if (this.undos.length || steps.at(-1)?.after !== this.text) return;
+    this.undos = steps.map(s => ({ ...s, open: false, unit: undefined }));
+  }
+
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
-    this.base = m.revision ?? this.base;
+    this.record(USER, "a change");
     this.baseProps = m.props;
+    this.base = m.revision ?? this.base;
     this.original = m.text;
     this.lines = m.text.split("\n");
+    // The typed text is a step back: ctrl+z after a reload brings it back.
+    this.record(USER, "the reload");
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
     this.changedElsewhere = false;
@@ -136,11 +269,16 @@ export class Draft {
     this.note = "reloaded the current text";
   }
 
-  /** Replace the text wholesale ($EDITOR came back, or an agent sent it). The base revision stays: the service still judges it. */
-  replace(text: string, by: Actor = USER) {
+  /**
+   * Replace the text wholesale ($EDITOR came back, or an agent sent it). The base revision
+   * stays: the service still judges it. One undo step, `what` it was.
+   */
+  replace(text: string, by: Actor = USER, what = by.kind === "agent" ? `${patchLabel(by)}'s text` : "the editor's text") {
+    this.settle();
+    this.record(USER, "a change");
     const before = this.text;
     this.lines = text.replace(/\n$/, "").split("\n");
-    if (this.text !== before) this.wrote(by);
+    if (this.text !== before) this.wrote(by, what);
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
   }
@@ -150,6 +288,8 @@ export class Draft {
    * `lines` first replaces other whole lines (a heading given a fragment anchor). One change, by `by`.
    */
   splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER) {
+    this.settle();
+    this.record(USER, "a change");
     const before = this.text;
     for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
     const line = this.line;
@@ -157,7 +297,7 @@ export class Draft {
     this.col = start + text.length;
     this.discardArmed = false;
     this.note = "";
-    if (this.text !== before) this.wrote(by);
+    if (this.text !== before) this.wrote(by, "the insert");
   }
 
   /** The text a put-aside draft was brought back with (its session's restore): esc twice on it unchanged drops it. */
@@ -175,8 +315,16 @@ export class Draft {
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
     if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
-    // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
-    if (isCopyKey(k)) return "copy";
+    // A paste typed out key by key (the App's) is one step: recorded once the last of its keys is in, or as soon as
+    // another key comes.
+    if (!("pasted" in k && k.pasted)) this.settle();
+    else if (!this.pasting) {
+      this.record(USER, "a change"); this.pasting = true;
+      queueMicrotask(() => { if (this.pasting) { this.pasted(USER); this.redraw?.(); } });
+    }
+    // cmd+c copies the selection; it never types, and never ends a put-aside's second esc. alt+c too,
+    // where cmd+c can't reach the door (a terminal without the Kitty keyboard protocol, tmux).
+    if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) return "copy";
     if (k.kind === "super") return "keep";
     const was = this.discardArmed;
     this.discardArmed = false;
@@ -189,9 +337,14 @@ export class Draft {
       if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
-      if (k.ch === "z") { void DRAFT_ACTIONS.run("draft.undo", {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); }); return "keep"; }
+      // ctrl+z undoes; ctrl+y and ctrl+shift+z (the Kitty keyboard protocol tells shift apart) redo.
+      if (k.ch === "z" || k.ch === "y") {
+        const name = k.ch === "y" || k.shift ? "draft.redo" : "draft.undo";
+        void DRAFT_ACTIONS.run(name, {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
+        return "keep";
+      }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
-      if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
+      if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
       return "keep";
     }
     if (k.kind === "esc") {
@@ -218,7 +371,10 @@ export class Draft {
       if (had && (k.kind === "backspace" || k.kind === "delete")) { this.wrote(USER); return "keep"; }
     }
     if (k.kind !== "tab" && k.kind !== "backtab" && k.kind !== "up" && k.kind !== "down" && k.kind !== "pgup" && k.kind !== "pgdn") this.goal = null;
-    if (k.kind !== "tab" && k.kind !== "backtab") this.anchor = null;
+    // Shift with an arrow, Home or End selects from where the cursor was; the move alone lets the selection go.
+    const extend = "shift" in k && !!k.shift && SELECTING.has(k.kind);
+    if (extend) this.anchor ??= { row: this.row, col: this.col };
+    else if (k.kind !== "tab" && k.kind !== "backtab") this.anchor = null;
     switch (k.kind) {
       case "left":
         if (this.col > 0) this.col = stepBack(this.line, this.col);
@@ -270,6 +426,7 @@ export class Draft {
         this.insert(k.ch);
         break;
     }
+    if (extend && this.anchor && this.anchor.row === this.row && this.anchor.col === this.col) this.anchor = null;
     // Every keystroke that changes the text makes the person its last writer.
     if (L.length !== len || L[r0] !== cur) this.wrote(USER);
     return "keep";
@@ -283,6 +440,9 @@ export class Draft {
 
   /** Pasted text goes in as it came: no list continuation, no indenting, tabs kept. */
   pasteText(text: string, by: Actor = USER) {
+    this.settle();
+    this.record(USER, "a change");
+    const before = this.text;
     if (this.anchor) this.deleteSelection();
     this.anchor = null; this.goal = null;
     const parts = text.replace(/\r\n?/g, "\n").split("\n");
@@ -294,7 +454,9 @@ export class Draft {
       this.row += parts.length - 1;
       this.col = last.length;
     }
-    if (text) this.wrote(by);
+    if (this.text === before) return;
+    this.markWriter(by);
+    this.pasted(by);
   }
 
   // ── lists: Enter keeps the level, Tab and Shift+Tab move it ────────────────
@@ -510,7 +672,7 @@ export class Draft {
       .find(r => r?.ok);
     if (!located?.ok) return false;
     this.patches.splice(i, 1);
-    this.commitPatch(located.spans, by, null);
+    this.commitPatch(located.spans, by, null, undefined, u);
     this.flashes = this.flashes.filter(f => !u.spans.some(sp => f.start === sp.start));
     return true;
   }
@@ -524,7 +686,10 @@ export class Draft {
   }
 
   /** Replace `spans` of the text; the cursor, selection, view and lit patches move with it. */
-  private commitPatch(spans: LocatedSpan[], by: Actor, patchId: string | null, map: (o: number) => number = o => mapOffset(o, spans)) {
+  private commitPatch(spans: LocatedSpan[], by: Actor, patchId: string | null, map: (o: number) => number = o => mapOffset(o, spans), removed?: PatchUnit) {
+    // Whatever changed the text without a step (the text set outright) is one first, so the patch is its own.
+    this.settle();
+    this.record(USER, "a change");
     const before = this.text, after = applyLocated(before, spans);
     // What stays put on screen: the cursor's row while it's in view, else the top row's text.
     const w = this.shown.w;
@@ -558,9 +723,12 @@ export class Draft {
       }
       this.patches.push(unit);
       if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
+      this.discardArmed = false;
+      if (this.text !== before) { this.markWriter(by); this.record(by, `${patchLabel(by)}'s edit`, unit); }
+      return;
     }
     this.discardArmed = false;
-    if (this.text !== before) this.wrote(by);
+    if (this.text !== before) { this.markWriter(by); this.record(by, "taking back an edit", removed, !!removed); }
   }
 
   /** The visual row a place is drawn on. */
@@ -635,7 +803,7 @@ export class Draft {
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
-  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" }[] } | null = null;
+  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" }[] } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   layout(w: number): VRow[] {
@@ -749,6 +917,9 @@ export class Draft {
 /** One drawn row of a draft: line `line`, code points [start, end), drawn `indent` cells in. */
 export interface VRow { line: number; start: number; end: number; indent: number }
 
+/** The keys that select with shift held (`Draft.key`). */
+const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
+
 /** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
 export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
 const LIST_LEAD = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(\[[ xX~!]\](?:[ \t]+|$))?/;
@@ -852,11 +1023,23 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     args: { by: { type: "number", about: "rows, negative up" } },
     run({ by }, d, actor) { d.scrollBy(by); return { following: d.follow }; },
   }),
+  "draft.paste": def({
+    summary: "put text in at the cursor as it came, as a paste does (over the selection, if any): no list continuation or indenting, and one undo step however big; a paste over 20 lines or 2 KB says so on the status line", keys: "a paste (bracketed paste: cmd+v, ctrl+shift+v)",
+    touches: "draft", draft: "type", replay: "ask",
+    args: { text: { type: "string", about: "the text" } },
+    run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
+  }),
   "draft.undo": def({
-    summary: "take back the last edit an agent's draft.patch made in this draft (an agent: only its own); one patch is one undo", keys: "ctrl+z",
+    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started, past a save when the note was opened again unchanged. An agent takes back only its own: its newest step, else its last patch where it is now", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
-    async run(_, d, actor) { const said = d.undoPatch(actor); return { undone: said, left: d.patches.length }; },
+    async run(_, d, actor) { const said = d.undo(actor); return { undone: said, left: d.undos.length, redo: d.redos.length }; },
+  }),
+  "draft.redo": def({
+    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: "ctrl+y, ctrl+shift+z",
+    touches: "draft", draft: "safe", replay: "ask",
+    args: {},
+    async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },
   }),
   "draft.preview": def({
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
@@ -865,7 +1048,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ on }, d, actor) { d.preview = on ?? !d.preview; return { preview: d.preview }; },
   }),
   "draft.copy": def({
-    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (an agent's never). A drag in a draft doesn't copy by itself, unlike a reader's: typing or a paste replaces what's selected there", keys: "cmd+c",
+    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: "cmd+c, alt+c, the frame's [copy], the release of a drag",
     touches: "draft", draft: "type", replay: "safe",
     args: {},
     run(_, d, actor) {
@@ -881,6 +1064,21 @@ export const patchLabel = whoOf;
 
 /** The same party: the person, or the same agent. */
 export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);
+
+/** An actor without the others it names (`with`): who made a step. */
+const stripWith = (who: Actor): Actor => { const { with: _, ...me } = who; return me as Actor; };
+
+/** Where two texts differ: the offset of the first difference, and how many UTF-16 units of each differ from there. */
+export function changeOf(a: string, b: string): { at: number; removed: number; added: number } {
+  const n = Math.min(a.length, b.length);
+  let p = 0;
+  while (p < n && a.charCodeAt(p) === b.charCodeAt(p)) p++;
+  // Never between a surrogate pair's halves.
+  if (p > 0 && p < n && isLow(a, p)) p--;
+  let e = 0;
+  while (e < n - p && a.charCodeAt(a.length - 1 - e) === b.charCodeAt(b.length - 1 - e)) e++;
+  return { at: p, removed: a.length - p - e, added: b.length - p - e };
+}
 
 const isLow = (s: string, i: number) => { const c = s.charCodeAt(i); return c >= 0xdc00 && c <= 0xdfff; };
 const stepBack = (s: string, i: number) => (i >= 2 && isLow(s, i - 1) ? i - 2 : i - 1);
