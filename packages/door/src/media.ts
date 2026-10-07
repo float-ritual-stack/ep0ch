@@ -20,7 +20,11 @@ import { inResize } from "./resize";
 import { cacheDir } from "./state";
 import type { Rgb } from "./theme";
 
-export interface PngRef { png: Buffer; width: number; height: number; key: string }
+/**
+ * A PNG the terminal can place. `crop`: the part of the image (fractions of it) its brightness was worked out for: a
+ * placement shows that part, so a PNG drawn for another crop meanwhile (a resize) shows what it was dimmed for.
+ */
+export interface PngRef { png: Buffer; width: number; height: number; key: string; crop?: Crop }
 type Kind = "img" | "video";
 /**
  * A media file as the door holds it, `key` naming its content (path, mtime, size). Loading: its size when its header
@@ -269,7 +273,7 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
   const ref = `${s.key}-${edge}-${lookKey(look)}`;
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
-  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
+  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
     mediaWork.scaled++;
     const sharp = await lib();
@@ -287,7 +291,7 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   });
   const b = readFileSync(out);
   if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG after conversion");
-  return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref };
+  return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref, ...(look.crop ? { crop: look.crop } : {}) };
 }
 
 /** The step that covers `edge` pixels on the longest side, never past the image's own. */
@@ -372,11 +376,13 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
     });
   }
   // Meanwhile: the smallest one ready with this look that covers the box, else the biggest; else (the crop moved: a
-  // resize) the one with this look for another crop drawn last. While a resize goes on, whichever was drawn last.
+  // resize) the one with this look for another crop drawn last. While a resize goes on, whichever was drawn last (one
+  // never drawn isn't: the terminal hasn't got it). One for another crop is dimmed for that crop, so its placement shows
+  // that crop (PngRef.crop): never a part of the image brighter than its dimming allowed for.
   const tail = `\0${lookKey(look)}`, loose = looseKey(look);
   const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose);
   const same = mine.filter(([k]) => k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
-  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).sort((a, b) => b[0] - a[0])[0];
+  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at]) => !resizing || at >= 0).sort((a, b) => b[0] - a[0])[0];
   const pick = same.length && !resizing ? same.find(([e]) => e >= edge) ?? same.at(-1)! : last();
   if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;

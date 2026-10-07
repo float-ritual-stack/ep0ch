@@ -4318,8 +4318,10 @@ const cellOf = (host?: SurfaceHost): [number, number] => [host?.ctx.t?.cellW ?? 
 export const imagePlacements = (images: readonly DocImage[], col: number, cellW: number, cellH: number): Placement[] =>
   images.flatMap(im => {
     // Not drawn until a PNG dimmed for the part it shows is ready: its rows stay dark, never a bright first frame.
-    const c = im.crop, png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(c ? { crop: c } : {}) });
+    const png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(im.crop ? { crop: im.crop } : {}) });
     if (!png) return [];
+    // The part it was dimmed for (another crop's, while a resize goes on: src/media.ts sized).
+    const c = png.crop;
     const crop = c ? { x: Math.round(c.x * png.width), y: Math.round(c.y * png.height), w: Math.max(1, Math.round(c.w * png.width)), h: Math.max(1, Math.round(c.h * png.height)) } : undefined;
     return [{ key: `img:${png.key}:${im.line}`, image: png, col: col + im.col, row: im.line, cols: im.cols, rows: im.rows, z: -1, ...(crop ? { crop } : {}) }];
   });

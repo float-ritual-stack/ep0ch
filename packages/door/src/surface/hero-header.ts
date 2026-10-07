@@ -68,7 +68,9 @@ export function backdrop(m: ReadyMedia, focus: Focus | undefined, dim: number | 
   const hit = made.find(([, p]) => p);
   if (!hit) return null;
   const [n, png] = hit as [number, NonNullable<(typeof made)[number][1]>];
-  const px = crop ? { x: Math.round(crop.x * png.width), y: Math.round(crop.y * png.height), w: Math.max(1, Math.round(crop.w * png.width)), h: Math.max(1, Math.round(crop.h * png.height)) } : undefined;
+  // The part it was dimmed for: its own crop (another's, while a resize goes on: src/media.ts sized).
+  const c = png.crop;
+  const px = c ? { x: Math.round(c.x * png.width), y: Math.round(c.y * png.height), w: Math.max(1, Math.round(c.w * png.width)), h: Math.max(1, Math.round(c.h * png.height)) } : undefined;
   // Under the text (z < 0), above the body's images' layer and the CRT's; the picture it fades in over a layer lower.
   return { step: n, placement: { key: `hero-backdrop:${png.key}`, image: png, col: 0, row: 0, cols, rows, z: over.z ?? -2, ...(px ? { crop: px } : {}) } };
 }
