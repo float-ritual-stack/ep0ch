@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A schema change is one `ep0ch install --apply` (PIE-617)
+
+- **Install migrates the outlines itself.** When the code it updates to opens a newer schema, the plan says so
+  before anything moves ("schema 2 → 3: will migrate 2 outlines (pie, pie-hole) with 0003-drop-agent-tables.ts"),
+  and `--apply` backs up, fast-forwards, stops the host, runs the step's script on each outline behind, starts the
+  host and hands the door sessions over. No more stopping the host and running a script per outline by hand.
+- **It refuses before updating** when an outline can't take the step (older than it, or its script already
+  deleted) or the host can't be stopped (outside its unit): the checkout stays where it was, and the plan says the
+  commands (for an old outline, moving it aside and `ep0ch outline import`).
+- **When a migration fails** it stops there: the outline is as it was, the message names its backup and the way
+  back, and the host is left stopped rather than serving only some outlines. Fix it and run `ep0ch install --apply`
+  again; it migrates what's left and starts the host.
+- **`ep0ch doctor`** flags an outline whose schema is behind the checkout's code, with install as the fix.
+- **What to run:** nothing new. The next schema change is one `ep0ch install --apply` on each machine.
+
 ### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599)
 
 - **One heading, its own look.** `## Odd jobs [heading::dots] [heading-tone::amber]` takes amber for itself; any

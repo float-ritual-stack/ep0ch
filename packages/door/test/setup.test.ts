@@ -9,13 +9,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, startFromElapsed, systemdState } from "../src/setup/facts";
+import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
@@ -986,5 +986,122 @@ describe("doctor: the art packs (PIE-596)", () => {
     expect(none).toMatchObject({ group: "ep0ch", status: "info", detail: "none in /srv/no-art (EP0CH_PACKS): the menus draw without art" });
     expect(none.fix).toContain(`export EP0CH_PACKS=${REPO}/packages/door/test/fixtures/packs`);
     expect(c({ dir: "/srv/art", packs: 2, fromEnv: true })).toMatchObject({ status: "ok", detail: "2 in /srv/art" });
+  });
+});
+
+describe("the outlines' schema (PIE-617): install migrates them, or refuses before updating", () => {
+  const SCRIPT = "packages/outliner/scripts/migrations/0003-drop-agent-tables.ts";
+  const code = (version: number, scripts: Record<number, string> = { 3: SCRIPT }) => ({ version, scripts });
+  /** The laptop 9 behind origin/main, whose code opens schema 3; float-hub (and any `more`) at the given versions. */
+  const bumped = (versions: Record<string, number | null>, o: { head?: number; upstream?: ReturnType<typeof code>; f?: Facts } = {}): Facts => {
+    const f = o.f ?? laptop();
+    const outlines = Object.entries(versions).map(([name, version]) => ({ name, path: `${HOME}/outlines/${name}.sqlite`, version, ...(version === null ? { error: "file is not a database" } : {}) }));
+    return { ...f, databases: outlines.map(({ name, path }) => ({ name, path })),
+      schema: { head: code(o.head ?? 2, {}), ...(f.repo.checkout.behind ? { upstream: o.upstream ?? code(3) } : {}), outlines } };
+  };
+
+  test("a bump in the update: back up, update, stop the host, migrate each outline behind, start the host; the plan says so", () => {
+    const f = bumped({ "float-hub": 2, "seed-bank": 2 });
+    const plan = buildPlan(f, opts());
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "host:do", "session:skip"]);
+    const schema = plan.steps.find(s => s.id === "schema")!;
+    expect(schema.why).toBe("schema 2 → 3: will migrate 2 outlines (float-hub, seed-bank) with 0003-drop-agent-tables.ts; the host stops while they migrate (each in one transaction) and starts after");
+    expect(schema.commands).toEqual(["launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host",
+      `bun ${REPO}/${SCRIPT} ${HOME}/outlines/float-hub.sqlite`, `bun ${REPO}/${SCRIPT} ${HOME}/outlines/seed-bank.sqlite`]);
+    // Each outline's backup is the one its recovery names; the code before is what going back resets to.
+    expect(schema.migrate).toMatchObject({ from: 2, to: 3, stopsHost: true, before: "40aaaaa",
+      outlines: [{ name: "float-hub", backup: `${HOME}/backups/ep0ch/20260314T092653Z/float-hub.sqlite` }, { name: "seed-bank", backup: `${HOME}/backups/ep0ch/20260314T092653Z/seed-bank.sqlite` }] });
+    // launchd's job is booted out to stop it (KeepAlive would bring back a killed one), so it's bootstrapped again.
+    expect(plan.steps.find(s => s.id === "host")).toMatchObject({ title: "Start the outline host on the new code", commands: [`launchctl bootstrap gui/$(id -u) ${launchd.path}`] });
+    expect(formatPlan(f, plan, false)).toContain("schema 2 → 3: will migrate 2 outlines (float-hub, seed-bank) with 0003-drop-agent-tables.ts");
+  });
+
+  test("systemd stops and starts its unit the same way", () => {
+    const f = float2();
+    const linux = bumped({ pie: 2 }, { f: { ...f, repo: { ...f.repo, checkout: checkout(f.repo.root, { head: "40aaaaa", upstream: "49bbbbb", behind: 9 }) },
+      host: { ...f.host, unit: { ...f.host.unit!, program: `${f.repo.outliner}/src/host-main.ts`, stale: [] } } } });
+    const plan = buildPlan(linux, opts());
+    expect(plan.steps.find(s => s.id === "schema")!.commands[0]).toBe("systemctl --user stop outliner-host.service");
+    expect(plan.steps.find(s => s.id === "host")!.commands).toEqual(["systemctl --user start outliner-host.service"]);
+  });
+
+  test("an outline too old for the step, or a step whose script was deleted: refused before the checkout moves, with the import route", () => {
+    for (const [f, said] of [[bumped({ "float-hub": 1 }), "0003-drop-agent-tables.ts takes schema 2 to 3 only"],
+      [bumped({ "float-hub": 2 }, { upstream: code(3, {}) }), "no migration script takes schema 2 to 3"]] as const) {
+      const plan = buildPlan(f, opts());
+      // The managed plugin, refreshed from main, would be the new code too: held back with the checkout.
+      expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:manual", "plugin:manual", "link:do", "schema:manual", "host:skip", "session:skip"]);
+      const schema = plan.steps.find(s => s.id === "schema")!;
+      expect(schema.why).toContain(said);
+      const v = f.schema!.outlines[0]!.version;
+      expect(schema.why).toContain(`import it into a new outline instead: launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host; mv ${HOME}/outlines/float-hub.sqlite ${HOME}/outlines/float-hub.sqlite.schema-${v}; ep0ch install --apply; ep0ch outline import ${HOME}/outlines/float-hub.sqlite.schema-${v} float-hub`);
+      expect(plan.steps.find(s => s.id === "repo")!).toMatchObject({ commands: [], why: expect.stringContaining("held back") });
+    }
+  });
+
+  test("a host install can't stop (outside a unit, or another process at the socket) holds the update back too", () => {
+    const outside = bumped({ "float-hub": 2 }, { f: laptop({ host: host({ unit: null }) }) });
+    expect(statuses(outside)).toContain("schema:manual");
+    expect(buildPlan(outside, opts()).steps.find(s => s.id === "schema")!.why).toContain("runs outside a launchd agent, so install can't stop it to migrate");
+    const other = bumped({ "float-hub": 2 }, { f: laptop({ host: host({ unit: { ...launchd, state: { active: false, detail: "launchd: not running" } } }) }) });
+    expect(buildPlan(other, opts()).steps.find(s => s.id === "schema")!.why).toContain("another process answers");
+    expect(statuses(other)).toContain("repo:manual");
+  });
+
+  test("an outline behind the checkout it's on (a run that failed, a hand-run step): migrated without an update; nothing to go back to", () => {
+    const f = bumped({ "float-hub": 2, "seed-bank": 3 }, { head: 3, f: current() });
+    f.schema!.head = code(3);
+    const plan = buildPlan(f, opts());
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:skip", "plugin:skip", "link:skip", "schema:do", "host:do", "session:skip"]);
+    expect(plan.steps.find(s => s.id === "schema")!.migrate).toMatchObject({ outlines: [{ name: "float-hub" }] });
+    expect(plan.steps.find(s => s.id === "schema")!.migrate!.before).toBeUndefined();
+  });
+
+  test("every outline at the schema, or one newer, migrates nothing; the rest of the plan is as before", () => {
+    expect(statuses(bumped({ "float-hub": 3 }, { head: 3, f: current() }))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "schema:skip", "host:skip", "session:skip"]);
+    const plan = buildPlan(bumped({ "float-hub": 3, "seed-bank": 4 }), opts());
+    expect(plan.steps.find(s => s.id === "schema")).toMatchObject({ status: "skip", why: "no outline is behind schema 3; seed-bank is schema 4, newer than this code opens" });
+    expect(plan.steps.find(s => s.id === "repo")!.status).toBe("do");
+  });
+
+  test("an outline whose version can't be read holds back an update that changes the schema, and nothing else", () => {
+    expect(statuses(bumped({ "float-hub": null }))).toContain("repo:manual");
+    expect(statuses(bumped({ "float-hub": null }, { head: 3 }))).toContain("repo:do");
+  });
+
+  test("a failed migration: the outline named, its backup, the host left stopped, the rerun, and the way back with real commands", () => {
+    const f = bumped({ "float-hub": 2, "seed-bank": 2 });
+    const m = buildPlan(f, opts()).steps.find(s => s.id === "schema")!.migrate!;
+    const said = migrationRecovery(f, m, m.outlines[1]!, [m.outlines[0]!]);
+    expect(said).toContain(`seed-bank is as it was (its migration runs in one transaction), and its backup is ${HOME}/backups/ep0ch/20260314T092653Z/seed-bank.sqlite; float-hub is at schema 3`);
+    expect(said).toContain("the outline host is left stopped, so no outline is served half-migrated");
+    expect(said).toContain("ep0ch install --apply migrates what's left and starts the host");
+    expect(said).toContain(`or go back to the code before: git -C ${REPO} reset --hard 40aaaaa; cp ${HOME}/backups/ep0ch/20260314T092653Z/float-hub.sqlite ${HOME}/outlines/float-hub.sqlite; launchctl bootstrap gui/$(id -u) ${launchd.path}`);
+  });
+
+  test("doctor flags an outline behind the checkout's schema, with install as the fix (or why install can't)", () => {
+    const checks = (f: Facts) => Object.fromEntries(doctorChecks(f).map(c => [`${c.group}/${c.name}`, c]));
+    const behind = bumped({ "float-hub": 2 }, { head: 3, f: current() });
+    behind.schema!.head = code(3);
+    expect(checks(behind)["outlines/schema"]).toMatchObject({ status: "behind", detail: "float-hub is schema 2; the checkout's code opens only schema 3, so the host refuses it", fix: expect.stringMatching(/^ep0ch install --apply migrates it \(schema 2 → 3/) });
+    const old = bumped({ "float-hub": 1 }, { head: 3, f: current() });
+    old.schema!.head = code(3);
+    expect(checks(old)["outlines/schema"]!.fix).toContain("import it into a new outline instead");
+    const fine = bumped({ "float-hub": 3 }, { head: 3, f: current() });
+    expect(checks(fine)["outlines/schema"]).toMatchObject({ status: "ok", detail: "float-hub at schema 3, what the checkout's code opens" });
+  });
+
+  test("the code's schema from schema.ts and the migration folder's names; an outline's from its file, read-only", () => {
+    expect(schemaCodeOf("export const SCHEMA_VERSION = 4;\n", ["0001-stamp.ts", "0004-split-props.ts", "README.md"]))
+      .toEqual({ version: 4, scripts: { 1: "packages/outliner/scripts/migrations/0001-stamp.ts", 4: "packages/outliner/scripts/migrations/0004-split-props.ts" } });
+    expect(schemaCodeOf(null, [], "gone").version).toBeNull();
+    const path = join(scratch, "schema-read.sqlite");
+    const db = new Database(path);
+    db.exec("PRAGMA journal_mode = WAL; CREATE TABLE seeds (name TEXT); PRAGMA user_version = 2");
+    // Open (as a host holds it): read all the same, and the file isn't changed.
+    expect(outlineSchema({ name: "schema-read", path })).toEqual({ name: "schema-read", path, version: 2 });
+    db.close();
+    writeFileSync(join(scratch, "not-a-db.sqlite"), "compost");
+    expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") })).toMatchObject({ version: null, error: expect.any(String) });
   });
 });

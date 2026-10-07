@@ -70,15 +70,15 @@ One walk through the door, in the order you meet things. Each step has its own s
    more. `alt+t` (or a click on its name on the status bar) steps to **night**, dimmer, and **classic**, the
    bright VGA palette; `alt+v` steps the video mode (the CRT glow is Kitty+CRT). Both work on every screen
    ([Themes and accessibility](#themes-and-accessibility)).
-6. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
+7. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
    brings the door back where it was ([Getting around](#ep0ch-the-door), above).
-7. **Links anywhere.** `b` in any reader shows its note's outlinks, resources and backlinks in the screen's
+8. **Links anywhere.** `b` in any reader shows its note's outlinks, resources and backlinks in the screen's
    links tile (one opens below the reader, with a preview beside it, where the screen has none); moving onto a
    resource previews what the service stores for it, and `⏎` opens it. In an outline tile `L` shows them under a
    row, in a river column they sit under its replies, and a note can list them inline: `::links`, `::resources`,
    `::backlinks` ([The desk](#the-desk)). The mouse matches the keys: a click selects and previews, a double click
    is `⏎`, an alt-, ctrl- or middle-click is `alt+⏎`, and a click that gives a tile the keys only selects.
-8. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
+9. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
    outdent, `Ctrl+P` previews, `Ctrl+S` saves (the first press says which properties would change). `Esc`
    twice puts unsaved text aside as **unsent**; `e` on the same note brings it back. `[[` completes
    pages and `((` notes with the service's forgiving search (a typo or two, any order), nearer the note you're writing
@@ -390,7 +390,8 @@ exits 1), and · for information:
 - **outlines**: the outlines folder and the outlines in it; the outline host (its socket, the outlines it serves,
   its protocol, and its systemd unit or launchd agent with what systemd or launchd says about it); a unit from
   before outlines by name (one that runs another checkout's `host-main.ts`, or still sets `OUTLINER_STATE_DIR` or
-  `OUTLINER_DEFAULT_OUTLINE`) with the exact change; and which outline this folder opens (its `.ep0ch`), or the
+  `OUTLINER_DEFAULT_OUTLINE`) with the exact change; an outline whose schema is behind (or ahead of) what the
+  checkout's code opens, with install as the fix or why it can't; and which outline this folder opens (its `.ep0ch`), or the
   outline `ep0ch init` would start.
 - **Herdr**: the server, and the keys for the plugin's actions in `config.toml`.
 - **Claude**: whether Claude Code's `CLAUDE_CODE_PLUGIN_DIRS` loads this checkout's Claude mod (its
@@ -412,7 +413,20 @@ exits 1), and · for information:
 4. **Link `ep0ch`** in the first directory that is on PATH and writable, of `~/.local/bin`,
    `/opt/homebrew/bin` and `/usr/local/bin`, saying which. Never sudo. A link there to another checkout's door
    (the old ep0ch-door) is pointed here; one elsewhere is left to you, with the command.
-5. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
+5. **Migrate the outlines** when the code the checkout ends on opens a newer schema than an outline is at (PIE-617).
+   Before the update, install reads that commit's `SCHEMA_VERSION` and migration scripts (`git show`) and each
+   outline's `user_version`, and the plan says it: "schema 2 → 3: will migrate 2 outlines (pie, pie-hole) with
+   0003-drop-agent-tables.ts". Applying, it stops the host through its unit (`systemctl --user stop`, `launchctl
+   bootout`), runs the step's script on each outline behind it (one transaction each; the script refuses a served
+   file), and the next step starts the host. One step only (N-1 → N, the script for N): an outline older than that, or
+   a step whose script was deleted, is imported instead, and install doesn't update the checkout until it's moved
+   aside, saying the commands. So does a host it can't stop (outside a unit, or another process at its socket). When a
+   migration fails it stops there, naming the outline (left as it was), its backup and the way back, and leaves the
+   host stopped: started on the new code it would serve only the outlines already migrated, and on the code before
+   it would need the checkout moved back and those outlines restored, which install never does by itself. Fix it and
+   run `ep0ch install --apply` again: it migrates what's left and starts the host. An outline behind the checkout's
+   own schema (a run that failed) is migrated the same way without an update; doctor flags it.
+6. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or
    `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and checks it speaks the
    checkout's protocol. The doors and panes on it reconnect by themselves. A host that's set up but not answering
@@ -441,9 +455,9 @@ exits 1), and · for information:
    this checkout, ! a link elsewhere (with `ln -sfn …`), ✗ missing (with `ln -s …`).
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
-for you, with what to do. Install never writes a database (it only copies them), never creates or opens an outline,
+for you, with what to do. Install never writes a database except through a migration script (it copies them first), never creates or opens an outline,
 never edits Herdr's config or registry or Claude's settings, and never writes a systemd or launchd unit (it only
-asks one to restart or start the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
+asks one to restart, start or stop the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
 It stops at the first failure, with the recovery. `--json` gives agents the same report or plan.
 
 At a terminal, both show progress while they work: checking the stack (the fetches among it) spins with

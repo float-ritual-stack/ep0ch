@@ -16,7 +16,8 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  *
  * Changing the schema bumps `SCHEMA_VERSION` and adds a one-off script in
  * `scripts/migrations/` that takes a database from the previous version to the
- * new one. It is run by hand on the outlines that matter and deleted once done
+ * new one. `ep0ch install --apply` runs it on every outline at the previous
+ * version with the host stopped (PIE-617), and it is deleted once done
  * (git keeps it); for a large change, a fresh database plus `outliner import`
  * (src/outline-import.ts) is the other way. Every table is created here,
  * including those one subsystem uses alone (workflows, agent mentions), so a

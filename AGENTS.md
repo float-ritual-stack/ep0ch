@@ -136,10 +136,13 @@ MacBook). It does not support every version a client ever connected with.
   else (`packages/outliner/src/schema.ts`). There are no detect-old-shape checks in the runtime, ever. On open, a
   database whose `user_version` isn't the current one is refused with a message that names the version and the
   command that upgrades it.
-- **Changing the schema:** bump `SCHEMA_VERSION` and write a one-off script in
-  `packages/outliner/scripts/migrations/` that takes a database from N-1 to N. Run it by hand on the databases
-  that matter (today pie and float-hub), and delete it once those are done. Git keeps it. No runtime chain of
-  migrations.
+- **Changing the schema:** bump `SCHEMA_VERSION` and write a one-off script,
+  `packages/outliner/scripts/migrations/<N>-<what>.ts`, that takes a database from N-1 to N
+  (`bun <script> <database>`: one transaction, refuses a served file, exits non-zero leaving the file as it was).
+  `ep0ch install --apply` runs it on each machine (PIE-617): it stops the host, migrates every outline at N-1,
+  starts the host, and refuses to update when an outline can't take the step. Delete the script once the machines
+  that matter (today pie and float-hub) have run it; git keeps it, and install then refuses an older outline with
+  the import route. No runtime chain of migrations.
 - **Big changes:** the preferred path can be a fresh database plus an agent importing what matters now, not the
   entire history. The `import` command (`outliner import`, `ep0ch outline import`, and init's import option;
   `packages/outliner/src/outline-import.ts`) reads blocks, properties, page addresses and work ids from an older file.

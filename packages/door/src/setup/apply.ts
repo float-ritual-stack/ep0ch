@@ -6,10 +6,10 @@ import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlink
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
-import { depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
+import { depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
@@ -277,6 +277,30 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`restarted the MCP gateway (${u.kind} ${u.name}) on the new code`);
       return;
     }
+    case "schema": {
+      const m = step.migrate!, u = f.host.unit, uid = process.getuid?.() ?? 0;
+      const logs = u?.kind === "launchd" ? `launchctl print gui/${uid}/${u.name}` : `journalctl --user -u ${u?.name}`;
+      if (m.stopsHost && u) {
+        await must(hostUnitArgv(u, "stop", uid), `nothing was migrated, and the host runs on; ${hostUnitCommand(u, "stop")} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
+        // Gone: its unit's job stopped and nothing answering, so the migration's ownership check finds the file free.
+        const gone = async () => (await unitState(u)).active !== true && !(await hostLive(f.host.socket));
+        if (!(await waitFor(gone, 30_000))) throw new StepFailed(`${u.kind} stopped ${u.name}, but the host still runs after 30s`, `nothing was migrated; see ${logs}, then rerun ep0ch install --apply`);
+        say(`stopped the outline host (${u.kind} ${u.name}) to migrate`);
+      }
+      const done: typeof m.outlines = [];
+      for (const [i, o] of m.outlines.entries()) {
+        task.count(i, m.outlines.length, o.name);
+        const r = await run([process.execPath, m.script, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });
+        const now = outlineSchema(o).version;
+        if (r.code !== 0 || now !== m.to) {
+          const said = r.code !== 0 ? withoutProgress(r.err) || r.out || `exit ${r.code}` : `the script ended, but ${o.name} is schema ${now ?? "unreadable"}, not ${m.to}`;
+          throw new StepFailed(`migrating ${o.name} (schema ${m.from} → ${m.to}) failed: ${said}`, migrationRecovery(f, m, o, done));
+        }
+        done.push(o);
+        say(`${o.name}: schema ${m.from} → ${m.to}`);
+      }
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       // A unit whose job runs is restarted, answering or not: starting it would do nothing.
@@ -294,6 +318,26 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
   }
+}
+
+/**
+ * What to do when an outline's migration fails (PIE-617). The host is left stopped: started on the new code it would
+ * serve the outlines already migrated and refuse this one (half the outlines, and every door on this one erroring);
+ * started on the code before, it would need the live checkout moved back and the migrated outlines restored from their
+ * backups, two changes install never makes on its own. Stopped, the doors wait and reconnect, and one rerun of install
+ * after the fix migrates what's left and starts it; going back is said too, with the exact commands.
+ */
+export function migrationRecovery(f: Facts, m: Migration, failed: Migration["outlines"][number], done: readonly Migration["outlines"][number][]): string {
+  const u = f.host.unit;
+  const start = u ? hostUnitCommand(u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u, "start") : `bun ${hostMainOf(f)}`;
+  const restore = done.filter(o => o.backup).map(o => `cp ${o.backup} ${o.path}`);
+  const back = m.before ? `git -C ${f.repo.root} reset --hard ${m.before}${restore.length ? `; ${restore.join("; ")}` : ""}; ${start}` : null;
+  return [
+    `${failed.name} is as it was (its migration runs in one transaction)${failed.backup ? `, and its backup is ${failed.backup}` : ""}${done.length ? `; ${done.map(o => o.name).join(", ")} ${done.length === 1 ? "is" : "are"} at schema ${m.to}` : ""}`,
+    `the outline host is left stopped, so no outline is served half-migrated; the doors on it wait and reconnect`,
+    `fix it, then ep0ch install --apply migrates what's left and starts the host`,
+    ...(back ? [`or go back to the code before: ${back}`] : []),
+  ].join("; ");
 }
 
 /** Paths under the home directory as ~/…, for people (--json keeps them whole). */
@@ -359,7 +403,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   for (const [i, planned] of plan.steps.entries()) {
     let step = planned;
     // The host: asked again after the checkout updated (its code may speak a new protocol), and restarted because of it.
-    if (step.id === "host" && plan.steps.some(s => s.id === "repo" && s.status === "do")) {
+    // After a migration too: the schema step stopped it, and it's started.
+    if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema") && s.status === "do")) {
       const code = await pluginCode(current.repo.outliner);
       const host = await hostFacts(current.host.folder, current.platform, current.home);
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };

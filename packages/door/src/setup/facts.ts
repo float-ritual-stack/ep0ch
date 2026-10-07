@@ -1,6 +1,7 @@
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
 // here writes a database, starts a host or changes a config.
+import { Database } from "bun:sqlite";
 import { drawerProgram } from "../desk/drawer-program";
 import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -15,7 +16,7 @@ import { packDir, packs } from "../packs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SessionFact, type UnitState } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
 import { chooseLinkDir, linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -423,6 +424,52 @@ export function databases(folder: string): DatabaseFacts[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Where a checkout keeps its schema version and its migration scripts (PIE-617), from the repo root. */
+export const SCHEMA_FILE = "packages/outliner/src/schema.ts";
+export const MIGRATIONS_DIR = "packages/outliner/scripts/migrations";
+
+/** The schema a checkout's code opens, from schema.ts's text and the migration folder's file names. */
+export function schemaCodeOf(schemaText: string | null, files: readonly string[], error?: string): SchemaCode {
+  const version = schemaText === null ? null : Number(/^export const SCHEMA_VERSION = (\d+);/m.exec(schemaText)?.[1] ?? NaN);
+  const scripts: Record<number, string> = {};
+  for (const f of files) { const m = /^(\d{4})-[\w.-]+\.ts$/.exec(f); if (m) scripts[Number(m[1])] = `${MIGRATIONS_DIR}/${f}`; }
+  const read = version !== null && Number.isInteger(version);
+  return { version: read ? version : null, scripts, ...(!read ? { error: error ?? `no SCHEMA_VERSION in ${SCHEMA_FILE}` } : {}) };
+}
+
+/** The schema the checkout's working tree opens, or, with `commit`, the one that commit's code opens (`git show`, read-only). */
+export async function schemaCode(root: string, commit?: string, env?: Env): Promise<SchemaCode> {
+  if (!commit) {
+    let text: string | null = null, files: string[] = [];
+    try { text = readFileSync(join(root, SCHEMA_FILE), "utf8"); } catch { /* said below */ }
+    try { files = readdirSync(join(root, MIGRATIONS_DIR)); } catch { /* none */ }
+    return schemaCodeOf(text, files, `couldn't read ${join(root, SCHEMA_FILE)}`);
+  }
+  const [shown, listed] = await Promise.all([
+    run(["git", "-C", root, "show", `${commit}:${SCHEMA_FILE}`], { env, timeoutMs: 10_000 }),
+    run(["git", "-C", root, "ls-tree", "--name-only", `${commit}:${MIGRATIONS_DIR}`], { env, timeoutMs: 10_000 }),
+  ]);
+  return schemaCodeOf(shown.code === 0 ? shown.out : null, listed.code === 0 ? listed.out.split("\n") : [], `couldn't read ${SCHEMA_FILE} at ${commit.slice(0, 7)}: ${shown.err || `exit ${shown.code}`}`);
+}
+
+/** An outline database's schema version, read-only (a served file too: nothing is written, no lock is taken). */
+export function outlineSchema(d: DatabaseFacts): OutlineSchema {
+  try {
+    const db = new Database(d.path, { readonly: true });
+    try {
+      db.run("PRAGMA busy_timeout = 2000");
+      return { ...d, version: (db.query("PRAGMA user_version").get() as { user_version: number }).user_version };
+    } finally { db.close(); }
+  } catch (e) { return { ...d, version: null, error: (e as Error).message }; }
+}
+
+/** The schema the checkout opens now, origin/main's when it's behind, and each outline's. */
+export async function schemaFacts(repo: RepoFacts, dbs: readonly DatabaseFacts[], env?: Env): Promise<SchemaFacts> {
+  const c = repo.checkout;
+  const [head, upstream] = await Promise.all([schemaCode(repo.root), c.git && c.upstream && c.behind > 0 ? schemaCode(repo.root, c.upstream, env) : undefined]);
+  return { head, ...(upstream ? { upstream } : {}), outlines: dbs.map(outlineSchema) };
+}
+
 /** Which outline `folder` opens, by the rule (`EP0CH_WS`, the nearest `.ep0ch`); never a guess. */
 export function hereFacts(folder: string, env: Env): HereFacts {
   const t = resolveTarget([], env, folder);
@@ -534,6 +581,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const named = [...new Set([...(here.machine ? [here.machine] : []), ...usedMachines(env.EP0CH_STATE ?? defaultStateDir(env)).map(m => m.name)])];
   const machines = await part("the machines' forwards", Promise.all(named.map(async m => ({ ...(await machineStatus(m, { ...env, HOME: home })), ...(m === here.machine ? { here: true } : {}) }))));
 
+  const dbs = databases(folder);
   // What install linked (links.ts), one record for every kind of link it owns.
   const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
@@ -545,7 +593,8 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     ep0ch: { found, target, pointsHere: target === real(repo.entry) },
     linkDirs,
     host,
-    databases: databases(folder),
+    databases: dbs,
+    schema: await part("the outlines' schema", schemaFacts(repo, dbs, env)),
     here,
     // What this folder's outline's drawer runs: its session's saved choice, else the person's default, as the drawer reads them.
     drawer: await (async () => {
