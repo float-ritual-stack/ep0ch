@@ -25,10 +25,44 @@ export const wheelRows = (dir: 1 | -1): number => dir * SCROLL_ROWS;
 /** `v` kept within `a` to `b`. */
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
-/** `top` moved by `by` rows, kept within 0 to `max` (the last top that still fills the view). */
+/** `top` moved by `by` rows, kept within 0 to `max` (the furthest top: `lastTop` where a view scrolls past its end). */
 export function scrolled(top: number, by: number, max = Infinity): number {
   return clamp(top + by, 0, Math.max(0, max));
 }
+
+// ── past the end (PIE-622) ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * How far a reader or a draft scrolls past its last line: `half` (the last line can come up to the view's middle),
+ * `none` (it stops at the bottom edge, as before), or a number of rows. The person's setting (reader.overscroll,
+ * kept in the state dir as `reader-overscroll.json`); unset: half.
+ */
+export type Overscroll = "half" | "none" | number;
+let overscrollSetting: Overscroll = "half";
+/** `half`, `none` or a whole number of rows (0 to 200, given as a number or its digits); else null. */
+export function overscrollOf(v: unknown): Overscroll | null {
+  if (v === "half" || v === "none") return v;
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= 0 && n <= 200 ? n : null;
+}
+/** Use the setting kept from last time (the door's start) or just chosen (reader.overscroll); anything else: half. */
+export function useOverscroll(v: unknown) { overscrollSetting = overscrollOf(v) ?? "half"; }
+/** The setting in use. */
+export const overscroll = (): Overscroll => overscrollSetting;
+/** Blank rows a view of `room` rows may show under its last line: half the view, none, or the rows asked for (always leaving the last line in view). */
+export function overscrollRows(room: number, o: Overscroll = overscrollSetting): number {
+  const r = Math.max(0, room - 1);
+  return Math.min(r, o === "none" ? 0 : o === "half" ? Math.floor(room / 2) : o);
+}
+/** The top at which the last of `total` rows sits on the bottom edge of a view of `room` rows (End's first stop). */
+export const endTop = (total: number, room: number) => Math.max(0, total - Math.max(1, room));
+/**
+ * The furthest a view of `room` rows over `total` rows scrolls: until the last row is `overscrollRows` above the
+ * bottom edge (the view's middle, at half). A short note whose last line is already that high doesn't scroll.
+ */
+export const lastTop = (total: number, room: number) => Math.max(0, Math.min(total - 1, total - Math.max(1, room) + overscrollRows(room)));
+/** Rows a draft keeps between its cursor and the view's top or bottom edge (scrolloff): 3, less in a short view. */
+export const scrollOff = (room: number) => Math.min(3, Math.floor(room / 4));
 
 /** `top` moved just far enough that row `sel` is in a view of `room` rows. */
 export function follow(sel: number, top: number, room: number): number {

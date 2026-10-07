@@ -179,10 +179,12 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
     const d = new Draft("n1", 1, long);                          // the cursor starts on line 1
     d.place(39, 5);
     let rows = plain(d.render(30, 10));
+    // On the last line the view keeps scrollOff rows (2 of 10) blank under it (PIE-622): items 33 to 40 show.
     expect(rows.at(-1)).toContain("item 40");
+    expect(rows[0]).toBe("- item 33");
     void DRAFT_ACTIONS.run("draft.scroll", { by: -20 }, d, USER);
     rows = plain(d.render(30, 10));
-    expect(rows[0]).toBe("- item 11");
+    expect(rows[0]).toBe("- item 13");
     expect([d.row, d.col]).toEqual([39, 5]);                    // the cursor didn't move
     type(d, "!");
     rows = plain(d.render(30, 10));
