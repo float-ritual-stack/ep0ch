@@ -14,7 +14,7 @@ import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } f
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import type { Placement } from "../kitty";
-import { resizeEnded, resizing } from "../resize";
+import { inResize, resizeEnded, resizing } from "../resize";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
@@ -44,7 +44,7 @@ import {
 } from "./screen-layout";
 import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
-import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type SessionKind } from "./panes";
+import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
@@ -90,6 +90,11 @@ const WM: Record<string, [string, Record<string, unknown>, ("n" | "-")?]> = {
 };
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
+/** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
+const REFLOW_MS = 4;
+/** While a resize goes on, how old a tile's view gets before it's drawn again though its size didn't change. */
+const REDRAW_MS = 100;
+
 /** A key pressed while a tile is dragged by its header: the action its ^W chord runs, on the dragged tile. */
 const DRAG_KEYS: Record<string, [string, Record<string, unknown>]> = { f: ["tile.float", {}], p: ["tile.dock", {}], a: ["tile.drawer", {}] };
 /** A header pressed: the tile (a tab) it would drag, and where. A drag of a cell or more starts moving it. */
@@ -1839,6 +1844,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // Floats over everything (PIE-511): drawn on the screen as it is now, the last on top.
     const floats = zoomed ? [] : this.floats.map(f => [f.id, keepOnScreen(f.rect, area)] as [number, Rect]);
+    this.pickReflows([...pinned, ...this.slid.flatMap(d => [...d.placed.rects]), ...floats]);
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
@@ -1880,6 +1886,52 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     return { lines: canvas.lines(), placements };
+  }
+
+  /**
+   * Each tile's view as last drawn: the size it was drawn at, how long it took, and the frame it was drawn in. While a
+   * resize goes on (src/resize.ts), a tile whose size changed keeps showing this one (cut or padded to its box) when
+   * the frame has no time left to lay it out again (pickReflows).
+   */
+  private views = new Map<number, { cols: number; rows: number; view: PaneView; ms: number; frame: number; at: number }>();
+  private frameNo = 0;
+  /** The tiles this frame lays out again though a resize is going on; null: every tile, as always. */
+  private reflows: Set<number> | null = null;
+  /**
+   * While a resize goes on, the tiles whose size changed are laid out again as the frame has time for: the one
+   * waiting longest first, each counted at what it took last time, up to REFLOW_MS (at least one a frame). The rest
+   * keep their last view a frame or two: a drag reflows live without laying out every tile it touches on every
+   * report (PIE-623). The frame after it ends lays out every tile.
+   */
+  private pickReflows(placed: [number, Rect][]) {
+    this.frameNo++;
+    for (const id of this.views.keys()) if (!this.panes.has(id)) this.views.delete(id);
+    if (!inResize()) { this.reflows = null; return; }
+    const stale = placed.flatMap(([id, r0]) => {
+      const r = this.boxOf(id, r0), last = this.views.get(id);
+      return last && (last.cols !== r.cols - 2 || last.rows !== r.rows - 2) ? [{ id, last }] : [];
+    }).sort((a, b) => a.last.frame - b.last.frame);
+    this.reflows = new Set();
+    let spent = 0;
+    for (const { id, last } of stale) {
+      if (this.reflows.size && spent + last.ms > REFLOW_MS) continue;
+      this.reflows.add(id); spent += last.ms;
+    }
+    // A tile whose size didn't change is drawn again once its view is REDRAW_MS old (a terminal's output, an image
+    // arriving): a frame of the drag lays out only what it moved.
+    const now = performance.now();
+    for (const [id] of placed) if (!stale.some(s => s.id === id) && now - (this.views.get(id)?.at ?? 0) >= REDRAW_MS) this.reflows.add(id);
+  }
+
+  /** Tile `id`'s view at `inner`'s size, or its last one while a resize has no time for it (pickReflows). */
+  private drawn(id: number, pane: Pane, inner: Rect, focused: boolean, typing: boolean): PaneView {
+    const last = this.views.get(id);
+    if (last && this.reflows && !this.reflows.has(id)) return last.view;
+    const t0 = performance.now();
+    const view = pane.render(inner.cols, inner.rows, focused, this, typing);
+    const at = performance.now();
+    this.views.set(id, { cols: inner.cols, rows: inner.rows, view, ms: at - t0, frame: this.frameNo, at });
+    return view;
   }
 
   /** Where tile `id`, placed at `r0`, is drawn: a flow's peek in its whole box (its right side under its neighbour), else `r0`. */
@@ -1971,7 +2023,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, float ? 2 : 0);
     // A float's ⧉ puts it back: the cell either side counts too (a font that draws the glyph wide puts it under the pointer there).
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
-    const view = inner.cols >= 1 && inner.rows >= 1 ? pane.render(inner.cols, inner.rows, focused, this, typing) : null;
+    const view = inner.cols >= 1 && inner.rows >= 1 ? this.drawn(id, pane, inner, focused, typing) : null;
     // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
     const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
     const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
