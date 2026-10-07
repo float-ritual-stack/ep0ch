@@ -2,7 +2,7 @@
 // outline host was once killed by the kernel during an agent's whole-suite run: every run started through agent-env
 // has oom_score_adj 1000, inherited by what it starts, and a --test run is capped (MemoryMax) in a systemd user scope.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,6 +37,14 @@ describe("scripts/agent-env", () => {
     const tmp = r.stdout.toString().trim();
     expect(tmp).toBe(join(root, "tmp", `ep0ch-agent-${process.getuid?.() ?? 0}`, "probe"));
     expect(tmp.startsWith(`${home}/`)).toBe(false);
+    // A folder planted in its place (a symlink to somewhere of the person's) is refused, and nothing is run.
+    const planted = join(root, "planted");
+    mkdirSync(join(planted, "target"), { recursive: true });
+    symlinkSync(join(planted, "target"), join(planted, `ep0ch-agent-${process.getuid?.() ?? 0}`));
+    const refused = Bun.spawnSync([script, "probe", "--", "sh", "-c", "echo ran"], { env: { ...process.env, EP0CH_AGENT_ROOT: root, EP0CH_AGENT_TMP: planted }, stdout: "pipe", stderr: "pipe" });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stdout.toString()).not.toContain("ran");
+    expect(refused.stderr.toString()).toContain("is a symlink");
   });
 
   test.skipIf(!procs)("a run, and what it starts, are the first the kernel kills: oom_score_adj 1000", () => {
