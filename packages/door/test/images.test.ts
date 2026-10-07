@@ -8,7 +8,8 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { heroBox, imageBox, coverCrop, mediaLines, renderDoc, type DocEnv } from "../src/doc";
 import { inWindow } from "../src/kitty";
-import { brightness, MAX_MEAN, media, mediaCache, parseMediaLine, rewriteMediaLine, sized, type ReadyMedia } from "../src/media";
+import { brightness, cellColours, MAX_MEAN, media, mediaCache, parseFocus, parseMediaLine, rewriteMediaLine, sized, type ReadyMedia } from "../src/media";
+import { backgroundAfter, HERO_MEAN, HERO_PEAK, heroStep, overColours, useHeroHeader } from "../src/surface/hero-header";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { until } from "./scratch";
 
@@ -28,6 +29,10 @@ beforeAll(async () => {
   await sharp(drawn).webp().toFile(file("wide.webp"));
   await sharp(drawn).gif().toFile(file("wide.gif"));
   await sharp({ create: { width: 200, height: 100, channels: 3, background: { r: 10, g: 60, b: 20 } } }).png().toFile(file("small.png"));
+  // A fictional sunset: bright and saturated.
+  await sharp({ create: { width: 1200, height: 600, channels: 3, background: { r: 250, g: 120, b: 30 } } }).png().toFile(file("sunset.png"));
+  // A fictional night sky with one bright moon: dark on the whole, a small white patch.
+  await sharp({ create: { width: 1000, height: 100, channels: 3, background: { r: 4, g: 6, b: 12 } } }).composite([{ input: { create: { width: 40, height: 40, channels: 3, background: { r: 255, g: 255, b: 255 } } }, left: 480, top: 30 }]).png().toFile(file("moon.png"));
   // A fictional page of paper: nearly white.
   await sharp({ create: { width: 800, height: 450, channels: 3, background: { r: 240, g: 236, b: 226 } } }).png().toFile(file("paper.png"));
 });
@@ -270,5 +275,126 @@ describe("the reader draws the header image above the title", () => {
     expect(d.images[0]).toMatchObject({ col: 0, cols: 80, rows: 8, crop: { x: 0, w: 1 } });
     expect(d.media[0]!.image).toBe(0);
     expect(d.hero).toBeUndefined();
+  });
+});
+
+describe("the header takes the hero image as it scrolls under (PIE-598)", () => {
+  const note = (text: string) => ({ id: "41111111-2222-4333-8444-666666666666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+  const host = (graphics: boolean): SurfaceHost => ({
+    ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 100, rows: 40, cellW: 10, cellH: 20, kitty: graphics }, graphics } as any,
+    redraw() {}, navigate() {},
+  });
+  const body = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join("\n");
+  const backdropOf = (v: { placements?: { key: string }[] }) => v.placements?.find(p => p.key.startsWith("hero-backdrop:")) as any;
+  const saturation = async (png: Buffer) => { const c = (await sharp(png).stats()).channels; return Math.max(c[0]!.mean, c[1]!.mean, c[2]!.mean) - Math.min(c[0]!.mean, c[1]!.mean, c[2]!.mean); };
+
+  test("hero-focus: a point as fractions or percents; a crop keeps it in view, inside the image", () => {
+    expect(parseFocus("0.8,0.25")).toEqual({ x: 0.8, y: 0.25 });
+    expect(parseFocus("80%, 25%")).toEqual({ x: 0.8, y: 0.25 });
+    expect(parseFocus("2,0")).toBeNull();
+    expect(parseFocus("0.5")).toBeNull();
+    expect(parseMediaLine("- [img::a.png] [hero-focus::0.9,0.1]")).toMatchObject({ focus: { x: 0.9, y: 0.1 }, problems: [] });
+    expect(parseMediaLine("img:: a.png [hero-focus::0.9,0.1]")).toMatchObject({ path: "a.png", focus: { x: 0.9, y: 0.1 } });
+    expect(parseMediaLine("[img::a.png] [hero-focus::left]")!.problems).toEqual(["hero-focus::left isn't a point (x,y: 0 to 1, or percents)"]);
+    expect(coverCrop({ width: 1000, height: 500 }, 1000, 250, { x: 0.5, y: 0.9 })).toEqual({ x: 0, y: 0.5, w: 1, h: 0.5 });
+    expect(coverCrop({ width: 1000, height: 500 }, 1000, 250, { x: 0.5, y: 0.4 })!.y).toBeCloseTo(0.15, 5);
+    expect(coverCrop({ width: 1000, height: 500 }, 500, 500, { x: 0, y: 0.5 })).toEqual({ x: 0, y: 0, w: 0.5, h: 1 });
+  });
+
+  test("it comes in by steps as the image goes under", () => {
+    expect([0, 0.01, 0.33, 0.34, 0.66, 0.67, 1].map(heroStep)).toEqual([0, 1, 1, 2, 2, 3, 3]);
+  });
+
+  test("Kitty: a muted, dimmed crop under the header's text once a first-block image scrolls under it; plain before, and with reader.hero off", async () => {
+    await ready("sunset.png");
+    const s = new NoteSurface(), h = host(true);
+    s.show(note(`Plot\n- [img::${file("sunset.png")}] [size::full]\n\n${body(80)}`) as any, h);
+    await until(() => !!s.render(100, 40, h).placements?.length, "the image, scaled", 10_000);
+    expect(backdropOf(s.render(100, 40, h))).toBeUndefined();
+    expect(s.headerBackdrop().backdrop).toMatchObject({ image: "sunset.png", line: 2, step: 0 });
+    // A few rows under: the first step, a third opaque, the ground showing through the rest.
+    (s as any).scroll = 3;
+    await until(() => backdropOf(s.render(100, 40, h))?.key.includes("o33") ?? false, "the first step, made", 10_000);
+    expect(s.headerBackdrop().backdrop).toMatchObject({ step: 1, drawn: "kitty" });
+    expect((await sharp(backdropOf(s.render(100, 40, h)).image.png).stats()).channels[3]!.mean).toBeCloseTo(255 / 3, -1);
+    (s as any).scroll = 200;
+    await until(() => !!backdropOf(s.render(100, 40, h)), "the backdrop, made", 10_000);
+    const v = s.render(100, 40, h), b = backdropOf(v);
+    // The title, the byline and the crumbs: three rows, the full width, under the text.
+    expect(b).toMatchObject({ col: 0, row: 0, cols: 100, rows: 3, z: -2 });
+    expect(plain(v.lines[0]!)).toContain("Plot");
+    expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "kitty" });
+    // Dark and muted: its mean held to HERO_MEAN, most of its colour gone; the original is never changed.
+    expect(await meanOf(b.image.png)).toBeLessThanOrEqual(HERO_MEAN + 0.02);
+    expect(await saturation(b.image.png)).toBeLessThan(30);
+    expect(await meanOf(await Bun.file(file("sunset.png")).bytes().then(x => Buffer.from(x)))).toBeGreaterThan(0.5);
+    useHeroHeader(false);
+    try {
+      expect(backdropOf(s.render(100, 40, h))).toBeUndefined();
+      expect(s.headerBackdrop()).toEqual({ backdrop: null, on: false });
+    } finally { useHeroHeader(null); }
+  });
+
+  test("a small bright patch on a dark picture is held down too, and a picture's own [dim::…] still darkens it", async () => {
+    const m = await ready("moon.png");
+    await until(() => !!cellColours(m, 50, 5, { mean: HERO_MEAN, peak: HERO_PEAK, mute: true }), "the grid", 10_000);
+    const lum = ([r, g, b]: readonly number[]) => (0.2126 * r! + 0.7152 * g! + 0.0722 * b!) / 255;
+    const brightest = (g: readonly (readonly (readonly number[])[])[]) => Math.max(...g.flat().map(lum));
+    expect(brightest(cellColours(m, 50, 5, { mean: HERO_MEAN, peak: HERO_PEAK, mute: true })!)).toBeLessThanOrEqual(HERO_PEAK + 0.01);
+    const png = await (async () => { let p = null; await until(() => !!(p = sized(m, 500, 50, { mean: HERO_MEAN, peak: HERO_PEAK, mute: true })), "the PNG", 10_000); return p!; })() as { png: Buffer };
+    const { data, info } = await sharp(png.png).raw().toBuffer({ resolveWithObject: true });
+    let most = 0;
+    for (let i = 0; i < data.length; i += info.channels) most = Math.max(most, lum([data[i]!, data[i + 1]!, data[i + 2]!]));
+    expect(most).toBeLessThanOrEqual(HERO_PEAK + 0.02);
+    // [dim::1] on its line: black, as the picture itself is drawn.
+    await until(() => !!cellColours(m, 50, 5, { dim: 1, mean: HERO_MEAN, peak: HERO_PEAK, mute: true }), "the dimmed grid", 10_000);
+    expect(brightest(cellColours(m, 50, 5, { dim: 1, mean: HERO_MEAN, peak: HERO_PEAK, mute: true })!)).toBe(0);
+  });
+
+  test("Kitty: the header image above the title becomes the backdrop as it scrolls away", async () => {
+    await ready("wide.jpg");
+    const s = new NoteSurface(), h = host(true);
+    s.show(note(`Plot\n- [img::${file("wide.jpg")}] [layout::hero] [hero-focus::0.2,0.5]\n\n${body(60)}`) as any, h);
+    await until(() => !!s.render(100, 42, h).placements?.length, "the header, scaled", 10_000);
+    expect(backdropOf(s.render(100, 42, h))).toBeUndefined();
+    (s as any).scroll = 30;
+    await until(() => !!backdropOf(s.render(100, 42, h)), "the backdrop, made", 10_000);
+    const v = s.render(100, 42, h), b = backdropOf(v);
+    expect(b).toMatchObject({ row: 0, rows: 3, cols: 100 });
+    expect(plain(v.lines[0]!)).toContain("Plot");
+    // Its crop is the header's box (100 × 3 cells of 10 × 20 px) around the focus, at the left of the picture.
+    expect(b.crop.x).toBe(0);
+    expect(b.crop.w / b.crop.h).toBeCloseTo((100 * 10) / (3 * 20), 0);
+  });
+
+  test("cells: each header cell coloured from the crop, dark, its text on top; a background the line sets wins", async () => {
+    const m = await ready("sunset.png");
+    await until(() => !!cellColours(m, 10, 2, { mean: HERO_MEAN, mute: true }), "the grid", 10_000);
+    const grid = cellColours(m, 10, 2, { mean: HERO_MEAN, mute: true })!;
+    expect(grid).toHaveLength(2);
+    expect(grid[0]).toHaveLength(10);
+    for (const c of grid.flat()) expect(Math.max(...c)).toBeLessThan(80);
+    const row = overColours("\x1b[38;2;255;255;255mHi\x1b[0m", 4, [[10, 20, 30], [11, 21, 31], [12, 22, 32], [13, 23, 33]]);
+    expect(plain(row)).toBe("Hi  ");
+    expect(row).toContain("\x1b[48;2;10;20;30mH");
+    expect(row).toContain("\x1b[48;2;13;23;33m ");
+    const ruled = overColours("\x1b[48;2;1;2;3mAB\x1b[0mC", 3, [[9, 9, 9], [9, 9, 9], [9, 9, 9]]);
+    expect(ruled).toContain("\x1b[48;2;1;2;3mAB");
+    expect(ruled).toContain("\x1b[48;2;9;9;9mC");
+    // A foreground's own numbers are never read as a background; 49 and a reset among other parameters let one go.
+    expect(overColours("\x1b[38;2;40;41;42mA", 1, [[9, 9, 9]])).toContain("\x1b[48;2;9;9;9mA");
+    expect(overColours("\x1b[44mA\x1b[49mB", 2, [[9, 9, 9], [8, 8, 8]])).toContain("\x1b[48;2;8;8;8mB");
+    expect([backgroundAfter("\x1b[0;31m", true), backgroundAfter("\x1b[1;44m", false), backgroundAfter("\x1b[48;5;17m", false), backgroundAfter("\x1b[58;2;1;2;3m", false), backgroundAfter("\x1b[m", true)]).toEqual([false, true, true, false, false]);
+    // In the reader: scrolled past a first-block image's line, the header's rows carry the colours.
+    const s = new NoteSurface(), h = host(false);
+    s.show(note(`Plot\n- [img::${file("sunset.png")}]\n\n${body(80)}`) as any, h);
+    s.render(100, 40, h);
+    (s as any).scroll = 10;
+    await until(() => s.render(100, 40, h).lines[0]!.includes("\x1b[48;2;"), "the header's colours", 10_000);
+    const v = s.render(100, 40, h);
+    expect(plain(v.lines[0]!)).toContain("Plot");
+    expect(v.lines.slice(0, 3).every(l => l.includes("\x1b[48;2;"))).toBe(true);
+    expect(v.lines[4]).not.toContain("\x1b[48;2;");
+    expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "cells" });
   });
 });

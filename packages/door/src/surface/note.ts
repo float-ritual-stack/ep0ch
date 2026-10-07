@@ -28,7 +28,8 @@ import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } 
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, takeStrays, unsent, unshelve, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { copyNote, diffNote, oldUnsentLine, takeBackSpans, UNSENT_LABEL, unsentEntries, unsentView, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { inWindow, type Placement } from "../kitty";
-import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
+import { backdrop, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type Backdrop } from "./hero-header";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -502,6 +503,8 @@ export class NoteSurface {
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
   private hero: { line: number; full: number } | null = null;
+  /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
+  private backdropShown: { image: string; line: number; step: number; of: number; drawn: "kitty" | "cells" | "making" | null } | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
@@ -728,12 +731,49 @@ export class NoteSurface {
     return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}` } : null, loading: false, name };
   }
 
+  /**
+   * The header's backdrop this render draws (PIE-598), or null: the note's hero image (the header image drawn above
+   * the title, else its first `[layout::hero]` image, else an image that is its first block), at the step for how far
+   * it has gone under the header: the header image's rows scrolled away, a body image's rows scrolled above the note,
+   * or (not drawn: cells) the rows scrolled past its line. Kept for describe (`header.backdrop`).
+   */
+  private heroBackdrop(m: Msg, doc: Doc, noteLines: number[], w: number, rows: number, host?: SurfaceHost): Backdrop | null {
+    this.backdropShown = null;
+    if (!heroHeaderOn() || !host || rows < 1) return null;
+    const pick = this.heroSource(m, doc, noteLines);
+    if (!pick) return null;
+    const entry = media(pick.path, pick.kind);
+    if (entry.state !== "ready") return null;
+    const step = heroStep(pick.gone);
+    const shade = backdrop(entry, pick.focus, pick.dim, step, w, rows, ...cellOf(host), !!host.ctx.graphics);
+    this.backdropShown = { image: pick.path.split("/").pop() ?? pick.path, line: pick.line + 1, step, of: HERO_STEPS, drawn: !step ? null : !shade ? "making" : "grid" in shade ? "cells" : "kitty" };
+    return shade;
+  }
+
+  /** The image a header's backdrop is made from (heroBackdrop), with its note line and how far it has gone under (0–1). */
+  private heroSource(m: Msg, doc: Doc, noteLines: number[]): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number } | null {
+    const clamp = (x: number) => Math.max(0, Math.min(1, x));
+    if (this.hero) {
+      const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
+      return ref ? { path: ref.path, kind: ref.spec.kind, ...(ref.spec.focus ? { focus: ref.spec.focus } : {}), ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), line: ref.line, gone: clamp(this.scroll / Math.max(1, this.hero.full)) } : null;
+    }
+    const all = m.text.split("\n"), first = doc.media[0];
+    const firstBlock = first && noteLines[first.line] !== undefined && all.slice(1, noteLines[first.line]).every(l => !l.trim()) ? first : undefined;
+    const x = doc.media.find(x => x.spec.layout === "hero") ?? firstBlock;
+    const line = x && noteLines[x.line];
+    if (!x || line === undefined || x.spec.kind !== "img") return null;
+    const im = x.image !== undefined ? doc.images[x.image] : undefined;
+    const gone = im ? (this.scroll - im.line) / Math.max(1, im.rows) : (this.scroll - x.row) / HERO_RAMP_ROWS;
+    return { path: x.path, kind: x.spec.kind, ...(x.spec.focus ? { focus: x.spec.focus } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), line, gone: clamp(gone) };
+  }
+
   /** The note itself, under its header image if it has one (render). */
   private renderNote(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.hits = [];
     const m = this.msg;
     this.drawn = null;
     this.digesting = false;
+    this.backdropShown = null;
     if (!m) return { lines: [dim("pick something in the outline")] };
     // An edit or a comment session draws in place of the note (a reply that landed has let its session go).
     this.use(host);
@@ -892,6 +932,12 @@ export class NoteSurface {
       const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
       return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
+    // The header's backdrop (PIE-598): the hero image, muted, under the title, summary, byline and crumbs once it
+    // goes under them.
+    const headerRows = Math.min(lines.length, own ? own.length + summaryRows.length : 3 + summaryRows.length);
+    const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host);
+    if (shade && "grid" in shade) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    if (shade && "placement" in shade) placements.unshift(shade.placement);
     if (foot) {
       while (lines.length < h) lines.push("");
       lines.push(foot.line);
@@ -3818,8 +3864,12 @@ export class NoteSurface {
       history: this.describeHistory(),
       steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
       agent: this.agent,
+      header: this.headerBackdrop(),
     };
   }
+
+  /** What the header's backdrop drew last (PIE-598: its image, note line, step, kitty or cells) and whether it's on. */
+  headerBackdrop() { return { backdrop: this.backdropShown, on: heroHeaderOn() }; }
 
   // Used by the actions below: each wraps the key path with the checks an agent needs.
 

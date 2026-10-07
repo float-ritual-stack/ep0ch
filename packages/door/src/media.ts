@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
 import { cacheDir } from "./state";
+import type { Rgb } from "./theme";
 
 export interface PngRef { png: Buffer; width: number; height: number; key: string }
 type Kind = "img" | "video";
@@ -31,8 +32,12 @@ export type Media =
 export type ReadyMedia = Extract<Media, { state: "ready" }>;
 /** The part of an image drawn, as fractions of it (a header's cover crop). */
 export type Crop = { x: number; y: number; w: number; h: number };
-/** How an image is drawn: dimmed by `[dim::…]` (else held to MAX_MEAN), over the part `crop` shows. */
-export interface Look { dim?: number; crop?: Crop }
+/**
+ * How an image is drawn: dimmed by `[dim::…]` (else held to `mean`, MAX_MEAN unless said, and to `peak` for its
+ * brightest part), over the part `crop` shows; `mute`d (desaturated and softened) and only `alpha` opaque (the ground
+ * showing through the rest) as a header's backdrop (PIE-598).
+ */
+export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number; mute?: boolean; alpha?: number }
 
 /** The longest edge, in pixels, an image is kept at. */
 const MAX_PX = 1600;
@@ -193,32 +198,53 @@ function sourceOf(path: string, key: string, kind: Kind): Promise<Source> {
 
 /**
  * The mean luminance (0–1) of the part `crop` of `s` shows (all of it without one), as it shows on the door's dark
- * ground: a pixel counts as much as it's opaque, a transparent one as the ground.
+ * ground: a pixel counts as much as it's opaque, a transparent one as the ground. `peak`: how bright its brightest
+ * part is (at the size it's measured at, a 96-pixel thumbnail: a highlight is averaged with what's around it, never left out).
  */
-async function meanOf(s: Source, crop?: Crop): Promise<number> {
-  const sharp = await lib();
-  let p = sharp(s.src, { pages: 1 }).rotate();
-  if (crop) {
-    const left = Math.max(0, Math.floor(crop.x * s.width)), top = Math.max(0, Math.floor(crop.y * s.height));
-    p = sharp(await p.toBuffer()).extract({ left, top, width: Math.max(1, Math.min(s.width - left, Math.round(crop.w * s.width))), height: Math.max(1, Math.min(s.height - top, Math.round(crop.h * s.height))) });
-  }
-  const { data, info } = await p.resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  let sum = 0;
-  for (let i = 0; i < data.length; i += info.channels) sum += ((0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255) * (data[i + 3]! / 255);
-  return sum / Math.max(1, data.length / info.channels);
+async function lightOf(s: Source, crop?: Crop): Promise<{ mean: number; peak: number }> {
+  const { data, info } = await (await cropped(s, crop)).resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const lum: number[] = [];
+  for (let i = 0; i < data.length; i += info.channels) lum.push(((0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255) * (data[i + 3]! / 255));
+  return { mean: lum.reduce((a, b) => a + b, 0) / Math.max(1, lum.length), peak: Math.max(0, ...lum) };
 }
+/** `s` upright, cut to the part `crop` shows (all of it without one). */
+async function cropped(s: Source, crop?: Crop) {
+  const sharp = await lib();
+  const p = sharp(s.src, { pages: 1 }).rotate();
+  if (!crop) return p;
+  const left = Math.max(0, Math.floor(crop.x * s.width)), top = Math.max(0, Math.floor(crop.y * s.height));
+  return sharp(await p.toBuffer()).extract({ left, top, width: Math.max(1, Math.min(s.width - left, Math.round(crop.w * s.width))), height: Math.max(1, Math.min(s.height - top, Math.round(crop.h * s.height))) });
+}
+const meanOf = async (s: Source, crop?: Crop) => (await lightOf(s, crop)).mean;
+
 
 /**
  * How bright an image is drawn, as a multiplier (1 as it is): `dim` from its line (0 none … 1 black), else enough to
- * bring `mean` (of the part drawn) down to MAX_MEAN. Rounded, so it names a cache file.
+ * bring `mean` (of the part drawn) down to `most` (MAX_MEAN), and its brightest part (`light.peak`) to `light.most`
+ * when one is given. Rounded, so it names a cache file.
  */
-export function brightness(mean: number, dim?: number): number {
-  const f = dim !== undefined ? 1 - Math.max(0, Math.min(1, dim)) : Math.min(1, MAX_MEAN / Math.max(1e-3, mean));
+export function brightness(mean: number, dim?: number, most = MAX_MEAN, light?: { peak: number; most: number }): number {
+  const f = dim !== undefined ? 1 - Math.max(0, Math.min(1, dim))
+    : Math.min(1, most / Math.max(1e-3, mean), light ? light.most / Math.max(1e-3, light.peak) : 1);
   return Math.round(f * 100) / 100;
 }
+/**
+ * How bright `look` draws an image whose part drawn is `light`: its `[dim::…]`, else held to its limits; a look with
+ * limits of its own (a header's backdrop) keeps them under a dim too, whichever is darker.
+ */
+function brightnessOf(light: { mean: number; peak: number }, look: Look): number {
+  const held = brightness(light.mean, undefined, look.mean, look.peak !== undefined ? { peak: light.peak, most: look.peak } : undefined);
+  if (look.dim === undefined) return held;
+  return limited(look) ? Math.min(brightness(0, look.dim), held) : brightness(0, look.dim);
+}
+/** A look with limits of its own (a header's backdrop): its brightness depends on the image even under a dim. */
+const limited = (look: Look) => look.mean !== undefined || look.peak !== undefined;
 
-/** What a look names in a cache file: its dim (or auto) and its crop, rounded. */
-const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}`;
+/** How much a muted image (a header's backdrop) keeps of its colour. */
+const MUTE_SATURATION = 0.12;
+
+/** What a look names in a cache file: its dim (or auto, and its limits), its crop, rounded, and whether it's muted. */
+const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
 
 /**
  * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part
@@ -227,13 +253,22 @@ const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(loo
  * isn't dimmed.
  */
 async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
-  const f = look.dim !== undefined ? brightness(0, look.dim) : brightness(await meanOf(s, look.crop));
+  const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
   const ref = `${s.key}-${edge}-${lookKey(look)}`;
-  if (s.png && f === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
+  const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
+  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
     const sharp = await lib();
     let p = sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
-    if (f < 1) p = p.modulate({ brightness: f });
+    // A header's backdrop: most of its colour gone and its detail softened, so the header's text reads over it.
+    if (look.mute) p = p.modulate({ brightness: f, saturation: MUTE_SATURATION }).blur(Math.max(1, edge / 160));
+    else if (f < 1) p = p.modulate({ brightness: f });
+    if (alpha < 1) {
+      // Partly opaque: the terminal draws the ground through it (a backdrop coming in by steps).
+      const { data, info } = await p.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      for (let i = 3; i < data.length; i += 4) data[i] = Math.round(data[i]! * alpha);
+      p = sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } });
+    }
     await p.png().toFile(tmp);
   });
   const b = readFileSync(out);
@@ -326,6 +361,48 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   return pick?.[2] ?? null;
 }
 
+/** One colour per cell: an image drawn in a terminal's cells (a header's backdrop without Kitty graphics, PIE-598). */
+export type CellGrid = readonly (readonly Rgb[])[];
+/** The grids made, least recently drawn first: small (a header's cells), so a count bounds them. */
+const grids = new Map<string, CellGrid>();
+const GRIDS_KEPT = 64;
+
+/**
+ * `m` drawn in `cols` × `rows` cells as `look` says (its crop, its limits, muted): each cell the mean colour of the
+ * part of the image under it, the whole grid then dimmed as the look's PNG would be. Made off the render path (a
+ * redraw follows); null until it's ready, so nothing bright is ever drawn first.
+ */
+export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Look = {}): CellGrid | null {
+  if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
+  const job = `${m.key}\0${cols}x${rows}\0${lookKey(look)}`, hit = grids.get(job);
+  if (hit) { grids.delete(job); grids.set(job, hit); return hit; }
+  if (!making.has(job)) {
+    making.add(job);
+    sourceOf(m.path, m.key, m.kind).then(s => gridOf(s, cols, rows, look)).then(g => {
+      making.delete(job);
+      if (current(m.path)?.media !== m) return;
+      grids.set(job, g);
+      for (const k of grids.keys()) { if (grids.size <= GRIDS_KEPT) break; grids.delete(k); }
+      onChange();
+    }, () => { making.delete(job); });
+  }
+  return null;
+}
+
+async function gridOf(s: Source, cols: number, rows: number, look: Look): Promise<CellGrid> {
+  const { data } = await (await cropped(s, look.crop)).resize({ width: cols, height: rows, fit: "fill" }).flatten({ background: "#000" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const px: [number, number, number][] = [];
+  for (let i = 0; i + 2 < data.length; i += 3) {
+    const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!], y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    px.push(look.mute ? [y + (r - y) * MUTE_SATURATION, y + (g - y) * MUTE_SATURATION, y + (b - y) * MUTE_SATURATION] : [r, g, b]);
+  }
+  const lum = px.map(([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255);
+  const f = brightnessOf({ mean: lum.reduce((a, b) => a + b, 0) / Math.max(1, lum.length), peak: Math.max(0, ...lum) }, look);
+  const out: Rgb[][] = [];
+  for (let r = 0; r < rows; r++) out.push(px.slice(r * cols, (r + 1) * cols).map(c => c.map(v => Math.max(0, Math.min(255, Math.round(v * f)))) as unknown as Rgb));
+  return out;
+}
+
 // ── the media line ────────────────────────────────────────────────────────────
 
 export type Align = "left" | "center" | "right";
@@ -335,18 +412,21 @@ export type MediaSize = { cells: number } | { percent: number } | "full";
  * A note line that is only a media reference and its layout (PIE-532): `img:: path`, or `[img::path]` (`image`,
  * `video`) after an optional list mark, then any of `[size::…]` (its width: cells, `N%` of the reader, or `full`),
  * `[height::N]` (rows), `[align::left|center|right]`, `[layout::hero]` (the note's header image), `[fit::cover|contain]`
- * (a header's: crop to fill, or show it whole), `[dim::N]` (0 none … 1 black; left out, a bright image is dimmed) and
- * `[alt::…]`; a block anchor (`^id`) may end it. `problems`: what's written there that isn't one of those values,
+ * (a header's: crop to fill, or show it whole), `[dim::N]` (0 none … 1 black; left out, a bright image is dimmed),
+ * `[hero-focus::x,y]` (the point a header's crop and backdrop keep in view, fractions or percents across and down;
+ * its middle when left out) and `[alt::…]`; a block anchor (`^id`) may end it. `problems`: what's written there that isn't one of those values,
  * said on the image's line.
  */
 export interface MediaSpec {
   kind: Kind; path: string;
-  size?: MediaSize; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; alt?: string;
+  size?: MediaSize; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; focus?: Focus; alt?: string;
   problems: string[];
 }
-export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "alt";
+/** A point in an image, as fractions of it across and down. */
+export type Focus = { x: number; y: number };
+export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt";
 const MEDIA_KEY = /^(img|image|video)$/i;
-const ATTRS = new Set<string>(["size", "height", "align", "layout", "fit", "dim", "alt"]);
+const ATTRS = new Set<string>(["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt"]);
 const LEAD = /^\s*(?:[-*]\s+)?/;
 /** A block anchor ending a line (` ^beds`), kept as it is when the line is rewritten. */
 const ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
@@ -385,7 +465,7 @@ function tokens(line: string): { lead: string; toks: Tok[]; block: boolean; anch
   // `img:: path`, perhaps followed by the layout tokens: the path is what comes before them.
   const blockForm = /^(img|image|video)::\s*(.*)$/i.exec(rest);
   if (blockForm) {
-    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|alt)::.*)$/i.exec(blockForm[2]!);
+    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt)::.*)$/i.exec(blockForm[2]!);
     const path = (tail ? blockForm[2]!.slice(0, tail.index) : blockForm[2]!).trim();
     const more = tail ? scanTokens(tail[1]!) : [];
     if (!path || path.startsWith("[") || !more) return null;
@@ -422,6 +502,9 @@ export function parseMediaLine(line: string): MediaSpec | null {
     } else if (k === "dim") {
       const d = parseDim(v);
       if (d !== null) spec.dim = d; else spec.problems.push(`dim::${value} isn't a number from 0 to 1`);
+    } else if (k === "hero-focus") {
+      const f = parseFocus(v);
+      if (f) spec.focus = f; else spec.problems.push(`hero-focus::${value} isn't a point (x,y: 0 to 1, or percents)`);
     } else if (k === "alt") spec.alt = value.trim();
   }
   return spec;
@@ -440,6 +523,13 @@ export function parseSize(v: string): MediaSize | null {
 export function parseDim(v: string): number | null {
   const s = v.trim();
   return /^(0|1|0?\.\d+|1\.0+)$/.test(s) ? Number(s) : null;
+}
+/** A point as `[hero-focus::…]` writes it: `x,y`, each a fraction (0–1) or a percent; null otherwise. */
+export function parseFocus(v: string): Focus | null {
+  const parts = v.split(",").map(x => x.trim());
+  if (parts.length !== 2) return null;
+  const [x, y] = parts.map(p => { const pc = /^(\d{1,3}(?:\.\d+)?)%$/.exec(p); return pc ? +pc[1]! / 100 : parseDim(p); });
+  return x !== null && x !== undefined && y !== null && y !== undefined && x <= 1 && y <= 1 ? { x, y } : null;
 }
 export const sizeText = (s: MediaSize | undefined) => s === undefined ? "" : s === "full" ? "full" : "percent" in s ? `${s.percent}%` : `${s.cells}`;
 

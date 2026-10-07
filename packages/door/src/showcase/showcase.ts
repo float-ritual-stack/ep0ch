@@ -322,6 +322,14 @@ export const SECTIONS: Section[] = [
       },
     },
   {
+    key: "hero", need: "let a note's opening picture become its header's background as it scrolls away", part: "the header's backdrop (PIE-598, src/surface/hero-header.ts): NoteSurface finds the hero (the header image, a [layout::hero] image, or an image that is the note's first block) and how far it has gone under its sticky header; the media pipeline makes the muted, dimmed variant (src/media.ts Look mute, a PNG under Kitty graphics, one colour per cell otherwise); reader.hero turns it off, kept like the theme", files: "src/surface/hero-header.ts, src/media.ts, src/doc.ts (coverCrop), src/surface/note.ts, src/screens.ts (reader.hero)",
+    aside: "j, the wheel or space scrolls the picture up under the header: the header takes it, dimmed, by steps · [hero-focus::x,y] on the picture's line says what the crop keeps · `act reader.hero on=false` turns it off everywhere (kept for the next start) · Kitty draws the picture under the text; cells colour each cell from it",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · hero header", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.hero]]);
+    },
+  },
+  {
     key: "figures", need: "draw a decision, a chat, a keymap, days (uptime, activity, a month) or annotated code in a note; write a figure's rows in Markdown", part: "the figure kinds (src/graphs.ts KINDS, the newer ones in src/figures/), their rows from Markdown or a figure block's child bullets read by outline-core's figure grammar (figure-markdown.ts), drawn by the reader's NoteSurface; a quote callout's byline (quoteByline); ep0ch export writes each figure as its ASCII twin (figureAscii)", files: "outline-core/src/figure-markdown.ts, src/figures/, src/graphs.ts, src/live.ts, src/export.ts, outline-core/src/callouts.ts",
     aside: "every figure in the left reader is written as Markdown rows; the live ones read the plot's decision notes and the backup runs scripts/backup-runs.ts writes · the figure block at the bottom is a note whose rows are its child bullets: [ ] steps to them, ⏎ or a click opens one · the right reader's first sheet is read from the action registry, so it says what the reader's keys do now · ep0ch export writes each figure as plain ASCII in a fence",
     stage(n, show) {

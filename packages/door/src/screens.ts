@@ -10,6 +10,7 @@ import { artNamed, loadArt, members, packs, type Member } from "./packs";
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
+import { heroHeaderOn, useHeroHeader } from "./surface/hero-header";
 import { writeState } from "./state";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
@@ -606,6 +607,19 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       const env = process.env.EP0CH_EDIT_ARM?.trim() ? " · EP0CH_EDIT_ARM is set and wins until the door starts without it" : "";
       ctx.flash(`${now ? `e asks before an edit (${now} ms)` : "e opens an edit at once"}${env}`);
       return { armed: now > 0, ms: now, saved: keep };
+    },
+  }),
+  "reader.hero": def({
+    summary: "whether a reader's sticky header (title, summary, byline, crumbs) takes the note's hero image as a dimmed, muted background once that image scrolls under it (PIE-598: its [layout::hero] image, else an image that is its first block; [hero-focus::x,y] on its line says where the crop centres). Every reader at once, kept for the next start",
+    keys: "`ep0ch act reader.hero on=false`",
+    touches: "screen", replay: "ask", says: out => `· ${out.on ? "headers take the hero image" : "headers stay plain"}`,
+    args: { on: { type: "boolean", about: "true: the header takes the hero image as it scrolls under; false: headers stay plain" } },
+    run({ on }, { ctx }) {
+      useHeroHeader(on);
+      writeState("reader-hero.json", { on });
+      ctx.flash(on ? "a reader's header takes the hero image as it scrolls under" : "readers' headers stay plain");
+      ctx.redraw();
+      return { on: heroHeaderOn() };
     },
   }),
   "theme.cycle": def({
