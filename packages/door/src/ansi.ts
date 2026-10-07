@@ -50,6 +50,8 @@ export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
   // The flow figure's thin line and the budget meter's limit mark (src/figures/flow.ts, src/graphs.ts).
   ["┄", "-"], ["┃", "│"],
   ["▁", "_"], ["▂", "▄"], ["▃", "▄"], ["▅", "█"], ["▆", "█"], ["▇", "█"],
+  // A terminal tile's program status (src/desk/program-status.ts): the working spinner's quarters, a login waited for.
+  ["◴", "○"], ["◷", "○"], ["◶", "○"], ["◵", "○"], ["⚿", "§"],
   // `ep0ch install`'s spinner (src/setup/progress.ts), run in a door tile: it still turns, as | / - \.
   ["⣾", "|"], ["⣽", "/"], ["⣻", "-"], ["⢿", "\\"], ["⡿", "|"], ["⣟", "/"], ["⣯", "-"], ["⣷", "\\"],
 ]);

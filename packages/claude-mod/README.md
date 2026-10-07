@@ -166,6 +166,18 @@ then doesn't have to guess from the repo name or a window title.
 - It never blocks or fails the session: the work runs after the start, and any
   failure leaves the context as it was. Outside a door, this block isn't added (the binding card's is).
 
+### What this Claude is doing, to its terminal (PIE-614)
+
+The mod reports Claude's own state to the terminal it runs in with OSC 7501 (the Program Status Protocol), so a door's
+terminal tile (or Ghostty, Rex) knows it without reading Claude's screen: `idle` at the start, `working` when a turn
+starts and after a tool runs, `blocked` with `kind=permission` when a permission dialog shows (and the Notification
+`permission_prompt`) or `kind=question` for AskUserQuestion and an MCP elicitation, `done` with the answer's first line
+when the main loop's turn ends, `idle` when it's interrupted, `error` for a refusal or an API error, cleared when the
+session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` holds the mapping (pure);
+`hooks/program-status.ts` is outline-core's encoder, copied (a hooks module can't import outside the plugin) and kept
+identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
+outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
+
 ## Recent mentions in Claude Code
 
 The blocks this conversation's answers mentioned show beside it, read from the

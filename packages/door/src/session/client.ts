@@ -30,6 +30,7 @@ import { askSession, sessionEnv, startSession, TERMINAL_VARS, waitFor } from "./
 import { ep0ch, pickSession, placeFor, placeLabel, readPlace, runningSessions, sessionFlags, sessionInfo, sessionSocket, waitingHosts, type Place, type Running } from "./place";
 export { sessionInfo };
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
+import { encodeProgramStatus } from "@ep0ch/outline-core/program-status";
 
 /**
  * Whether `ep0ch` attaches to a session or opens the door in this terminal: the door is a session by default (its
@@ -260,6 +261,8 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
     sock.destroy();
     // A program that has the terminal keeps it until it ends; then the terminal is put back and the reason said.
     void running.then(() => {
+      // What the session reported on this terminal (OSC 7501) goes with it: the door isn't running here any more.
+      if (term.info.pst) { try { term.write(encodeProgramStatus({ state: "clear" })); } catch { /* the terminal is gone */ } }
       term.stop();
       if (again !== null) return reattach(again, o);
       if (message) (code ? console.error : console.log)(`ep0ch: ${message}`);

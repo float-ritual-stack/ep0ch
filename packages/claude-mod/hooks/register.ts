@@ -24,6 +24,8 @@ import {
 } from './references'
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
+import { type StatusInput } from './program-status'
+import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { projectOf, touchInputOf, touchOf } from './file-touches'
 import {
   FILE_DIFF_REF,
@@ -143,6 +145,31 @@ let whereLoad: Promise<WhereRun> | undefined
 /** Where this Claude is bound (hooks/binding.ts): the load in flight, and when the last one started (the session clock). */
 let bindingLoad: Promise<BindingFacts> | undefined
 let bindingReadAt = -Infinity
+/**
+ * Program status (OSC 7501, hooks/claude-status.ts): whether this terminal takes it (asked once), the report last sent
+ * (the same one twice is sent once), and the sends in order, each after the one before.
+ */
+let statusWanted: Promise<boolean> | undefined
+let statusSent = ''
+let statusChain: Promise<void> = Promise.resolve()
+/** The last report asked for (sent or not): what a later event's report is weighed against. */
+let statusAsked: StatusInput | null = null
+
+/** Say what this Claude is doing to its terminal, off the event's dispatch, in order. Nothing when the terminal doesn't speak it. */
+function reportStatus($: EngineInterface, r: StatusInput): void {
+  statusAsked = r
+  statusChain = statusChain.then(async () => {
+    statusWanted ??= (async () => statusSetting(await $.env.get('EP0CH_PROGRAM_STATUS'))
+      ?? (!!(await $.env.get('TERM')) && (await $.process.run([...PST_ARGV]).then(x => x.exitCode === 0, () => false))))()
+    if (!(await statusWanted)) return
+    const seq = sequenceOf(r)
+    if (seq === statusSent) return
+    // Remembered as sent only once it was: a failed write is tried again with the next report, even the same one.
+    const ran = await $.process.run(ttyArgv(seq), { timeoutMs: 3000 })
+    statusSent = ran.exitCode === 0 ? seq : ''
+  }).catch(() => {})
+}
+
 /** A turn reads the binding again at most this often, so a door upgrade or reconnect shows within a turn or two. */
 const BINDING_REFRESH_MS = 30_000
 /** How long the first prompt waits for the binding before saying it is still being looked up: as long as for `where`. */
@@ -245,6 +272,7 @@ export function register(on: On, options: PluginOptions): void {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    reportStatus($, sessionStarted())
     if (typeof e.cwd === 'string' && e.cwd) sessionCwd = e.cwd
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
@@ -322,6 +350,8 @@ export function register(on: On, options: PluginOptions): void {
   // /clear starts the conversation afresh: the card shows again, read anew, and the next first prompt carries it.
   on('session.end', async ($, e, next) => {
     const result = await next(e)
+    // Its program status: a /clear is a fresh conversation at its prompt; an end takes the record away.
+    reportStatus($, e.reason === 'clear' ? sessionStarted() : sessionEnded())
     if (e.reason !== 'clear') return result
     // The next conversation's first prompt reads this one, never the read before the /clear.
     bindingGiven = undefined
@@ -489,8 +519,34 @@ export function register(on: On, options: PluginOptions): void {
     return { text: chosen.enabled ? 'Outline tool rows on: the outline and workboard tool calls draw as compact rows; ▸ unfolds what each wrote.' : "Outline tool rows off: Claude Code's own rows draw the outline tools." }
   })
 
+  // What this Claude is doing, to its terminal (OSC 7501; hooks/claude-status.ts has the events and why).
+  on('turn.start', async ($, e, next) => { reportStatus($, working()); return next(e) })
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const result = await next(e)
+    // A hook that answered it (allow or deny) shows no dialog: nothing waits on the person.
+    if (!result.decision) reportStatus($, permissionAsked(e.tool_name, e.tool_input))
+    return result
+  })
+  on('classic.Notification', async ($, e, next) => {
+    const r = notified(e.notification_type, e.message)
+    // The dialog's own PermissionRequest said what it asks ("Allow Bash: …?"): its generic notification doesn't replace that.
+    if (r && !(r.kind && statusAsked?.state === 'blocked' && statusAsked.kind === r.kind)) reportStatus($, r)
+    return next(e)
+  })
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    reportStatus($, questionAsked(e.input))
+    try { return await next(e) } finally { reportStatus($, working()) }
+  })
+  // The tool ran, failed or was denied after its dialog: Claude goes on.
+  on('classic.PostToolUse', async ($, e, next) => { reportStatus($, working()); return next(e) })
+  on('classic.PostToolUseFailure', async ($, e, next) => { reportStatus($, working()); return next(e) })
+  on('classic.PermissionDenied', async ($, e, next) => { reportStatus($, working()); return next(e) })
+  on('classic.StopFailure', async ($, e, next) => { reportStatus($, stopFailed(e.error, e.error_details)); return next(e) })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    // The main loop's turn (a subagent's isn't the session's): done, idle when interrupted, error when it failed.
+    if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
     // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.

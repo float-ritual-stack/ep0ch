@@ -20,6 +20,7 @@ import { C, bg, fg, pad, RESET, visible, headOf } from "../style";
 import { paintable } from "../text";
 import { GROUND_RESET, KeyDecoder, Rows, type Key, type TermInfo } from "../term";
 import type { ClientInfo, DaemonMsg, Hello } from "./protocol";
+import type { StatusInput } from "@ep0ch/outline-core/program-status";
 
 /** How a client is reached: its socket, as the daemon holds it. */
 export interface Link {
@@ -50,7 +51,7 @@ export class SessionClient {
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
   fresh = false;
   constructor(readonly id: number, readonly hello: Hello, readonly link: Link) {
-    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty };
+    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst };
     this.rows = new ClientRows(s => { if (!this.away && !this.behind) this.link.send({ t: "output", text: s }); }, this.info);
     this.painter = new Painter(this.rows);
     this.decoder = new KeyDecoder(this.info);
@@ -158,6 +159,15 @@ export class SessionTerm implements Display {
     return true;
   }
   invalidate(): void { for (const c of this.clients) c.rows.invalidate(); this.mirrorPainter.invalidate(); }
+
+  /** The door's own program status (OSC 7501): kept, and told to each client whose terminal speaks it, as it can take it. */
+  private statusWant: ReadonlyMap<string, StatusInput> | null = null;
+  programStatus(want: ReadonlyMap<string, StatusInput> | null): void {
+    this.statusWant = want;
+    for (const c of this.clients) this.tellStatus(c);
+  }
+  /** Tell `c` what it missed: on attach, when a program gives its terminal back, when it caught up. */
+  private tellStatus(c: SessionClient) { if (!c.away && !c.behind && this.statusWant) c.painter.programStatus(this.statusWant); }
   dispose(): void { for (const c of this.clients) c.painter.dispose(); this.mirrorPainter.dispose(); }
 
   /** Run a program in the terminal of the client with the person's keys: its exit code (null when it went away first). */
@@ -194,12 +204,13 @@ export class SessionTerm implements Display {
     // A watcher's keys are decoded too (a Kitty keyboard terminal sends ctrl+c as a report), only to leave by.
     c.decoder.keyHandler = c.watch ? k => this.watcherKey(c, k) : k => this.key(c, k);
     if (!c.watch) c.decoder.rawSink = () => this.rawSink?.() ?? null;
-    link.onDrain(() => { if (!c.behind) return; c.behind = false; c.painter.dispose(); c.rows.invalidate(); this.paintClient(c); });
+    link.onDrain(() => { if (!c.behind) return; c.behind = false; c.painter.dispose(); c.rows.invalidate(); this.paintClient(c); this.tellStatus(c); });
     const first = !this.clients.length;
     this.clients.push(c);
     this.sendGround(c);
     if (!c.watch && !this.active) this.activate(c);
     else this.paintClient(c);
+    this.tellStatus(c);
     // Nobody saw the frames before this one attached: the one App skipped is drawn now, for every client.
     if (first) this.seenHandler();
     this.onClients();
@@ -246,6 +257,9 @@ export class SessionTerm implements Display {
     c.rows.invalidate();
     c.decoder.reset();
     this.sendGround(c);
+    // The program had that terminal: what the session reports there is said again, whole.
+    c.painter.retell();
+    this.tellStatus(c);
     this.onClients();
     r.done(code);
   }

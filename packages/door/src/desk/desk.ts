@@ -2124,15 +2124,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       set.ids.forEach((t, i) => {
         if (i) put("│", fgRgb(theme().edge.tile));
         const on = i === set.active;
+        // A tab's program status (OSC 7501) shows on the tab itself, so a terminal behind another tab still says it.
+        const st = this.panes.get(t)?.headStatus?.();
+        if (st) put(` ${st.glyph}`, on ? selected(focused, "idleRow") + st.sgr : st.sgr, t);
         put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as its number, then its title.
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
+      this.putStatus(id, put);
       put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.cyan), id);
       return this.headerEnd(id, put, xNow, max, r.row);
-    } else put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+    } else {
+      this.putStatus(id, put, true);
+      put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+    }
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
     // A tile that says what follows its name (a lane: its count) says it; a file shown read-only (a preview of
@@ -2196,6 +2203,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Attention marks on what a tile shows, right after its name (what the person should see when room is short); a click dismisses one. */
+  /** Its program's status (OSC 7501), before its name: a glyph in the state's colour (src/desk/program-status.ts). */
+  private putStatus(id: number, put: (text: string, sgr: string, hit?: number) => void, lead = false) {
+    const st = this.panes.get(id)?.headStatus?.();
+    if (st) put(lead ? `${st.glyph} ` : ` ${st.glyph}`, st.sgr, id);
+  }
+
   private putMarks(id: number, put: (text: string, sgr: string) => void, xNow: () => number, row: number) {
     for (const m of this.marksOn(id)) {
       const from = xNow();

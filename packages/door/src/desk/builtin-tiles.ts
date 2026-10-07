@@ -18,6 +18,8 @@ import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, typ
 import { DetailPane, dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
+import { WAITING_YOU_KIND } from "./waiting-you";
+import { recordFacts } from "./program-status";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
 const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
@@ -123,7 +125,8 @@ const builtins = (): TileKind[] => [
     view: (p, mine) => {
       const t = p as PtyPane, nv = t.nvim?.view;
       return {
-        viewport: { file: t.file ?? null, running: t.running, ...(nv ? { first: nv.top, last: nv.bottom } : {}) },
+        // What its program says it's doing (OSC 7501): the live feed carries each change.
+        viewport: { file: t.file ?? null, running: t.running, ...(nv ? { first: nv.top, last: nv.bottom } : {}), ...(t.status.records.size ? { status: t.status.records.list().map(recordFacts) } : {}) },
         // Only the focused terminal's cursor: another tile's (claude redrawing) would be noise in the feed.
         ...(mine ? { cursor: nv ? { file: nv.file, line: nv.line, col: nv.col, mode: nv.mode } : t.running ? { screen: t.cursor() } : null } : {}),
       };
@@ -137,7 +140,8 @@ const builtins = (): TileKind[] => [
     },
     describe: (p, full) => {
       const t = p as PtyPane;
-      return full ? { terminal: t.describe(), ...(t.herdr ? { herdr: t.herdr } : {}) } : { cmd: t.run.cmd, ...(t.socket ? { nvim: t.socket } : {}), ...(t.herdr ? { herdr: t.herdr } : {}) };
+      const status = t.status.records.size ? { status: t.status.records.list().map(recordFacts) } : {};
+      return full ? { terminal: t.describe(), ...(t.herdr ? { herdr: t.herdr } : {}) } : { cmd: t.run.cmd, ...(t.socket ? { nvim: t.socket } : {}), ...(t.herdr ? { herdr: t.herdr } : {}), ...status };
     },
     previewSource: (p, name) => {
       const t = p as PtyPane;
@@ -188,6 +192,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind()]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

@@ -16,6 +16,8 @@
 # tested (it says so). Each run's time, commit and estimated cost go to <state>/ep0ch/box-test.tsv. A fork that
 # outlives its run (this script killed with -9) powers itself off after EP0CH_BOX_MAX seconds (default 7200) and
 # the next run removes it. Needs the boxd CLI, signed in (boxd auth login).
+# It says what it's doing (forking, testing, passed or the exit code) to a terminal that speaks the Program Status
+# Protocol (OSC 7501: a door's terminal tile, Ghostty); elsewhere nothing. EP0CH_PROGRAM_STATUS=0 stops it.
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -76,6 +78,11 @@ done
 
 # ── the commit ──
 sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}") || exit 2
+# What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501: the door's tiles, Ghostty):
+# asked once, then each report goes without asking (packages/outliner/scripts/program-status.ts).
+ps_on=0
+bun "$repo/packages/outliner/scripts/program-status.ts" --probe 2>/dev/null && ps_on=1
+status() { [ $ps_on = 1 ] && EP0CH_PROGRAM_STATUS=1 bun "$repo/packages/outliner/scripts/program-status.ts" "$@" --app box-test 2>/dev/null; return 0; }
 [ "$ref" = HEAD ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && say "uncommitted changes aren't tested: $sha is"
 box="ep0ch-test-${sha:0:8}-$$"
 start=$(date +%s)
@@ -86,8 +93,9 @@ cleanup() {
   exit $code
 }
 trap cleanup EXIT
-trap 'exit 130' INT TERM HUP
+trap 'status idle "interrupted"; exit 130' INT TERM HUP
 
+status working "forking a box for ${sha:0:12} (${pkgs[*]})"
 say "forking $golden into $box for ${sha:0:12} (${pkgs[*]}$([ $each = 1 ] && echo ", each file alone"))"
 bx machine fork "$golden" "$box" >/dev/null || { echo "box-test: couldn't fork $golden" >&2; exit 1; }
 # A fork whose run is never collected stops itself: a stopped box costs nothing.
@@ -116,7 +124,8 @@ done
 run+="; exit \$code"
 printf '%s\n' "$run" | boxd machine exec "$box" -- bash -c 'cat > /tmp/box-test.sh' 2>/dev/null \
   && inbox "$box" "setsid nohup bash -c 'bash /tmp/box-test.sh > /tmp/box-test.log 2>&1; echo \$? > /tmp/box-test.code' >/dev/null 2>&1 & sleep 0.5; test -e /tmp/box-test.log" \
-  || { echo "box-test: couldn't start the run in $box" >&2; exit 1; }
+  || { echo "box-test: couldn't start the run in $box" >&2; status error "couldn't start the run in $box"; exit 1; }
+status working "testing ${pkgs[*]} at ${sha:0:12} in $box"
 
 off=0 code="" deadline=$((start + max - 60)) misses=0
 while :; do
@@ -141,4 +150,6 @@ cost=$(awk -v s="$secs" -v c="$vcpu" 'BEGIN { printf "%.3f", s / 3600 * (c * 0.0
 mkdir -p "$log_dir"
 printf '%s\t%s\t%s\t%s\t%ss\t€%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$vcpu" "$secs" "$cost" "$code" >> "$log_dir/box-test.tsv"
 say "exit $code · $((secs / 60))m$((secs % 60))s · about €$cost ($vcpu vCPU; $log_dir/box-test.tsv)"
+if [ "$code" = 0 ]; then status done "${pkgs[*]} passed at ${sha:0:12} · $((secs / 60))m$((secs % 60))s"
+else status error "${pkgs[*]} at ${sha:0:12}: exit $code · $((secs / 60))m$((secs % 60))s"; fi
 exit "$code"

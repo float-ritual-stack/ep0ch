@@ -23,6 +23,7 @@ import { ComposedLayout, ComposedTree, composedTreeNavigation, composedPointer, 
 import { navigationDestinationItems, navigationDestinationStatus, navigationPlacementItems, navigationPlacementStatus, NavigationDestinationDisplay, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
 import { waitForCompatibleService } from "./service-compatibility";
+import { reportWhile } from "./program-status-emit";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import {
   decodeKittyPrintable,
@@ -895,10 +896,11 @@ const serviceEventScheduler = new DetailEventScheduler({
 
 async function waitForService(): Promise<void> {
   try {
-    await waitForCompatibleService(client, {
+    // Said to a terminal that speaks the Program Status Protocol (OSC 7501) while it waits.
+    await reportWhile("ep0ch-detail", "waiting for the outline host", () => waitForCompatibleService(client, {
       timeoutMs: paths.mode === "remote" ? 30_000 : 5_000,
       pingTimeoutMs: paths.mode === "remote" ? 3_000 : 300,
-    });
+    }));
   } catch (error) {
     throw new Error(`Compatible outliner service is not available: ${error instanceof Error ? error.message : String(error)}`);
   }

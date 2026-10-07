@@ -24,6 +24,7 @@ import { getProperty } from "./properties";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import { emitKeypressEvents } from "node:readline";
 import { waitForCompatibleService } from "./service-compatibility";
+import { reportWhile } from "./program-status-emit";
 import { createOutlinerClient, type OutlinerWatcher } from "./client";
 import {
   startClientRuntimeSync,
@@ -739,10 +740,11 @@ let inputDecoder = new TerminalInputDecoder((text) => {
 
 async function waitForService(): Promise<void> {
   try {
-    await waitForCompatibleService(client, {
+    // Said to a terminal that speaks the Program Status Protocol (OSC 7501) while it waits.
+    await reportWhile("ep0ch-detail", "waiting for the outline host", () => waitForCompatibleService(client, {
       timeoutMs: paths.mode === "remote" ? 30_000 : 5_000,
       pingTimeoutMs: paths.mode === "remote" ? 3_000 : 300,
-    });
+    }));
   } catch (error) {
     throw new Error(`Compatible outliner service is not available: ${error instanceof Error ? error.message : String(error)}`);
   }

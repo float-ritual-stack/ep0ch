@@ -151,6 +151,11 @@ export interface Pane {
   /** What its header says after its name, already coloured (a lane: its count), instead of its title. */
   headLabel?(): string;
   /**
+   * A mark before its name on its header and its tab: what its program says it's doing (a terminal tile's program
+   * status, OSC 7501: working, needs you, done, failed), or null.
+   */
+  headStatus?(now?: number): { glyph: string; sgr: string } | null;
+  /**
    * The name its header shows, when that isn't its tile name: a lane is named for its view ("Reading now"),
    * while the tile is `Reading-now` for `tile=`.
    */

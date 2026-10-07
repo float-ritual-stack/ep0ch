@@ -6,6 +6,8 @@ import { toCp437Glyphs } from "./ansi";
 import { crtUnderlay } from "./crt";
 import { KittyLayer, type Placement } from "./kitty";
 import { runProgram, type HandoverOpts, type TermInfo } from "./term";
+import { StatusReporter } from "./desk/program-status";
+import type { StatusInput } from "@ep0ch/outline-core/program-status";
 
 export type Video = "kitty+crt" | "kitty" | "cells";
 
@@ -45,6 +47,11 @@ export interface Display {
   unseen?(): boolean;
   /** Said when the frames are seen again (a terminal attached to a session nobody saw): App draws the frame it skipped. */
   onSeen?(f: () => void): void;
+  /**
+   * The door's own program status (OSC 7501, `doorReport`), to each terminal that answered the protocol's query: only
+   * what changed since it was last told. Null: every record the door put there goes (it quits).
+   */
+  programStatus?(want: ReadonlyMap<string, StatusInput> | null): void;
 }
 
 export const isDisplay = (t: unknown): t is Display => typeof (t as Display | null)?.show === "function";
@@ -96,12 +103,24 @@ export class Painter implements Display {
   invalidate(): void { this.term.invalidate(); }
   dispose(): void { this.kitty.dispose(); }
 
+  private readonly reporter = new StatusReporter(s => this.term.write(s));
+  /** What it was last asked to report, for after a program had the terminal. */
+  private want: ReadonlyMap<string, StatusInput> | null = null;
+  /** A program had the terminal (and may have reported, cleared or reset its records): everything the door says, said again. */
+  retell(): void { this.reporter.forget(); if (this.want && this.term.info.pst) this.reporter.sync(this.want); }
+  programStatus(want: ReadonlyMap<string, StatusInput> | null): void {
+    if (!this.term.info.pst) return;
+    this.want = want;
+    if (this.away) return;
+    if (want) this.reporter.sync(want); else this.reporter.clear();
+  }
+
   async handOver(argv: string[], o: HandoverOpts): Promise<number | null> {
     if (this.away) throw new Error("the terminal is already handed over");
     this.kitty.dispose();                // images don't survive the screen switch; the next paint re-uploads
     this.away = true;
     this.term.stop?.();
     try { return await runProgram(argv, o); }
-    finally { this.away = false; this.term.resume?.(); this.term.invalidate(); }
+    finally { this.away = false; this.term.resume?.(); this.term.invalidate(); this.retell(); }
   }
 }

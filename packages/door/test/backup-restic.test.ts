@@ -274,6 +274,24 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(out.join("\n")).toMatch(/garden ok \(3 blocks/);
     expect(readBackupState(join(root, "laptop", "state", "backup")).drill?.ok).toBe(true);
   }, 120_000);
+
+  test("`backup run` at a terminal: each step spins and ends with its time, as install's do; piped, the plain lines", async () => {
+    const drawn: string[] = [], out: string[] = [], err: string[] = [];
+    const terminal = { isTTY: true, columns: 100, write: (s: string) => { drawn.push(s); return true; } };
+    const env = { ...laptop.env, TERM: "xterm-256color", EP0CH_PROGRAM_STATUS: "0" };
+    outline(join(laptop.outlines, "garden.sqlite"), ["Net the brassicas"]);
+    expect(await backupCommand(["backup", "run"], { out: s => out.push(s), err: s => err.push(s), terminal }, env)).toBe(0);
+    const text = drawn.join("").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+    expect(text).toContain("checking 2 outlines for changes");
+    expect(text).toContain("garden: snapshotting (VACUUM INTO)");
+    expect(text).toContain("garden: uploading to restic");
+    expect(text).toMatch(/✓ garden \(change \d+\) → snapshot [0-9a-f]{8}/);
+    expect(out).toEqual([]);
+    // Piped (the timer's run): the lines as before, no steps drawn.
+    const piped: string[] = [];
+    expect(await backupCommand(["backup", "run"], { out: s => piped.push(s), err: s => err.push(s) }, env)).toBe(0);
+    expect(piped.join("\n")).toContain("no outline changed since its newest snapshot");
+  }, 120_000);
 });
 
 describe("install and doctor", () => {

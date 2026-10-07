@@ -33,6 +33,7 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
+import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -71,6 +72,12 @@ export interface HostLayer {
   keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null;
   /** The tile the drawer shows now (not its own tab), or null. */
   shownTab(): string | null;
+  /**
+   * Go to tile `p` wherever it is now (the "waiting on you" list's status.go): in the drawer, the drawer up and its tab
+   * shown with the keys in it; on the screen shown, the drawer put away and the keys given to it. Refused for a tile on
+   * a screen under this one.
+   */
+  goTo(p: Pane, actor: Actor): { tile: string; in: "drawer" | "screen" };
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
 }
@@ -341,6 +348,19 @@ export class App implements Ctx {
   offline = false;
   /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
   home?: { choose(c: HomeChoice): void; cancel?(): void };
+  private readonly offStatus: () => void;
+  private reportTimer: Timer | null = null;
+  /**
+   * The door's own program status to its terminal (`doorReport`: the root the most urgent across its terminal tiles,
+   * each tile a child), at most five times a second however fast its programs report: the spec asks a terminal to
+   * rate-limit what a record causes outside it, and the door is that terminal for its tiles.
+   */
+  private reportStatus() {
+    if (this.reportTimer || this.closed) return;
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport(statusHolders(this.drawer))); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
+  }
+  /** Where the status bar's waiting-on-you count sits, for a click (host.waiting). */
+  private waitingAt: { from: number; to: number; row: number } | null = null;
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
   private drawerRun: DrawerRun;
@@ -362,6 +382,10 @@ export class App implements Ctx {
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
     (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
+    // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
+    // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
+    this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
+    this.reportStatus();
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
@@ -819,6 +843,10 @@ export class App implements Ctx {
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
+    this.offStatus();
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    // What the door reported to its terminal goes with it (OSC 7501 clear).
+    this.display.programStatus?.(null);
     this.disarm();
     this.display.dispose();
     this.done();
@@ -857,7 +885,7 @@ export class App implements Ctx {
     }
     // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
     // mark, says what's stale (backups.alert).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"]] as const) {
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"]] as const) {
       if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
         if (k.action === "down") void this.dispatch.press(action);
         return;
@@ -867,6 +895,8 @@ export class App implements Ctx {
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
+    // alt+w: what waits on you, the list in your drawer (host.waiting), on every screen but in a terminal tile (its program's).
+    if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     const nTop = this.stack.at(-1);
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
@@ -925,7 +955,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts(waitingOnYou(this.drawer))).plain}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1042,7 +1072,10 @@ export class App implements Ctx {
     const backup = this.backupAlert();
     const backupPart = backup ? `${fg(C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
     const newPart = this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : "";
-    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
+    // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
+    const waiting = waitingText(waitingCounts(waitingOnYou(this.drawer)));
+    const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
+    const right = `${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);
     const backupFrom = cols - width(backupPart + newPart + extPart + tail);
     this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
@@ -1052,9 +1085,21 @@ export class App implements Ctx {
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
     this.drawer.chipAt = chip && from >= 0 ? { from, to: from + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
+    const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
+    this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
+}
+
+/**
+ * The status bar's waiting-on-you count (OSC 7501): `◆1 ✗1 ✓2 on you`, blocked, failed and done in their colours;
+ * `plain` is "" when nothing waits.
+ */
+export function waitingText(n: { blocked: number; error: number; done: number }): { plain: string; styled: string } {
+  const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen]] as const).filter(p => p[1] > 0);
+  if (!parts.length) return { plain: "", styled: "" };
+  return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)} on you` };
 }
 
 /** How long the "copied to clipboard" toast stays. */

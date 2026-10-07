@@ -19,6 +19,8 @@ import type { BackupConfig, MirrorSource } from "./config";
 import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
+/** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
+type Step = (title: string) => void;
 
 /** The outlines here: `<outlines>/<name>.sqlite`. */
 export function localOutlines(folder: string): { name: string; path: string }[] {
@@ -79,7 +81,7 @@ async function ensureRepo(c: BackupConfig, repo: string, say: Say): Promise<stri
   return null;
 }
 
-export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; now?: () => number; say?: Say } = {}): Promise<{ uploaded: string[]; failed: string[] }> {
+export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; now?: () => number; say?: Say; step?: Step } = {}): Promise<{ uploaded: string[]; failed: string[] }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [];
@@ -88,6 +90,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
+  o.step?.(`checking ${outlines.length} outline${outlines.length === 1 ? "" : "s"} for changes`);
   const changed = outlines.map(x => ({ ...x, seq: changeSeq(x.path) })).filter(x => {
     const st = s.outlines[x.name] ??= {};
     const moved = o.force || x.seq === null || st.seq === undefined || st.seq !== x.seq;
@@ -107,8 +110,10 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     for (const x of changed) {
       const st = s.outlines[x.name]!;
       const copy = join(tmp, `${x.name}.sqlite`);
+      o.step?.(`${x.name}: snapshotting (VACUUM INTO)`);
       try { copyDatabase(x.path, copy); }
       catch (e) { st.error = `copying ${x.path}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); continue; }
+      o.step?.(`${x.name}: uploading to restic`);
       const r = await backupFile(c, repo, copy, x.name, x.seq);
       rmSync(copy, { force: true });
       if ("error" in r) { st.error = r.error; failed.push(x.name); say(`✗ ${x.name}: ${r.error}`); continue; }
@@ -359,7 +364,7 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
 }
 
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
-export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns; heartbeat?: (c: BackupConfig) => Promise<void> } = {}): Promise<{ ok: boolean; alert: Alert }> {
+export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; step?: Step; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns; heartbeat?: (c: BackupConfig) => Promise<void> } = {}): Promise<{ ok: boolean; alert: Alert }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const release = takeLock(c);
   if (typeof release === "string") {
@@ -374,15 +379,17 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     } catch (e) { say(`✗ Litestream guard: ${(e as Error).message}`); }
     const s = readBackupState(c.state);
     // Each part stands alone: one failing never stops the others.
-    const snap = await snapshot(c, s, { now, say }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"] }; });
+    const snap = await snapshot(c, s, { now, say, step: o.step }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"] }; });
     writeBackupState(c.state, s);
-    if (c.mirrors.length) { await mirror(c, s, { now, say, follower: o.follower }).catch(e => say(`✗ mirror: ${(e as Error).message}`)); writeBackupState(c.state, s); }
+    if (c.mirrors.length) { o.step?.(`mirroring ${c.mirrors.length} machine${c.mirrors.length === 1 ? "" : "s"}`); await mirror(c, s, { now, say, follower: o.follower }).catch(e => say(`✗ mirror: ${(e as Error).message}`)); writeBackupState(c.state, s); }
     // The remote MCP gateway's queued writes: those held here for other machines, and this machine's own pull (PIE-615).
     const { netmailStep } = await import("./netmail");
+    o.step?.("netmail queues");
     await netmailStep(c, s, { now, say });
     writeBackupState(c.state, s);
     const due = o.drill ?? (!s.drill || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
     if (due && Object.values(s.outlines).some(x => x.snapshot)) {
+      o.step?.("restore drill");
       const d = await drill(c, { now, say });
       s.drill = { at: new Date(now()).toISOString(), ...d };
       say(`${d.ok ? "✓" : "✗"} restore drill: ${d.detail}`);
@@ -391,6 +398,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     const ok = !snap.failed.length && !sources.length;
     s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [snap.failed.length ? `failed: ${snap.failed.join(", ")}` : snap.uploaded.length ? `uploaded ${snap.uploaded.join(", ")}` : "nothing changed", ...sources].join("; ") };
     writeBackupState(c.state, s);
+    o.step?.("checking what's stale");
     const alert = await watch(c, s, { now, announce: o.announce });
     if (alert.incidents.length) for (const i of alert.incidents) say(`! ${i.title}: ${i.detail} · fix: ${i.fix}`);
     else if (ok) await (o.heartbeat ?? heartbeat)(c);

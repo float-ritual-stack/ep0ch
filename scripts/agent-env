@@ -17,6 +17,8 @@
 # behind (a test door's shell, a scratch host) is stopped with its scope when it ends. Every run, --test or not, has
 # oom_score_adj 1000: when memory runs out, it goes before the person's outline host and door. Without systemd it is only
 # queued (it says so). The exit code is the command's. Full suites belong in a boxd box: scripts/box-test.
+# A --test run says what it's doing (waiting for a slot, running, passed or its exit code) to a terminal that speaks the
+# Program Status Protocol (OSC 7501: a door's terminal tile, Ghostty); elsewhere nothing. EP0CH_PROGRAM_STATUS=0 stops it.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -75,6 +77,14 @@ fi
 run=(sh -c 'echo 1000 > /proc/self/oom_score_adj 2>/dev/null; exec "$@"' agent-env "$here/packages/door/scripts/test-door-env.sh" "${settings[@]}" "$@")
 [ "$test" = 1 ] || exec "${run[@]}"
 
+# What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501: the door's tiles, Ghostty):
+# asked once, then each report goes without asking (packages/outliner/scripts/program-status.ts).
+ps_on=0
+bun "$here/packages/outliner/scripts/program-status.ts" --probe 2>/dev/null && ps_on=1
+status() { [ $ps_on = 1 ] && EP0CH_PROGRAM_STATUS=1 bun "$here/packages/outliner/scripts/program-status.ts" "$@" --app agent-env 2>/dev/null; return 0; }
+what="$name: $(printf '%s ' "$@" | cut -c1-120)"
+finished() { if [ "$1" = 0 ]; then status done "$what passed"; else status error "$what: exit $1"; fi; }
+
 # A test slot: the first free one of EP0CH_TEST_SLOTS, held (an open, locked file) until the run ends.
 slots=${EP0CH_TEST_SLOTS:-2}
 mkdir -p "$root/.slots"
@@ -87,22 +97,29 @@ while :; do
   done
   if [ $said = 0 ]; then
     echo "agent-env: $slots test runs already going ($(cat "$root"/.slots/*.who 2>/dev/null | cut -d' ' -f1 | paste -sd, -)); waiting for one to end" >&2
+    status working "$name waits for a test slot"
     said=1
   fi
   sleep 5
 done
 
+status working "$what"
 if command -v systemd-run >/dev/null && systemctl --user is-system-running >/dev/null 2>&1; then
   unit="agent-env-$name-$$"
   set +e
   # Ended itself (a signal to this wrapper): the run and whatever it started go with the scope.
-  trap 'systemctl --user stop "$unit.scope" >/dev/null 2>&1; exit 143' TERM INT HUP
+  trap 'systemctl --user stop "$unit.scope" >/dev/null 2>&1; status idle "$name: stopped"; exit 143' TERM INT HUP
   systemd-run --user --scope --quiet --collect --unit="$unit" -p CPUQuota="${EP0CH_TEST_CPU:-200%}" -p MemoryMax="${EP0CH_TEST_MEM:-3G}" -- "${run[@]}" <&0 &   # <&0: a background job would otherwise read /dev/null
   wait $!
   code=$?
   # Anything the run started and left (a door's shell, a scratch host) goes with its scope.
   systemctl --user stop "$unit.scope" >/dev/null 2>&1
+  finished $code
   exit $code
 fi
 echo "agent-env: no systemd user manager here, so the run is queued but not capped" >&2
+set +e
 "${run[@]}"
+code=$?
+finished $code
+exit $code
