@@ -435,8 +435,9 @@ export class Completer {
     try {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(generation))) return false;
       this.dismiss();
-      // A folder leaves `[file::notes/` open: its entries are offered next.
-      if (this.target()) void this.refresh();
+      // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
+      // (the cursor is still in its word, which would offer the same value again).
+      if (s.target.kind !== "filter-value" && this.target()) void this.refresh();
       return true;
     } catch (e) {
       if (this.current(generation)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }

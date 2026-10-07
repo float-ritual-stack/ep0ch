@@ -230,6 +230,8 @@ export class RiverColumn extends ReaderPane {
   override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
+  /** The filter's completion popup is open: tab chooses a candidate, as ⏎ does. */
+  completing() { return this.mode === "filter" && !!completionOf(this.input); }
   blur() { if (this.mode) { this.mode = ""; this.input = filterInput(); } }
   focused(desk: DeskApi) { this.justFocused = true; this.desk = desk; }
 

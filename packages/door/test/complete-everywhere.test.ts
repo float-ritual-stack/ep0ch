@@ -107,6 +107,10 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       await until(() => completionOf(f)?.target.query === "do" && !completionOf(f)!.loading, "the narrowed values");
       f.key(K("tab"));
       await until(() => f.text === "type:note stage:done", "the choice");
+      expect(completionOf(f)).toBeNull();                                  // a chosen value ends it: ⏎ is the caller's again
+      await tick();
+      expect(completionOf(f)).toBeNull();
+      expect(f.key(K("enter"))).toBe(false);
       expect(f.cursor).toBe("type:note stage:done".length);
       // The same candidates an agent gets, without typing.
       const r = await lookupCompletion(board as unknown as CompletionBoard, { kind: "filter-value", start: 0, end: 0, query: "", key: "stage", words: true }, null);
@@ -275,6 +279,14 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       key(K("enter"));                                                       // no popup now: ⏎ applies the filter
       expect(col.mode).toBe("");
       await until(() => col.filter.length === 1 && col.filter[0]!.key === "stage", "the filter applied");
+      // tab chooses a candidate while the popup is open (it is the desk's next-tile key otherwise).
+      const focus = V().focusedTitle();
+      key(char("/")); key(ctrl("u")); type("typ");
+      await ready(col.input);
+      key(K("tab"));
+      await until(() => col.input.text === "type:", "tab's choice");
+      expect(V().focusedTitle()).toBe(focus);
+      key(K("esc")); key(K("esc"));
     } finally { app.pop(); }
   });
 

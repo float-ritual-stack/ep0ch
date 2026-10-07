@@ -2511,6 +2511,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose current element is a live figure's takes tab, shift+tab and ← → first: they switch its tabs.
     const claimer = this.panes.get(this.focus);
     if (claimer?.claims?.(k) && !this.holdsKeys() && !this.collapsed.has(this.focus) && claimer.key(k, this)) return this.redraw();
+    if (k.kind === "tab" && claimer?.completing?.()) { claimer.key(k, this); return this.redraw(); }
     if (k.kind === "tab" || k.kind === "backtab") {
       const ids = this.zoom !== null ? [this.zoom] : this.tabStops();
       const i = ids.indexOf(this.focus);
