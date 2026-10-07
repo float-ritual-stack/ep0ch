@@ -60,7 +60,7 @@ export function doctorChecks(f: Facts): Check[] {
     const few = join(f.repo.door, "test/fixtures/packs");
     if (f.art.packs) add("ep0ch", "art packs", "ok", `${f.art.packs} in ${f.art.dir}`);
     else add("ep0ch", "art packs", "info", `none in ${f.art.dir}${f.art.fromEnv ? " (EP0CH_PACKS)" : ""}: the menus draw without art`,
-      `export EP0CH_PACKS=<the folder with the woe*.zip packs>, or the checkout's few pieces: export EP0CH_PACKS=${few}`);
+      `export EP0CH_PACKS=<the folder with the woe*.zip packs>, or the checkout's few pieces: export EP0CH_PACKS=${sh(few)}`);
   }
 
   // the Outliner plugin: Herdr's link to this checkout's packages/outliner
