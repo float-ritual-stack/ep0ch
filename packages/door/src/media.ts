@@ -103,6 +103,8 @@ const scaled = new ScaledCache(KEEP_BYTES);
 let frame = 0;
 const making = new Set<string>();
 let onChange: () => void = () => {};
+/** The work the cache has done since the door started, counted for the resize bench (scripts/bench-resize.ts): PNGs scaled (made, not found in the disk cache), cell grids made, light measured. */
+export const mediaWork = { scaled: 0, grids: 0, lights: 0 };
 export function onMediaChange(fn: () => void) { onChange = fn; }
 /** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
 export function nextFrame() { frame++; }
@@ -202,6 +204,7 @@ function sourceOf(path: string, key: string, kind: Kind): Promise<Source> {
  * part is (at the size it's measured at, a 96-pixel thumbnail: a highlight is averaged with what's around it, never left out).
  */
 async function lightOf(s: Source, crop?: Crop): Promise<{ mean: number; peak: number }> {
+  mediaWork.lights++;
   const { data, info } = await (await cropped(s, crop)).resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const lum: number[] = [];
   for (let i = 0; i < data.length; i += info.channels) lum.push(((0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255) * (data[i + 3]! / 255));
@@ -258,6 +261,7 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
   if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
+    mediaWork.scaled++;
     const sharp = await lib();
     let p = sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
     // A header's backdrop: most of its colour gone and its detail softened, so the header's text reads over it.
@@ -390,6 +394,7 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
 }
 
 async function gridOf(s: Source, cols: number, rows: number, look: Look): Promise<CellGrid> {
+  mediaWork.grids++;
   const { data } = await (await cropped(s, look.crop)).resize({ width: cols, height: rows, fit: "fill" }).flatten({ background: "#000" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const px: [number, number, number][] = [];
   for (let i = 0; i + 2 < data.length; i += 3) {
