@@ -135,6 +135,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private nextId = 1;
   private prefix: Prefix = "";
   private drag: Grab | null = null;
+  /** The share the border being dragged was last put at. */
+  private dragAt: number | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   private pressed: { pane: ReaderPane; col: number; row: number; fresh: boolean } | null = null;
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
@@ -3968,7 +3970,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return;
       }
       // A border follows the pointer by layout.resize (the same action an agent calls).
-      if (this.drag) { resizing(); const g = this.drag, split = g.d.node.id, f = dragShare(g, k.x, k.y); if (split && f !== null) this.run("layout.resize", { split, border: g.d.i, share: f }); return; }
+      // A report that wouldn't move it (the pointer within the cell, or past where the border stops) does nothing: a
+      // frame for it would lay out every tile again for nothing.
+      if (this.drag) {
+        resizing();
+        const g = this.drag, split = g.d.node.id, f = dragShare(g, k.x, k.y);
+        if (split && f !== null && f !== this.dragAt) { this.dragAt = f; this.run("layout.resize", { split, border: g.d.i, share: f }); }
+        return;
+      }
       if (this.headPress) {
         const h = this.headPress;
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
@@ -4068,7 +4077,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A border the policy keeps where it is (locked, resizable off, a fixed size) doesn't follow the pointer: said once.
         const why = d.d.node.id ? refusal(this.layout, { op: "resize", split: d.d.node.id, border: d.d.i, share: d.d.sizes[0] / Math.max(1, d.d.sizes[0] + d.d.sizes[1]) }, this.layoutCtx(USER)) : null;
         if (why) { this.ctx.flash(why); return this.redraw(); }
-        this.drag = d; resizing(); return;
+        this.drag = d; this.dragAt = null; resizing(); return;
       }
       if (!hit) return;
       const [id, r] = hit;
