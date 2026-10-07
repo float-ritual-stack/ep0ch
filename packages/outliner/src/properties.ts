@@ -539,15 +539,12 @@ export function matchesFilters(
   filters: readonly PropertyFilter[],
   propertyScope: PropertyQueryScope = "block",
 ): boolean {
-  const scoped = propertyScope === "all"
-    ? properties
-    : properties.filter((property) =>
-      ("scope" in property ? property.scope : "block") === propertyScope
-    );
+  // Asked of every note on each query and view read: no arrays made per note.
   return filters.every((filter) =>
-    scoped.some(
+    properties.some(
       (property) =>
         property.key === filter.key &&
+        (propertyScope === "all" || ("scope" in property ? property.scope : "block") === propertyScope) &&
         (filter.value === undefined ||
           property.value.toLowerCase() === filter.value.toLowerCase()),
     )

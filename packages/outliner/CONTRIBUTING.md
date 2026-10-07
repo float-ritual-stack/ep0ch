@@ -68,6 +68,10 @@ source evidence or distinguish authored glyphs from controls.
 
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
+- `src/loop-watch.ts` owns the host's one event loop (PIE-625): whose turn it is (`Turns`, the whole-outline reads
+  last but never starved) and what held it (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
+  memoizes what is a pure function of a note's text (display titles); a whole-outline read uses those and the
+  store's per-change graph, never its own copy. See [Responsiveness](#responsiveness).
 - `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation.
 - `src/ui-config.ts` owns `ui.json` (pinned bar actions and `compact | full`
   chrome per pane kind, shared in shape with the door); `src/reader-chrome.ts`
@@ -319,6 +323,14 @@ failures are on its stderr (the journal under systemd). The log includes a
 timestamp; an old error is not evidence that the current process failed. Action output is also available through
 `herdr plugin log list --plugin float.pi-outliner --limit 3`.
 
+A client gives up on a request after 3 s. When requests time out while the host
+runs, its log says what held its one event loop (PIE-625): `loop_stalled` (the
+loop didn't get back to a timer for `ms`, with the requests that ran then,
+summed by action) and `slow_request` (one request's `queuedMs`, `handleMs` and
+`publishMs`). Under systemd: `journalctl --user -u outliner-host | grep -E
+'loop_stalled|slow_request'`. A stall that names no request is something else on
+the loop: a SQLite lock wait, a start-up step.
+
 Bookmarks query, limit and summary columns are editable view preferences.
 They do not change bookmark ownership and must not prevent service startup.
 
@@ -339,6 +351,20 @@ Keep current task status and verification evidence on the canonical work item.
 - Tree, Detail, CLI, and agent tools are clients.
 - Outline resolution must be identical across processes (outline-core's `whichOutline`).
 - Restarts reconstruct from service snapshots and events.
+
+### Responsiveness
+
+One host serves every client of every outline on one event loop, and a client gives up after 3 s (PIE-625).
+
+- No request holds the loop for long. Work over the whole outline uses the graph `loadGraph` keeps for the current
+  change (frozen: never change a block you got from it) and the text memos (`text-memo.ts`, the tree labels);
+  work that is still long goes in slices with a pause between them (`readTreeIndexInSlices`).
+- Every request waits for its turn (`Turns` in `loop-watch.ts`): one per pass of the loop, the whole-outline reads
+  (`WHOLE_OUTLINE_READS`) after every other request. A new action that reads the whole outline joins that list.
+- Slow outside calls (GitHub, a model, an extension) are awaited or made by the client, never waited for synchronously.
+- `bun scripts/bench-host-stalls.ts` is the guard: a note read answered in under 200 ms at start-up, under load,
+  during a backup and after a restart, on a fictional outline the size of a working one. `--outliner <dir>` runs
+  another checkout's host for a before.
 
 ### Queries
 

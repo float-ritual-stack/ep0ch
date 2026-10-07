@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The outline host keeps answering after a change and a restart (PIE-625)
+
+- **Fixed:** requests to the outline host timed out at 3 s in bursts, and for about a minute after each restart. Each
+  change made every Tree re-read the tree and all its saved views, and each read parsed the whole outline again on
+  the host's one loop. A working outline's write cost about 4.5 s of it. Now the outline is read once per change and
+  shared, titles and tree labels are remembered by text, and each request takes its turn: the whole-outline reads go
+  after note reads and writes, and the tree index is made in slices. On the bench, the slowest note read went from
+  3.8 s to under 80 ms at start-up, under load, during a backup and after a restart.
+- **New:** the host's log says what held its loop: `loop_stalled` and `slow_request` lines
+  (`journalctl --user -u outliner-host | grep -E 'loop_stalled|slow_request'`).
+- **For contributors:** `bun scripts/bench-host-stalls.ts` (in packages/outliner) is the guard: it exits 1 when a
+  note read takes over 200 ms.
+- **What to run:** nothing beyond the usual update (`ep0ch install --apply`). No protocol or schema change.
+
 ### Editing basics in a draft: copy, undo and redo, a paste in one step (PIE-621)
 
 - **Copy out of an edit.** A drag in a draft copies when the button comes up, as in a reader (`EP0CH_COPY_ON_SELECT=0`

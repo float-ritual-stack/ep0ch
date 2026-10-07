@@ -54,6 +54,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
+import { actionOf, loopWatched, noteWork, STALL_REPORT_MS, Turns } from "./loop-watch";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
 import {
@@ -244,6 +245,10 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * `OutlineHost` with `readOnly`): the reads the MCP server makes. Every other action is refused, so nothing a client
  * sends can change the copy or start work from it.
  */
+/** A request answered later than this is logged by a watched host (PIE-625). */
+const SLOW_REQUEST_MS = STALL_REPORT_MS;
+const SLOW_WAIT_MS = 1_000;
+
 export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
 
 export class OutlinerServer {
@@ -286,6 +291,7 @@ export class OutlinerServer {
   readonly extensionRules: ExtensionRules;
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
+  private readonly turns = new Turns();
 
   constructor(
     readonly store: OutlinerStore,
@@ -1521,6 +1527,16 @@ export class OutlinerServer {
         if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
         return this.handle(request,subscribedClient);
       } catch(error){return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
+    }
+    if (request.action === "tree.index") {
+      try {
+        // The whole outline's labels, made a slice per turn: a first read after a start never holds the loop.
+        const result = await this.store.readTreeIndexInSlices(request.view ?? {}, () => this.turns.next(request.action));
+        // The snapshot's own sequence: a write between two slices is not in it.
+        return { id: request.id, ok: true, result, sequence: result.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
     }
     if (request.action === "pages.complete" && request.semantic) {
       try {
@@ -3136,10 +3152,12 @@ export class OutlinerServer {
     }
   }
 
-  private async respond(socket: Socket, line: string): Promise<void> {
+  private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
+    const started = performance.now();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
+    let loopMs: number | undefined;
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
@@ -3165,7 +3183,10 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      response = await this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      // What ran before the handler first waited held the loop; the waits after it didn't.
+      loopMs = performance.now() - started;
+      response = await pending;
     } catch (error) {
       const problem = queryRequestProblem(error);
       response = {
@@ -3179,12 +3200,29 @@ export class OutlinerServer {
     // Changes are already durable in the feed; a failure below only costs the live event.
     const changes = attribution ? this.store.changes.committed(attribution) : [];
     socket.write(`${JSON.stringify(response)}\n`);
+    const answered = performance.now();
     try {
       this.publish(request, response, previousSequence, changes);
     } catch (error) {
       // The changes are durable in the feed; subscribers recover them with changes.since.
       process.stderr.write(`outliner: live event publication failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
+    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, performance.now() - answered);
+  }
+
+  /** The host's per-request timing (loop-watch.ts): a request that took long is logged, and named in a stall. */
+  private timeRequest(request: OutlinerRequest | undefined, received: number, started: number, answered: number, loopMs: number, publishMs: number): void {
+    const action = String(request?.action ?? "invalid");
+    const ms = answered - received;
+    noteWork(action, loopMs);
+    noteWork(`${action} fan-out`, publishMs);
+    // Its own work held the loop, or it waited long enough for a client to notice (a third of the 3 s timeout).
+    if (loopMs < SLOW_REQUEST_MS && publishMs < SLOW_REQUEST_MS && ms < SLOW_WAIT_MS) return;
+    console.log(JSON.stringify({
+      status: "slow_request", outline: this.outline?.name, action, ms: Math.round(ms),
+      queuedMs: Math.round(started - received), handleMs: Math.round(answered - started), loopMs: Math.round(loopMs),
+      publishMs: Math.round(publishMs), subscribers: this.subscribers.size,
+    }));
   }
 
   private publish(
@@ -3227,7 +3265,9 @@ export class OutlinerServer {
           // A door's answer is never queued behind the request on its connection that waits for it.
           void this.respond(socket, line);
         } else {
-          requestQueue = requestQueue.then(() => this.respond(socket, line));
+          const received = performance.now();
+          // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it.
+          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line))).then(() => this.respond(socket, line, received));
         }
         newline = buffer.indexOf("\n");
       }

@@ -60,7 +60,7 @@ import {
 } from "./properties";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
+import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import {
   ResourceCatalog,
@@ -631,14 +631,72 @@ function boundedTreeLabel(text: string): string {
   return `${text.slice(0, boundary)}…`;
 }
 
+const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
+
+/** How many notes' titles or labels are made between two pauses: a few milliseconds' work. */
+const SLICE = 200;
+
+async function inSlices<T>(items: readonly T[], each: (item: T) => void, pause: () => Promise<void>): Promise<void> {
+  for (let start = 0; start < items.length; start += SLICE) {
+    if (start > 0) await pause();
+    for (const item of items.slice(start, start + SLICE)) each(item);
+  }
+}
+
+/** The notes a tree index labels: every physical note, then any visible one not among them, each once. */
+function treeIndexMembers(snapshot: WorkspaceSnapshot): VisibleBlock[] {
+  const members = new Map(snapshot.physical.blocks.map(block => [block.id, block]));
+  for (const block of snapshot.visible.blocks) if (!members.has(block.id)) members.set(block.id, block);
+  return [...members.values()];
+}
+
+function treeIndexOf(snapshot: WorkspaceSnapshot, labels: ReadonlyMap<string, TreeIndexBlock>): TreeIndexSnapshot {
+  return {
+    blocks: [...labels.values()],
+    physicalBlockIds: snapshot.physical.blocks.map(block => block.id),
+    visible: {
+      rows: snapshot.visible.blocks.map(({ id, depth, propertyMatches }) => ({
+        id,
+        depth,
+        ...(propertyMatches ? { propertyMatches } : {}),
+      })),
+      completeness: snapshot.visible.completeness,
+    },
+    selectedBlockId: snapshot.selection.selected?.id ?? null,
+    virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
+    sequence: snapshot.sequence,
+    ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
+  };
+}
+
 /** Internal saved-view evaluation counts every member; public queries stay within 1..1000. */
 const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
+
+type TreeLabel = Pick<TreeIndexBlock, "preview" | "previewReferences" | "textDigest">;
+/** Tree labels by what they are made of (PIE-625): a tree read asks for every note's after every change. */
+const treeLabels = new Map<string, TreeLabel>();
+const TREE_LABEL_LIMIT = 8_192;
 
 function compactTreeBlock(
   { text, displayText: _displayText, propertyMatches: _matches, ...metadata }: VisibleBlock,
   lookup: (blockId: string) => Block | null,
 ): TreeIndexBlock {
   const resolved = resolveBlockReferencesWithStatus(text, lookup);
+  // The label is a function of the text, what its references resolve to (in `resolved.text`: titles and statuses),
+  // whether it has properties, and the id (an empty title falls back to it).
+  const key = `${metadata.id}\u0000${metadata.properties.length ? 1 : 0}\u0000${text}\u0000${resolved.text}`;
+  let label = treeLabels.get(key);
+  if (label) {
+    treeLabels.delete(key);
+  } else {
+    label = treeLabel(text, resolved, metadata);
+    if (treeLabels.size >= TREE_LABEL_LIMIT) treeLabels.delete(treeLabels.keys().next().value!);
+  }
+  treeLabels.set(key, label);
+  return { ...metadata, ...label };
+}
+
+function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pick<VisibleBlock, "id" | "properties">): TreeLabel {
   let offset = 0;
   let spans = blockReferenceOccurrences(text).map((occurrence, index) => {
     const reference = resolved.references[index]!;
@@ -715,17 +773,17 @@ function compactTreeBlock(
   }
   const preview = boundedTreeLabel(title);
   const visibleEnd = preview === title ? title.length : preview.length - 1;
-  const previewReferences = spans.filter(span => span.start < visibleEnd).map(({ start, end, target }) => ({
+  const previewReferences = spans.filter(span => span.start < visibleEnd).map(({ start, end, target }) => Object.freeze({
     start,
     end: Math.min(end, visibleEnd),
     target: end <= visibleEnd ? target : null,
   }));
-  return {
-    ...metadata,
+  // Shared by every read that asks for this label: nobody changes it.
+  return Object.freeze({
     preview,
-    previewReferences,
+    previewReferences: Object.freeze(previewReferences) as TreeIndexBlock["previewReferences"],
     textDigest: authoredTextDigest(text),
-  };
+  });
 }
 
 export class OutlinerStore {
@@ -742,6 +800,8 @@ export class OutlinerStore {
   readonly outlineInstanceId: string;
   private readonly instance: OutlineInstance;
   private closed = false;
+  /** The last graph `loadGraph` read, and the counts it is current for. */
+  private graph: { key: string; graph: LoadedGraph } | undefined;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -750,6 +810,7 @@ export class OutlinerStore {
     let database: Database | undefined;
     try {
       this.database = database = new Database(path, { create: true });
+      this.dropGraphOnFailure();
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       const created = this.prepareDatabase(path) === "created";
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
@@ -3307,10 +3368,10 @@ export class OutlinerStore {
   }
 
   /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
-  private queryNormalizedBlocksFromCurrentRead(query: BlockSearchQuery): VisibleBlockCollection {
+  private queryNormalizedBlocksFromCurrentRead(query: BlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
     if (query.subtreeRootId) this.require(query.subtreeRootId);
     const deletedMode = query.includeDeleted ?? "active";
-    if (query.rankViewId && deletedMode === "active" && !query.where) {
+    if (query.rankViewId && deletedMode === "active" && !query.where && !options.overGraph) {
       return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
     }
     const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
@@ -3385,22 +3446,15 @@ export class OutlinerStore {
       try {
         const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId, parsed.config, 1));
         const ranks = this.virtualOccurrenceRanksFromCurrentRead();
-        if (query.rankViewId && (query.includeDeleted ?? "active") === "active" && !query.where) {
-          // Same route as queryNormalizedBlocksFromCurrentRead. Rank and count lightweight id/depth pairs, then hydrate only the page:
-          // Tree and embeds read small pages of views with many members.
-          const candidates = this.rankedMatchIdsFromCurrentRead(query, query.rankViewId);
-          const page = selectVirtualBranchMembers(viewId, parsed.config, { blocks: candidates, completeness: { kind: "complete" } }, ranks, effectiveLimit, offset);
-          selected = { ...page, members: this.hydrateRankedPageFromCurrentRead(page.members, query) };
-        } else {
-          // Sorted, Trash and expression views are evaluated over the loaded graph, which is already hydrated.
-          const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES });
-          selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
-        }
+        // Over the loaded graph, ranked views too (PIE-625): Tree reads every view after each change, and the graph is
+        // loaded once per change for all of them, where a ranked SQL walk of the whole outline ran for each.
+        const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES }, { overGraph: true });
+        selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
       } catch (error) {
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
       const blocks = format === "tree"
-        ? selected.members.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id)))
+        ? selected.members.map(block => compactTreeBlock(block, id => this.loadGraph().byId.get(id) ?? null))
         : selected.members;
       return {
         ...result, status: "ready", blocks, total: selected.eligible,
@@ -3620,28 +3674,26 @@ export class OutlinerStore {
   readTreeIndex(view: WorkspaceSnapshotView = {}): TreeIndexSnapshot {
     return this.database.transaction(() => {
       const snapshot = this.readWorkspaceSnapshot(view);
-      const compact = (block: VisibleBlock) => compactTreeBlock(block, id => this.getFromCurrentRead(id));
-      const blocks = new Map(snapshot.physical.blocks.map(block => [block.id, compact(block)]));
-      for (const block of snapshot.visible.blocks) {
-        if (!blocks.has(block.id)) blocks.set(block.id, compact(block));
-      }
-      return {
-        blocks: [...blocks.values()],
-        physicalBlockIds: snapshot.physical.blocks.map(block => block.id),
-        visible: {
-          rows: snapshot.visible.blocks.map(({ id, depth, propertyMatches }) => ({
-            id,
-            depth,
-            ...(propertyMatches ? { propertyMatches } : {}),
-          })),
-          completeness: snapshot.visible.completeness,
-        },
-        selectedBlockId: snapshot.selection.selected?.id ?? null,
-        virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
-        sequence: snapshot.sequence,
-        ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
-      };
+      const graph = this.loadGraph();
+      const labels = new Map(treeIndexMembers(snapshot).map(block => [block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null)]));
+      return treeIndexOf(snapshot, labels);
     })();
+  }
+
+  /**
+   * `readTreeIndex` a slice at a time, for the host (PIE-625): every note's title and tree label, which a first read
+   * after a start or a big change works out for the whole outline, is made in slices with `pause()` between them, so
+   * other requests are answered meanwhile. The answer is one snapshot: the labels are made from the graph read with
+   * it, which nothing changes.
+   */
+  async readTreeIndexInSlices(view: WorkspaceSnapshotView, pause: () => Promise<void>): Promise<TreeIndexSnapshot> {
+    // Titles first (the snapshot's display text uses every referenced note's), outside any transaction: only a warm-up.
+    const notes = [...this.database.transaction(() => this.loadGraph())().byId.values()];
+    await inSlices(notes, block => { blockDisplayTitle(block); }, pause);
+    const { snapshot, graph } = this.database.transaction(() => ({ snapshot: this.readWorkspaceSnapshot(view), graph: this.loadGraph() }))();
+    const labels = new Map<string, TreeIndexBlock>();
+    await inSlices(treeIndexMembers(snapshot), block => { labels.set(block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null)); }, pause);
+    return treeIndexOf(snapshot, labels);
   }
 
   getSelection(): SelectionContext {
@@ -3704,14 +3756,11 @@ export class OutlinerStore {
   }
 
   /**
-   * The recursive ranked-match statement shared by bounded queries and saved-view
-   * reads. `columns` selects either full rows or the lightweight id/depth pairs a
-   * saved-view read ranks before it hydrates one page.
+   * The recursive ranked-match statement of a bounded query with `rankViewId`.
    */
   private rankedMatchStatement(
     query: BlockSearchQuery,
     rankViewId: string,
-    columns: "full" | "ids",
   ): { sql: string; parameters: Array<string | number> } {
     const parameters: Array<string | number> = [];
     const rootQuery = query.subtreeRootId
@@ -3748,9 +3797,7 @@ export class OutlinerStore {
       }
     }
     const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
-    const selected = columns === "ids"
-      ? "block.id, tree.depth"
-      : `block.*,
+    const selected = `block.*,
           tree.depth,
           EXISTS (
             SELECT 1 FROM blocks child
@@ -3786,7 +3833,7 @@ export class OutlinerStore {
     query: BlockSearchQuery,
     rankViewId: string,
   ): VisibleBlockCollection {
-    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "full");
+    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId);
     const rows = this.database
       .query(`${sql} LIMIT ?`)
       .all(...parameters, query.limit + 1) as VisibleBlockRow[];
@@ -3808,35 +3855,6 @@ export class OutlinerStore {
    * queryRankedBlocksFromCurrentRead. Saved-view reads rank and count these, then
    * hydrate only the requested page.
    */
-  private rankedMatchIdsFromCurrentRead(
-    query: BlockSearchQuery,
-    rankViewId: string,
-  ): Array<{ id: string; depth: number }> {
-    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "ids");
-    return this.database.query(sql).all(...parameters) as Array<{ id: string; depth: number }>;
-  }
-
-  /** Hydrate a bounded page of ranked matches, keeping the page's order. */
-  private hydrateRankedPageFromCurrentRead(
-    page: ReadonlyArray<{ id: string; depth: number }>,
-    query: BlockSearchQuery,
-  ): VisibleBlock[] {
-    if (page.length === 0) return [];
-    const placeholders = page.map(() => "?").join(", ");
-    const rows = this.database
-      .query(`
-        SELECT block.*, EXISTS (
-          SELECT 1 FROM blocks child
-          WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
-        ) AS has_children
-        FROM blocks block WHERE block.id IN (${placeholders})
-      `)
-      .all(...page.map(entry => entry.id)) as Array<Omit<VisibleBlockRow, "depth">>;
-    const byId = new Map(rows.map(row => [row.id, row]));
-    const ordered = page.map(entry => ({ ...byId.get(entry.id)!, depth: entry.depth }) as VisibleBlockRow);
-    return this.hydrateVisibleRowsFromCurrentRead(ordered, query.filters ?? [], query.propertyScope ?? "block");
-  }
-
   private hydrateVisibleRowsFromCurrentRead(
     rows: readonly VisibleBlockRow[],
     filters: readonly PropertyFilter[],
@@ -3982,7 +4000,53 @@ export class OutlinerStore {
     };
   }
 
+  /**
+   * The whole outline as one graph, shared by every read until something changes (PIE-625): Tree reads every saved
+   * view after each change, and each read used to load and hydrate every block again. It is current while this
+   * connection has changed no row (`total_changes()`) and no other connection has committed (`data_version`); a
+   * transaction that fails drops it (`dropGraphOnFailure`), since a rollback undoes rows without changing either
+   * count. Shared, so it is frozen: a reader that changes a block it got from here throws instead of changing the
+   * next reader's outline.
+   */
   private loadGraph(): LoadedGraph {
+    const key = this.graphKey();
+    if (this.graph?.key === key) return this.graph.graph;
+    const graph = this.readGraph();
+    this.graph = { key, graph };
+    return graph;
+  }
+
+  private graphKey(): string {
+    const changes = this.database.query("SELECT total_changes() AS changes").get() as { changes: number };
+    const version = this.database.query("PRAGMA data_version").get() as { data_version: number };
+    return `${changes.changes}:${version.data_version}`;
+  }
+
+  /**
+   * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the
+   * graph may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then.
+   */
+  private dropGraphOnFailure(): void {
+    const transaction = this.database.transaction.bind(this.database);
+    const store = this;
+    type Run = (...args: unknown[]) => unknown;
+    const guarded = (run: Run): Run => function (this: unknown, ...args: unknown[]) {
+      try {
+        return run.apply(this, args);
+      } catch (error) {
+        store.graph = undefined;
+        throw error;
+      }
+    };
+    this.database.transaction = ((work: Run) => {
+      const run = transaction(work) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
+      return Object.assign(guarded(run), {
+        deferred: guarded(run.deferred), immediate: guarded(run.immediate), exclusive: guarded(run.exclusive),
+      });
+    }) as Database["transaction"];
+  }
+
+  private readGraph(): LoadedGraph {
     const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at").all() as BlockRow[];
     const propertyRows = this.database
       .query(
@@ -3992,7 +4056,7 @@ export class OutlinerStore {
     const propertyRecordsByBlock = new Map<string, PropertyRecord[]>();
     const propertiesByBlock = new Map<string, BlockProperty[]>();
     for (const row of propertyRows) {
-      const record = propertyRecordFromRow(row);
+      const record = Object.freeze(propertyRecordFromRow(row));
       const records = propertyRecordsByBlock.get(row.block_id);
       if (records) records.push(record);
       else propertyRecordsByBlock.set(row.block_id, [record]);
@@ -4001,8 +4065,13 @@ export class OutlinerStore {
       if (properties) properties.push({ key: record.key, value: record.value });
       else propertiesByBlock.set(row.block_id, [{ key: record.key, value: record.value }]);
     }
+    for (const properties of propertiesByBlock.values()) {
+      for (const property of properties) Object.freeze(property);
+      Object.freeze(properties);
+    }
+    for (const records of propertyRecordsByBlock.values()) Object.freeze(records);
 
-    const blocks = rows.map((row) => this.hydrate(row, propertiesByBlock.get(row.id) ?? []));
+    const blocks = rows.map((row) => Object.freeze(this.hydrate(row, propertiesByBlock.get(row.id) ?? NO_PROPERTIES)));
     const byId = new Map<string, Block>();
     const byParent = new Map<string | null, Block[]>();
     const deletedDescendantCountByRoot = new Map<string, number>();
@@ -4023,6 +4092,7 @@ export class OutlinerStore {
       }
     }
 
+    for (const siblings of byParent.values()) Object.freeze(siblings);
     return { byId, byParent, propertyRecordsByBlock, deletedDescendantCountByRoot };
   }
 
