@@ -28,6 +28,8 @@ import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, ses
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, screenSteps, type Checkpoint } from "../src/session/restore";
 import { MainMenu } from "../src/screens";
+import { controlPlace, servingSocket } from "../src/control";
+import { homeState, useOutlineState } from "../src/state";
 import { createServer } from "node:net";
 import { USER } from "../src/socket";
 import { localPtys, usePtyBackend } from "../src/desk/pty-backend";
@@ -93,6 +95,29 @@ describe("the session's environment", () => {
     expect(env).toEqual({ HOME: "/home/fern", EP0CH_STATE: "/tmp/plot" });
     // A test door's own EP0CH_CONTROL (not inside a door) is kept.
     expect(sessionEnv({ EP0CH_CONTROL: "/tmp/plot/door.sock" })).toEqual({ EP0CH_CONTROL: "/tmp/plot/door.sock" });
+    // An outer door's outline session folder goes with its other variables (PIE-604).
+    expect(sessionEnv({ EP0CH_IN_DOOR: "1", EP0CH_PLACE: "/tmp/plot/sessions/local/outer" })).toEqual({});
+  });
+
+  test("a door serves in its own outline's folder: an inherited EP0CH_CONTROL naming another outline's never becomes its socket (PIE-604)", () => {
+    const saved = process.env.EP0CH_STATE;
+    process.env.EP0CH_STATE = "/tmp/plot-state";
+    try {
+      useOutlineState("/tmp/plot-state/sessions/local/garden");
+      const own = "/tmp/plot-state/sessions/local/garden/door.sock";
+      expect(servingSocket({})).toBe(own);
+      expect(servingSocket({ EP0CH_CONTROL: "/tmp/plot-state/sessions/local/allotment/door.sock" })).toBe(own);
+      expect(servingSocket({ EP0CH_CONTROL: "/tmp/plot-state/sessions/local/garden/door-77.sock" })).toBe("/tmp/plot-state/sessions/local/garden/door-77.sock");
+      // A test door's socket moved out of the state dir on purpose is kept, and its tiles get no session folder to follow.
+      expect(servingSocket({ EP0CH_CONTROL: "/tmp/test-door/ctl.sock" })).toBe("/tmp/test-door/ctl.sock");
+      expect(controlPlace(own)).toBe("/tmp/plot-state/sessions/local/garden");
+      expect(controlPlace("/tmp/test-door/ctl.sock")).toBeNull();
+      useOutlineState(homeState());
+      expect(controlPlace("/tmp/plot-state/home/door.sock")).toBeNull();
+    } finally {
+      useOutlineState(null);
+      if (saved === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = saved;
+    }
   });
 
   test("a program the session hands a terminal runs with that terminal's TERM, ssh, tmux and locale, its layers first", () => {
@@ -869,6 +894,39 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     // The edit is open again on the same note, unsaved, its text brought back from where the handoff put it aside.
     expect(JSON.stringify(peek.screen.state)).toContain(`"place":"edit:${plot}"`);
     expect(JSON.stringify(peek.screen.state)).toContain(`"dirty":true`);
+    b.close();
+  }, 60_000);
+
+  test("an agent in a tile follows its door through a handover: its `ep0ch where` and `act` reach the new daemon, by its outline's session (PIE-604)", async () => {
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => a.screen().includes("chard-42"), "the desk with its shell", 10_000);
+    // The fake agent is the shell the first test opened: a program in a tile, kept through every handover.
+    const shell = await shellPid();
+    const tile = ((await control({ cmd: "peek" })).screen.state.panes as any[]).find(p => p?.terminal?.pid === shell)!.id as string;
+    const before = daemonPid();
+    expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+    await until(() => a.closed, "the old daemon to let the terminal go", 5000);
+    const b = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => b.screen().includes("handed over to a new daemon"), "the handoff said", 10_000);
+    expect(daemonPid()).not.toBe(before);
+    expect(await shellPid()).toBe(shell);
+    const out = mkdtempSync(join(scratch.root, "agent-"));
+    const ep0chCmd = `${process.execPath} ${join(import.meta.dir, "../src/main.ts")}`;
+    // As the agent: where it is, an act, and an act from an environment whose socket went with an old process
+    // (door-<pid>.sock: a door that started beside another on its outline).
+    const line = `${ep0chCmd} where --json > ${out}/where.json; ${ep0chCmd} act layout.get --as fake-agent > ${out}/act.json; ` +
+      `EP0CH_CONTROL=$EP0CH_PLACE/door-${before}.sock ${ep0chCmd} act layout.get --as fake-agent > ${out}/act-old.json; echo followed-$((6*7))\\n`;
+    await control({ cmd: "act", action: "tile.type", tile, args: { text: line }, as: "test-agent" });
+    await until(() => b.screen().includes("followed-42"), "the agent's commands", 20_000);
+    const w = JSON.parse(readFileSync(join(out, "where.json"), "utf8"));
+    expect(w.door).toMatchObject({ pid: daemonPid(), answers: true, moved: false, control: join(dir, "door.sock") });
+    expect(w.door.stale).toContain(`it answers for pid ${daemonPid()}`);
+    expect(w.door.tile).toMatchObject({ found: true, descends: true });
+    expect(JSON.parse(readFileSync(join(out, "act.json"), "utf8"))).toBeTruthy();
+    expect(JSON.parse(readFileSync(join(out, "act-old.json"), "utf8"))).toEqual(JSON.parse(readFileSync(join(out, "act.json"), "utf8")));
+    // The shell's screen as the tests after this one know it.
+    await control({ cmd: "act", action: "tile.type", tile, args: { text: "clear; echo chard-$((6*7))\\n" }, as: "test-agent" });
+    await until(() => !b.screen().includes("followed-42") && b.screen().includes("chard-42"), "the shell cleared", 10_000);
     b.close();
   }, 60_000);
 

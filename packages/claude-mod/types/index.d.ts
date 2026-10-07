@@ -96,6 +96,11 @@ export type WhereFacts = {
     drawer: boolean
     /** The tile's name (`claude`), when in a tile. */
     tile: string | null
+    /**
+     * Claude's environment is older than its door (PIE-604): the session was handed over or restarted, or
+     * EP0CH_CONTROL went stale. `ep0ch` and the door tools follow the door by its outline's session.
+     */
+    stale: boolean
   }
 }
 

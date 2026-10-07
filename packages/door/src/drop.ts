@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { appendNest, doorNest, shellLayer } from "./nest";
 import { DOOR_START_VARS } from "./desk/pty";
-import { controlPath } from "./control";
+import { controlPath, controlPlace } from "./control";
 import type { Handover } from "./term";
 
 export const SHELL_BANNER = "ep0ch · shell · exit returns to the door";
@@ -27,11 +27,14 @@ export const loginShell = (env: Record<string, string | undefined> = process.env
  * now names this door, which has no such tile.
  */
 export function shellEnv(env: Record<string, string | undefined>, control: string | null, pid = process.pid): Record<string, string> {
-  const drop = new Set<string>([...DOOR_START_VARS, "EP0CH_TILE", "EP0CH_TILE_ID"]);
+  const drop = new Set<string>([...DOOR_START_VARS, "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_PLACE"]);
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
   out.EP0CH_IN_DOOR = "1";
   if (control) out.EP0CH_CONTROL = control; else delete out.EP0CH_CONTROL;
+  // The outline's session folder, so `ep0ch act` from the shell follows the door as a tile's program does (PIE-604).
+  const place = controlPlace(control);
+  if (place) out.EP0CH_PLACE = place;
   out.EP0CH_NEST = appendNest(doorNest(env), shellLayer(pid));
   return out;
 }

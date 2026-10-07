@@ -29,7 +29,11 @@ start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is 
 else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as
 `EP0CH_TILE` and its id as `EP0CH_TILE_ID`, so a program in a tile
 reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
-README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
+README's "The daily agent in Herdr"). It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
+follows its door through a handover or restart: `ep0ch act|peek|open|where` and the outliner's `door-open` (so the
+Claude mod) take `EP0CH_CONTROL` while it answers from that folder, else the outline's `door.sock` there, never another
+outline's door (outline-core's `door-reach.ts`, the one rule). `ep0ch where` says when the environment is stale and
+which door it answers for now. A door never serves on an inherited `EP0CH_CONTROL` naming another outline's folder. It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
 
 **In a door session** (PIE-418, the README's "Sessions: quit is detach") the session serves this socket, so it lives

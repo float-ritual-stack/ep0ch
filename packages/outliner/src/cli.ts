@@ -176,13 +176,16 @@ if (process.argv[2] === "door-open") {
     process.exit(2);
   }
   const { values, positionals } = parsed;
-  const control = values.control ?? process.env.EP0CH_CONTROL;
+  const { DoorUnreachable, openInDoor, reachControl } = await import("./door-control");
+  // The door as it is now: by the tile's outline session (EP0CH_PLACE) when this program's own socket went stale
+  // (PIE-604). A --control naming another socket than the environment's is the caller's choice, taken as it is.
+  const own = values.control === undefined || values.control === process.env.EP0CH_CONTROL;
+  const control = own ? (await reachControl(process.env.EP0CH_CONTROL, process.env.EP0CH_PLACE)).path : values.control;
   const [blockId, ...extra] = positionals;
   if (!blockId || extra.length || !control) {
     console.error("error: door-open requires one block id and a door control socket (--control or EP0CH_CONTROL)");
     process.exit(2);
   }
-  const { DoorUnreachable, openInDoor } = await import("./door-control");
   try {
     const opened = await openInDoor(control, blockId, { actor: values.actor ?? "agent", ...(values.from ? { from: values.from } : {}) });
     console.log(JSON.stringify(opened));

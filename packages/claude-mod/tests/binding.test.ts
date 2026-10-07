@@ -287,7 +287,7 @@ describe('binding helpers', () => {
   test('where --json is read for its facts; anything else is not one', () => {
     expect(where).toEqual({
       inDoor: true, here: { machine: 'near-box', folder: FOLDER }, herdr: { pane: 'door-claude', label: 'door-claude', agent: true },
-      door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude' },
+      door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude', stale: false },
     })
     expect(whereFactsOf('usage: ep0ch …')).toBeNull()
     expect(whereFactsOf('{"summary":"x"}')).toBeNull()
@@ -302,6 +302,16 @@ describe('binding helpers', () => {
   test('plain words: no tile ids, pids or sockets on the card', () => {
     const text = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'garden', pinned: true } })).map(l => l.text).join('\n')
     expect(text).not.toMatch(/drawer\.agent|\bt1\b|4242|\.sock|pid/)
+  })
+
+  test('a door handed over or restarted under Claude (where says its environment is stale): said plainly, the tools follow it (PIE-604)', () => {
+    const json = JSON.parse(whereJson({ outline: 'harbor', host: 'near-box', tile: 'claude' }))
+    json.door.stale = 'this environment is stale (started under door pid 4242, since handed over or restarted): it answers for pid 5151 on harbor'
+    const w = whereFactsOf(JSON.stringify(json))!
+    expect(w.door?.stale).toBe(true)
+    const door = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'harbor', pinned: true } }, w)).find(l => l.label === 'door')!
+    expect(door.text).toBe('in the "claude" tile of the harbor door · restarted since Claude started: the door tools follow it')
+    expect(door.text).not.toMatch(/4242|5151|\.sock|pid/)
   })
 
   test('opted out, and a lookup that failed, say why', () => {

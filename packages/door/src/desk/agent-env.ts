@@ -29,6 +29,13 @@ export const AGENT_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0C
  * the landing). EP0CH_AGENT_CONTINUE is a restart's word to the Herdr launcher (`agent.restart`): that start only.
  */
 export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING", "EP0CH_AGENT_CONTINUE"] as const;
+/**
+ * The folder of the outline's session in the state dir (src/session/place.ts), where that outline's door serves
+ * `door.sock` whichever process it is now: with it, the agent's `ep0ch` and the Claude mod follow the door through a
+ * handover or restart (outline-core's door-reach.ts, PIE-604). Not one of AGENT_VARS: a Herdr agent's pane has none
+ * (its EP0CH_CONTROL is a link each door re-points), and one started before it isn't stale for lacking it.
+ */
+export const PLACE_VAR = "EP0CH_PLACE";
 /** Passed on as they are when the door has them, so the agent's `ep0ch` uses the door's state and outline. */
 export const CARRIED_VARS = ["EP0CH_STATE", "EP0CH_SOCKET"] as const;
 
@@ -41,6 +48,8 @@ export interface AgentAt {
   tileId?: string | null;
   /** The whole nest, this layer included (src/nest.ts). */
   nest: string;
+  /** The outline's session folder its door serves in (EP0CH_PLACE); null: none (a Herdr pane, a door serving elsewhere). */
+  place?: string | null;
 }
 
 /** The one place a door agent's variables are made. `env`: the door's (or the launcher's) own, for CARRIED_VARS. */
@@ -48,6 +57,7 @@ export function agentVars(env: Record<string, string | undefined>, at: AgentAt):
   const out: Record<string, string> = { EP0CH_TILE: at.tile, EP0CH_IN_DOOR: "1", EP0CH_NEST: at.nest };
   if (at.tileId) out.EP0CH_TILE_ID = at.tileId;
   if (at.control) out.EP0CH_CONTROL = at.control;
+  if (at.place) out[PLACE_VAR] = at.place;
   for (const k of CARRIED_VARS) { const v = env[k]; if (v) out[k] = v; }
   return out;
 }

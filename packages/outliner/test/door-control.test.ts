@@ -125,4 +125,19 @@ describe("showing a block in ep0ch-door", () => {
     expect(await new Response(gone.stderr).text()).toContain("error: no door at");
     expect(await gone.exited).toBe(3);
   });
+
+  test("the CLI's door-open follows the tile's outline session when its own socket went stale; a --control naming another is taken as given (PIE-604)", async () => {
+    // The fake door serves `door.sock` in its folder: the outline's session folder (EP0CH_PLACE).
+    door = await fakeDoor(() => ({ ok: true, result: { reader: "5", id: BLOCK } }));
+    const run = (env: Record<string, string>, args: string[] = []) => Bun.spawn([process.execPath, "src/cli.ts", "door-open", BLOCK, "--actor", "claude-code", ...args], {
+      env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe",
+    });
+    const stale = join(door.dir, "door-4242.sock");
+    const followed = run({ EP0CH_CONTROL: stale, EP0CH_PLACE: door.dir }, ["--control", stale]);
+    expect(await followed.exited).toBe(0);
+    expect(door.requests).toHaveLength(1);
+    const other = run({ EP0CH_CONTROL: stale, EP0CH_PLACE: door.dir }, ["--control", join(tmpdir(), "elsewhere-door.sock")]);
+    expect(await other.exited).toBe(3);
+    expect(door.requests).toHaveLength(1);
+  });
 });
