@@ -26,14 +26,22 @@ Before a PR claims a change works:
 2. The full suites pass once the change is stable: `bun run test` at the root, or `bun test` in each package.
    Focused tests are fine while developing. The door's tests start their own scratch outline host from
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude
-   mod's run under `claude plugin test` (`claude` on PATH). Agents run one suite at a time, in the foreground,
-   under `timeout 900`, after checking `uptime` (wait while the load is over 4), and never `--parallel`: five
-   agents' parallel runs once froze float-2. The door's `parity-screens` takes more than ten minutes whole; run
-   it in parts with `PARITY_ONLY` (see the ep0ch-core skill).
-   Before merging a series, and in every review round, run the door's files each alone too
-   (`bun run test:each` in packages/door; pass file names to run a few): `bun test` loads every file into one
-   process, so a file that only loads because another loaded a module first passes there and fails alone. #204's
-   import cycle left 13 files unable to load alone for a day, and nobody saw.
+   mod's run under `claude plugin test` (`claude` on PATH).
+   - **Whole suites run in a boxd box** (PIE-597): `scripts/box-test [--each] [door|outliner|outline-core|claude-mod|all]`
+     forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes
+     up as a bundle), streams the output, exits with the first failing suite's code and removes the fork (one it
+     couldn't remove, its run killed, powers itself off and the next run removes it). Each run's time
+     and estimated cost are kept in `~/.local/state/ep0ch/box-test.tsv`. `scripts/box-test --refresh-golden`
+     rebuilds the golden box (after a `bun.lock` change it saves the install). It needs the boxd CLI, signed in.
+   - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
+     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
+     foreground, never `--parallel`: five agents' parallel runs once froze float-2. The door's `parity-screens`
+     takes more than ten minutes whole; run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
+   - Before merging a series, and in every review round, run the door's files each alone too
+     (`scripts/box-test --each`, or `bun run test:each` in packages/door with file names to run a few;
+     `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
+     loads because another loaded a module first passes there and fails alone. #204's import cycle left 13 files
+     unable to load alone for a day, and nobody saw.
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
@@ -44,9 +52,9 @@ Before a PR claims a change works:
    restart reconstruction. Avoid tests that merely inspect source text or implementation plumbing.
 5. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` (in the door) writes PNGs to
    `out/`; open them. A snapshot nobody looked at is not evidence.
-6. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, with
-   your own `EP0CH_STATE`, `EP0CH_CONTROL` and `EP0CH_OUTLINES` and `--no-daemon` (see [AGENTS.md](AGENTS.md);
-   `packages/door/scripts/test-door-env.sh` sets `EP0CH_DAEMON=0`).
+6. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, under
+   `scripts/agent-env <name> -- …` (your own `EP0CH_STATE`, `EP0CH_CONTROL`, `EP0CH_OUTLINES` and `TMPDIR`, and
+   `EP0CH_DAEMON=0`; see [AGENTS.md](AGENTS.md)).
    - Drive it with keys, and with injected SGR mouse sequences (`ESC [ < b ; x ; y M` press, `… m` release) for
      clicks, drags and the wheel.
    - Check the result with `peek` or `snap` on your own control socket.

@@ -156,16 +156,16 @@ MacBook). It does not support every version a client ever connected with.
   `EP0CH_SNAP_WRITES=1`.
 - A manual check uses a scratch outlines folder passed explicitly (`EP0CH_OUTLINES=<temp dir>`), never
   `~/outlines`.
-- The owner's door may be running on the default control socket. Never run
-  `bun src/main.ts act|peek|snap|open|actions` without pointing at your own test door:
-  - start the door with `EP0CH_STATE` and `EP0CH_CONTROL` set under a temp directory, with `EP0CH_OUTLINES`
-    (or `EP0CH_SOCKET`) pointing at a scratch host and `--ws` naming its outline, and `--no-daemon` (or
-    `EP0CH_DAEMON=0`) so it doesn't run as a session that outlives your pane; testing a session, end it
-    yourself (`EP0CH_STATE=… ep0ch session end --all --yes`);
-  - pass the same `EP0CH_CONTROL` to every control command;
-  - start it through `packages/door/scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs
-    the drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the
-    real-pane recipe in the ep0ch-core skill). Never attach to or type into a Herdr pane you didn't make.
+- The owner's door may be running on the default control socket. A test door, and every
+  `bun src/main.ts act|peek|snap|open|actions` aimed at it, runs under **`scripts/agent-env <your name> -- …`**.
+  It gives you your own `EP0CH_STATE`, `EP0CH_CONTROL`, `EP0CH_OUTLINES` (a scratch folder) and `TMPDIR` in
+  `~/.agent-env/<name>/`, unsets every `EP0CH_*` you inherit (through `packages/door/scripts/test-door-env.sh`,
+  which also runs the drawer on `EP0CH_DAILY_AGENT=sh` and the door with `EP0CH_DAEMON=0`), and is the same for
+  every command you run under the same name. `--print` shows the settings. Wrap commands, never your own
+  session: your outline tools would follow `EP0CH_OUTLINES` to the scratch folder.
+  - name the scratch outline with `--ws`; testing a session, end it yourself
+    (`scripts/agent-env <name> -- ep0ch session end --all --yes`);
+  - never attach to or type into a Herdr pane you didn't make (the real-pane recipe is in the ep0ch-core skill).
 - A test door or test that names a machine (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`) runs with
   `EP0CH_OUTLINES` under a temp dir (its forwards live in `.remote/` there, never `~/outlines/.remote`) and
   `EP0CH_SSH` pointing at the fake ssh (`packages/outliner/test/fake-ssh.ts`, through a two-line shell wrapper), whose
@@ -191,11 +191,13 @@ MacBook). It does not support every version a client ever connected with.
   never there. It moves only through `ep0ch install --apply`, which backs up the outlines, fast-forwards it and
   hands everything to the new code together. Run that only when the person (or the agent they made the deployer)
   asks: a merged protocol bump with the host not yet restarted makes every client refuse it.
-- **Tests on a shared machine:** check `uptime`, then one suite at a time, in the foreground, under `timeout 900`,
-  never `--parallel` ([CONTRIBUTING](CONTRIBUTING.md)). Several agents testing at once froze float-2 (4 cores);
-  a background run's notification may never reach you, so don't end a turn waiting on one.
-  Judge a run by its exit code: grepping colourised output for "fail" hides failures (153 outliner tests were red
-  for a day that way). Before merging a series, run the door's files each alone too (`bun run test:each`).
+- **Tests on a shared machine:** whole suites run in a boxd box, off float-2: `scripts/box-test` (the door) or
+  `scripts/box-test all --each` before merging a series ([CONTRIBUTING](CONTRIBUTING.md#verification)). A focused
+  run on float-2 goes through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: it waits for one
+  of two test slots, is capped in CPU and memory (where there's a systemd user manager, as on float-2), and whatever it leaves running is stopped with it. Several
+  agents testing at once froze float-2 (4 cores), so never `--parallel` here. Run in the foreground: a background
+  run's notification may never reach you, so don't end a turn waiting on one. Judge a run by its exit code:
+  grepping colourised output for "fail" hides failures (153 outliner tests were red for a day that way).
 - **Scratch files are yours alone.** A session's tmp folder is shared by every agent in it: write PR bodies and
   scratch files in a private `mktemp -d` there, and re-read a body before `gh pr create/edit --body-file` (one
   agent's draft was once published on another's PR).

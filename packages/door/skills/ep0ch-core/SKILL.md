@@ -124,9 +124,11 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 
 Never write to a real outline or touch the person's door. Their door may be on the default control socket.
 
-- **Running them:** check `uptime` first and wait while the load is over 4. One suite at a time, in the
-  foreground, under a timeout: `timeout 900 bun test test/<file>.test.ts`. Never `--parallel`, never in the
-  background waiting for a notification: report the result you saw. The door's `parity-screens` takes more than
+- **Running them:** whole suites in a boxd box, off the shared machine: `scripts/box-test` at the repo root (the
+  door; `all`, `--each`), which streams the output and exits with the suites' code. On float-2 a focused run goes
+  through `scripts/agent-env <name> --test -- timeout 900 bun test test/<file>.test.ts`: queued for one of two
+  test slots, capped, in the foreground. Never `--parallel`, never in the background waiting for a notification:
+  report the result you saw. The door's `parity-screens` takes more than
   ten minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
   (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
   with `-t "home base, an outline missing"` instead.
@@ -154,34 +156,33 @@ Never write to a real outline or touch the person's door. Their door may be on t
 When interaction changes, drive the real door in a terminal pane, by keys and by mouse:
 
 ```sh
-# in packages/door (of the live checkout, or your worktree of it)
-mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX); chmod 700 "$d"  # short: a socket path over ~104 bytes fails
-# scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_DAILY_CWD,
-# EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh and EP0CH_DAEMON=0 (the door
-# in the pane, not a session that outlives it), then what you pass (EP0CH_DAEMON=1 to test a session).
-tmux new-session -d -s try -x 160 -y 48 \
-  "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase"   # its own host, outline `showcase`
-C=$d/s/showcase/door/door.sock                  # the showcase sets its own EP0CH_CONTROL; it prints it
-# any other outline: a scratch host (above), then
-#   scripts/test-door-env.sh EP0CH_STATE=$d/s EP0CH_CONTROL=$d/c.sock EP0CH_OUTLINES=$d/outlines bun src/main.ts --ws garden
+# in packages/door (of your worktree). ../../scripts/agent-env <name> gives you your own EP0CH_STATE, EP0CH_CONTROL,
+# EP0CH_OUTLINES and TMPDIR in ~/.agent-env/<name>/ (mode 700, short enough for sockets), the same every time, and
+# unsets every inherited EP0CH_* through scripts/test-door-env.sh (EP0CH_DAILY_AGENT=sh, EP0CH_DAEMON=0: the door in
+# the pane, not a session that outlives it). `--print` shows them.
+E="../../scripts/agent-env me --"
+tmux new-session -d -s try -x 160 -y 48 "$E scripts/try-it.sh --showcase"   # its own host, outline `showcase`
+d=$(../../scripts/agent-env me --print | sed -n "s/^export EP0CH_STATE=//p")
+C=$d/showcase/door/door.sock                    # the showcase sets its own EP0CH_CONTROL; it prints it
+# any other outline: $E bun src/main.ts --ws garden   (its control socket is the agent-env's EP0CH_CONTROL)
 EP0CH_CONTROL=$C bun src/main.ts peek           # the screen as text, plus state
 EP0CH_CONTROL=$C bun src/main.ts act layout.get --as <your-id>
 tmux send-keys -t try j                                       # a key
 tmux send-keys -t try -l $'\e[<0;6;7M'; tmux send-keys -t try -l $'\e[<0;6;7m'   # click col 6, row 7
 tmux send-keys -t try -l $'\e[<65;6;7M'                       # wheel down (64 is up)
 tmux capture-pane -p -t try                                   # or: bun src/main.ts snap out.png
-EP0CH_STATE=$d/s ep0ch session end --all --yes   # a session (EP0CH_DAEMON=1) and its terminal host outlive the pane: end yours
-tmux kill-session -t try; rm -rf "$d"           # then check no host-main.ts (or `session serve`, `session pty-host`) of yours is left
+$E ep0ch session end --all --yes                # a session (EP0CH_DAEMON=1) and its terminal host outlive the pane: end yours
+tmux kill-session -t try; ../../scripts/agent-env me --clean   # then check no host-main.ts (or `session serve`, `session pty-host`) of yours is left
 ```
 
-- **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or
+- **Never the person's agent.** Start every test door through `../../scripts/agent-env` or `scripts/test-door-env.sh` (or
   `env -u EP0CH_DAILY_AGENT -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
   EP0CH_DAILY_AGENT=sh …`, with any other inherited `EP0CH_*` unset too). As a backstop, a door on its own
   `EP0CH_STATE` or `EP0CH_CONTROL` refuses to start the Herdr daily agent (`doorScope`, src/desk/herdr-agent.ts);
   `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-<outline>-<hash>`), never the person's. Never attach to or type
   into a Herdr pane you didn't make; kill only your own pids.
 - **Short paths.** Unix sockets fail past about 104 bytes. The scratchpad folders agents get are too long:
-  use `mktemp -d /tmp/…`.
+  agent-env's `~/.agent-env/<name>/` is short, or use `mktemp -d /tmp/…`.
 - **Mode 700.** The door serves no control socket in a folder others can reach, and says why.
 - **SGR mouse** is `ESC [ < button ; col ; row M` for a press and `… m` for the release, 1-based; drags
   add 32 to the button. In Herdr, `herdr pane send-text <pane> …` sends the same bytes.

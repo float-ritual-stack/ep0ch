@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# An agent's own door settings on a shared machine (PIE-597): its state, control socket, outlines folder and
+# temp folder, in a private folder of its own, with none of the person's EP0CH_* settings. Wrap a test run or a
+# test door in it, never the agent's own session (its outline tools would follow EP0CH_OUTLINES to scratch).
+#
+#   scripts/agent-env <name> -- <cmd …>          run cmd with the agent's settings
+#   scripts/agent-env <name> --test -- <cmd …>   the same, queued for a test slot and capped (CPU, memory)
+#   scripts/agent-env <name> --print             the settings, as export lines for a shell
+#   scripts/agent-env <name> --clean             remove the agent's folder
+#
+# The folder is $EP0CH_AGENT_ROOT/<name> (default ~/.agent-env/<name>, mode 700), short enough for sockets. The
+# person's settings are cleared by packages/door/scripts/test-door-env.sh, the same as a test door's.
+#
+# --test: at most EP0CH_TEST_SLOTS runs at once on this machine (default 2), each in a systemd user scope with
+# CPUQuota=EP0CH_TEST_CPU (default 200%) and MemoryMax=EP0CH_TEST_MEM (default 3G). Whatever the run leaves
+# behind (a test door's shell, a scratch host) is stopped with its scope when it ends. Without systemd it is only
+# queued (it says so). The exit code is the command's. Full suites belong in a boxd box: scripts/box-test.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+usage() { sed -n '6,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ $# -ge 1 ] || usage
+name=$1; shift
+case $name in ''|*/*|.*|-*) echo "agent-env: a name is letters, digits, - and _ (got \"$name\")" >&2; exit 2;; esac
+root=${EP0CH_AGENT_ROOT:-$HOME/.agent-env}
+dir=$root/$name
+
+test=0 mode=run
+while [ $# -gt 0 ]; do
+  case $1 in
+    --test) test=1; shift;;
+    --print) mode=print; shift;;
+    --clean) mode=clean; shift;;
+    --) shift; break;;
+    *) break;;
+  esac
+done
+
+if [ "$mode" = clean ]; then rm -rf -- "$dir"; echo "agent-env: removed $dir"; exit 0; fi
+
+umask 077
+mkdir -p "$root" "$dir/state" "$dir/outlines" "$dir/tmp"
+chmod 700 "$root" "$dir"
+settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLINES="$dir/outlines" TMPDIR="$dir/tmp" EP0CH_AGENT_ENV="$name")
+
+if [ "$mode" = print ]; then
+  for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done
+  echo "unset EP0CH_DAILY_AGENT EP0CH_DAILY_CWD EP0CH_LANDING EP0CH_NOW_PAGE"
+  for s in "${settings[@]}" EP0CH_DAILY_AGENT=sh EP0CH_DAEMON=0; do printf 'export %s=%q\n' "${s%%=*}" "${s#*=}"; done
+  exit 0
+fi
+[ $# -ge 1 ] || usage
+
+run=("$here/packages/door/scripts/test-door-env.sh" "${settings[@]}" "$@")
+[ "$test" = 1 ] || exec "${run[@]}"
+
+# A test slot: the first free one of EP0CH_TEST_SLOTS, held (an open, locked file) until the run ends.
+slots=${EP0CH_TEST_SLOTS:-2}
+mkdir -p "$root/.slots"
+said=0
+while :; do
+  for i in $(seq 1 "$slots"); do
+    exec {slot}>"$root/.slots/$i"
+    if flock -n "$slot"; then echo "$name $$ $(date -u +%FT%TZ)" > "$root/.slots/$i.who"; break 2; fi
+    exec {slot}>&-
+  done
+  if [ $said = 0 ]; then
+    echo "agent-env: $slots test runs already going ($(cat "$root"/.slots/*.who 2>/dev/null | cut -d' ' -f1 | paste -sd, -)); waiting for one to end" >&2
+    said=1
+  fi
+  sleep 5
+done
+
+if command -v systemd-run >/dev/null && systemctl --user is-system-running >/dev/null 2>&1; then
+  unit="agent-env-$name-$$"
+  set +e
+  # Ended itself (a signal to this wrapper): the run and whatever it started go with the scope.
+  trap 'systemctl --user stop "$unit.scope" >/dev/null 2>&1; exit 143' TERM INT HUP
+  systemd-run --user --scope --quiet --collect --unit="$unit" -p CPUQuota="${EP0CH_TEST_CPU:-200%}" -p MemoryMax="${EP0CH_TEST_MEM:-3G}" -- "${run[@]}" <&0 &   # <&0: a background job would otherwise read /dev/null
+  wait $!
+  code=$?
+  # Anything the run started and left (a door's shell, a scratch host) goes with its scope.
+  systemctl --user stop "$unit.scope" >/dev/null 2>&1
+  exit $code
+fi
+echo "agent-env: no systemd user manager here, so the run is queued but not capped" >&2
+"${run[@]}"

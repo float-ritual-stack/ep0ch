@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# The test suites in a boxd box of their own, off this machine (PIE-597): a fork of a golden box (the repo cloned,
+# `bun install` done) checks out one commit, runs the suites, streams their output here, and is destroyed whatever
+# happens. The exit code is the suites'.
+#
+#   scripts/box-test [--ref <rev>] [--each] [--keep] [package …]   default: --ref HEAD, the door
+#   scripts/box-test --refresh-golden                               rebuild the golden box from origin/main
+#
+#   package   door, outliner, outline-core, claude-mod or all: `bun run test` in each (claude-mod's needs a
+#             logged-in claude, which boxd injects).
+#   --each    the door's files each alone too (test:each), one per vCPU at once.
+#   --keep    leave the fork running afterwards, and say how to reach and remove it.
+#
+# The exit code is the first failing suite's (124: a timeout), else 0.
+# The commit needn't be pushed: what origin hasn't got goes up as a git bundle. Uncommitted changes are not
+# tested (it says so). Each run's time, commit and estimated cost go to <state>/ep0ch/box-test.tsv. A fork that
+# outlives its run (this script killed with -9) powers itself off after EP0CH_BOX_MAX seconds (default 7200) and
+# the next run removes it. Needs the boxd CLI, signed in (boxd auth login).
+set -uo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+golden=${EP0CH_BOX_GOLDEN:-ep0ch-golden}
+vcpu=${EP0CH_BOX_VCPU:-4}
+max=${EP0CH_BOX_MAX:-7200}
+origin_url=${EP0CH_BOX_REPO:-https://github.com/float-ritual-stack/ep0ch.git}
+log_dir=${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch
+ref=HEAD each=0 keep=0 refresh=0 pkgs=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --ref) ref=$2; shift 2;;
+    --each) each=1; shift;;
+    --keep) keep=1; shift;;
+    --refresh-golden) refresh=1; shift;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    all) pkgs+=(outline-core outliner door claude-mod); shift;;
+    door|outliner|outline-core|claude-mod) pkgs+=("$1"); shift;;
+    *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod all)" >&2; exit 2;;
+  esac
+done
+[ ${#pkgs[@]} -gt 0 ] || pkgs=(door)
+
+say() { printf '\033[2mbox-test:\033[0m %s\n' "$*" >&2; }
+# The boxd CLI prints an update notice on stderr; a command's own output is all that's kept.
+bx() { boxd "$@" 2>/dev/null; }
+inbox() { local m=$1; shift; boxd machine exec "$m" -- bash -lc "$*" 2>/dev/null; }
+command -v boxd >/dev/null || { echo "box-test: no boxd CLI (curl -fsSL https://boxd.sh/downloads/install.sh | sh, then boxd auth login)" >&2; exit 2; }
+exists() { bx machine get "$1" >/dev/null; }
+
+# ── the golden box: the repo at origin/main, bun install done; stopped between runs (a stopped box costs nothing) ──
+build_golden() {
+  say "building $golden ($vcpu vCPU): clone and bun install"
+  exists "$golden" && bx machine rm "$golden" -y >/dev/null
+  bx new "$golden" --vcpu "$vcpu" >/dev/null || { echo "box-test: couldn't create $golden (boxd new $golden --vcpu $vcpu)" >&2; exit 1; }
+  # A half-built golden box is removed, never left running.
+  if ! inbox "$golden" "git clone -q $origin_url ep0ch && cd ep0ch && bun install --frozen-lockfile >/dev/null 2>&1 && git log --oneline -1" >&2; then
+    bx machine rm "$golden" -y >/dev/null
+    echo "box-test: $golden's clone or bun install failed, and it was removed; try again: scripts/box-test --refresh-golden" >&2; exit 1
+  fi
+  bx machine stop "$golden" >/dev/null
+  say "$golden is ready (stopped)"
+}
+# One run at a time builds or rebuilds the golden box; the others wait for it.
+mkdir -p "$log_dir"
+exec {golden_lock}>"$log_dir/box-test-golden.lock"
+flock "$golden_lock"
+trap 'bx machine get "$golden" 2>/dev/null | grep -q "status: running" && bx machine rm "$golden" -y >/dev/null; exit 130' INT TERM HUP
+if [ $refresh = 1 ]; then build_golden; exit 0; fi
+exists "$golden" || build_golden
+trap - INT TERM HUP
+flock -u "$golden_lock"
+
+# Forks a killed run left behind, once they've powered themselves off (stopped; one starting or running is another run's).
+for m in $(bx list --json | python3 -I -c 'import json,sys; d=json.load(sys.stdin); d=d.get("machines", d) if isinstance(d, dict) else d; print("\n".join(x["name"] for x in d if x["name"].startswith("ep0ch-test-") and x.get("status") == "stopped"))' 2>/dev/null); do
+  say "removing $m, left by an earlier run"; bx machine rm "$m" -y >/dev/null
+done
+
+# ── the commit ──
+sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}") || exit 2
+[ "$ref" = HEAD ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && say "uncommitted changes aren't tested: $sha is"
+box="ep0ch-test-${sha:0:8}-$$"
+start=$(date +%s)
+cleanup() {
+  local code=$?
+  if [ $keep = 1 ]; then say "kept $box: boxd connect $box · remove it: boxd machine rm $box -y"
+  else bx machine rm "$box" -y >/dev/null && say "removed $box" || say "couldn't remove $box: boxd machine rm $box -y"; fi
+  exit $code
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+
+say "forking $golden into $box for ${sha:0:12} (${pkgs[*]}$([ $each = 1 ] && echo ", each file alone"))"
+bx machine fork "$golden" "$box" >/dev/null || { echo "box-test: couldn't fork $golden" >&2; exit 1; }
+# A fork whose run is never collected stops itself: a stopped box costs nothing.
+inbox "$box" "sudo setsid sh -c 'sleep $max; poweroff' </dev/null >/dev/null 2>&1 & sleep 0.2; pgrep -f 'sleep $max' >/dev/null" \
+  || { echo "box-test: couldn't start $box's own shutdown timer" >&2; exit 1; }
+
+# The commit into the box: fetched from origin, or what origin hasn't got as a bundle.
+inbox "$box" "cd ep0ch && git fetch -q origin && git cat-file -e $sha^{commit}" || {
+  # A bundle carries refs, not bare commits: a ref of this run's names the commit for a moment.
+  b=$(mktemp -d)/box-test.bundle tmpref=refs/box-test/$$
+  git -C "$repo" update-ref "$tmpref" "$sha"
+  git -C "$repo" bundle create -q "$b" "$tmpref" --not origin/main; made=$?
+  git -C "$repo" update-ref -d "$tmpref"
+  [ $made = 0 ] || { echo "box-test: couldn't bundle ${sha:0:12} (git bundle create … --not origin/main)" >&2; exit 1; }
+  boxd machine cp "$b" "$box:/home/boxd/box-test.bundle" >/dev/null 2>&1 || { echo "box-test: couldn't copy the bundle into $box" >&2; exit 1; }
+  inbox "$box" "cd ep0ch && git fetch -q ~/box-test.bundle $tmpref && git cat-file -e $sha^{commit}" || { echo "box-test: $box couldn't take the bundle" >&2; exit 1; }
+  rm -rf "$(dirname "$b")"
+}
+
+# The run, detached in the box (one long silent exec drops), writing a log this side reads as it grows.
+run="set -o pipefail; cd ~/ep0ch && git checkout -q --detach $sha && bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
+for p in "${pkgs[@]}"; do
+  run+="; echo; echo \"━━ $p: bun run test\"; (cd packages/$p && timeout 3000 bun run test); c=\$?; [ \$code = 0 ] && code=\$c"
+done
+[ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
+run+="; exit \$code"
+printf '%s\n' "$run" | boxd machine exec "$box" -- bash -c 'cat > /tmp/box-test.sh' 2>/dev/null \
+  && inbox "$box" "setsid nohup bash -c 'bash /tmp/box-test.sh > /tmp/box-test.log 2>&1; echo \$? > /tmp/box-test.code' >/dev/null 2>&1 & sleep 0.5; test -e /tmp/box-test.log" \
+  || { echo "box-test: couldn't start the run in $box" >&2; exit 1; }
+
+off=0 code="" deadline=$((start + max - 60)) misses=0
+while :; do
+  # The box powered itself off (its timer) or stopped answering: the run is over, without its code.
+  if [ "$(date +%s)" -gt "$deadline" ]; then say "the run passed EP0CH_BOX_MAX ($max s)"; code=124; break; fi
+  size=$(inbox "$box" "stat -c %s /tmp/box-test.log 2>/dev/null || echo 0" | tr -dc 0-9)
+  if [ -z "$size" ]; then misses=$((misses + 1)); [ $misses -lt 12 ] || { say "$box stopped answering"; code=125; break; }; sleep 5; continue; fi
+  misses=0
+  if [ -n "$size" ] && [ "$size" -gt "$off" ]; then
+    inbox "$box" "tail -c +$((off + 1)) /tmp/box-test.log | head -c $((size - off))"
+    off=$size
+  fi
+  [ -n "$code" ] && break
+  code=$(inbox "$box" "cat /tmp/box-test.code 2>/dev/null" | tr -dc 0-9)
+  [ -n "$code" ] || sleep 5
+done
+
+secs=$(( $(date +%s) - start ))
+# The rate card (boxd.sh/pricing): €0.049 a vCPU-hour, €0.015 a GiB-hour of memory (the box's whole 4 GiB a vCPU,
+# an upper bound: boxd bills what's in use). Metered up to 25 minutes late, so this is the estimate the log keeps.
+cost=$(awk -v s="$secs" -v c="$vcpu" 'BEGIN { printf "%.3f", s / 3600 * (c * 0.049 + c * 4 * 0.015) }')
+mkdir -p "$log_dir"
+printf '%s\t%s\t%s\t%s\t%ss\t€%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$vcpu" "$secs" "$cost" "$code" >> "$log_dir/box-test.tsv"
+say "exit $code · $((secs / 60))m$((secs % 60))s · about €$cost ($vcpu vCPU; $log_dir/box-test.tsv)"
+exit "$code"
