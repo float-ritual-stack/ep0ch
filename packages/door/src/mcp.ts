@@ -386,7 +386,7 @@ function toolsFor(outlines: McpOutlines) {
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },
-        limit: limitSchema(FIND_LIMIT, `Matches for a query (an empty query lists up to ${LIST_LIMIT.max}, default ${LIST_LIMIT.fallback})`),
+        limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
         semantic: { type: "boolean", default: false, description: "Ask for a semantic re-ranking (Jev) of the lexical candidates; the answer's search says whether it happened" },
         outline: outlineProperty(outlines),
       }, additionalProperties: false },

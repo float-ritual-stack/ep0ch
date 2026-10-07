@@ -163,6 +163,19 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     follow("garden-notes");
     clock += 16_000;
     expect(JSON.parse((await tool("outline_read", { uri })).text).reachability.copy.file).toBe(`${FAR}/garden-notes.sqlite`);
+    // A change that moves no block's time (the access revoked) still makes the restored copy the newer one.
+    await garden.configureMcpAccess("none");
+    try {
+      const again = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
+      try { rmSync(join(resticDir, "garden-notes.sqlite"), { force: true }); again.run("VACUUM INTO ?", [join(resticDir, "garden-notes.sqlite")]); } finally { again.close(); }
+      clock += 16_000;
+      const revoked = await tool("outline_read", { uri });
+      expect(revoked.isError).toBe(true);
+      expect(revoked.text).toContain("MCP access is none for garden-notes");
+    } finally { await garden.configureMcpAccess("read"); }
+    follow("garden-notes");
+    clock += 16_000;
+    expect((await tool("outline_read", { uri })).isError).toBe(false);
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 

@@ -158,18 +158,25 @@ export class OutlineMirror {
   /** Both copies' state: a change in either may make the other one the newer. */
   private marker(): string { return `${OutlineMirror.markerOf(this.follow)}|${OutlineMirror.markerOf(this.restic)}`; }
 
-  /** The copy holding the newer change (the follower's on a tie), read from read-only connections. */
+  /**
+   * The copy at the later point in its outline's history (the follower's on a tie): the service's change sequence,
+   * which every change advances, an access setting's too (block times alone would miss a revoked grant). Read from
+   * read-only connections; a copy that can't be read loses.
+   */
   private freshest(): string {
-    const newest = (path: string) => {
+    const position = (path: string) => {
       if (!existsSync(path)) return null;
       try {
         const db = new Database(path, { readonly: true });
-        try { db.exec("PRAGMA busy_timeout = 5000;"); return (db.query("SELECT max(updated_at) AS t FROM blocks").get() as { t: string | null } | null)?.t ?? ""; }
-        finally { db.close(); }
+        try {
+          db.exec("PRAGMA busy_timeout = 5000;");
+          const v = Number((db.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as { value: string } | null)?.value);
+          return Number.isFinite(v) ? v : null;
+        } finally { db.close(); }
       } catch { return null; }
     };
-    const follow = newest(this.follow), restic = newest(this.restic);
-    if (restic !== null && (follow === null || Date.parse(restic) > Date.parse(follow))) return this.restic;
+    const follow = position(this.follow), restic = position(this.restic);
+    if (restic !== null && (follow === null || restic > follow)) return this.restic;
     return existsSync(this.follow) ? this.follow : this.restic;
   }
 
