@@ -71,6 +71,12 @@ describe("metadata lines", () => {
     expect([...metadataLines(text, null)]).toEqual([1]);                        // `#garden` isn't a [key::value]: the run stops
     expect([...metadataLines("Title\n\n[a::b]\n[c::d]\nbody\n[e::f]", null)]).toEqual([2, 3]);
   });
+  test("a picture right under the subject is content, drawn; the preamble after it is still left out (PIE-598)", () => {
+    const pic = "Evening\n[img::/p/beds.jpg] [alt::beds]\n[season::autumn]\nbody";
+    expect([...metadataLines(pic, null)]).toEqual([2]);
+    expect([...metadataLines(pic, [tok(1, "trailing-metadata", "inline"), tok(2, "metadata-line", "block")])]).toEqual([2]);
+    expect([...metadataLines("Evening\n[img::/p/beds.jpg] [type::note]", null)]).toEqual([1]);
+  });
 });
 
 /** A board that answers the reads the reader's links and embeds make, from a few fixed notes. */

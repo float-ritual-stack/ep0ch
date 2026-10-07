@@ -10,7 +10,7 @@ import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./pack
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
-import { heroHeaderOn, useHeroHeader } from "./surface/hero-header";
+import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
@@ -610,16 +610,21 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "reader.hero": def({
-    summary: "whether a reader's sticky header (title, summary, byline, crumbs) takes the note's hero image as a dimmed, muted background once that image scrolls under it (PIE-598: its [layout::hero] image, else an image that is its first block; [hero-focus::x,y] on its line says where the crop centres). Every reader at once, kept for the next start",
-    keys: "`ep0ch act reader.hero on=false`",
-    touches: "screen", replay: "ask", says: out => `· ${out.on ? "headers take the hero image" : "headers stay plain"}`,
-    args: { on: { type: "boolean", about: "true: the header takes the hero image as it scrolls under; false: headers stay plain" } },
-    run({ on }, { ctx }) {
-      useHeroHeader(on);
-      writeState("reader-hero.json", { on });
-      ctx.flash(on ? "a reader's header takes the hero image as it scrolls under" : "readers' headers stay plain");
+    summary: "whether a reader's sticky header (title, summary, byline, crumbs) takes a picture of the note as a dimmed, muted background once it scrolls under (PIE-598), and which: mode=first, the note's hero ([layout::hero], else an image that is its first block); mode=follow, each picture in turn as it scrolls under, fading in over the one before. [hero-focus::x,y] on a picture's line says where its crop centres. Every reader at once, kept for the next start",
+    keys: "`ep0ch act reader.hero on=false`, `ep0ch act reader.hero on=true mode=follow`",
+    touches: "screen", replay: "ask", says: out => `· ${out.on ? `headers take ${out.mode === "follow" ? "each picture as it scrolls under" : "the hero image"}` : "headers stay plain"}`,
+    args: {
+      on: { type: "boolean", optional: true, about: "true: the header takes the picture as it scrolls under; false: headers stay plain; left out, it stays as it was" },
+      mode: { type: "string", optional: true, about: "first (the hero only, the default) or follow (each picture in turn); left out, it stays as it was" },
+    },
+    run({ on, mode }, { ctx }) {
+      if (mode !== undefined && !(HERO_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`mode is first or follow, not ${JSON.stringify(mode)}`);
+      const keep = { on: on ?? heroHeaderOn(), mode: (mode ?? heroHeaderMode()) as HeroMode };
+      useHeroHeader(keep);
+      writeState("reader-hero.json", keep);
+      ctx.flash(!keep.on ? "readers' headers stay plain" : keep.mode === "follow" ? "a reader's header takes each picture as it scrolls under" : "a reader's header takes the hero image as it scrolls under");
       ctx.redraw();
-      return { on: heroHeaderOn() };
+      return { on: heroHeaderOn(), mode: heroHeaderMode() };
     },
   }),
   "theme.cycle": def({

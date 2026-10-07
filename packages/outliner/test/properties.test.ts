@@ -32,6 +32,27 @@ test("records lossless property spans and placement", () => {
   ]);
   for (const token of tokens) expect(text.slice(token.start, token.end)).toBe(token.raw);
 });
+test("a media line is content, never the preamble: an image right under the subject, then the block's properties (PIE-598)", () => {
+  const text = [
+    "An evening on the plot",
+    "[img::/pictures/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]",
+    "",
+    "[season::autumn]",
+    "Body",
+    "[img::/pictures/gate.jpg] [size::50%]",
+  ].join("\n");
+  expect(parsePropertyRecords(text).map(({ key, scope, placement, line }) => ({ key, scope, placement, line }))).toEqual([
+    { key: "img", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "hero-focus", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "alt", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "season", scope: "block", placement: "metadata-line", line: 3 },
+    { key: "img", scope: "inline", placement: "trailing-metadata", line: 5 },
+    { key: "size", scope: "inline", placement: "trailing-metadata", line: 5 },
+  ]);
+  // A line with any other property on it isn't a media line: it stays the preamble, as before.
+  expect(parsePropertyRecords("Title\n[img::/a.png] [type::note]").map(r => r.scope)).toEqual(["block", "block"]);
+});
+
 test("classifies the metadata preamble separately from body properties", () => {
   const text = [
     "",

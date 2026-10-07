@@ -328,10 +328,10 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     expect(await meanOf(b.image.png)).toBeLessThanOrEqual(HERO_MEAN + 0.02);
     expect(await saturation(b.image.png)).toBeLessThan(30);
     expect(await meanOf(await Bun.file(file("sunset.png")).bytes().then(x => Buffer.from(x)))).toBeGreaterThan(0.5);
-    useHeroHeader(false);
+    useHeroHeader({ on: false });
     try {
       expect(backdropOf(s.render(100, 40, h))).toBeUndefined();
-      expect(s.headerBackdrop()).toEqual({ backdrop: null, on: false });
+      expect(s.headerBackdrop()).toEqual({ backdrop: null, on: false, mode: "first" });
     } finally { useHeroHeader(null); }
   });
 
@@ -350,6 +350,59 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     await until(() => !!cellColours(m, 50, 5, { dim: 1, mean: HERO_MEAN, peak: HERO_PEAK, mute: true }), "the dimmed grid", 10_000);
     expect(brightest(cellColours(m, 50, 5, { dim: 1, mean: HERO_MEAN, peak: HERO_PEAK, mute: true })!)).toBe(0);
   });
+
+  test("follow: each picture takes over as it scrolls under, fading in over the one before (Kitty: a layer above it; cells: mixed over it)", async () => {
+    await ready("sunset.png"); await ready("wide.jpg");
+    const text = `Plot\n- [img::${file("sunset.png")}] [size::full]\n\n${body(10)}\n\n[img::${file("wide.jpg")}] [size::full]\n\n${body(80)}`;
+    // A placement drawn from sunset.png's content (its media key), the first picture.
+    const m0Key = (_p: unknown) => (media(file("sunset.png"), "img") as ReadyMedia).key;
+    const backdrops = (v: { placements?: { key: string }[] }) => (v.placements ?? []).filter(p => p.key.startsWith("hero-backdrop:")) as any[];
+    useHeroHeader({ on: true, mode: "follow" });
+    try {
+      const s = new NoteSurface(), h = host(true);
+      s.show(note(text) as any, h);
+      await until(() => !!s.render(100, 40, h).placements?.length && (s as any).drawn.doc.images.length === 2, "the images, read", 10_000);
+      const second = (s as any).drawn.doc.images[1];
+      // Its first rows under: two layers, the first picture at full under the second at a third.
+      (s as any).scroll = second.line + 1;
+      await until(() => backdrops(s.render(100, 40, h)).length === 2 && backdrops(s.render(100, 40, h))[1].key.includes("o33"), "the crossfade", 10_000);
+      const [under, over] = backdrops(s.render(100, 40, h));
+      expect([under.z, over.z]).toEqual([-3, -2]);
+      expect(under.key).not.toContain("-o");
+      expect(s.headerBackdrop().backdrop).toMatchObject({ image: "wide.jpg", step: 1, mode: "follow", over: "sunset.png", drawn: "kitty" });
+      // All the way under: the second alone.
+      (s as any).scroll = second.line + second.rows + 1;
+      await until(() => backdrops(s.render(100, 40, h)).length === 1, "the second alone", 10_000);
+      expect(s.headerBackdrop().backdrop).toMatchObject({ image: "wide.jpg", step: 3 });
+      expect(s.headerBackdrop().backdrop!.over).toBeUndefined();
+      // A jump straight past a picture not made yet: the one before stays until it's drawn at full, never plain.
+      await sharp(file("wide.jpg")).toFile(file("wide-cold.jpg"));
+      await ready("wide-cold.jpg");
+      const j = new NoteSurface();
+      j.show(note(text.replace("wide.jpg", "wide-cold.jpg")) as any, h);
+      j.render(100, 40, h);
+      (j as any).scroll = second.line + second.rows + 1;
+      const first = backdrops(j.render(100, 40, h));
+      expect(first.length).toBeGreaterThanOrEqual(1);
+      if (first.length === 1) expect(first[0].key).toContain(m0Key(first[0]));
+      await until(() => backdrops(j.render(100, 40, h)).length === 1 && j.headerBackdrop().backdrop?.over === undefined, "the new one at full, alone", 10_000);
+      // Cells: the header's colours mixed over the first picture's, never the plain ground between them.
+      const c = new NoteSurface(), hc = host(false);
+      c.show(note(text) as any, hc);
+      c.render(100, 40, hc);
+      const caption = (c as any).drawn.doc.media[1].row;
+      (c as any).scroll = caption + 1;
+      await until(() => c.render(100, 40, hc).lines[0]!.includes("\x1b[48;2;") && c.headerBackdrop().backdrop?.drawn === "cells", "the cells crossfade", 10_000);
+      expect(c.headerBackdrop().backdrop).toMatchObject({ image: "wide.jpg", step: 1, over: "sunset.png" });
+    } finally { useHeroHeader(null); }
+    // First mode keeps the hero however far it scrolls.
+    const f = new NoteSurface(), hf = host(true);
+    f.show(note(text) as any, hf);
+    f.render(100, 40, hf);
+    (f as any).scroll = 200;
+    await until(() => backdropOf(f.render(100, 40, hf)) !== undefined, "the hero", 10_000);
+    expect(f.headerBackdrop().backdrop).toMatchObject({ image: "sunset.png", mode: "first" });
+  }, 30_000);
 
   test("Kitty: the header image above the title becomes the backdrop as it scrolls away", async () => {
     await ready("wide.jpg");

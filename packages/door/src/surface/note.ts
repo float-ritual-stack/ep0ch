@@ -29,7 +29,7 @@ import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSa
 import { copyNote, diffNote, oldUnsentLine, takeBackSpans, UNSENT_LABEL, unsentEntries, unsentView, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { inWindow, type Placement } from "../kitty";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
-import { backdrop, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type Backdrop } from "./hero-header";
+import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -503,8 +503,10 @@ export class NoteSurface {
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
   private hero: { line: number; full: number } | null = null;
+  /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
+  private digested: { m: Msg; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
-  private backdropShown: { image: string; line: number; step: number; of: number; drawn: "kitty" | "cells" | "making" | null } | null = null;
+  private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string } | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
@@ -732,39 +734,109 @@ export class NoteSurface {
   }
 
   /**
-   * The header's backdrop this render draws (PIE-598), or null: the note's hero image (the header image drawn above
-   * the title, else its first `[layout::hero]` image, else an image that is its first block), at the step for how far
-   * it has gone under the header: the header image's rows scrolled away, a body image's rows scrolled above the note,
-   * or (not drawn: cells) the rows scrolled past its line. Kept for describe (`header.backdrop`).
+   * The reader's sticky header (its title, summary line, byline with the comment count, and crumbs; or a host's own
+   * header, the BBS message header, then the summary line): the rows every reading render starts with, and the row the
+   * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
-  private heroBackdrop(m: Msg, doc: Doc, noteLines: number[], w: number, rows: number, host?: SurfaceHost): Backdrop | null {
-    this.backdropShown = null;
-    if (!heroHeaderOn() || !host || rows < 1) return null;
-    const pick = this.heroSource(m, doc, noteLines);
-    if (!pick) return null;
-    const entry = media(pick.path, pick.kind);
-    if (entry.state !== "ready") return null;
-    const step = heroStep(pick.gone);
-    const shade = backdrop(entry, pick.focus, pick.dim, step, w, rows, ...cellOf(host), !!host.ctx.graphics);
-    this.backdropShown = { image: pick.path.split("/").pop() ?? pick.path, line: pick.line + 1, step, of: HERO_STEPS, drawn: !step ? null : !shade ? "making" : "grid" in shade ? "cells" : "kitty" };
-    return shade;
+  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null): { rows: string[]; summary: string; summaryRow: number; summaryLinks: { from: number; to: number; link: Link; key: string }[] } {
+    const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
+    const open = this.comments?.filter(c => c.open).length ?? 0;
+    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
+    // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
+    // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
+    const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
+    const count = this.rows(m).length;
+    // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
+    // summary line comes after it, so its row is counted rather than assumed.
+    const own = host?.header?.(m, w, this.headerInfo(m, count));
+    const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
+    const rows = own ? [...own, ...summaryRows] : [
+      fg(C.white) + pad(subject(m), w) + RESET,
+      ...summaryRows,
+      pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
+      fg(C.cyan) + pad(this.crumbs, w) + RESET,
+    ];
+    return { rows, summary, summaryRow: own ? own.length : 1, summaryLinks: summary ? summaryLinks : [] };
   }
 
-  /** The image a header's backdrop is made from (heroBackdrop), with its note line and how far it has gone under (0–1). */
-  private heroSource(m: Msg, doc: Doc, noteLines: number[]): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number } | null {
+  /**
+   * The sticky header for a host that draws this surface's digest under a scroll of its own (a river column): the
+   * reader's header rows (headerBlock), with the header's backdrop (PIE-598) for `under`, how many of the digest's rows
+   * the host has scrolled above it. `links`: the summary line's links by row and cells, for the host's clicks;
+   * `placements`: the backdrop's Kitty placements, on these rows. Call it after `digest`, whose layout it reads.
+   */
+  stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
+    const src = this.use(host);
+    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
+    const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
+    this.backdropShown = null;
+    const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
+    if (shade.grid) for (let r = 0; r < lines.length; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
+  }
+
+  /**
+   * The header's backdrop this render draws (PIE-598): the picture that has gone under the header (heroSources), at
+   * the step for how far it has gone; in follow mode, a picture still coming in is drawn over the one before it at
+   * full, so one fades into the next and the header never drops to plain between them. Kitty: their placements (the
+   * one before a layer lower); cells: the colours under each header cell. Kept for describe (`header.backdrop`).
+   */
+  private heroBackdrop(m: Msg, doc: Doc, noteLines: number[], w: number, rows: number, host: SurfaceHost | undefined, scroll: number): { placements: Placement[]; grid: CellGrid | null } {
+    this.backdropShown = null;
+    const none = { placements: [], grid: null };
+    if (!heroHeaderOn() || !host || rows < 1) return none;
+    const mode = heroHeaderMode(), all = this.heroSources(m, doc, noteLines, mode, scroll);
+    if (!all.length) return none;
+    // The last that has gone under (the first, before any has); in first mode there's only the hero.
+    const at = Math.max(0, all.findLastIndex(x => x.gone > 0)), pick = all[at]!, step = heroStep(pick.gone);
+    const graphics = !!host.ctx.graphics, cell = cellOf(host);
+    const draw = (x: (typeof all)[number], n: number, over: { grid?: CellGrid; z?: number } = {}) => {
+      const entry = media(x.path, x.kind);
+      return entry.state === "ready" ? backdrop(entry, x.focus, x.dim, n, w, rows, ...cell, graphics, over) : null;
+    };
+    // The one before stays under it until it's drawn at full (a step or a variant still being made never leaves the
+    // header plain, or shows a lower step over nothing).
+    const prev = mode === "follow" && at > 0 ? all[at - 1]! : null;
+    let under = prev ? draw(prev, HERO_STEPS, { z: -3 }) : null;
+    const shade = draw(pick, step, under && "grid" in under ? { grid: under.grid } : {});
+    if (shade && shade.step === HERO_STEPS) under = null;
+    const before = under ? prev : null;
+    const name = (x: { path: string }) => x.path.split("/").pop() ?? x.path;
+    this.backdropShown = {
+      image: name(pick), line: pick.line + 1, step, of: HERO_STEPS, mode, drawn: !step && !under ? null : !shade && !under ? "making" : graphics ? "kitty" : "cells",
+      ...(before && under ? { over: name(before) } : {}),
+    };
+    if (!graphics) return { placements: [], grid: shade && "grid" in shade ? shade.grid : under && "grid" in under ? under.grid : null };
+    return { placements: [under, shade].flatMap(b => (b && "placement" in b ? [b.placement] : [])), grid: null };
+  }
+
+  /**
+   * The pictures a header's backdrop can be made from, in reading order, each with its note line and how far it has
+   * gone under the header (0–1): the header image's rows scrolled away, a body image's rows scrolled above the note,
+   * or (not drawn: cells) the rows scrolled past its line. First mode: the hero only (the header image drawn above the
+   * title, else the first `[layout::hero]` image, else an image that is the note's first block). Follow: the header
+   * image, then every image in the body.
+   */
+  private heroSources(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
+    const look = (spec: MediaSpec) => ({ ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) });
+    const out: ReturnType<NoteSurface["heroSources"]> = [];
     if (this.hero) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
-      return ref ? { path: ref.path, kind: ref.spec.kind, ...(ref.spec.focus ? { focus: ref.spec.focus } : {}), ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), line: ref.line, gone: clamp(this.scroll / Math.max(1, this.hero.full)) } : null;
+      if (ref) out.push({ path: ref.path, kind: ref.spec.kind, ...look(ref.spec), line: ref.line, gone: clamp(scroll / Math.max(1, this.hero.full)) });
+      if (mode === "first") return out;
     }
     const all = m.text.split("\n"), first = doc.media[0];
     const firstBlock = first && noteLines[first.line] !== undefined && all.slice(1, noteLines[first.line]).every(l => !l.trim()) ? first : undefined;
-    const x = doc.media.find(x => x.spec.layout === "hero") ?? firstBlock;
-    const line = x && noteLines[x.line];
-    if (!x || line === undefined || x.spec.kind !== "img") return null;
-    const im = x.image !== undefined ? doc.images[x.image] : undefined;
-    const gone = im ? (this.scroll - im.line) / Math.max(1, im.rows) : (this.scroll - x.row) / HERO_RAMP_ROWS;
-    return { path: x.path, kind: x.spec.kind, ...(x.spec.focus ? { focus: x.spec.focus } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), line, gone: clamp(gone) };
+    const body = mode === "follow" ? doc.media : [doc.media.find(x => x.spec.layout === "hero") ?? firstBlock].filter(x => x !== undefined);
+    for (const x of body) {
+      const line = noteLines[x.line];
+      if (line === undefined || x.spec.kind !== "img" || line === this.hero?.line) continue;
+      const im = x.image !== undefined ? doc.images[x.image] : undefined;
+      const gone = im ? (scroll - im.line) / Math.max(1, im.rows) : (scroll - x.row) / HERO_RAMP_ROWS;
+      out.push({ path: x.path, kind: x.spec.kind, ...look(x.spec), line, gone: clamp(gone) });
+    }
+    return out;
   }
 
   /** The note itself, under its header image if it has one (render). */
@@ -785,29 +857,13 @@ export class NoteSurface {
     // Back and forward (PIE-453): the reader's last row, while it has somewhere to go.
     const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
     if (foot) h -= 1;
-    const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
     const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
-    const open = this.comments?.filter(c => c.open).length ?? 0;
-    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
-    // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
-    // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
-    const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
-    const count = this.rows(m).length;
-    // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
-    // summary line comes after it, so its row is counted rather than assumed.
-    const own = host?.header?.(m, w, this.headerInfo(m, count));
-    const summaryRow = own ? own.length : 1;
-    const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
+    const { rows: headerBlock, summary, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
-    const proposalHead = isOpenProposal(m) ? { row: own ? own.length + summaryRows.length : 3 + summaryRows.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
+    const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
     const head = [
-      ...(own ? [...own, ...summaryRows] : [
-        fg(C.white) + pad(subject(m), w) + RESET,
-        ...summaryRows,
-        pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
-        fg(C.cyan) + pad(this.crumbs, w) + RESET,
-      ]),
+      ...headerBlock,
       ...(proposalHead ? proposalHead.lines : []),
       // A note trashed while it's shown (a proposal dismissed, a card or an ancestor trashed elsewhere: staleOn) says so: it's still readable.
       ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
@@ -934,10 +990,10 @@ export class NoteSurface {
     });
     // The header's backdrop (PIE-598): the hero image, muted, under the title, summary, byline and crumbs once it
     // goes under them.
-    const headerRows = Math.min(lines.length, own ? own.length + summaryRows.length : 3 + summaryRows.length);
-    const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host);
-    if (shade && "grid" in shade) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
-    if (shade && "placement" in shade) placements.unshift(shade.placement);
+    const headerRows = Math.min(lines.length, headerBlock.length);
+    const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
+    if (shade.grid) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    placements.unshift(...shade.placements);
     if (foot) {
       while (lines.length < h) lines.push("");
       lines.push(foot.line);
@@ -1163,6 +1219,7 @@ export class NoteSurface {
     this.hero = null;
     const { doc: rendered, points, lines: noteLines } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
+    this.digested = { m, doc, lines: noteLines };
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
@@ -3869,7 +3926,7 @@ export class NoteSurface {
   }
 
   /** What the header's backdrop drew last (PIE-598: its image, note line, step, kitty or cells) and whether it's on. */
-  headerBackdrop() { return { backdrop: this.backdropShown, on: heroHeaderOn() }; }
+  headerBackdrop() { return { backdrop: this.backdropShown, on: heroHeaderOn(), mode: heroHeaderMode() }; }
 
   // Used by the actions below: each wraps the key path with the checks an agent needs.
 

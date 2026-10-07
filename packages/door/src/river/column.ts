@@ -149,6 +149,9 @@ export class RiverColumn extends ReaderPane {
   private maxTop = 0;
   private drawn: { lines: string[]; w: number } | null = null;
   private rows: HitRow[] = [];
+  /** A block column's sticky header (the reader's, PIE-598): its rows, kept above the scroll, and where the digest starts. */
+  private sticky: HitRow[] = [];
+  private digestAt = 0;
   /** Rows above the cards (the filter's line): a click's row there isn't a card's. */
   private headRows = 0;
   /** The note's images on the column's rows (before its scroll), from its digest. */
@@ -324,12 +327,18 @@ export class RiverColumn extends ReaderPane {
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
     const foot = this.mode === "filter" ? [paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
-    this.headRows = head.length;
-    const room = Math.max(1, h - head.length - foot.length);
+    // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
+    // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
+    const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
+    const stuck = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), 0).lines.length : 0;
+    const room = Math.max(1, h - head.length - stuck - foot.length);
     const view = this.view(w, room, focused);
+    const sticky = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), this.top - this.digestAt) : null;
+    this.sticky = (sticky?.lines ?? []).map((_, r) => ({ card: -1, replies: false, links: sticky!.links.filter(l => l.row === r) }));
+    this.headRows = head.length + this.sticky.length;
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
-    const placements = this.images.flatMap(p => inWindow(p, this.top, room, head.length) ?? []);
-    return { lines: [...head, ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
+    const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
+    return { lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
   }
 
   private tagLines(w: number): string[] {
@@ -347,9 +356,8 @@ export class RiverColumn extends ReaderPane {
     if (this.error) push(fg(C.lred) + this.error + RESET);
     const root = this.rootOf();
     if (this.source.kind === "block" && root && desk) {
+      // Its title, summary, byline and crumbs are the sticky header above the scroll (render).
       const m = root, host = this.host(desk);
-      push(fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, w) + RESET);
-      push(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`);
       // Where back and forward go (its flow's trail), under the title where it's always in reach.
       const hr = historyRow(w, desk.travelPeek?.(this, -1) ?? null, desk.travelPeek?.(this, 1) ?? null);
       if (hr) all.push({ text: hr.line, card: -1, replies: false, history: hr.hits });
@@ -358,6 +366,7 @@ export class RiverColumn extends ReaderPane {
       // step controls; a click on a link opens it in the next column; `[ ]` walks its elements; the column scrolls.
       if (this.surface.msg?.id !== m.id) this.surface.show(m, host);
       const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
+      this.digestAt = at;
       this.images = dg.placements.map(p => ({ ...p, row: p.row + at, col: p.col + 1 }));
       const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
       for (const x of dg.links) { const r = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (r) r.push(l); else byRow.set(x.row, [l]); }
@@ -597,7 +606,7 @@ export class RiverColumn extends ReaderPane {
     }
     if (k.action !== "down") return true;
     this.seen();
-    const row = y >= this.headRows ? this.rows[y - this.headRows] : undefined;
+    const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
     if (back) { void desk.perform?.("tile.travel", { dir: back.dir < 0 ? "back" : "forward" }, USER, this); return true; }

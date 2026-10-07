@@ -632,7 +632,7 @@ Derived, lossless index of deliberate non-literal property records. Each row sto
 
 Canonical text is authoritative. Property updates patch text with optimistic concurrency, then re-index it. The parser version is persisted in `metadata`; schema or parser changes rebuild the derived index from every canonical block without changing block timestamps. Literal property-looking text inside inline code, fenced code, or escaped bracket syntax is not indexed.
 
-Scope classification is structural. After leading blank lines, the first nonblank line may be a subject or a property-only line. A trailing bracket run on the subject and the first contiguous property-only run after the optional subject are block metadata. Once a blank or non-property body line ends that preamble, later bare `key:: value` records are line-scoped and bracket records are inline-scoped, including later standalone bracket-only lines.
+Scope classification is structural. After leading blank lines, the first nonblank line may be a subject or a property-only line. A trailing bracket run on the subject and the first contiguous property-only run after the optional subject are block metadata. A media line (`[img::path]` and its layout tokens, outline-core's `media-line.ts`) is never property-only: it is content to draw, and blank lines and media lines right after the subject are skipped before the preamble, so a note can open with its picture. Once a blank or non-property body line ends that preamble, later bare `key:: value` records are line-scoped and bracket records are inline-scoped, including later standalone bracket-only lines.
 
 ### Default workspace seed
 

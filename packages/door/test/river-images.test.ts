@@ -122,7 +122,8 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
 
     // Scrolled so the image's top is cut: one row less, cropped from the top, at the column's first body row.
     const top = col.top;
-    const firstRow = p.row - (p.row - rect.row - 1);      // the column's first inner row
+    // The column's first scrolling row: under its frame and its sticky header (the reader's: title, byline, crumbs).
+    const firstRow = rect.row + 1 + (col as any).headRows;
     const by = p.row - firstRow + 1;
     await mine("column.scroll", { by }, r.reader);
     ps = images(frame().placements);

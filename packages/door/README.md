@@ -1769,7 +1769,12 @@ Bodies render with `src/doc.ts`:
   steps as the image goes under, fading in over the background; nothing is drawn until the dimmed variant is ready, so no frame is
   bright. Under Kitty graphics it's the picture under the text; in cells each cell is coloured from it; text output
   is unchanged. `[hero-focus::x,y]` on the image's line (fractions or percents, across then down) says what the crop
-  keeps; its middle otherwise. `ep0ch act reader.hero on=false` turns it off in every reader, kept for the next start.
+  keeps; its middle otherwise. `ep0ch act reader.hero on=false` turns it off in every reader, kept for the next start;
+  `mode=follow` makes the header follow the note's pictures: each one that scrolls under takes over, fading in over the
+  one before (`mode=first`, the default, keeps the hero).
+  A river column keeps the same header (the reader's title, summary, byline and crumbs) above its scroll, so it
+  takes the picture too. A note may open with its picture right under the subject (`[img::…]` on line 2): a media line
+  is content, never the note's block properties.
 - **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
   type's icon and tone, the title on its top edge (the type's own title when there's none; an author's title names
   the type on the right of the edge). One list of types: Obsidian's thirteen and their aliases (note, abstract
@@ -2053,7 +2058,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `edit.external` (the board's new card: `composer.external`) | none: hand the open edit, or the comment or reply being written, to `$EDITOR`; the person's only | `Ctrl+X Ctrl+E` in a draft, the tile menu's `edit in $EDITOR` |
 | `edit.arm` | `external=true` (`Ctrl+E`'s) | the person's `e`: asks before `edit` opens (refused to an agent, which runs `edit`) |
 | `edit.arm.set` | `on`, `ms` | whether `e` asks first and how long it waits; kept in the state dir (`edit-arm.json`), `EP0CH_EDIT_ARM` over it |
-| `reader.hero` | `on` | whether a reader's sticky header takes the note's hero image as a dimmed background as it scrolls under (PIE-598); kept in the state dir (`reader-hero.json`) |
+| `reader.hero` | `on`, `mode=first\|follow` | whether a reader's sticky header takes the note's hero image as a dimmed background as it scrolls under (PIE-598), or (`follow`) each picture in turn; kept in the state dir (`reader-hero.json`) |
 | `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `composer.close` | `discard=true` with typed text: the board's new card or note closes, typed text put aside as unsent. The person's only | `Esc` (twice with typed text) |
