@@ -14,6 +14,7 @@ import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } f
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import type { Placement } from "../kitty";
+import { resizeEnded, resizing } from "../resize";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
@@ -3880,10 +3881,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const p = this.pressed;
     if (k.action === "up") {
-      if (this.drag) { this.drag = null; this.save(); }
+      // A resize let go (src/resize.ts): laid out and scaled for where it ended.
+      if (this.drag) { this.drag = null; resizeEnded(); this.save(); }
       if (this.floatDrag) {
         const g = this.floatDrag;
         this.floatDrag = null;
+        if (g.size) resizeEnded();
         if (g.drop && !g.drop.refused) return void this.run("layout.move", this.moveArgs(g.drop), this.nameOf(g.id));
         if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
         this.save(); return this.redraw();
@@ -3907,12 +3910,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A float's title moves it, its corner sizes it: float.place, as H J K L and an agent's.
       if (this.floatDrag) {
         const f = this.floats.find(x => x.id === this.floatDrag!.id), g = this.floatDrag;
+        if (g.size) resizing();
         if (f) { const at = this.floatRect(f); this.run("float.place", g.size ? { cols: k.x - at.col + 1, rows: k.y - at.row + 1 } : { col: k.x - g.dx, row: k.y - g.dy }, this.nameOf(g.id)); }
         if (!g.size && this.floatDrag === g) { g.drop = this.floatDock(g.id, k.x, k.y); g.x = k.x; g.y = k.y; this.redraw(); }
         return;
       }
       // A border follows the pointer by layout.resize (the same action an agent calls).
-      if (this.drag) { const g = this.drag, split = g.d.node.id, f = dragShare(g, k.x, k.y); if (split && f !== null) this.run("layout.resize", { split, border: g.d.i, share: f }); return; }
+      if (this.drag) { resizing(); const g = this.drag, split = g.d.node.id, f = dragShare(g, k.x, k.y); if (split && f !== null) this.run("layout.resize", { split, border: g.d.i, share: f }); return; }
       if (this.headPress) {
         const h = this.headPress;
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
@@ -3995,7 +3999,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;
         if (id !== this.focus || this.floats.at(-1)?.id !== id) this.run("tile.focus", {}, this.nameOf(id));
-        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.floatDrag = { id, size: true, dx: 0, dy: 0 }; return this.redraw(); }
+        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.floatDrag = { id, size: true, dx: 0, dy: 0 }; resizing(); return this.redraw(); }
         if (k.y === r.row) { this.floatDrag = { id, size: false, dx: k.x - r.col, dy: k.y - r.row }; return this.redraw(); }
       }
       // A spine: a click opens it (and gives it the keys), as ⏎ on it does.
@@ -4012,7 +4016,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A border the policy keeps where it is (locked, resizable off, a fixed size) doesn't follow the pointer: said once.
         const why = d.d.node.id ? refusal(this.layout, { op: "resize", split: d.d.node.id, border: d.d.i, share: d.d.sizes[0] / Math.max(1, d.d.sizes[0] + d.d.sizes[1]) }, this.layoutCtx(USER)) : null;
         if (why) { this.ctx.flash(why); return this.redraw(); }
-        this.drag = d; return;
+        this.drag = d; resizing(); return;
       }
       if (!hit) return;
       const [id, r] = hit;

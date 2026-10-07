@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } fro
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
+import { inResize } from "./resize";
 import { cacheDir } from "./state";
 import type { Rgb } from "./theme";
 
@@ -71,6 +72,8 @@ export class ScaledCache {
   bytes = 0;
   constructor(private budget: number) {}
   get(job: string): PngRef | undefined { return this.refs.get(job); }
+  /** The last frame `job` was drawn in (-1: never). */
+  drawnIn(job: string): number { return this.drawn.get(job) ?? -1; }
   entries() { return this.refs.entries(); }
   /** `job` drawn in `frame`: the most recently drawn now. */
   use(job: string, frame: number) {
@@ -250,6 +253,13 @@ const MUTE_SATURATION = 0.12;
 const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
 
 /**
+ * A look's key without its crop: a PNG is always the whole image (the crop is its placement's), so one made for another
+ * crop draws this one too, its brightness worked out for that one.
+ */
+const looseKey = (look: Look) => lookKey({ ...look, crop: undefined });
+const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "");
+
+/**
  * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part
  * drawn, dimmed in the same step as it's scaled (the first frame of an animation, turned upright). From the cache
  * (its name has the content, the step and the look in it), or the file itself when it's a PNG that small already and
@@ -344,9 +354,13 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
   const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.key, edge, look);
+  // A resize going on (src/resize.ts) passes through a width a frame, each wanting a PNG of its own, uploaded and drawn
+  // once: what was drawn last is drawn instead (the terminal scales it, and the crop is the placement's), and the one
+  // for where it ends is made then. Nothing is scaled, and nothing the terminal hasn't got is drawn, until it ends.
+  const resizing = inResize();
   const exact = scaled.get(job);
-  if (exact) { scaled.use(job, frame); return exact; }
-  if (!making.has(job)) {
+  if (exact && (!resizing || scaled.drawnIn(job) >= frame - 1)) { scaled.use(job, frame); return exact; }
+  if (!exact && !resizing && !making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => scale(s, edge, look)).then(ref => {
       making.delete(job);
@@ -357,10 +371,13 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
       if (entry && entry.media === m) { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }
     });
   }
-  // The smallest one ready that covers the box, else the biggest one ready, with this look.
-  const tail = `\0${lookKey(look)}`;
-  const ready = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
-  const pick = ready.find(([e]) => e >= edge) ?? ready.at(-1);
+  // Meanwhile: the smallest one ready with this look that covers the box, else the biggest; else (the crop moved: a
+  // resize) the one with this look for another crop drawn last. While a resize goes on, whichever was drawn last.
+  const tail = `\0${lookKey(look)}`, loose = looseKey(look);
+  const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose);
+  const same = mine.filter(([k]) => k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
+  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).sort((a, b) => b[0] - a[0])[0];
+  const pick = same.length && !resizing ? same.find(([e]) => e >= edge) ?? same.at(-1)! : last();
   if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;
 }
@@ -380,7 +397,8 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
   if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const job = `${m.key}\0${cols}x${rows}\0${lookKey(look)}`, hit = grids.get(job);
   if (hit) { grids.delete(job); grids.set(job, hit); return hit; }
-  if (!making.has(job)) {
+  // Not while a resize goes on (src/resize.ts): a grid a width would be made for every width it passes through.
+  if (!inResize() && !making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => gridOf(s, cols, rows, look)).then(g => {
       making.delete(job);
@@ -390,7 +408,21 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
       onChange();
     }, () => { making.delete(job); });
   }
-  return null;
+  // Meanwhile, the last one made with this look, at another size or crop, stretched to this one: the header never
+  // drops to plain while its own is made.
+  const loose = looseKey(look);
+  const last = [...grids.entries()].reverse().find(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose)?.[1];
+  return last ? stretch(last, cols, rows) : null;
+}
+
+/** `g` at `cols` × `rows` cells, each the colour of the cell under its middle. */
+function stretch(g: CellGrid, cols: number, rows: number): CellGrid {
+  const h = g.length, w = g[0]?.length ?? 0;
+  if (!h || !w) return g;
+  return Array.from({ length: rows }, (_, r) => {
+    const src = g[Math.min(h - 1, Math.floor(((r + 0.5) * h) / rows))]!;
+    return Array.from({ length: cols }, (_, c) => src[Math.min(w - 1, Math.floor(((c + 0.5) * w) / cols))]!);
+  });
 }
 
 async function gridOf(s: Source, cols: number, rows: number, look: Look): Promise<CellGrid> {
