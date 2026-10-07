@@ -166,8 +166,10 @@ export async function where(d: WhereDeps): Promise<Where> {
   const inDoor = !!(inner || control);
   // The nest's door is gone and its outline's door answers from another process: the session was handed over or
   // restarted, and this is its successor (the same door, its tiles kept), not a door that took this pane.
-  // (The old daemon may linger as a zombie its starter hasn't reaped: another pid answering is what counts.)
-  const handedOver = !!(inner && !agentPane && answeringPid !== null && answeringPid !== inner.pid);
+  // (The old daemon may linger as a zombie its starter hasn't reaped: another pid answering is what counts.) Only a
+  // door reached through the outline's session (EP0CH_PLACE) is that successor: without it, another pid on
+  // EP0CH_CONTROL is another door, and says so (moved).
+  const handedOver = !!(inner && !agentPane && reached?.place && answeringPid !== null && answeringPid !== inner.pid);
   const moved = !!(inner && answeringPid !== null && answeringPid !== inner.pid) && !handedOver;
   const now = `${answeringPid ? `pid ${answeringPid}` : "the door"}${peek?.screen?.outline ? ` on ${peek.screen.outline}` : ""}`;
   const stale = [

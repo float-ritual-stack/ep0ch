@@ -8,10 +8,10 @@ import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { Draft, DRAFT_DAYS, DRAFT_KEEP, pruneDrafts } from "../src/edit";
+import { Draft, DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, pruneDrafts } from "../src/edit";
 import { MainMenu } from "../src/screens";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
-import { ACTOR_ID, EditConflict, Refused, SocketBoard } from "../src/socket";
+import { ACTOR_ID, EditConflict, Refused, SocketBoard, USER } from "../src/socket";
 import { Term, type Key } from "../src/term";
 import { HERDR_VARS } from "../src/desk/pty";
 
@@ -75,6 +75,15 @@ describe("draft", () => {
     expect(d.key(ctrl("e"))).toBe("keep");
     expect(d.key(ctrl("x"))).toBe("keep");
     expect(d.key(ctrl("e"))).toBe("editor");
+  });
+  test("a click between ctrl+x and ctrl+e lets the chord go: the ctrl+e is the line's end, not $EDITOR", async () => {
+    const d = new Draft("b1", 1, "first line\nsecond");
+    expect(d.key(ctrl("x"))).toBe("keep");
+    // The click's action (src/surface/editor.ts): the cursor to line 1, column 3.
+    await DRAFT_ACTIONS.run("draft.place", { line: 1, col: 3 }, d, USER);
+    expect(d.note).toBe("");
+    expect(d.key(ctrl("e"))).toBe("keep");
+    expect([d.row, d.col]).toEqual([0, 10]);
   });
 });
 
