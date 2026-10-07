@@ -61,9 +61,12 @@ test("components.schemas: the built-ins, the outline's own style and type among 
   const plot = await client.request<Block>({ action: "create", text: "Plot style [heading-style::plot] [heading-pattern::dots]" });
   const recipe = await client.request<Block>({ action: "create", text: "Recipe [callout-type::recipe] [callout-icon::♨] [callout-tone::green]" });
   await client.request<Block>({ action: "create", text: "Broken [heading-style::Not A Name]" });
+  // A style declared on a line of a note (PIE-619) joins too, as headings.styles reads it.
+  await client.request<Block>({ action: "create", text: "Bed notes\n\n# Bed style [heading-style::beds] [heading-pattern::waffle]" });
   const r = await client.request<Answer>({ action: "components.schemas" });
   const heading = r.schemas.find(s => s.id === "heading-style")!.props.find(p => p.key === "heading")!;
-  expect(heading.values!.at(-1)).toMatchObject({ value: "plot", declared: plot.id });
+  expect(heading.values!.slice(-2).map(v => v.value)).toEqual(["plot", "beds"]);
+  expect(heading.values!.at(-2)).toMatchObject({ value: "plot", declared: plot.id });
   expect(r.schemas.find(s => s.id === "callout")!.props[0]!.values!.at(-1)).toMatchObject({ value: "recipe", declared: recipe.id });
   expect(r.problems).toEqual([expect.stringContaining("isn't a name")]);
   expect(r.complete).toBe(true);

@@ -586,8 +586,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(copy.source).toContain("[heading-pattern::dots]");
     expect(copy.source).toContain("[heading-tone::green]");
     await app.act({ action: "library.axis", args: { key: "heading" }, as: "test-agent" });
-    const values = (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.variations as any[]).map(v => v.values.heading);
-    expect(values).toContain("plot");
+    // The outline's own style joins the values once the service's answer is in (the built-ins stand until then).
+    const values = () => (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.variations as any[]).map(v => v.values.heading);
+    await until(() => (screen(), values().includes("plot")), "the outline's plot style among the values", 8000);
     await app.act({ action: "library.clear", args: {}, as: "test-agent" });
   }, 20_000);
 

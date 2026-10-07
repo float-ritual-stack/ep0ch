@@ -1004,6 +1004,30 @@ export class OutlinerServer {
     };
   }
 
+  /** The outline's callout types (`callouts.types`, PIE-538): those its notes declare, and what's wrong with any. */
+  private calloutTypes() {
+    // The built-ins are the client's own (outline-core); the outline adds or restyles types with notes.
+    const declared = this.store.queryBlocks({ filters: [{ key: "callout-type" }], limit: 500 });
+    const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    return { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
+  }
+
+  /** The outline's heading styles (`headings.styles`, PIE-599): those its notes and lines declare, and what's wrong with any. */
+  private headingStyles() {
+    // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles. A
+    // `[heading-style::name]` of any scope declares one: block scope with the note's own properties, a line's or
+    // an inline one with the tokens on its line (the save-time parser's scopes, so a code span declares nothing).
+    const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], propertyScope: "all", limit: 500 });
+    const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    const declarations = blocks.flatMap((block) => {
+      const records = parsePropertyRecords(block.text).filter((r) => r.syntax !== "hashtag");
+      return records.filter((r) => r.key === "heading-style").map((r) => r.scope === "block"
+        ? { id: block.id, properties: block.properties }
+        : { id: block.id, line: r.line, properties: records.filter((o) => o.line === r.line && o.scope !== "block") });
+    });
+    return { ...headingStylesFromBlocks(declarations), complete: declared.completeness.kind === "complete" };
+  }
+
   private attentionClient(clientId: string): OutlinerClientRegistration {
     const client = this.listClients().find((candidate) => candidate.clientId === clientId);
     if (!client) throw new Error(`Attention target client is not registered: ${clientId}`);
@@ -2523,28 +2547,12 @@ export class OutlinerServer {
         case "references.resolve":
           result = this.store.resolveBlockReferences(request.text);
           break;
-        case "callouts.types": {
-          // The built-ins are the client's own (outline-core); the outline adds or restyles types with notes.
-          const declared = this.store.queryBlocks({ filters: [{ key: "callout-type" }], limit: 500 });
-          const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-          result = { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
+        case "callouts.types":
+          result = this.calloutTypes();
           break;
-        }
-        case "headings.styles": {
-          // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles. A
-          // `[heading-style::name]` of any scope declares one: block scope with the note's own properties, a line's or
-          // an inline one with the tokens on its line (the save-time parser's scopes, so a code span declares nothing).
-          const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], propertyScope: "all", limit: 500 });
-          const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-          const declarations = blocks.flatMap((block) => {
-            const records = parsePropertyRecords(block.text).filter((r) => r.syntax !== "hashtag");
-            return records.filter((r) => r.key === "heading-style").map((r) => r.scope === "block"
-              ? { id: block.id, properties: block.properties }
-              : { id: block.id, line: r.line, properties: records.filter((o) => o.line === r.line && o.scope !== "block") });
-          });
-          result = { ...headingStylesFromBlocks(declarations), complete: declared.completeness.kind === "complete" };
+        case "headings.styles":
+          result = this.headingStyles();
           break;
-        }
         case "rules.preview": {
           if (typeof request.note !== "string" || typeof request.text !== "string") throw new Error("rules.preview needs note and text");
           if (request.note.length > 4_000 || request.text.length > 20_000) throw new Error("rules.preview: the note is at most 4000 characters and the text 20000");
@@ -2553,19 +2561,10 @@ export class OutlinerServer {
         }
         case "components.schemas": {
           // PIE-618: every component's schema in one read: the built-ins with the outline's own styles and types among
-          // their values, then the schemas the extensions ship. What's wrong with a declaration is said, as above.
-          const declared = (key: string) => {
-            const found = this.store.queryBlocks({ filters: [{ key }], limit: 500 });
-            return { blocks: [...found.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)), complete: found.completeness.kind === "complete" };
-          };
-          const styles = declared("heading-style"), types = declared("callout-type");
-          const h = headingStylesFromBlocks(styles.blocks), c = calloutTypesFromBlocks(types.blocks);
+          // their values (as headings.styles and callouts.types read them), then the schemas the extensions ship.
+          const h = this.headingStyles(), c = this.calloutTypes();
           const merged = mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() });
-          result = {
-            schemas: merged.schemas,
-            problems: [...h.problems, ...c.problems, ...merged.problems],
-            complete: styles.complete && types.complete,
-          };
+          result = { schemas: merged.schemas, problems: [...h.problems, ...c.problems, ...merged.problems], complete: h.complete && c.complete };
           break;
         }
         case "references.backlinks":
