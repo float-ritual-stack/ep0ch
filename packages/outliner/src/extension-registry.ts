@@ -351,6 +351,11 @@ export class ExtensionRegistry {
     return slot && (slot.state === "active" || slot.state === "failed") ? slot.serving : undefined;
   }
 
+  /** Every extension that serves now (active, or failed on its last good copy), in the registry's order. */
+  serving(): LoadedExtension[] {
+    return this.slots.flatMap((slot) => slot.serving && (slot.state === "active" || slot.state === "failed") ? [slot.serving] : []);
+  }
+
   /** An action an extension declares, or the built-in `keep` of its output and component handlers. */
   action(extensionId: string, actionId: string): ExtensionActionEntry | undefined {
     const extension = this.extension(extensionId);

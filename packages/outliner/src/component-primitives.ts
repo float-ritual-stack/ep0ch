@@ -1,4 +1,6 @@
 import { cleanExtensionText, inertBlockdown } from "./extension-records";
+import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
+import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -7,7 +9,7 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
  * A component is headless: its **data** is the truth, and its **view** is a
  * tree of primitives every client already knows how to draw (box, card,
  * table, stat, bar, checklist, sparkline, badge, text, with stack and row to
- * arrange them). So a new component needs no client code. The service renders
+ * arrange them, and band and track for headings and dividers, PIE-600). So a new component needs no client code. The service renders
  * the text targets here (markdown, blockdown, html, json, csv and a plain
  * `terminal` text); a client that draws primitives natively (the door) takes
  * `view` instead.
@@ -19,7 +21,7 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
  * An unknown primitive never breaks a reader: it degrades to its text.
  */
 
-export const PRIMITIVE_TYPES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row"] as const;
+export const PRIMITIVE_TYPES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
@@ -37,7 +39,14 @@ export type Primitive =
   | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; children?: Primitive[] }
   | { type: "box"; title?: string; children: Primitive[] }
   | { type: "stack"; children: Primitive[] }
-  | { type: "row"; children: Primitive[] };
+  | { type: "row"; children: Primitive[] }
+  /**
+   * A heading in a band of glyph tracks (PIE-599's banner, PIE-600's heading style): three rows, the text on `row`
+   * (top, middle or bottom), aligned. `level` is the heading it stands for (a text target draws `#`, `##`, `###`).
+   */
+  | { type: "band"; text?: string; level?: 1 | 2 | 3; style?: string; pattern?: BandPattern; align?: Align; row?: "top" | "middle" | "bottom"; tone?: Tone }
+  /** One row of glyph track: a hard divider. `style`: a heading style by name (PIE-599), drawn with it where a client can. */
+  | { type: "track"; style?: string; pattern?: BandPattern; tone?: Tone };
 
 export interface ComponentOutput {
   /** The truth: what `json` (and `csv`, for rows) returns. */
@@ -197,6 +206,29 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     case "row":
       only(node, ["type", "children"], path);
       return { type: node.type, children: children() };
+    case "band": {
+      only(node, ["type", "text", "level", "style", "pattern", "align", "row", "tone"], path);
+      if (node.style !== undefined && (typeof node.style !== "string" || !HEADING_STYLE_NAME.test(node.style))) fail(`${path}.style`, "must be a heading style's name");
+      if (node.level !== undefined && node.level !== 1 && node.level !== 2 && node.level !== 3) fail(`${path}.level`, "must be 1, 2 or 3");
+      const choice = <T extends string>(key: string, options: readonly T[]): T | undefined => {
+        if (node[key] === undefined) return undefined;
+        if (!options.includes(node[key] as T)) fail(`${path}.${key}`, `must be one of ${options.join(", ")}`);
+        return node[key] as T;
+      };
+      const pattern = choice("pattern", BAND_PATTERNS), align = choice("align", ALIGNS), row = choice("row", ["top", "middle", "bottom"] as const);
+      return { type: "band", ...(node.text !== undefined ? { text: text(node.text, `${path}.text`)! } : {}),
+        ...(node.style !== undefined ? { style: node.style as string } : {}),
+        ...(node.level !== undefined ? { level: node.level as 1 | 2 | 3 } : {}),
+        ...(pattern ? { pattern } : {}), ...(align ? { align } : {}), ...(row ? { row } : {}),
+        ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
+    }
+    case "track": {
+      only(node, ["type", "style", "pattern", "tone"], path);
+      if (node.style !== undefined && (typeof node.style !== "string" || !HEADING_STYLE_NAME.test(node.style))) fail(`${path}.style`, "must be a heading style's name");
+      if (node.pattern !== undefined && !BAND_PATTERNS.includes(node.pattern as BandPattern)) fail(`${path}.pattern`, `must be one of ${BAND_PATTERNS.join(", ")}`);
+      return { type: "track", ...(node.style !== undefined ? { style: node.style as string } : {}), ...(node.pattern !== undefined ? { pattern: node.pattern as BandPattern } : {}),
+        ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
+    }
     default:
       fail(`${path}.type`, `must be one of ${PRIMITIVE_TYPES.join(", ")}`);
   }
@@ -243,6 +275,12 @@ function meter(value: number, max: number, width = 10): string {
   return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
+/** A track's glyphs as plain text, `width` wide: what a text target draws for a band's or a track's rows. */
+export function trackText(pattern: BandPattern | undefined, width = 40): string {
+  const unit = { stack: "▁▂▃▅▃▂", waffle: "▪▫", uptime: "▌▌▌░", dots: "· ", rule: "─" }[pattern ?? "rule"];
+  return unit.repeat(Math.ceil(width / unit.length)).slice(0, width);
+}
+
 const statText = (node: Extract<Primitive, { type: "stat" }>) => `${node.value}${node.unit ? ` ${node.unit}` : ""}`;
 const cell = (value: string | number) => String(value);
 /** One line, no control characters: what a terminal cell may hold. */
@@ -272,6 +310,14 @@ function terminalLines(node: Primitive): string[] {
       return [`┌─${node.title ? ` ${oneLine(node.title)} ` : ""}`, ...inner.map((line) => `│ ${line}`), "└─"];
     }
     case "stack": return node.children.flatMap(terminalLines);
+    case "band": {
+      const words = oneLine(node.text ?? ""), width = Math.max(40, words.length + 8);
+      const placed = node.align === "center" ? words.padStart(Math.floor((width + words.length) / 2)).padEnd(width)
+        : node.align === "right" ? words.padStart(width) : words.padEnd(width);
+      const at = node.row === "top" ? 0 : node.row === "bottom" ? 2 : 1;
+      return [0, 1, 2].map((r) => (r === at && words ? placed.trimEnd() : trackText(node.pattern, width)));
+    }
+    case "track": return [trackText(node.pattern)];
     case "row": {
       const columns = node.children.map(terminalLines);
       const widths = columns.map((lines) => Math.max(0, ...lines.map((line) => line.length)));
@@ -306,6 +352,9 @@ function markdownLines(node: Primitive): string[] {
     case "box": return [...(node.title ? [`**${mdInline(node.title)}**`, ""] : []), ...node.children.flatMap(markdownLines)];
     case "stack":
     case "row": return node.children.flatMap(markdownLines);
+    // A band is its heading wherever a target can't draw tracks; a track is a thematic break.
+    case "band": return node.text ? [`${"#".repeat(node.level ?? 2)} ${mdInline(node.text)}`, ""] : ["---", ""];
+    case "track": return ["---", ""];
   }
 }
 
@@ -334,6 +383,12 @@ function htmlOf(node: Primitive): string {
     case "box": return `<section class="ext-box">${node.title ? `<h4>${html(node.title)}</h4>` : ""}${node.children.map(htmlOf).join("")}</section>`;
     case "stack": return `<div class="ext-stack">${node.children.map(htmlOf).join("")}</div>`;
     case "row": return `<div class="ext-row">${node.children.map(htmlOf).join("")}</div>`;
+    case "band": {
+      const level = node.level ?? 2;
+      return `<div class="ext-band ext-${node.pattern ?? "rule"}${toneClass(node.tone)}" data-align="${node.align ?? "left"}" data-row="${node.row ?? "middle"}">${
+        node.text ? `<h${level}>${html(node.text)}</h${level}>` : ""}</div>`;
+    }
+    case "track": return `<hr class="ext-track ext-${node.pattern ?? "rule"}${toneClass(node.tone)}">`;
   }
 }
 

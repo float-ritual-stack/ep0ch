@@ -1,12 +1,16 @@
 // A rich component's view (an extension's `component` handler line, pi-herdr-outliner
-// PIE-507): the shared primitives (card, box, stack, row, text, badge, stat, bar, table, checklist,
-// sparkline) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
+// PIE-507), and a rule's decoration (PIE-600): the shared primitives (card, box, stack, row, text, badge, stat, bar,
+// table, checklist, sparkline, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
 // service checks the view against the catalogue; this draws what it sent and nothing else.
 import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { printable, wrap } from "./text";
+import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import type { CalloutTone } from "@ep0ch/outline-core/callouts";
+import { bandLetters, drawBand, drawTrack } from "./figures/banner";
+import { TONE as CALLOUT_TONE } from "./callouts";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
-export const PRIMITIVES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row"] as const;
+export const PRIMITIVES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
 
 /** A primitive this door doesn't draw (a newer catalogue), or a view past the catalogue's bounds. */
 export class PrimitiveUnknown extends Error {}
@@ -33,6 +37,52 @@ function beside(cols: string[][], widths: number[], gap = 3): string[] {
   return Array.from({ length: h }, (_, r) => cols.map((c, i) => (i === cols.length - 1 ? c[r] ?? "" : pad(c[r] ?? "", widths[i]!))).join(" ".repeat(gap)));
 }
 
+// ── band and track (PIE-600): drawn by the heading styles' own drawer (PIE-599, src/figures/banner.ts) ─────────
+
+/** A primitive's tone as a heading style's (the callouts' tone families): the band's words take it. */
+const STYLE_TONE: Readonly<Record<string, CalloutTone>> = { good: "green", warn: "amber", bad: "coral", accent: "blue" };
+
+/**
+ * The heading style a `band` or `track` primitive draws with: the one it names (`style`, through the outline's
+ * heading styles), else `fallback` ("band", "fade"), with what the primitive says itself (pattern, align, row, tone)
+ * over it. One drawing path for a styled heading and a rule's decoration.
+ */
+export function primitiveStyle(n: Record<string, unknown>, headings: HeadingStyleRegistry, fallback: string): HeadingStyle {
+  const base = (typeof n.style === "string" ? headings.style(n.style) : null) ?? headings.style(fallback) ?? BUILTIN_HEADING_STYLE_REGISTRY.style(fallback)!;
+  const pick = <T extends string>(v: unknown, all: readonly T[]): T | undefined => (all.includes(v as T) ? v as T : undefined);
+  const tone = typeof n.tone === "string" ? STYLE_TONE[n.tone] : undefined;
+  return {
+    ...base,
+    ...(pick(n.pattern, BAND_PATTERNS) ? { pattern: pick(n.pattern, BAND_PATTERNS)! } : {}),
+    ...(pick(n.align, BAND_ALIGNS) ? { align: pick(n.align, BAND_ALIGNS)! } : {}),
+    ...(pick(n.row, BAND_ROWS) ? { row: pick(n.row, BAND_ROWS)! } : {}),
+    ...(tone ? { tone } : {}),
+  };
+}
+
+/** The row of a view drawn `w` wide that holds a band's words, or undefined for any other view. */
+export function primitiveHeadRow(view: unknown, w: number, headings: HeadingStyleRegistry = BUILTIN_HEADING_STYLE_REGISTRY): number | undefined {
+  const n = view as Record<string, unknown> | null;
+  if (!n || typeof n !== "object" || n.type !== "band") return undefined;
+  return bandOf(n, Math.max(8, Math.floor(w)), headings).headRow;
+}
+
+/** A band's rows `w` wide: the style's band with the words in it, or (narrow, or words too long) the plain heading. */
+function bandRows(n: Record<string, unknown>, w: number, headings: HeadingStyleRegistry): string[] {
+  return bandOf(n, w, headings).rows;
+}
+
+function bandOf(n: Record<string, unknown>, w: number, headings: HeadingStyleRegistry): { rows: string[]; headRow: number } {
+  const words = n.text !== undefined ? one(n.text).trim() : "";
+  const level = n.level === 1 || n.level === 3 ? n.level : 2;
+  const style = primitiveStyle(n, headings, "band");
+  const ink = style.tone !== "neutral" ? CALLOUT_TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
+  const label = words ? BOLD + fg(ink) + bandLetters(words, style.letters) + UNBOLD + RESET : null;
+  const band = drawBand(style, w, level, label, words || "band");
+  if (band) return { rows: band.rows, headRow: band.textRow };
+  return { rows: words ? wrap(`${"#".repeat(level)} ${words}`, w).map(l => fg(ink) + BOLD + l + UNBOLD + RESET) : [fg(C.dark) + "─".repeat(w) + RESET], headRow: 0 };
+}
+
 type Node = Record<string, unknown>;
 const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : []);
 
@@ -41,12 +91,12 @@ const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : [
  * table row's block (`link` and `links` in the view), so the reader's `[ ]` stops on it and a click opens it.
  * Throws PrimitiveUnknown for a primitive outside the catalogue: the reader falls back to the line's markdown.
  */
-export function primitiveLines(view: unknown, w: number, link?: (block: string, text: string) => string, depth = 0): string[] {
+export function primitiveLines(view: unknown, w: number, link?: (block: string, text: string) => string, depth = 0, headings: HeadingStyleRegistry = BUILTIN_HEADING_STYLE_REGISTRY): string[] {
   w = Math.max(8, Math.floor(w));
   if (depth > MAX_DEPTH) throw new PrimitiveUnknown(`the view nests deeper than ${MAX_DEPTH}`);
   if (!view || typeof view !== "object" || Array.isArray(view)) throw new PrimitiveUnknown("a primitive is an object");
   const n = view as Node;
-  const inner = (v: unknown, width: number) => primitiveLines(v, width, link, depth + 1);
+  const inner = (v: unknown, width: number) => primitiveLines(v, width, link, depth + 1, headings);
   const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
   switch (n.type) {
     case "text":
@@ -113,6 +163,10 @@ export function primitiveLines(view: unknown, w: number, link?: (block: string, 
     }
     case "stack":
       return kids(n).flatMap(c => inner(c, w));
+    case "band":
+      return bandRows(n, w, headings);
+    case "track":
+      return drawTrack(primitiveStyle(n, headings, "fade"), w) ?? [fg(C.dark) + "─".repeat(w) + RESET];
     case "row": {
       const cs = kids(n);
       if (!cs.length) return [];

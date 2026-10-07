@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { installExamples, installTickets, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -45,6 +45,7 @@ export const SEED = {
   newNotes: "New notes from anywhere",
   recentFiles: "Files a session touched",
   headings: "Headings and dividers",
+  rules: "Allotment committee, Saturday",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -622,6 +623,28 @@ const OMENS = [
   "@tidy",
 ].join("\n");
 
+/**
+ * Rules (PIE-600): a meeting the outliner's `meeting-card` rule draws a card over (it matches `[type::meeting]`), its
+ * `## ` headings drawn as bands by a rule note under it (no code), and a line `shout` draws as a band in its place.
+ * Under it, the rule note and a job `done-stamp` stamps when its status becomes done.
+ */
+const RULES_NOTE = [
+  `${SEED.rules} [type::meeting] [when::Sat 10:00] [where::the shed] [attendees::Ann, Bo, Cy]`,
+  "",
+  "The committee meets in the shed. The rules in this outline draw on this note, and its text is only what you see with R:",
+  "the card above is meeting-card's (it matches the meeting's type), the bands are a rule note's under it (no code), and",
+  "the last line is shout's.",
+  "",
+  "## Agenda",
+  "- Water rota for August",
+  "- Who keeps the shed key",
+  "",
+  "## Actions",
+  "- [ ] Order the new hose",
+  "",
+  "Close the cold frame tonight!!!",
+].join("\n");
+
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
@@ -635,7 +658,7 @@ export interface Seeded {
  * Write the showcase outline into an empty workspace. Refuses when one is already there (`findShowcase`),
  * so a half-finished run is never seeded on top of: reset the workspace instead.
  */
-export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string } = {}): Promise<Seeded> {
+export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
   const notes = {} as Record<SeedName, Msg>;
@@ -736,6 +759,15 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   }
   notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
+  // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
+  const rulesFrom = opts.outliner ?? opts.rulesFrom;
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, RULE_EXAMPLES).length) {
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
+  }
+  notes.rules = await make(notes.root.id, RULES_NOTE);
+  await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);
+  await make(notes.rules.id, "Mend the water butt [status::todo]\nSetting its status to done stamps the day it was done (done-stamp); setting it back takes the stamp off.");
 
   // Comment threads on the shed: one open, one resolved with a reply.
   const quote = (text: string, q: string) => ({ quote: q, start: text.indexOf(q) });

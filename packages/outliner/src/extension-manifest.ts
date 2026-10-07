@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import { Type, IsSchema, type Static, type TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
+import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 
 /**
  * What an extension folder is (contract 2): `extension.json` plus an optional
@@ -23,6 +24,13 @@ import { cleanExtensionText } from "./extension-records";
  *
  * `actions[]` are what any of them can do (`act`), the same for a key, a
  * click and an agent.
+ *
+ * `rules[]` (PIE-600) say "when a block matches this": `match` (a property, a
+ * saved-view query, a text pattern outside code, a construct kind), then
+ * `decorate` (draw view primitives around the matched block or in its place:
+ * a built-in decoration with no code, or the `decorate` operation) and `on`
+ * (run an action when a block starts or stops matching, or changes while it
+ * matches). A handler's `key` is the oldest case of match: a `key::` line.
  */
 
 export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
@@ -155,6 +163,64 @@ const Agent = Type.Object(
 );
 export type ExtensionAgent = Static<typeof Agent>;
 
+const literals = <T extends string>(values: readonly T[]) => Type.Union(values.map((value) => Type.Literal(value)));
+
+/** What a rule matches (`@ep0ch/outline-core/rules` RuleMatch): every condition given must hold. */
+const RuleMatchSchema = Type.Object(
+  {
+    /** `key=value` or `key`: the property case of `query`. */
+    property: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]*(=[^\\]\\r\\n]{1,200})?$" })),
+    /** A query in the saved views' grammar (`type=meeting AND status=open`). */
+    query: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+    /** A saved view's block id: its query. */
+    view: Type.Optional(Type.String({ pattern: "^[0-9a-fA-F-]{36}$" })),
+    /** Only blocks under this one. */
+    under: Type.Optional(Type.String({ pattern: "^[0-9a-fA-F-]{36}$" })),
+    /** A pattern tested line by line, outside code, literal regions and property tokens; `(?i)` ignores case. */
+    text: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
+    /** A construct: heading, heading:1…6 (h1…h6), callout, callout:<type>, list, rule, image. */
+    kind: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
+  },
+  { additionalProperties: false },
+);
+
+const RuleSchema = Type.Object(
+  {
+    id: ID,
+    description: Type.Optional(Type.String({ maxLength: 300 })),
+    match: RuleMatchSchema,
+    /**
+     * Draw on what matched. With `use`, a built-in decoration (no code); without, the `decorate` operation returns
+     * `{ view, title? }`, kept like an output and run again when the block's revision changes.
+     */
+    decorate: Type.Optional(Type.Object(
+      {
+        place: Type.Optional(literals(PLACES)),
+        use: Type.Optional(literals(BUILT_IN_DECORATIONS)),
+        label: Type.Optional(Type.String({ maxLength: 300 })),
+        tone: Type.Optional(literals(RULE_TONES)),
+        fields: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,63}$" }), { maxItems: 12 })),
+        pattern: Type.Optional(literals(BAND_PATTERNS)),
+        align: Type.Optional(literals(ALIGNS)),
+        /** A band's or divider's heading style by name (PIE-599's `[heading-style::…]`). */
+        style: Type.Optional(Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{0,31}$" })),
+        deadline: Type.Optional(Duration),
+      },
+      { additionalProperties: false },
+    )),
+    /**
+     * Run an action (from `actions[]`) on the block when it starts matching, stops matching, or is saved while it
+     * matches, once it has been quiet for `quiet` (default 2s). Never for a save an extension made.
+     */
+    on: Type.Optional(Type.Object(
+      { start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), quiet: Type.Optional(Duration) },
+      { additionalProperties: false },
+    )),
+  },
+  { additionalProperties: false },
+);
+export type ExtensionRule = Static<typeof RuleSchema>;
+
 const ManifestV2 = Type.Object(
   {
     contract: Type.Literal(2),
@@ -172,6 +238,7 @@ const ManifestV2 = Type.Object(
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
+    rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
   },
   { additionalProperties: false },
 );
@@ -352,9 +419,44 @@ function checkManifest(manifest: ExtensionManifest): void {
     const agentDeadline = durationMs(agent.deadline);
     if (agentDeadline !== undefined && agentDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: agents/${index}/deadline is longer than 5m`);
   }
-  const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0;
-  if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions and agents need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents or tiles");
+  const ruleIds = new Set<string>();
+  let codeRules = 0;
+  for (const [index, rule] of (manifest.rules ?? []).entries()) {
+    const where = `extension.json: rules/${index}`;
+    if (ruleIds.has(rule.id)) throw new ExtensionLoadError(`${where}/id ${rule.id} is declared twice`);
+    ruleIds.add(rule.id);
+    const { match } = rule;
+    if (!match.property && !match.query && !match.view && !match.text && !match.kind) {
+      throw new ExtensionLoadError(`${where}/match matches nothing: give it property, query, view, text or kind`);
+    }
+    if (match.property && match.query) throw new ExtensionLoadError(`${where}/match has property and query: property is the short form of query, give one`);
+    if (match.text) {
+      const compiled = compileRulePattern(match.text);
+      if ("problem" in compiled) throw new ExtensionLoadError(`${where}/match/text: ${compiled.problem}`);
+    }
+    if (match.kind) {
+      const kind = parseKindSpec(match.kind);
+      if ("problem" in kind) throw new ExtensionLoadError(`${where}/match/kind: ${kind.problem}`);
+    }
+    if (!rule.decorate && !rule.on) throw new ExtensionLoadError(`${where} does nothing: give it decorate, on, or both`);
+    if (rule.decorate && !rule.decorate.use) codeRules += 1;
+    if (rule.decorate?.use === undefined && rule.decorate && (rule.decorate.label || rule.decorate.fields || rule.decorate.pattern || rule.decorate.align || rule.decorate.tone || rule.decorate.style)) {
+      throw new ExtensionLoadError(`${where}/decorate has a built-in decoration's fields but no use: name one (${BUILT_IN_DECORATIONS.join(", ")}) or leave them to the decorate operation`);
+    }
+    const ruleDeadline = durationMs(rule.decorate?.deadline);
+    if (ruleDeadline !== undefined && ruleDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`${where}/decorate/deadline is longer than 5m`);
+    for (const when of ["start", "stop", "change"] as const) {
+      const id = rule.on?.[when];
+      if (id === undefined) continue;
+      const action = (manifest.actions ?? []).find((candidate) => candidate.id === id);
+      if (!action) throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which actions[] doesn't declare`);
+      if ((action.on ?? "block") !== "block") throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which acts on ${action.on}; a rule's action acts on the block (on: block)`);
+    }
+    if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change) throw new ExtensionLoadError(`${where}/on names no action: give start, stop or change`);
+  }
+  const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0;
+  if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions, agents and rules that decorate with code need run (the program each call starts)");
+  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, rules or tiles");
 }
 
 /** `bun` in an argv means the service's own Bun, so a folder works wherever the service runs. */
@@ -400,17 +502,30 @@ async function stampFile(hash: ReturnType<typeof createHash>, path: string): Pro
 }
 
 /**
- * Reads one extension folder. Throws an `ExtensionLoadError` that names the
- * file and what is wrong with it; never a secret value (none are read here).
+ * Where an extension's manifest comes from. Today a folder; the seam is here so another source (a `func::` block in
+ * the outline, compiled into the same manifest and trusted by the hash of its exact text) loads through the same
+ * checks, with its own id rule and its own stamp, and no second parser.
  */
-export async function readExtensionFolder(
-  directory: string,
-  origin: ExtensionOrigin,
-  options: { checkConfig?: boolean } = {},
-): Promise<LoadedExtension> {
-  const manifestPath = join(directory, "extension.json");
-  if (!(await Bun.file(manifestPath).exists())) throw new ExtensionLoadError("no extension.json in the folder");
-  const manifestRaw = await boundedText(manifestPath);
+export interface ManifestSource {
+  /** `extension.json`'s text, and `config.json`'s (`"{}"` when there is none). */
+  readonly manifestRaw: string;
+  readonly configRaw: string;
+  readonly origin: ExtensionOrigin;
+  /** Where a call runs (its working directory): the folder. */
+  readonly directory: string;
+  /** The id the manifest must declare, and what to call where it came from when it doesn't (`the folder's name`). */
+  readonly expectedId: string;
+  readonly idFrom: string;
+  /** Changes when the source changes; a call whose stamp moved under it is discarded. Default: a hash of both texts. */
+  readonly stamp?: string;
+}
+
+/**
+ * Checks a manifest and its config, wherever they were read from. Throws an `ExtensionLoadError` that names the
+ * file and what is wrong with it; never a secret value (none are read here). Pure: no I/O.
+ */
+export function loadExtensionManifest(source: ManifestSource, options: { checkConfig?: boolean } = {}): LoadedExtension {
+  const { manifestRaw, configRaw, origin, directory } = source;
   const json = parseJson(manifestRaw, "extension.json");
   if (json && typeof json === "object" && (json as { contract?: unknown }).contract === 1) {
     throw new ExtensionLoadError("extension.json is contract 1; contract 2 is a folder like extensions/horoscope (see docs/extensions/README.md)");
@@ -420,11 +535,9 @@ export async function readExtensionFolder(
   const manifest = cleanShown(json) as ExtensionManifest;
   if (!manifest.name) throw new ExtensionLoadError("extension.json: name is only control characters");
   checkManifest(manifest);
-  if (manifest.id !== basename(directory)) {
-    throw new ExtensionLoadError(`extension.json: id ${manifest.id} must match the folder's name (${basename(directory)})`);
+  if (manifest.id !== source.expectedId) {
+    throw new ExtensionLoadError(`extension.json: id ${manifest.id} must match ${source.idFrom} (${source.expectedId})`);
   }
-  const configPath = join(directory, "config.json");
-  const configRaw = (await Bun.file(configPath).exists()) ? await boundedText(configPath) : "{}";
   const folderJson = parseJson(configRaw, "config.json");
   const folderProblem = schemaProblem(FolderConfig, folderJson);
   if (folderProblem) throw new ExtensionLoadError(`config.json: ${folderProblem}`);
@@ -454,6 +567,22 @@ export async function readExtensionFolder(
     sources: folder.sources ?? [],
     enabled: folder.enabled !== false,
     command: manifest.run ? resolveArgv(manifest.run) : null,
-    stamp: createHash("sha256").update(manifestRaw).update("\0").update(configRaw).digest("hex"),
+    stamp: source.stamp ?? createHash("sha256").update(manifestRaw).update("\0").update(configRaw).digest("hex"),
   };
+}
+
+/**
+ * Reads one extension folder: its `extension.json` and `config.json`, checked by `loadExtensionManifest`.
+ */
+export async function readExtensionFolder(
+  directory: string,
+  origin: ExtensionOrigin,
+  options: { checkConfig?: boolean } = {},
+): Promise<LoadedExtension> {
+  const manifestPath = join(directory, "extension.json");
+  if (!(await Bun.file(manifestPath).exists())) throw new ExtensionLoadError("no extension.json in the folder");
+  const manifestRaw = await boundedText(manifestPath);
+  const configPath = join(directory, "config.json");
+  const configRaw = (await Bun.file(configPath).exists()) ? await boundedText(configPath) : "{}";
+  return loadExtensionManifest({ manifestRaw, configRaw, origin, directory, expectedId: basename(directory), idFrom: "the folder's name" }, options);
 }

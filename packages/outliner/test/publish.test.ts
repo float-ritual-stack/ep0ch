@@ -105,6 +105,8 @@ test("slug collisions resolve by age and show in the index", async () => {
   const { store, get } = await setup();
   const first = store.create("Moth list, spring [publish::moths]");
   const second = store.create("Moth list, autumn [publish::moths]");
+  // Made in the same millisecond or not, the first is the older: the store orders blocks made now (the slug's holder).
+  expect(second.createdAt > first.createdAt).toBe(true);
   expect(await (await get("/p/moths")).text()).toContain("Moth list, spring");
   const alternate = `/p/moths~${second.id.slice(0, 8)}`;
   expect(await (await get(alternate)).text()).toContain("Moth list, autumn");

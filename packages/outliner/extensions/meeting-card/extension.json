@@ -1,0 +1,16 @@
+{
+  "contract": 2,
+  "id": "meeting-card",
+  "version": 1,
+  "name": "Meeting card",
+  "description": "A rule that decorates: every block with [type::meeting] gets a header card of when, where and who, drawn above it.",
+  "run": ["bun", "meeting-card.ts"],
+  "rules": [
+    {
+      "id": "card",
+      "description": "A header card on every meeting: when, where, who, and how many notes are under it",
+      "match": { "property": "type=meeting" },
+      "decorate": { "place": "above" }
+    }
+  ]
+}

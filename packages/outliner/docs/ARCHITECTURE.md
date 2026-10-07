@@ -1780,6 +1780,15 @@ is the one grammar of a handler line (`key:: argument --option`).
    primitives, never a component by name.
 4. **A whole tile** (`tiles[]`): a tile kind for the door's tile-kind registry.
 
+**Rules** (`rules[]`, and rule notes in the outline, PIE-600) are evaluated by
+[`src/extension-rules.ts`](../src/extension-rules.ts): `match` through the store's
+own query matcher and outline-core's `rules.ts` (constructs, text patterns
+outside code), `decorate` as view primitives sent with
+`resources.projection.read` (`decorations`; a code rule's view kept in
+`extension_outputs` under `rule:` keys until the block's revision changes), and
+`on` triggers fed by the change feed, quiet-debounced, run through
+`extensions.act`, and never set off by an extension's own write.
+
 [`src/extension-calls.ts`](../src/extension-calls.ts) runs data, output and
 component handlers by their `effects` (`read`, `spend`, `write`), keeps the
 results, answers them in the `resources.projection.read` slot beside provider

@@ -1,3 +1,6 @@
+import type { Decoration } from "./extension-rules";
+import { mayHaveResourceProjections } from "./resource-references";
+import { mayHaveHandlerLines } from "./extension-handlers";
 import {presentedSource, projectedBlockReference} from './document-source';
 import {atomicDocument, concatDocuments, observeDocument, sourceDocument, sliceDocument, withDocumentOccurrence,
   generatedDocument, type MappedDocument, type SourceSlice} from './document-provenance';
@@ -14,8 +17,6 @@ import {
 } from "./relation-views";
 import { checkServiceCompatibility } from "./service-compatibility";
 import { outlinerLinkUri } from "./outliner-links";
-import { mayHaveResourceProjections } from "./resource-references";
-import { mayHaveHandlerLines } from "./extension-handlers";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
 import type {
   Block,
@@ -508,7 +509,14 @@ export function resourceProjectionLayout(projection: ResourceProjection): Resour
   const reason = projection.reason ? generatedInline(projection.reason) : "";
   const lines: string[] = [];
   let fetchedLine: number | undefined;
-  if ((projection.status === "ready" || projection.status === "stale") && projection.output) {
+  const decoration = projection.decoration;
+  if (projection.kind === "decoration") {
+    // A rule's decoration (PIE-600): which rule, where it draws, then what it draws, as text.
+    lines.push(`- ${title} · ${generatedInline(projection.summary ?? "")}${projection.status !== "ready" ? ` · ${STATUS_LABELS[projection.status] ?? generatedInline(String(projection.status))}` : ""}`);
+    for (const line of (decoration?.markdown ?? "").split("\n")) lines.push(line.trim() ? `  ${line}` : "");
+    while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    if (reason) lines.push(`  ${reason}`);
+  } else if ((projection.status === "ready" || projection.status === "stale") && projection.output) {
     // An extension's output or component (PIE-507): its markdown under the line, with when it ran.
     lines.push(`- ${title} · ran ${localTime(projection.output.ranAt)}${projection.fetching ? " · running" : ""}`);
     fetchedLine = 0;
@@ -545,9 +553,8 @@ export function resourceProjectionLines(projection: ResourceProjection): string[
 }
 
 /**
- * Resource projections for a Detail read. Any failure, including an older or
- * unreachable service, leaves the note as authored: a note without provider
- * lines never gains a failure path, and one with them degrades like an embed.
+ * Resource projections for a Detail read, and the rules' decorations (PIE-600). Any failure, including an
+ * older or unreachable service, leaves the note as authored, as an embed degrades.
  */
 async function readDetailResourceProjections(
   requester: DetailEmbedRequester,
@@ -555,7 +562,9 @@ async function readDetailResourceProjections(
   blockId: string,
   revision: number | undefined,
 ): Promise<readonly ResourceProjection[] | null> {
-  if (!mayHaveResourceProjections(text) && !mayHaveHandlerLines(text)) return null;
+  // While the outline has rules that decorate (PIE-600: they match properties and constructs, which only the service
+  // evaluates), every block is read; otherwise only a note with provider or handler lines, so a plain note never asks.
+  if (!decoratingBy.get(requester) && !mayHaveResourceProjections(text) && !mayHaveHandlerLines(text)) return null;
   try {
     if (await serviceIncompatibility(requester)) return null;
     // `materialize`: a stale ticket or extension line is fetched or run in the background on open (an older
@@ -563,10 +572,48 @@ async function readDetailResourceProjections(
     const read = await requester.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId, materialize: true });
     // A newer revision arrives with its own change event and read.
     if (revision !== undefined && read.revision !== revision) return null;
-    return read.projections;
+    return [...read.projections, ...(read.decorations ?? []).map(decorationProjection)].sort((left, right) => left.anchor.line - right.anchor.line);
   } catch {
     return null;
   }
+}
+
+/** Whether the outline a requester reaches has rules that decorate (`learnDetailRules`). */
+const decoratingBy = new WeakMap<object, boolean>();
+
+/**
+ * Asks the service whether its outline has rules that decorate (`extensions.list`'s `rules`), so Detail reads every
+ * note's decorations only then. Called on connect and on every `extensions` event; a failure keeps what was known.
+ */
+export async function learnDetailRules(requester: DetailEmbedRequester): Promise<boolean> {
+  try {
+    const listed = await requester.request<{ rules?: readonly { decorate?: unknown }[] }>({ action: "extensions.list" } as RequestInput);
+    decoratingBy.set(requester, (listed.rules ?? []).some((rule) => !!rule.decorate));
+  } catch { /* what was known stays */ }
+  return decoratingBy.get(requester) ?? false;
+}
+
+/**
+ * A rule's decoration (PIE-600) as Detail shows it: the sysop console keeps the note as written and draws what a rule
+ * draws as text under what it matched (a band as its heading, a card as its title and fields), named by its rule, so
+ * the source is never hidden here. It rides the projection slot, so a decoration that lands later redraws the note.
+ */
+export function decorationProjection(decoration: Decoration): ResourceProjection {
+  const line = decoration.hit.at === "block" ? 0 : decoration.place === "below" || decoration.place === "around" ? decoration.hit.end - 1 : decoration.hit.line;
+  const shown = decoration.status === "ready" || decoration.status === "stale";
+  return {
+    anchor: { kind: "directive", line, start: 0, end: 0 },
+    provider: "rule",
+    label: `Rule ${decoration.name}`,
+    propertyKey: "rule",
+    options: { unknown: [] },
+    fields: [],
+    kind: "decoration",
+    status: decoration.status,
+    ...(decoration.reason ? { reason: decoration.reason } : {}),
+    summary: `${decoration.place} ${decoration.hit.at === "block" ? "the block" : decoration.hit.at === "construct" ? `the ${decoration.hit.kind ?? "construct"} on line ${decoration.hit.line + 1}` : `line ${decoration.hit.line + 1}`}`,
+    ...(shown && decoration.markdown !== undefined ? { decoration: { markdown: decoration.markdown } } : {}),
+  };
 }
 
 interface ProjectedBase {

@@ -1,0 +1,16 @@
+{
+  "contract": 2,
+  "id": "shout",
+  "version": 1,
+  "name": "Shout",
+  "description": "A rule on a text pattern: a line that ends in !!! is drawn as a band, in capitals, in its place.",
+  "run": ["bun", "shout.ts"],
+  "rules": [
+    {
+      "id": "shout",
+      "description": "Lines ending in !!! (never in code) drawn as a band in their place",
+      "match": { "text": "^\\s*(?:[-*+]\\s+)?(\\S.*?)\\s*!!!\\s*$" },
+      "decorate": { "place": "replace" }
+    }
+  ]
+}

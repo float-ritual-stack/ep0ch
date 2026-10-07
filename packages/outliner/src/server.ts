@@ -36,6 +36,7 @@ import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSync } from "./extension-sync";
+import { ExtensionRules } from "./extension-rules";
 import { ExtensionCalls } from "./extension-calls";
 import { AgentRequests } from "./agent-requests";
 import { ExtensionRegistry, extensionRoots } from "./extension-registry";
@@ -292,6 +293,8 @@ export class OutlinerServer {
   readonly extensionCalls: ExtensionCalls;
   /** `@name` request lines and what their agents did (src/agent-requests.ts). */
   readonly agentRequests: AgentRequests;
+  /** User-land rules: match, decorate, and change triggers (src/extension-rules.ts, PIE-600). */
+  readonly extensionRules: ExtensionRules;
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
 
@@ -300,7 +303,7 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; readOnly?: boolean } = {},
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean } = {},
   ) {
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
@@ -346,6 +349,7 @@ export class OutlinerServer {
           if (!present.has(id)) this.store.forgetExtensionOutputs(id);
         }
         this.knownExtensions = present;
+        this.extensionRules?.rebaseline();
         this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
       },
     });
@@ -367,6 +371,16 @@ export class OutlinerServer {
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),
+    });
+    this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
+      // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
+      act: (request) => this.extensionCalls.act(request),
+      changed: (blockId) => this.broadcast({
+        id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
+      }),
+      // A rule note written: readers read the rules (extensions.list) and draw every note again.
+      rulesChanged: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
+      ...(options.ruleQuietMs !== undefined ? { quietMs: options.ruleQuietMs } : {}),
     });
   }
 
@@ -405,6 +419,7 @@ export class OutlinerServer {
     // from before agent requests, are seen to the same way, once per outline.
     this.agentRequests.start();
     this.extensionSync.start();
+    this.extensionRules.start();
     void this.extensionRegistry.watch().catch(() => {});
   }
 
@@ -437,6 +452,7 @@ export class OutlinerServer {
       throw error;
     }
     this.extensionSync.start();
+    this.extensionRules.start();
     await this.extensionRegistry.watch().catch(() => {});
   }
 
@@ -447,6 +463,7 @@ export class OutlinerServer {
     this.extensionSync.stop();
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
+    this.extensionRules.stop();
     this.agentRequests.stop();
     await this.inbox?.stop();
     const server = this.server;
@@ -1636,7 +1653,8 @@ export class OutlinerServer {
         if (request.action === "extensions.list") {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
           if (request.reload) await this.extensionRegistry.reload();
-          result = this.extensionRegistry.list();
+          // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
+          result = { ...this.extensionRegistry.list(), ...this.extensionRules.list() };
         } else {
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.act needs extension and extensionAction");
           if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
@@ -1912,7 +1930,10 @@ export class OutlinerServer {
             void this.extensionSync.materialize(record?.parentBlockId ?? normalized.blockId).catch(() => {});
           }
           if (request.materialize === true) void this.extensionCalls.materialize(normalized.blockId, "open").catch(() => {});
-          result = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
+          const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
+          // A whole block's read carries what the rules draw on it (PIE-600); a line's doesn't.
+          const decorations = normalized.line === undefined ? this.extensionRules.decorations(normalized.blockId) : [];
+          result = decorations.length ? { ...read, decorations } : read;
           break;
         }
         case "children":
@@ -3121,6 +3142,11 @@ export class OutlinerServer {
           this.extensionCalls.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");
           this.agentRequests.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");
         }
+      }
+      // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
+      // one in the Trash stops); an extension's own only moves what a trigger remembers.
+      if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")) {
+        this.extensionRules.blockChanged(event.blockId, event.change!.actor, event.change!.kind as "create" | "edit" | "move" | "restore" | "delete");
       }
     }
     if (events.some(event => event.domain === "content")) this.inbox?.wake();

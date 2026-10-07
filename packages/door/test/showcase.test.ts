@@ -349,6 +349,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write(s: string) { written.push(s); }, paint(l: string[]) { painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
+    // As the door does at start: the extensions and rules the service lists (the seed installed the example rules).
+    await app.loadExtensions(true);
     sc = new Showcase();
     app.push(new MainMenu()); app.push(sc);
     await until(() => !!S().notes, "the showcase outline", 8000);
@@ -382,6 +384,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
+    // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
+    rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
     selection: ["Lentil soup", "Drag across these lines"],
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
     // This door runs in its own terminal (the test's App), so the section says so; in a session it lists the terminals.
@@ -471,9 +475,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 21, key: "selection" });
+    expect(r).toEqual({ section: SECTIONS.findIndex(s => s.key === "selection") + 1, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 21");
+    expect((app as any).message).toContain(`an agent (test-agent) showed section ${SECTIONS.findIndex(s => s.key === "selection") + 1}`);
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
@@ -634,7 +638,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => overlay()?.name === "tile menu", "the ⋯ opens the reader's menu");
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /\bzoom\s+\^W z/.test(l));
     expect(y).toBeGreaterThan(0);
-    click(rows[y]!.indexOf("zoom"), y);
+    // The menu's row, not the index's "open, split, zoom" a scrolled index can put on the same row.
+    click(rows[y]!.search(/\bzoom\s+\^W z/), y);
     await until(() => stage().zoom !== null, "zoom ran from the menu");
     expect(overlay()).toBeNull();
     await app.act({ action: "tile.zoom", tile: "reader", args: { on: false }, as: "test-agent" }).catch(() => stage().dispatch.press("tile.zoom", { on: false }, "reader"));
@@ -990,6 +995,63 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await text()).toContain("> > [!warning] warning");                // folding never writes
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
+    const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
+    const at = SECTIONS.findIndex(s => s.key === "rules");
+    const reader = (n = 0) => S().stages.get(at)?.top.pane(n ? "reader2" : "reader")?.describe() as any;
+    const drawn = () => (reader()?.decorations?.drawn ?? []) as { rule: string; place: string; status: string; on: string; line: number }[];
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "rules" }, as: "test-agent" })).toEqual({ section: at + 1, key: "rules" });
+    await until(() => screen().includes("CLOSE THE COLD FRAME TONIGHT") && screen().includes("[meeting]") && drawn().filter(d => d.status === "ready").length === 4, "the card, the bands and the shout", 12_000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}\n${JSON.stringify(reader())?.slice(0, 2000)}`); });
+    // The rule note's bands are in the headings' places, shout's in the line's; the card above the note.
+    expect(drawn().map(d => [d.rule, d.place, d.on, d.line])).toEqual([
+      ["meeting-card/card", "above", "block", 0], ["shout/shout", "replace", "text", 13],
+      ["committee-bands", "replace", "construct", 6], ["committee-bands", "replace", "construct", 10],
+    ]);
+    let shown = screen();
+    expect(shown).not.toContain("Close the cold frame tonight!!!");
+    expect(shown).toContain("Ann, Bo, Cy");
+    // Through act, as an agent: the meeting's type changed, the card goes (the text keeps everything else); back, it comes back.
+    const before = await text();
+    await app.act({ action: "props.edit", tile: "reader", args: { key: "type", value: "chat" }, as: "test-agent" });
+    await until(() => !drawn().some(d => d.rule === "meeting-card/card") && !screen().includes("[meeting]"), "the card gone", 8000);
+    expect(await text()).toBe(before.replace("[type::meeting]", "[type::chat]"));
+    await app.act({ action: "props.edit", tile: "reader", args: { key: "type", value: "meeting" }, as: "test-agent" });
+    await until(() => drawn().some(d => d.rule === "meeting-card/card" && d.status === "ready") && screen().includes("[meeting]"), "the card back", 10_000);
+    expect(await text()).toBe(before);
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // A band is still its heading: ( ) stops on it and f folds what's under it, the band drawn over the hidden lines.
+    ch(")");
+    await until(() => String(reader().folds?.selected ?? "").includes("Agenda"), "( ) on the Agenda band", 5000);
+    ch("f");
+    await until(() => !screen().includes("Water rota for August") && screen().includes("2 lines folded"), "the Agenda band folded", 5000);
+    ch("f");
+    await until(() => screen().includes("Water rota for August"), "unfolded", 5000);
+    // R: the note as written, and back; nothing written.
+    ch("R");
+    await until(() => screen().includes("Close the cold frame tonight!!!") && screen().includes("## Agenda"), "the note as written", 5000);
+    expect(reader().decorations).toMatchObject({ raw: true, drawn: expect.any(Array) });
+    expect(screen()).not.toContain("CLOSE THE COLD FRAME TONIGHT");
+    ch("R");
+    await until(() => screen().includes("CLOSE THE COLD FRAME TONIGHT"), "decorated again", 5000);
+    expect(await text()).toBe(before);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // done-stamp: the job's status set to done through act stamps it once, as the extension, and its own write sets nothing off.
+    const job = (await board.children(id)).find(k => k.text.startsWith("Mend the water butt"))!;
+    await until(() => reader(1)?.showing?.id === job.id, "the job beside", 5000);
+    await app.act({ action: "props.edit", tile: "reader2", args: { key: "status", value: "done" }, as: "test-agent" });
+    const has = async (re: RegExp) => { const end = Date.now() + 10_000; while (!re.test(await text(job.id))) { if (Date.now() > end) throw new Error(`timed out waiting for ${re}`); await Bun.sleep(50); } };
+    await has(/\[done-at::\d{4}-\d\d-\d\d\]/);
+    const stamped = (await board.get(job.id))!;
+    await Bun.sleep(2500);
+    expect((await board.get(job.id))!.revision).toBe(stamped.revision);
+    expect((await text(job.id)).match(/done-at/g)).toHaveLength(1);
+    await app.act({ action: "props.edit", tile: "reader2", args: { key: "status", value: "todo" }, as: "test-agent" });
+    await has(/^(?![\s\S]*done-at)/);
+  }, 60_000);
 
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
     const id = seeded.notes.plotJobs.id, before = (await board.get(id))!.text;

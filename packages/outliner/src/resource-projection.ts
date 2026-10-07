@@ -1,3 +1,4 @@
+import type { Decoration } from "./extension-rules";
 import {
   createContextResolver,
   subjectLineIndex,
@@ -87,7 +88,9 @@ export interface ResourceProjection {
    * absent for a Jira projection; `data`, `output` or `component` for a
    * handler an extension folder serves.
    */
-  readonly kind?: "data" | "output" | "component" | "agent";
+  readonly kind?: "data" | "output" | "component" | "agent" | "decoration";
+  /** A rule's decoration as Detail shows it (PIE-600, `decorationProjection` in src/detail-embeds.ts): its Markdown. */
+  readonly decoration?: { readonly markdown: string };
   /** An `@name` request line (kind `agent`, capability `extensions.agents`): what the agent did about it. */
   readonly agent?: {
     readonly name: string;
@@ -157,6 +160,8 @@ export interface ResourceProjectionReadResult {
   readonly blockId: string;
   readonly revision: number;
   readonly projections: readonly ResourceProjection[];
+  /** What the rules draw on the block (PIE-600, `src/extension-rules.ts`): only on a whole block's read, and only when there are any. */
+  readonly decorations?: readonly Decoration[];
 }
 
 export interface ResourceProjectionDataSource {

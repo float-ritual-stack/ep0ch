@@ -17,7 +17,7 @@ import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
 import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
+import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
@@ -86,7 +86,25 @@ export interface ResourceProjection {
   output?: ExtensionOutput;
   agent?: AgentRequestState;
 }
-export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[] }
+/**
+ * What a rule matched in a note (PIE-600, outline-core `RuleHit`): the whole block, a construct (a heading, a
+ * callout, a list, a rule, an image) or a line a text pattern hit. Lines are the note's whole-text lines; `end` is the
+ * line after the last.
+ */
+export interface RuleHit { at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: string; captures?: string[] }
+/**
+ * A rule's decoration on a note (pi-herdr-outliner src/extension-rules.ts): view primitives the reader draws above or
+ * below what matched, in its place, or around it. The note's text never changes; the reader's `R` shows it raw.
+ */
+export interface Decoration {
+  rule: string; name: string;
+  source: { kind: "extension"; extension: string; rule: string } | { kind: "note"; blockId: string };
+  hit: RuleHit;
+  place: "above" | "below" | "replace" | "around" | (string & {});
+  status: "ready" | "stale" | "not-run" | "unavailable" | (string & {});
+  view?: unknown; title?: string; markdown?: string; ranAt?: string; fetching?: boolean; reason?: string;
+}
+export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[]; decorations?: Decoration[] }
 
 /**
  * The property keys that name a projection (the service's RESOURCE_DIRECTIVE_PROVIDERS, parity-tested).
@@ -95,8 +113,11 @@ export interface ResourceProjectionRead { blockId: string; revision: number; pro
 export const PROJECTION_KEYS = ["jira"] as const;
 // A provider line (`jira::`) or a ticket block's own `[jira.key::…]`, which shows its ticket's header.
 const MENTIONS = new RegExp(`(?:${PROJECTION_KEYS.join("|")})(?:\\.key)?::`, "i");
-/** A provider line, or a line an extension the service lists answers (a handler's `key::`, an `@name` request). */
-export const mayHaveProjections = (text: string) => (text.includes("::") && MENTIONS.test(text)) || mentionsExtension(text);
+/**
+ * A provider line, or a line an extension the service lists answers (a handler's `key::`, an `@name` request), or any
+ * note while a rule decorates (PIE-600: a rule matches properties, queries and constructs, so only the service knows).
+ */
+export const mayHaveProjections = (text: string) => (text.includes("::") && MENTIONS.test(text)) || mentionsExtension(text) || decoratingRules();
 
 // ── Detail's layout (src/detail-embeds.ts), as it reads once drawn ──────────────────────────────────
 
@@ -436,7 +457,16 @@ export function forgetProjectionAnswers(): void { caches.clear(); }
  * have changed; the reader redraws when it lands). Empty for a note that names no provider, after a failed read, and while the answer is for another revision of the note.
  */
 export function projectionsOf(m: Msg, src: Source | null | undefined): readonly ResourceProjection[] {
-  if (!src || m.partial || !mayHaveProjections(m.text)) return [];
+  return readOf(m, src)?.projections ?? [];
+}
+
+/** The decorations the rules draw on note `m` (PIE-600), from the same answer as its projections: none until it's read. */
+export function decorationsOf(m: Msg, src: Source | null | undefined): readonly Decoration[] {
+  return readOf(m, src)?.decorations ?? [];
+}
+
+function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead | null {
+  if (!src || m.partial || !mayHaveProjections(m.text)) return null;
   let cache = cacheBy.get(src.board);
   if (!cache) { cacheBy.set(src.board, (cache = new Map())); caches.add(new WeakRef(cache)); }
   const hit = cache.get(m.id);
@@ -455,8 +485,8 @@ export function projectionsOf(m: Msg, src: Source | null | undefined): readonly 
   }
   const read = cache.get(m.id)?.read;
   // An answer for another revision waits for the read the change brings: its lines may have moved.
-  if (!read || (m.revision !== undefined && read.revision !== m.revision)) return [];
-  return read.projections;
+  if (!read || (m.revision !== undefined && read.revision !== m.revision)) return null;
+  return read;
 }
 
 // ── an extension's line (PIE-507: output, component, an @name request, a record not fetched yet) ──

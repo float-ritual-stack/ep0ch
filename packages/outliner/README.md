@@ -2710,7 +2710,7 @@ Existing threads and an agent reply are seeded through public APIs.
 ## Project documents
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Extensions: the four kinds](docs/extensions/README.md) (data, inline output, rich component, a whole tile)
+- [Extensions: the four kinds, and rules](docs/extensions/README.md) (data, inline output, rich component, a whole tile; rules that decorate or run when a block matches)
 - [Contributing and delivery workflow](CONTRIBUTING.md)
 - [Proposed safety and Herdr/Pi implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [OpenCode port requirements](docs/OPENCODE_PORT.md)
@@ -2916,7 +2916,10 @@ The service watches both and loads a folder as soon as it appears, with no resta
 removes everything it added. There are four kinds: **data** put into a block as if copied in
 (`moon:: 2026-10-26`, `jira:: PC-12`), **inline output** shown under a line (`horoscope:: virgo`), a
 **rich component** composed from shared primitives with its own actions (`fancy-horror:: virgo`), and
-a **whole tile** for the door (`tarot.reading`). An extension can also declare agents you address
+a **whole tile** for the door (`tarot.reading`). **Rules** say when a block gets one: match a property, a
+query, a text pattern or a heading, callout, list, rule or image, then decorate it (a card over every
+`[type::meeting]`, headings as bands) or run an action when it starts or stops matching (`done-stamp`);
+a rule note (`[rule-name::name]` with `rule-*` properties) does it with no code. An extension can also declare agents you address
 while you write: `@tidy` on a line tidies the paragraph above it, as an attributed edit.
 `outliner ext ls|add|remove|act` manages them. See
 [Extensions: the four kinds](docs/extensions/README.md); Jira's Resource process contract is in

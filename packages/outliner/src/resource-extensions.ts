@@ -347,7 +347,7 @@ export class ResourceExtensionRuntime {
    */
   async invokeLoaded(
     extension: LoadedExtension,
-    operation: "read" | "run" | "act" | "respond",
+    operation: "read" | "run" | "act" | "respond" | "decorate",
     input: unknown,
     deadlineMs?: number,
   ): Promise<ExtensionResult> {
@@ -382,7 +382,7 @@ export class ResourceExtensionRuntime {
       directory: string;
       stamp: string;
     },
-    operation: "resolve" | "read" | "changed" | "run" | "act" | "respond",
+    operation: "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate",
     input: unknown,
     signal: AbortSignal | undefined,
     deadlineMs: number | undefined,

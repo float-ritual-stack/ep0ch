@@ -62,15 +62,17 @@ export async function refreshTicket(b: SocketBoard, resourceId: string): Promise
 
 /** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */
 export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy"] as const;
+/** The outliner's example rules (PIE-600): one that decorates, one that runs, one on a text pattern. */
+export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user
  * extensions folder, as `outliner ext add` would. Only ever a scratch or showcase config dir. The examples'
  * content is made up. Returns the ids copied (none when the checkout has no examples).
  */
-export function installExamples(configDir: string, outlinerCheckout: string): string[] {
+export function installExamples(configDir: string, outlinerCheckout: string, ids: readonly string[] = EXAMPLE_EXTENSIONS): string[] {
   const done: string[] = [];
-  for (const id of EXAMPLE_EXTENSIONS) {
+  for (const id of ids) {
     const from = join(outlinerCheckout, "extensions", id);
     if (!existsSync(join(from, "extension.json"))) continue;
     cpSync(from, join(configDir, "pi-herdr-outliner", "extensions", id), { recursive: true });

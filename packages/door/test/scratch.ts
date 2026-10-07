@@ -119,7 +119,7 @@ export class Scratch {
     const { SocketBoard } = await import("../src/socket");
     const { seedShowcase } = await import("../src/showcase/seed");
     const b = new SocketBoard(this.sock);
-    try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config") }); } finally { b.close(); }
+    try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config"), ...(outliner ? { rulesFrom: outliner } : {}) }); } finally { b.close(); }
   }
 
   async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }

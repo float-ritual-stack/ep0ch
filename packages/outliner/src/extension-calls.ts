@@ -294,7 +294,9 @@ export class ExtensionCalls {
     const current = new Set(calls.map((call) => call.callKey));
     const replaced = new Set(this.store.extensionOutputs(blockId).filter((row) => !current.has(row.callKey)).map((row) => row.handlerKey));
     // Outputs of lines the block no longer has go; the records it no longer asks for settle.
-    this.store.pruneExtensionOutputs(blockId, calls.filter((call) => call.kind !== "data").map((call) => call.callKey));
+    // A rule's decorations are kept in the same table (`rule:` keys) and pruned by the rules (src/extension-rules.ts).
+    const decorations = this.store.extensionOutputs(blockId).filter((row) => row.callKey.startsWith("rule:")).map((row) => row.callKey);
+    this.store.pruneExtensionOutputs(blockId, [...calls.filter((call) => call.kind !== "data").map((call) => call.callKey), ...decorations]);
     this.settleAsks(blockId, calls);
     const rows = new Map(this.store.extensionOutputs(blockId).map((row) => [row.callKey, row]));
     const chosen = calls.filter((call) => options.line === undefined || call.line === options.line);

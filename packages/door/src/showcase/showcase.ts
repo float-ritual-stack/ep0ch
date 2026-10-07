@@ -279,6 +279,24 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "rules", need: "decorate a block that matches a rule, or run something when it starts or stops matching",
+    part: "rules (PIE-600): the service matches (a property, a query, a text pattern, a kind) and sends decorations with resources.projection.read; planDecorations lays them out and primitiveLines draws them (band, track, card) above, below, in place of or around what matched; R (decor.raw) shows the note as written",
+    files: "src/decorations.ts, src/projection.ts, src/components.ts, src/doc.ts",
+    aside: "meeting-card (decorate), done-stamp (on: start stamps [done-at::], stop takes it off) and shout (a text pattern) are the outliner's example rules; the bands are a rule note under the meeting, no code. Set the job's status to done (i on it) and watch it get stamped",
+    stage(n, show) {
+      const r = new ReaderPane(), job = new ReaderPane();
+      const d = stageDesk({ title: "showcase · rules", panes: [r, job], layout: ([a, b]) => row(0.62, a!, b!) });
+      show(ctx => {
+        if (!n.rules) return;
+        r.show(n.rules, d);
+        d.setCurrent(n.rules);
+        // The job done-stamp watches is under the meeting: read it, then show it beside.
+        void ctx.board.children(n.rules.id).then(kids => { const m = kids.find(k => k.text.startsWith("Mend the water butt")); if (m) job.show(m, d); }, () => {});
+      });
+      return d;
+    },
+  },
+  {
     key: "selection", need: "select or copy text a reader draws", part: "the selection model: Selection, Gesture (a mouse selection is copied on release), v, y Y cmd+c, select* actions; App.copy (OSC 52 and the copied-to-clipboard toast)", files: "src/surface/selection.ts, src/surface/note.ts, src/app.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · selection", panes: [r] }, show, [[r, n.recipe]]); },
   },

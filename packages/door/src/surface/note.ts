@@ -17,7 +17,8 @@ import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
-import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
@@ -508,6 +509,8 @@ export class NoteSurface {
   private digested: { m: Msg; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
   private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string } | null = null;
+  /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
+  raw = false;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
@@ -1011,8 +1014,10 @@ export class NoteSurface {
    */
   private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string }[], host: SurfaceHost | undefined, src: Source | null): Laid {
     const top = head.length, t = host?.ctx.t;
+    // What the rules draw on the note (PIE-600), unless the person asked for it raw (R).
+    const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}`;
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
     const env = { ...this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero };
@@ -1039,18 +1044,27 @@ export class NoteSurface {
       // A view note's results under its body, drawn as an embedded view (the service's answer).
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
       const view = !!results && (m.props.type ?? "").toLowerCase() === "virtual-branch";
-      return regions.size || view ? {
+      // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
+      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, headings: headingStylesOf(src) }, bodyText);
+      return regions.size || view || plan.after.size || plan.place.size ? {
+        ...(plan.place.size ? {
+          decorate: (line: number, width: number) => {
+            const p = plan.place.get(line), r = p?.draw(width);
+            return p && r ? { end: p.end, ...r } : null;
+          },
+        } : {}),
         after: (line: number, width: number) => {
+          const decor = (plan.after.get(line) ?? []).flatMap(f => f(width));
           const ps = regions.get(line);
           const tail = view && line === last ? ["", ...(results!(width) ?? [])] : [];
-          if (!ps) return tail.length > 1 ? tail : [];
+          if (!ps) return [...decor, ...(tail.length > 1 ? tail : [])];
           const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
           const tag = (to: LinkTarget, text: string) => tagged(drawn, to, text);
           // A ticket kept as a block (PIE-445), and an extension's record (PIE-507), is drawn from that block:
           // on a page, all of it under its line; on the ticket block itself, its header on top and its
           // comments after the body. An extension's other lines (an output, a component, an @name request)
           // draw their result with their actions (PIE-512).
-          return [...ps.flatMap(({ p, part }) => p.record
+          return [...decor, ...ps.flatMap(({ p, part }) => p.record
             ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
             : p.kind ? extensionRegion(p, width, indent, now, tag, extDraw)
             : projectionRegion([p], width, indent, now, tag)), ...(tail.length > 1 ? tail : [])];
@@ -1987,6 +2001,8 @@ export class NoteSurface {
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
     if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
     if (c === "z") { void this.runKey("callouts", {}, host); return true; }
+    // R: the note as written, without what the rules draw on it (PIE-600), and back.
+    if (c === "R" && this.msg && isOutlineNote(this.msg)) { void this.runKey("decor.raw", {}, host); return true; }
     // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
     // a fold toggles, a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a
     // row or an embed in a new reader. Otherwise ⏎ isn't the reader's.
@@ -3921,6 +3937,8 @@ export class NoteSurface {
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
       steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
+      // What the rules draw on the note (PIE-600), and whether the person has it raw (R).
+      decorations: this.msg && isOutlineNote(this.msg) ? { raw: this.raw, drawn: decorationsOf(this.msg, this.src).map(d => ({ rule: d.name, place: d.place, status: d.status, on: d.hit.at, line: d.hit.line })) } : null,
       agent: this.agent,
       header: this.headerBackdrop(),
     };
@@ -5217,6 +5235,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       else { setUserSummaryKeys(reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
       const m = surface.msg;
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
+    },
+  }),
+  "decor.raw": def({
+    summary: "the note as written, without what the outline's rules draw on it (PIE-600: a heading's band, a meeting's card, a shouted line), or (on=false, or R again) with it. The reader's own state: the note is never written",
+    keys: "R",
+    touches: "tile", replay: "safe", way: "peek's decorations say what is drawn; open the note in a reader of your own to see it raw",
+    args: { on: { type: "boolean", optional: true, about: "true: raw; false: decorated; absent: the other one" } },
+    run({ on }, { surface, host }) {
+      const m = surface.requireNote();
+      surface.raw = on ?? !surface.raw;
+      host.ctx.flash(surface.raw ? "raw: the note as written · R draws the rules' decorations again" : "decorated: what the rules draw · R shows the note as written");
+      host.redraw();
+      return { raw: surface.raw, decorations: surface.raw ? 0 : decorationsOf(m, surface.src).length };
     },
   }),
   "fold.select": def({

@@ -853,8 +853,29 @@ export class OutlinerStore {
       parentId,
       author,
       provenance,
-      new Date().toISOString(),
+      this.createdTime(),
     );
+  }
+
+  /** The last creation time `createdTime` gave; read from the outline the first time, so a reopened store goes on from it. */
+  private lastCreatedAt: number | null = null;
+
+  /**
+   * The creation time of a block made now. Blocks made now are ordered by when they were made, even within one
+   * millisecond: a clock at or before the last time given (two creates in a row) gives a millisecond after it, so
+   * "oldest first" (a slug's holder) never falls to a random id. Only for blocks this store makes now: a time from
+   * elsewhere (an import keeping its own) is passed as it is. A last time far ahead of the clock (a block from
+   * elsewhere dated in the future) isn't followed.
+   */
+  private createdTime(): string {
+    if (this.lastCreatedAt === null) {
+      const row = this.database.query("SELECT MAX(created_at) AS at FROM blocks").get() as { at: string | null } | null;
+      this.lastCreatedAt = row?.at ? Date.parse(row.at) : 0;
+    }
+    const now = Date.now(), last = Number.isFinite(this.lastCreatedAt) ? this.lastCreatedAt : 0;
+    const at = now <= last && last - now < 1_000 ? last + 1 : now;
+    this.lastCreatedAt = at;
+    return new Date(at).toISOString();
   }
 
   private createAt(
@@ -1002,7 +1023,7 @@ export class OutlinerStore {
           bookmarked: false,
         };
       }
-      const createdAt = new Date().toISOString();
+      const createdAt = this.createdTime();
       const record = this.createAt(
         bookmarkRecordText(target, createdAt, label),
         root.id,
@@ -1555,7 +1576,7 @@ export class OutlinerStore {
       if (input.prepareBlock && this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(requestId)) throw new Error("This capture was already submitted");
       if (input.prepareBlock && !block) {
         const placement = this.placementFromCurrentRead({ kind: "capture" });
-        block = this.createAt(input.text, placement.parentId, "user", undefined, new Date().toISOString(), placement.at === "top" ? 0 : undefined);
+        block = this.createAt(input.text, placement.parentId, "user", undefined, this.createdTime(), placement.at === "top" ? 0 : undefined);
       } else if (block && !captured && block.text !== input.text) {
         // Draft saves are provisional writing: a page named in one idle save and
         // corrected in the next must not stay behind as an alias of the capture.
@@ -2942,7 +2963,7 @@ export class OutlinerStore {
         placement.parentId,
         author,
         provenance,
-        new Date().toISOString(),
+        this.createdTime(),
         placement.at === "top" ? 0 : undefined,
       );
       const created = this.resolvePageAddressFromCurrentRead(normalized);
@@ -2962,7 +2983,7 @@ export class OutlinerStore {
     if (typeof text !== "string") throw new Error("Note text must be a string");
     return this.database.transaction((): NewNoteReceipt => {
       const placement = this.placementFromCurrentRead(intent);
-      const block = this.createAt(text, placement.parentId, author, provenance, new Date().toISOString(), placement.at === "top" ? 0 : undefined);
+      const block = this.createAt(text, placement.parentId, author, provenance, this.createdTime(), placement.at === "top" ? 0 : undefined);
       return { block, placement };
     })();
   }
@@ -3273,6 +3294,11 @@ export class OutlinerStore {
 
   children(parentId: string | null): Block[] {
     return this.database.transaction(() => this.childrenFromCurrentRead(parentId))();
+  }
+
+  /** Every block not in the Trash, in outline order: a rule's baseline (PIE-600, `src/extension-rules.ts`). */
+  liveBlocks(): Block[] {
+    return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" }))();
   }
 
   queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
