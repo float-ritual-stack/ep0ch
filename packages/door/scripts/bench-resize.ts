@@ -48,6 +48,8 @@ export interface Summary {
   layoutMs: number; renderMs: number; tiles: Record<string, number>;
   bytes: number; bytesPerFrame: number; uploads: number; uploadBytes: number; places: number; deletes: number; scaled: number; grids: number;
   tickMs: number; cpuMs: number; rssMB: number;
+  /** The terminal tile: sizes sent to its program during the drag and on release, its width, and the width the program last said it was told. */
+  pty: { sizes: number; cols: number; told: number; broken: number };
   /** Every frame's ms and every chunk's lag, for pooling runs. */
   ms: number[]; lag: number[];
   settle: { ms: number; frames: number; bytes: number; uploads: number; uploadBytes: number; scaled: number; grids: number };
@@ -69,6 +71,9 @@ export function broken(s: Summary, time = false): string[] {
     s.grids ? `${s.grids} cell grids made during the drag (none until it's let go)` : "",
     s.uploads ? `${s.uploads} images uploaded during the drag (none until it's let go)` : "",
     perCell > BUDGET.bytesPerCell ? `${perCell.toFixed(1)} bytes a cell a frame (at most ${BUDGET.bytesPerCell})` : "",
+    s.pty.told !== s.pty.cols ? `the terminal tile's program was last told ${s.pty.told} columns, the tile is ${s.pty.cols}` : "",
+    s.pty.broken ? `${s.pty.broken} rows of the terminal tile's program wrapped at a width it wasn't drawn for` : "",
+    s.pty.sizes > 2 ? `${s.pty.sizes} sizes sent to the terminal tile's program (one when the resize ends)` : "",
     (kitty ? s.settle.scaled : s.settle.grids) ? "" : `letting go made nothing for the new sizes (${kitty ? "scaled" : "grids"} 0)`,
     time && s.p95 > BUDGET.frameMs ? `p95 ${s.p95} ms (at most ${BUDGET.frameMs})` : "",
   ].filter(Boolean);
@@ -89,6 +94,12 @@ function kittyCounts(s: string) {
   }
   return { uploads, uploadBytes, places, deletes };
 }
+
+/**
+ * A width-sensitive program for a terminal tile: on each SIGWINCH it says the width it was told (`W<cols>`), then
+ * draws a rule exactly that wide, as a TUI lays itself out to its terminal.
+ */
+const WIDE = `say() { c=$(stty size </dev/tty 2>/dev/null | cut -d' ' -f2); printf 'W%s\\n' "$c"; printf "%\${c:-1}s\\n" '' | tr ' ' '='; }; trap say WINCH; say; while :; do sleep 0.05; done`;
 
 async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolean }): Promise<Summary> {
   const { Scratch } = await import("../test/scratch");
@@ -121,7 +132,7 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
     const root = {
       t: "split", dir: "row", weights: [0.3, 0.25, 0.25, 0.2], kids: [
         L("detail", "hero", { note: n.hero.id }),
-        { t: "split", dir: "col", weights: [0.55, 0.45], kids: [L("detail", "pictures", { note: n.images.id }), L("detail", "figures", { note: n.figures.id })] },
+        { t: "split", dir: "col", weights: [0.4, 0.35, 0.25], kids: [L("detail", "pictures", { note: n.images.id }), L("detail", "figures", { note: n.figures.id }), L("pty", "wide", { cmd: ["sh", "-c", WIDE] })] },
         { t: "flow", key: "river", kids: [L("river.column", "library", { source: "roots" })] },
         { t: "split", dir: "col", weights: [0.6, 0.4], kids: [L("board", "board", { preview: false }), L("pty", "term", { cmd: ["sh", "-c", "ls -la /usr/bin | head -200; exec sleep 3600"] })] },
       ],
@@ -194,6 +205,11 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
       layoutPending += performance.now() - t0;
     });
 
+    // The terminal tile's program: each size it's sent (SIGWINCH), counted while recording.
+    const wide = [...(D.panes as Map<number, any>).values()].find(p => p.kind === "pty" && D.nameOf(D.idOf(p)) === "wide");
+    let ptySizes = 0;
+    if (wide?.proc) { const resize = wide.proc.resize.bind(wide.proc); wide.proc.resize = (c: number, r: number) => { if (recording) ptySizes++; return resize(c, r); }; }
+
     chunk([{ action: "down", x: x0 }]);
     if (!D.drag) throw new Error(`pressing ${x0},${y} didn't grab the border`);
     await Bun.sleep(50);
@@ -220,6 +236,16 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
     const w1 = { ...mediaWork }, s0 = performance.now();
     chunk([{ action: "up", x: path.at(-1)! }]);
     const settled = await settle(600);
+    // The program's last word on its width, against the tile's: the size it ended at was sent, once.
+    await Bun.sleep(300);
+    const said = (wide?.text?.() as string[] | undefined ?? []).map(l => /^W(\d+)/.exec(l.trim())?.[1]).filter(Boolean).at(-1);
+    // Its rules, through the scrollback: one drawn for one width while the emulator had another is cut where the
+    // emulator's width ended and goes on at the left edge (a TUI's text, wrapped mid-word).
+    const buf = wide?.term?.buffer.active, scroll: string[] = [];
+    for (let i = 0; buf && i < buf.length; i++) scroll.push(buf.getLine(i)?.translateToString(true) ?? "");
+    let broken = 0, w = 0;
+    for (const r of scroll) { const m = /^W(\d+)$/.exec(r.trim()); if (m) { w = Number(m[1]); continue; } if (/^=+$/.test(r) && w && r.length !== w) broken++; }
+    const pty = { sizes: ptySizes, cols: wide?.cols ?? 0, told: Number(said ?? 0), broken };
     const after = frames.splice(0);
     recording = false;
 
@@ -234,6 +260,7 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
       lagP95: r1(pct(lag, 95)), layoutMs: each("layoutMs"), renderMs: each("renderMs"), tiles,
       bytes: sumOf(drag, "bytes"), bytesPerFrame: Math.round(sumOf(drag, "bytes") / Math.max(1, drag.length)), uploads: sumOf(drag, "uploads"), uploadBytes: sumOf(drag, "uploadBytes"), places: sumOf(drag, "places"), deletes: sumOf(drag, "deletes"), scaled, grids,
       tickMs: r1(tickMs), cpuMs: r1((cpu.user + cpu.system) / 1000), rssMB: r1(rss / 1048576), ms: ms.map(r1), lag: lag.map(r1),
+      pty,
       settle: { ms: r1(settled - s0), frames: after.length, bytes: sumOf(after, "bytes"), uploads: sumOf(after, "uploads"), uploadBytes: sumOf(after, "uploadBytes"), scaled: mediaWork.scaled - w1.scaled, grids: mediaWork.grids - w1.grids },
     };
     D.dispose?.();
@@ -246,8 +273,8 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
 }
 
 function table(rows: Summary[]): string {
-  const head = ["config", "frames", "p50", "p95", "max", ">16ms", "lag p95", "layout", "render", "KB/frame", "uploads", "upload KB", "place/del", "scaled", "grids", "cpu ms", "rss MB", "settle ms", "settle up", "settle scaled"];
-  const lines = rows.map(s => [s.config, `${s.frames}/${s.reports}`, s.p50, s.p95, s.max, s.over16, s.lagP95, s.layoutMs, s.renderMs, r1(s.bytesPerFrame / 1024), s.uploads, r1(s.uploadBytes / 1024), `${s.places}/${s.deletes}`, s.scaled, s.grids, s.cpuMs, s.rssMB, s.settle.ms, s.settle.uploads, s.settle.scaled + s.settle.grids].map(String));
+  const head = ["config", "frames", "p50", "p95", "max", ">16ms", "lag p95", "layout", "render", "KB/frame", "uploads", "upload KB", "place/del", "scaled", "grids", "cpu ms", "rss MB", "settle ms", "settle up", "settle scaled", "pty sizes", "pty miswrapped"];
+  const lines = rows.map(s => [s.config, `${s.frames}/${s.reports}`, s.p50, s.p95, s.max, s.over16, s.lagP95, s.layoutMs, s.renderMs, r1(s.bytesPerFrame / 1024), s.uploads, r1(s.uploadBytes / 1024), `${s.places}/${s.deletes}`, s.scaled, s.grids, s.cpuMs, s.rssMB, s.settle.ms, s.settle.uploads, s.settle.scaled + s.settle.grids, `${s.pty.sizes}${s.pty.told === s.pty.cols ? "" : ` (told ${s.pty.told}, is ${s.pty.cols})`}`, s.pty.broken].map(String));
   const w = head.map((h, i) => Math.max(h.length, ...lines.map(l => l[i]!.length)));
   const fmt = (l: string[]) => l.map((c, i) => c.padStart(w[i]!)).join("  ");
   const tiles = rows.map(s => `  ${s.config}: ${Object.entries(s.tiles).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(" · ")}`);
