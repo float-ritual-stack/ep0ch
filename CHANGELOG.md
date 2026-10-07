@@ -25,8 +25,8 @@ are its record. The outliner's entries from then are kept below, under
   an alert.
 - **Claude mod:** `outline_set_property` (one header chip, as a patch), beside `outline_patch`.
 - **Run:** PROTOCOL 103: restart the outline host, the MCP gateway (`ep0ch-mcp.service`) and every door after
-  `ep0ch install --apply`, on both machines. On the laptop, `EP0CH_MCP_HUB=float-2` in
-  `~/.config/ep0ch/backup.env`.
+  `ep0ch install --apply`, on both machines. On the laptop, install adds `EP0CH_MCP_HUB=float-2` to
+  `~/.config/ep0ch/backup.env` (an empty `EP0CH_MCP_HUB=` line there turns the pull off).
 
 ### The Inbox agent and note assistance are gone (PIE-613)
 

@@ -572,7 +572,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
 | `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
 | `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder), and the netmail queue, `.netmail.sqlite` |
-| `EP0CH_MCP_HUB` | on a home machine, in `~/.config/ep0ch/backup.env`: the gateway machine's ssh name, whose queued writes for this machine its backup job pulls (`float-2` on the laptop) |
+| `EP0CH_MCP_HUB` | on a home machine, in `~/.config/ep0ch/backup.env`: the gateway machine's ssh name, whose queued writes for this machine its backup job pulls. `ep0ch install` writes `float-2` on a Mac whose file names none; an empty `EP0CH_MCP_HUB=` line means none, and stays |
 
 ### Writes (PIE-615)
 
@@ -603,7 +603,8 @@ their own, `<EP0CH_MCP_MIRROR_DIR>/.netmail.sqlite` (`src/mcp-netmail.ts`), each
 mirror showed of it: its revision, its text's hash and the home database's instance id (read from the copy). The
 answer says `queued for float-hub@laptop (laptop last pulled …)`, and `list_outlines` gives each mirror's `queue`.
 
-The home machine dials in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/backup.env`, its backup job (every 15
+The home machine dials in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/backup.env` (install writes it on a
+Mac), its backup job (every 15
 minutes, while it's awake) runs `ep0ch mcp queue take --machine <its EP0CH_BACKUP_MACHINE> --json` on the hub over ssh,
 applies each write to its own outline with the gateway's own `applyWrite`, and tells the hub what each became
 (`ep0ch mcp queue settle`). `ep0ch mcp pull` does the same at once. ssh is the trust the machines already share (the

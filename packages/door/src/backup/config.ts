@@ -31,6 +31,11 @@ export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0C
 /** The bucket the Litestream replicas already use, under its own prefix: one repository per machine. */
 export const DEFAULT_REPO = "s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}";
 export const DEFAULT_SECRETS = "hetzner-s3,restic";
+/**
+ * The gateway machine a Mac pulls its queued MCP writes from, when its settings file names none: install writes it
+ * there (the laptop's ssh name for float-2). An empty `EP0CH_MCP_HUB=` line in the file says "none" and stays.
+ */
+export const DEFAULT_HUB = "float-2";
 /** The tag every outline snapshot carries; `outline=<name>` and `seq=<change>` say which and how far. */
 export const OUTLINE_TAG = "ep0ch-outline";
 
