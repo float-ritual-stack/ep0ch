@@ -24,7 +24,7 @@ import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env
 import { KbdModes, keyBytes, translateReports } from "../kbd";
 import { type Clip, Osc52Reader, TILE_COPY_RECENT_MS } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
-import { dropStatus, holdStatus, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
+import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
 
@@ -234,7 +234,7 @@ export class PtyPane implements Pane {
 
   constructor(readonly run: PtySpec) {}
   spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
-  dispose() { this.kill(); this.term?.dispose(); this.term = null; dropStatus(this); }
+  dispose() { this.kill(); this.term?.dispose(); this.term = null; this.stopForegroundWatch(); dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }
   get pid() { return this.proc?.pid; }
@@ -251,6 +251,9 @@ export class PtyPane implements Pane {
   hint(): string { return this.exited !== null ? "⏎ runs it again" : `click or ⏎ types here · ${ESCAPE_CHORD} back to the door`; }
 
   /** What the "waiting on you" list and the door's own report call it: its name on the desk, else its program. */
+  /** Its child id in the door's own report: given at its first report, kept wherever the tile moves (newStatusKey). */
+  get statusKey(): string { return (this.ownStatusKey ??= newStatusKey(this.statusName())); }
+  private ownStatusKey: string | undefined;
   /** The door it's on (its host layer, one per App): the waiting list, the status bar and the door's own report are that door's. */
   get door(): unknown { const c = this.desk?.ctx; return c ? c.hostLayer ?? c : undefined; }
   statusName(): string { return this.run.label || this.tileName || this.run.shows || basename(this.run.cmd[0] ?? "") || "terminal"; }
@@ -261,6 +264,28 @@ export class PtyPane implements Pane {
     const m = statusMark(r, now);
     return { glyph: r.state === "working" && r.progress !== undefined ? `${m.glyph} ${r.progress}%` : m.glyph, sgr: m.sgr };
   }
+  /**
+   * Without prompt marks (a shell with no OSC 133 integration), only the tile's own process exiting would drop a job's
+   * working or blocked. So the job that reported is noted by the terminal's foreground process group, and once the
+   * foreground is another group (the job ended and the shell took the terminal back), it's a new prompt: working and
+   * blocked go. Checked every 2s while such a record stands, only where /proc says (Linux).
+   */
+  private watchForeground() {
+    const r = this.status.urgent(), live = !!r && this.status.records.list().some(x => x.state === "working" || x.state === "blocked");
+    if (!live) { this.stopForegroundWatch(); return; }
+    const fg = foregroundGroup(this.pid);
+    if (fg === null) return;
+    this.reporterGroup = fg;
+    this.foregroundTimer ??= setInterval(() => {
+      const now = foregroundGroup(this.pid);
+      if (now === null || this.reporterGroup === null) return;
+      if (now !== this.reporterGroup) { this.stopForegroundWatch(); this.status.prompt(); this.soon(); }
+    }, 2000);
+  }
+  private stopForegroundWatch() { if (this.foregroundTimer) clearInterval(this.foregroundTimer); this.foregroundTimer = null; this.reporterGroup = null; }
+  /** The foreground process group when a job last reported working or blocked, and the check on it. */
+  private reporterGroup: number | null = null;
+  private foregroundTimer: Timer | null = null;
   /** The person came back to it (a key, a click, the keys given to it): what was finished they've now seen. */
   private sawIt() { this.status.seen(); }
   focused(_desk: DeskApi, actor: Actor) { if (actor.kind !== "agent") this.sawIt(); }
@@ -288,7 +313,7 @@ export class PtyPane implements Pane {
     // Program status (OSC 7501): its reports become the tile's records, its feature query is answered (not in a replay:
     // answered then). A new prompt (OSC 133 A) drops working and blocked, a full reset (RIS) every record; the emulator
     // still does its own after each (false: not handled here alone).
-    term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null); this.soon(); return true; });
+    term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null); this.watchForeground(); this.soon(); return true; });
     term.parser.registerOscHandler(133, body => { if (body === "A" || body.startsWith("A;")) { this.status.prompt(); this.soon(); } return false; });
     term.parser.registerEscHandler({ final: "c" }, () => { this.status.reset(); this.soon(); return false; });
     /** The modes a program asks of its terminal, followed; `answer`: its queries answered (not in a replay). */
@@ -416,6 +441,7 @@ export class PtyPane implements Pane {
     this.exited = code;
     this.herdrPane = null;
     LIVE.delete(this);
+    this.stopForegroundWatch();
     // After the emulator has read all it wrote: a report in its last output never outlives it.
     if (this.term) this.term.write("", () => this.status.exited()); else this.status.exited();
     try { proc.close(); } catch { /* already closed */ }

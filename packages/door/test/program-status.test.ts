@@ -3,8 +3,9 @@
 // whole, the feature query answered, working and blocked gone when it exits or a prompt begins, done kept until the
 // person comes back to the tile, everything gone on a full reset. Only `sh`, `printf`, `stty`, `dd`, `od` and `sleep` run.
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { cttyPrefix, PtyPane } from "../src/desk/pty";
-import { doorReport, StatusReporter, TileStatus, waitingCounts, waitingOnYou, type StatusHolder } from "../src/desk/program-status";
+import { doorReport, newStatusKey, StatusReporter, TileStatus, waitingCounts, waitingOnYou, type StatusHolder } from "../src/desk/program-status";
 import type { StatusInput, StatusReport } from "@ep0ch/outline-core/program-status";
 import { Painter } from "../src/display";
 import { KeyDecoder, type TermInfo } from "../src/term";
@@ -69,6 +70,19 @@ describe.skipIf(!cttyPrefix())("a terminal tile reads its program's status", () 
   }, 15_000);
 });
 
+describe.skipIf(!cttyPrefix() || !Bun.which("bash") || !existsSync("/proc/self/stat"))("a shell without prompt marks", () => {
+  test("a job that reported working and then ended: once the shell has the terminal back, its working goes", async () => {
+    const p = new PtyPane({ cmd: ["bash", "--norc", "--noprofile", "-i"], label: "shell" });
+    tiles.push(p);
+    draw(p);
+    await Bun.sleep(300);
+    p.input(`PS1='$ '; sh -c "printf '${osc("state=working:app=job")}'; sleep 1; echo job-over"\r`);
+    await until(() => p.status.urgent()?.state === "working", "the job's report", 5000);
+    await until(() => draw(p).includes("job-over"), "the job ends", 5000);
+    await until(() => p.status.records.size === 0, "working dropped once the shell is back in the foreground", 6000);
+  }, 20_000);
+});
+
 describe.skipIf(!cttyPrefix() || !Bun.which("tic") || !Bun.which("infocmp") || !Bun.which("tput"))("the door's terminfo", () => {
   test("a tile's program finds Pst in its xterm-256color (the door speaks OSC 7501), and the system's other entries as before", async () => {
     const p = tile(`tput Pst >/dev/null && echo "pst=yes" || echo "pst=no"; TERM=vt100 tput cols >/dev/null && echo "vt100=ok"; sleep 30`);
@@ -78,34 +92,40 @@ describe.skipIf(!cttyPrefix() || !Bun.which("tic") || !Bun.which("infocmp") || !
 });
 
 describe("the door as a program: what it reports to the terminal it runs in", () => {
-  const holder = (name: string, place: string, ...reports: StatusReport[]): StatusHolder => {
+  const holder = (name: string, ...reports: StatusReport[]): StatusHolder => {
     const status = new TileStatus();
     for (const r of reports) status.records.apply(r);
-    return { status, statusName: () => name, tileId: `t-${name}`, place };
+    return { status, statusName: () => name, tileId: `t-${name}`, statusKey: newStatusKey(name) };
   };
 
-  test("the root holds what asks most across the tiles, each tile with records a child under its layout", () => {
-    const want = doorReport([
-      holder("claude", "desk", { state: "blocked", id: "", kind: "permission", app: "claude-code", msg: "Allow Bash?" }),
-      holder("build", "drawer", { state: "working", id: "", progress: 30 }),
-      holder("quiet", "desk"),
-    ]);
-    expect([...want.keys()]).toEqual(["desk/claude", "drawer/build", ""]);
+  test("the root holds what asks most (blocked, error, done, working, idle); each tile with records is a child, by its own key", () => {
+    const claude = holder("claude", { state: "blocked", id: "", kind: "permission", app: "claude-code", msg: "Allow Bash?" });
+    const build = holder("build", { state: "working", id: "", progress: 34 });
+    const failed = holder("deploy", { state: "error", id: "" });
+    const want = doorReport([build, holder("quiet"), failed, claude]);
+    expect([...want.keys()]).toEqual([claude.statusKey, failed.statusKey, build.statusKey, ""]);
+    expect(claude.statusKey).toMatch(/^claude\.\d+$/);
     expect(want.get("")).toEqual({ state: "blocked", app: "ep0ch", kind: "permission", msg: "claude needs you: Allow Bash?" });
-    expect(want.get("desk/claude")).toEqual({ state: "blocked", id: "desk/claude", kind: "permission", app: "claude-code", title: "claude", msg: "Allow Bash?" });
-    expect(want.get("drawer/build")).toMatchObject({ state: "working", progress: 30, title: "build" });
+    expect(want.get(claude.statusKey)).toEqual({ state: "blocked", id: claude.statusKey, kind: "permission", app: "claude-code", title: "claude", msg: "Allow Bash?" });
+    // Progress goes up in tens: a program ticking every percent isn't a report each time.
+    expect(want.get(build.statusKey)).toMatchObject({ state: "working", progress: 30, title: "build" });
+    build.status.records.apply({ state: "working", id: "", progress: 32 });
+    expect(doorReport([build]).get(build.statusKey)).toMatchObject({ progress: 30 });
     expect(doorReport([])).toEqual(new Map([["", { state: "idle", app: "ep0ch" }]]));
   });
 
-  test("two tiles of one name get ids of their own, within the grammar however long the name", () => {
-    const want = doorReport([holder("sh", "desk", { state: "done", id: "" }), holder("sh", "desk", { state: "error", id: "" })]);
+  test("ids are one level, within the grammar however long the name, and stay with the tile; at most 63 children", () => {
+    const long = holder("a-very-long-terminal-tile-name-that-goes-on", { state: "working", id: "" });
+    const twin = holder("a-very-long-terminal-tile-name-that-goes-on", { state: "done", id: "" });
+    const want = doorReport([long, twin]);
     expect(new Set(want.keys()).size).toBe(3);
-    const long = "a-very-long-terminal-tile-name-that-goes-on";
-    const three = doorReport([0, 1, 2].map(() => holder(long, "desk", { state: "working", id: "" })));
-    expect(new Set(three.keys()).size).toBe(4);
-    for (const id of three.keys()) if (id) expect(id.split("/").every(s => /^[A-Za-z0-9_.+-]{1,32}$/.test(s))).toBe(true);
-    const r = new StatusReporter(() => {});
-    expect(() => r.sync(three)).not.toThrow();
+    for (const id of want.keys()) if (id) expect(id).toMatch(/^[A-Za-z0-9_.+-]{1,32}$/);
+    expect(doorReport([twin, long]).has(long.statusKey)).toBe(true);
+    const many = Array.from({ length: 80 }, (_, i) => holder(`sh${i}`, { state: i === 79 ? "blocked" : "working", id: "" }));
+    const capped = doorReport(many);
+    expect(capped.size).toBe(64);
+    expect(capped.has(many[79]!.statusKey)).toBe(true);
+    expect(() => new StatusReporter(() => {}).sync(capped)).not.toThrow();
   });
 
   test("after a program had the terminal, everything the door says is said again", () => {

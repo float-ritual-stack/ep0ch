@@ -20,13 +20,14 @@ export const CLAUDE_APP = 'claude-code'
 export const PST_ARGV = ['tput', 'Pst'] as const
 
 /**
- * What EP0CH_PROGRAM_STATUS says: true (1, on), false (0, off), or null (the terminal's terminfo decides: `Pst`, asked
+ * What EP0CH_PROGRAM_STATUS says: true (1, on), false (0, off, native: Claude Code reports itself), or null (the terminal's terminfo decides: `Pst`, asked
  * only where there is a TERM). Claude owns its terminal's input, so the mod never sends the feature query.
  */
 export function statusSetting(setting: string | null | undefined): boolean | null {
   const v = setting?.trim().toLowerCase() ?? ''
   if (/^(1|on|yes|true)$/.test(v)) return true
-  if (/^(0|off|no|false)$/.test(v)) return false
+  // `native`: Claude Code reports its own status (OSC 7501) and the mod steps aside, so a record never has two writers.
+  if (/^(0|off|no|false|native)$/.test(v)) return false
   return null
 }
 

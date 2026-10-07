@@ -86,6 +86,7 @@ describe("this Claude's program status (OSC 7501)", () => {
 test('the reports themselves', () => {
   expect(statusSetting('1')).toBe(true)
   expect(statusSetting('off')).toBe(false)
+  expect(statusSetting('native')).toBe(false)
   expect(statusSetting(undefined)).toBeNull()
   expect(permissionAsked('Edit', { file_path: '/work/app.ts' })).toEqual({ state: 'blocked', kind: 'permission', msg: 'Allow Edit: /work/app.ts?' })
   expect(questionAsked({ questions: [{ question: 'Which region first?' }] })).toEqual({ state: 'blocked', kind: 'question', msg: 'Which region first?' })

@@ -25,7 +25,11 @@ are its record. The outliner's entries from then are kept below, under
   terminfo, which the door gives its tiles, or the `?` query).
 - **The door reports its own.** In Ghostty or Rex (any terminal answering the query) the door says what waits inside
   it: the most urgent across its tiles, each tile a child record. `EP0CH_PROGRAM_STATUS=0` turns that off.
-- **Agents:** `peek` gives each terminal's `status` records; `status.list` reads the list; `host.waiting`, `status.seen`.
+- **`ep0ch backup run` shows what it's doing.** At a terminal, each step spins with its time and ends ✓ the way `ep0ch
+  install` does (checking the outlines, which changed, "garden: snapshotting (VACUUM INTO)", "uploading to restic",
+  mirrors, the drill); under the timer, the same plain lines as before.
+- **Agents:** `peek` gives each terminal's `status` records; `status.list` reads the list; `host.waiting`. Marking
+  something seen is the person's: an agent never clears a done they haven't seen.
 - **Run:** nothing beyond the usual `ep0ch install --apply`; a Claude started before the mod changed reports once
   restarted (`alt+R` in the drawer).
 ### Scroll past the end (PIE-622)

@@ -176,7 +176,7 @@ when the main loop's turn ends, `idle` when it's interrupted, `error` for a refu
 session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` holds the mapping (pure);
 `hooks/program-status.ts` is outline-core's encoder, copied (a hooks module can't import outside the plugin) and kept
 identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
-outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input.
+outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
 
 ## Recent mentions in Claude Code
 

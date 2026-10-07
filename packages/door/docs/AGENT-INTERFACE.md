@@ -293,7 +293,7 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 | `host.waiting` | | `alt+w`, a click on the status bar's `◆1 ✓2 on you` | the waiting-on-you list as a tab in the drawer: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown |
 | `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
-| `status.seen` | `n` or `tile` | `x` | its done and failed records go; blocked ones stay until the program says otherwise. Refused while the person is typing there; said on screen |
+| `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |
 
 ## Naming tiles and splits (PIE-491)
 

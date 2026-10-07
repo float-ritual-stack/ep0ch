@@ -9,13 +9,26 @@
 // to it) or dismiss it from the list. Nothing here guesses: a tile with no records keeps the old ways (its output's
 // timing, Herdr's status) as the fallback.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ATTENTION, encodeProgramStatus, parseProgramStatus, PROGRAM_STATUS_QUERY, PROGRAM_STATUS_TERMINFO, statusDisplayText,
   StatusRecords, statusSegment, type StatusInput, type StatusRecord,
 } from "@ep0ch/outline-core/program-status";
 import { C, fg } from "../style";
+
+/**
+ * The terminal's foreground process group, read from the tile's own process (Linux's /proc/<pid>/stat `tpgid`); null
+ * where there's no /proc (macOS) or the process is gone.
+ */
+export function foregroundGroup(pid: number | undefined): number | null {
+  if (!pid) return null;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const tpgid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[5]);
+    return Number.isInteger(tpgid) && tpgid > 0 ? tpgid : null;
+  } catch { return null; }
+}
 
 /** What holds a tile's records: a terminal tile (PtyPane), named as the door names it. */
 export interface StatusHolder {
@@ -29,8 +42,8 @@ export interface StatusHolder {
    * and reports its own tiles, never another door's in the same process.
    */
   readonly door?: unknown;
-  /** The layout it was started in (`desk`, `daily`): its child id in the door's own report. */
-  readonly place?: string | null;
+  /** Its child id in the door's own report: given once (`newStatusKey`), kept wherever the tile moves. */
+  readonly statusKey: string;
 }
 
 /** One terminal tile's records and when they last changed. */
@@ -157,30 +170,33 @@ export function terminfoWithPst(stateDir: string): string | null {
 
 // ── the door as a program: what it reports to the terminal it runs in ─────────
 
+/** The tiles the door's own report names, most urgent first: 63, and the root makes the 64 records a terminal must keep. */
+export const DOOR_CHILDREN = 63;
+let keys = 0;
+/** A tile's key in the door's report: its name and a number, given once, so it stays the same wherever the tile moves. */
+export function newStatusKey(name: string): string { return `${statusSegment(name).slice(0, 24)}.${++keys}`; }
+
 /**
  * The door's own report (the door as a program in Ghostty, Rex, maybe Herdr): the root record holds what asks most of
- * the person across its terminal tiles (idle when nothing does), and each tile with records is a child,
- * `<layout>/<tile>` (`desk/claude`, `drawer/shell`), with its program's app and words and the tile's name as its
- * title. Herdr's sidebar (or any terminal) can then see what waits inside a door without reading its screen.
+ * the person across its terminal tiles (idle when nothing does; the order is blocked, error, done, working, idle), and
+ * each tile with records is a child one level down, by its key (`claude.3`): its program's app and words, the tile's name
+ * as its title. Herdr's sidebar (or any terminal) can then see what waits inside a door without reading its screen.
  */
 export function doorReport(holders: readonly StatusHolder[]): Map<string, StatusInput> {
   const want = new Map<string, StatusInput>();
-  let top: { r: StatusRecord; name: string } | null = null;
-  for (const h of holders) {
-    const r = h.status.urgent();
-    if (!r) continue;
+  // Most urgent first, at most CHILDREN of them: with the root, within the 64 records every terminal must keep.
+  const shown = holders.map(h => ({ h, r: h.status.urgent() })).filter((x): x is { h: StatusHolder; r: StatusRecord } => !!x.r)
+    .sort((a, b) => ATTENTION[b.r.state] - ATTENTION[a.r.state] || b.h.status.at - a.h.status.at).slice(0, DOOR_CHILDREN);
+  for (const { h, r } of shown) {
+    // One level, by the tile's own key (kept for its life, wherever it's moved): a program's own child records stay its tile's.
+    const id = h.statusKey;
     const name = h.statusName();
-    const layout = statusSegment(h.place || "door"), base = statusSegment(name);
-    let id = `${layout}/${base}`;
-    // Two tiles of one name: the later one's segment ends in its tile id, kept within a segment's 32 bytes.
-    for (let n = 0; want.has(id); n++) {
-      const tag = `-${statusSegment(h.tileId ?? "t").slice(0, 8)}${n ? n : ""}`;
-      id = `${layout}/${base.slice(0, 32 - tag.length)}${tag}`;
-    }
-    want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(r.progress !== undefined ? { progress: r.progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
-    if (!top || ATTENTION[r.state] > ATTENTION[top.r.state]) top = { r, name };
+    // Progress in tens: a program ticking its percentage isn't a storm of reports upward.
+    const progress = r.progress === undefined ? undefined : Math.round(r.progress / 10) * 10;
+    want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(progress !== undefined ? { progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
   }
-  const msg = top && top.r.state !== "idle" ? `${top.name} ${statusMark(top.r).word}${top.r.msg ? `: ${statusDisplayText(top.r.msg)}` : ""}` : undefined;
+  const top = shown[0] ?? null;
+  const msg = top && top.r.state !== "idle" ? `${top.h.statusName()} ${statusMark(top.r).word}${top.r.msg ? `: ${statusDisplayText(top.r.msg)}` : ""}` : undefined;
   want.set("", { state: top?.r.state ?? "idle", app: "ep0ch", ...(top?.r.state === "blocked" && top.r.kind ? { kind: top.r.kind } : {}), ...(msg ? { msg } : {}) });
   return want;
 }

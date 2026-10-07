@@ -121,7 +121,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   "status.seen": def({
     summary: "mark a terminal's finished work seen (n from 1, or tile=): its done and failed records go from the list, its header and the chip. Its blocked ones stay: only answering the program clears those",
     keys: "x",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't clear what the person is looking at", says: r => `marked ${r.name} seen`,
+    touches: "screen", replay: "ask", says: r => `marked ${r.name} seen`,
+    // Seen is the person's: an agent reading or acting on a tile never clears what they haven't seen (peek and subscribe don't either).
+    person: "seen is the person's: an agent never clears a done they haven't seen (it reads the rows with status.list or peek)",
     args: which,
     run(a, { pane, desk }) {
       const { row } = rowOf(pane as WaitingYouPane, a);

@@ -1095,7 +1095,10 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;
   without reports, the chip still guesses from the program's output, as before. The door reports its own to the
   terminal it runs in when that terminal speaks the protocol (Ghostty, Rex): the most urgent across its tiles, and each
-  tile as a child (`desk/claude`). `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
+  tile as a child by a key it keeps wherever it moves (`claude.3`; at most 63, most urgent first; progress in tens). A
+  detached terminal is cleared, an attached one told everything. `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
+  Done is the person's: an agent reading or acting on a tile never clears it. A shell without prompt marks (OSC 133)
+  still loses a finished job's working: on Linux the door sees the shell take the terminal back.
 - **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
   you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why
