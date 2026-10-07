@@ -19,6 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   anywhere in any note, declares `plot` with that line's fields (a note's own properties still do). The door draws
   the line as what it declares, a chip summary and a small band; raw and the editor show the tokens.
 - **Run:** PROTOCOL 105: restart the outline host and every door after `ep0ch install --apply`, on both machines.
+
 ### MCP gateway fixes from the first claude.ai run (PIE-620)
 
 - **`list_outlines` lists pie.** It reads this machine's outlines from the outlines folder instead of asking the host,

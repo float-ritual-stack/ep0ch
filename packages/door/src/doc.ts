@@ -12,8 +12,7 @@ import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
-import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, styledLine, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
-import { propertyTokensInLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack } from "./figures/banner";
 
 export interface DocEnv {
@@ -653,7 +652,7 @@ function styleDeclaration(line: string, W: number): string[] | null {
     ...(s.margin.rows || s.margin.cols ? [`margin ${s.margin.rows} ${s.margin.cols}`] : []),
     ...(s.defaults.length ? [`default for ${s.defaults.map(x => (x === "rule" ? "---" : "#".repeat(x))).join(" ")}`] : []),
   ] : [];
-  const name = s?.name ?? propertyTokensInLine(line).find(t => t.key === "heading-style")?.value ?? "";
+  const name = s?.name ?? liveTokensInLine(line).find(t => t.key === "heading-style")?.value ?? "";
   const summary = chip(C.dark, C.white) + ` style ${name} ` + RESET + fg(C.grey) + (facts.length ? " " + facts.join(" · ") : "") + RESET
     + (d.problems.length ? fg(C.yellow) + " · ⚠ " + d.problems.join(" · ") + RESET : "")
     + (text ? fg(C.dark) + "  " + text + RESET : "");
@@ -694,7 +693,7 @@ function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | 
 function headingLabel(text: string, level: number, style: HeadingStyle, fold?: Disclosure): string {
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const ink = fold?.selected ? C.yellow : style.tone !== "neutral" ? TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
-  const props = propertyTokensInLine(text), words = props.length ? withoutPropertyTokens(text).replace(/\s{2,}/g, " ").trim() : text;
+  const props = liveTokensInLine(text), words = props.length ? withoutTokens(text, props).trim() : text;
   return (glyph ? (fold!.selected ? fg(C.yellow) : fg(C.lcyan)) + glyph + " " : "") + BOLD + fg(ink) + styleMarks(bandLetters(words, style.letters), { bold: false }) + UNBOLD + RESET
     + props.map(t => " " + propertyChip(t)).join("") + (fold?.folded ? foldedNote(fold) : "");
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleRegistry, headingStylesFromBlocks, headingStyleWith, styledLine } from "../src/heading-styles";
+import { withoutTokens, liveTokensInLine, BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleRegistry, headingStylesFromBlocks, headingStyleWith, styledLine } from "../src/heading-styles";
 
 test("styledLine: a heading's or a rule's style, and the line without it; anything else is null", () => {
   expect(styledLine("## Your calls [heading::Band]")).toEqual({ kind: "heading", level: 2, style: "band", fields: [], text: "## Your calls" });
@@ -53,4 +53,12 @@ test("a line anywhere declares a style with its own tokens; a code span declares
   expect(headingStyleDeclaration("Write `[heading-style::plot]` on a line")).toBeNull();
   expect(headingStyleDeclaration("[heading-style::plot] [heading-pattern::zigzag]")!.problems).toEqual([expect.stringContaining('heading-pattern "zigzag"')]);
   expect(headingStylesFromBlocks([{ id: "aaaaaaaa-1", line: 4, properties: [{ key: "heading-style", value: "x y" }] }]).problems).toEqual([expect.stringContaining("note aaaaaaaa line 5")]);
+});
+
+test("taking tokens out keeps the words apart, and a token in a code span is text (codex review)", () => {
+  expect(styledLine("## A [heading::dots]B [heading-rows::1]")!.text).toBe("## A B");
+  expect(styledLine("## Example `[heading-tone::amber]`")).toEqual({ kind: "heading", level: 2, style: null, fields: [], text: "## Example `[heading-tone::amber]`" });
+  expect(headingStyleDeclaration("Example `[heading-tone::amber]` [heading-style::plot]")).toMatchObject({ style: { tone: "neutral" }, text: "Example `[heading-tone::amber]`" });
+  const line = "a [x::1] b `[y::2]`";
+  expect(withoutTokens(line, liveTokensInLine(line))).toBe("a b `[y::2]`");
 });

@@ -15,7 +15,7 @@
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
 import { codeSpanRanges } from "./code-ranges";
-import { propertyTokensInLine, withoutPropertyTokens } from "./property-grammar";
+import { propertyTokensInLine, type PropertyTokenMatch } from "./property-grammar";
 
 export const BAND_PATTERNS = ["stack", "waffle", "uptime", "dots", "rule"] as const;
 export type BandPattern = (typeof BAND_PATTERNS)[number];
@@ -198,18 +198,31 @@ export function headingStylesFromBlocks(blocks: readonly HeadingStyleDeclaringBl
   return { styles, problems };
 }
 
+/** A line's `[key::value]` tokens outside its code spans: a token in a code span is its text, as the service reads it. */
+export function liveTokensInLine(line: string): PropertyTokenMatch[] {
+  const code = codeSpanRanges(line);
+  return propertyTokensInLine(line).filter(t => !code.some(c => c.start < t.end && t.start < c.end));
+}
+
+/** `line` without `tokens` (some of its own), the text either side of each joined by one space. */
+export function withoutTokens(line: string, tokens: readonly { start: number; end: number }[]): string {
+  const parts: string[] = [];
+  let at = 0;
+  for (const t of tokens) { parts.push(line.slice(at, t.start)); at = t.end; }
+  parts.push(line.slice(at));
+  return parts.map((p, i) => (i === 0 ? p.trimEnd() : p.trim())).filter((p, i) => i === 0 || p).join(" ").trimEnd();
+}
+
 /**
  * A line that declares a style (it carries `[heading-style::name]`, wherever in a note it is), read as the service
  * reads it: the style, what's wrong with it, and the line's text without its tokens. Null for any other line. A reader
  * draws it as what it declares, not as its tokens.
  */
 export function headingStyleDeclaration(line: string): { style: HeadingStyle | null; problems: string[]; text: string } | null {
-  // A token in a code span is its text, as the service reads it.
-  const code = codeSpanRanges(line);
-  const tokens = propertyTokensInLine(line).filter(t => !code.some(c => c.start < t.end && t.start < c.end));
+  const tokens = liveTokensInLine(line);
   if (!tokens.some(t => t.key === "heading-style")) return null;
   const { styles, problems } = headingStylesFromBlocks([{ id: "", properties: tokens }]);
-  return { style: styles[0] ?? null, problems: problems.map(p => p.replace(/^note : /, "")), text: withoutPropertyTokens(line).replace(/\s+/g, " ").trim() };
+  return { style: styles[0] ?? null, problems: problems.map(p => p.replace(/^note : /, "")), text: withoutTokens(line, tokens).trim() };
 }
 
 // ── the lines that name one ───────────────────────────────────────────────────
@@ -243,14 +256,11 @@ export function styledLine(line: string): StyledLine | null {
   const r = h ? null : RULE.exec(line);
   if (!h && !r) return null;
   const key = h ? "heading" : "rule";
-  const tokens = propertyTokensInLine(line);
   if (headingStyleDeclaration(line)) return null;
+  const tokens = liveTokensInLine(line);
   const named = tokens.find(t => t.key === key);
   const own = tokens.filter(t => t === named || FIELD_KEYS.has(t.key));
-  let text = "", at = 0;
-  for (const t of own) { text += line.slice(at, t.start).trimEnd(); at = t.end; }
-  const rest = line.slice(at).trim();
-  text += rest ? (text ? " " : "") + rest : "";
+  const text = withoutTokens(line, own);
   if (r && RULE.exec(text)![2]!.trim()) return null;
   return {
     kind: key, level: h ? h[1]!.length : 0, style: named ? named.value.toLowerCase() : null,
