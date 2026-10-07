@@ -12,7 +12,7 @@ import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
 import { blockDisplayTitle } from "./references";
-import { previewPropertyParse } from "./properties";
+import { parsePropertyRecords, previewPropertyParse } from "./properties";
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -2530,10 +2530,18 @@ export class OutlinerServer {
           break;
         }
         case "headings.styles": {
-          // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles with notes.
-          const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], limit: 500 });
+          // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles. A
+          // `[heading-style::name]` of any scope declares one: block scope with the note's own properties, a line's or
+          // an inline one with the tokens on its line (the save-time parser's scopes, so a code span declares nothing).
+          const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], propertyScope: "all", limit: 500 });
           const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-          result = { ...headingStylesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
+          const declarations = blocks.flatMap((block) => {
+            const records = parsePropertyRecords(block.text).filter((r) => r.syntax !== "hashtag");
+            return records.filter((r) => r.key === "heading-style").map((r) => r.scope === "block"
+              ? { id: block.id, properties: block.properties }
+              : { id: block.id, line: r.line, properties: records.filter((o) => o.line === r.line && o.scope !== "block") });
+          });
+          result = { ...headingStylesFromBlocks(declarations), complete: declared.completeness.kind === "complete" };
           break;
         }
         case "references.backlinks":

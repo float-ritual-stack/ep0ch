@@ -7,6 +7,7 @@ import type { Msg } from "../src/board";
 import { foldPoints, renderDoc, type DocEnv } from "../src/doc";
 import { bandLetters, drawBand, drawTrack } from "../src/figures/banner";
 import { DIM, INK } from "../src/figures/palette";
+import { TONE } from "../src/callouts";
 import { fg, visible } from "../src/style";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -166,5 +167,36 @@ describe("in a reader", () => {
     expect(folded).toMatch(/[░▒▓].*▸ Beds/);
     s.key(char(")"), h);
     expect(s.describe().folds).toMatchObject({ selected: "## Water" });
+  });
+});
+
+// The kitchen sink's note as Evan wrote it (Oct 7): an inline override drew its token half-mangled, and a style declared on
+// a line of the body drew as a plain `#` heading with every raw token.
+describe("as written in a note: inline fields, and a style declared on a line", () => {
+  test("a heading's own [heading-tone::amber] colours it and leaves its text; another token is a chip", () => {
+    const [band] = [renderDoc("## Odd jobs [heading::dots] [heading-tone::amber]", { ...ENV, width: 80 }).lines];
+    const text = band!.map(visible).join("\n");
+    expect(text).toContain("Odd jobs");
+    expect(text).not.toContain("heading-tone");
+    expect(text).not.toContain("amber]");
+    expect(band!.join("")).toContain(fg(TONE.amber) + "Odd jobs");
+    // No [heading::] at all: the fields restyle the base style.
+    const plain = rows("## Plain [heading-pattern::dots] [heading-rows::1] [who::sam]", 80);
+    expect(plain).toHaveLength(1);
+    expect(plain[0]).toMatch(/·.*Plain {2}who::sam .*·/);
+    expect(plain[0]).not.toContain("[");
+  });
+
+  test("a declaring line draws what it declares (chips and a small band), never its tokens, and isn't a fold point", () => {
+    const line = "# Plot style [heading-style::plot] [heading-pattern::dots] [heading-rows::2] [heading-align::left] [heading-row::top] [heading-tone::amber]";
+    const out = rows(`Intro\n\n${line}\n\n## Beds [heading::plot]\nLeeks.`, 80);
+    expect(out[2]).toContain("style plot  dots · 2 rows · left/top · amber");
+    expect(out.join("\n")).not.toContain("[heading-");
+    expect(out[3]).toContain("Plot style");
+    expect(out[3]).toMatch(/·/);
+    expect(foldPoints(`Intro\n\n${line}\n\n## Beds\nLeeks.`).map(p => p.text)).toEqual(["Beds"]);
+    // A mistake is said on the line; in a code span it is only text.
+    expect(rows("[heading-style::plot] [heading-pattern::zigzag]", 80)[0]).toContain('⚠ heading-pattern "zigzag"');
+    expect(rows("Write `[heading-style::plot]` on a line", 80)).toEqual(["Write [heading-style::plot] on a line"]);
   });
 });

@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
-import { balanceTags, BOLD, C, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -12,7 +12,8 @@ import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
-import { BUILTIN_HEADING_STYLE_REGISTRY, styledLine, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, styledLine, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { propertyTokensInLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { bandLetters, drawBand, drawTrack } from "./figures/banner";
 
 export interface DocEnv {
@@ -185,7 +186,8 @@ export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
 export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
   const src = body.split("\n");
   const block = noteStructure(src), images = mediaLines(src);
-  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !embedPattern().test(src[i]!);
+  // A line declaring a heading style draws as what it declares, never a heading (`# Plot style [heading-style::plot]`).
+  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !embedPattern().test(src[i]!) && !headingStyleDeclaration(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
@@ -509,6 +511,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // A `---` under a paragraph line is that line's setext underline, never a rule; `***` and `___` always are rules.
     const prev = i ? src[i - 1]! : "";
     const setext = /^ {0,3}-/.test(line) && !!prev.trim() && !HEADING.test(prev);
+    const declared = lit(i) ? null : styleDeclaration(line, W);
+    if (declared) { out.push(...declared); continue; }
     const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
     if (styled) { out.push(...styled.rows); continue; }
     out.push(...prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box))));
@@ -615,13 +619,49 @@ const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidd
 /** A list item's step box at the start of its text. */
 const BOX = /^\[[ xX~!]\](?=\s|$)/;
 
-/** The style a heading or rule line draws with: the one it names, else its level's (or every rule's) default. */
+/**
+ * The style a heading or rule line draws with: the one it names, else its level's (or every rule's) default, with the
+ * line's own fields (`[heading-tone::amber]`) over it; a line with fields and no style gets the base style (a rule, the
+ * fade). A style it names that nothing declares: none, drawn as written.
+ */
 function styleOf(line: string, env: DocEnv): { style: HeadingStyle | null; text: string; level: number; kind: "heading" | "rule" } | null {
   const sl = styledLine(line);
   if (!sl) return null;
   const reg = env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
-  const style = sl.style !== null ? reg.style(sl.style) : sl.kind === "heading" ? reg.forLevel(sl.level) : reg.forRule();
-  return { style, text: sl.text, level: sl.level, kind: sl.kind };
+  const named = sl.style !== null ? reg.style(sl.style) : sl.kind === "heading" ? reg.forLevel(sl.level) : reg.forRule();
+  const base = named ?? (sl.style !== null || !sl.fields.length ? null : sl.kind === "rule" ? reg.style("fade") ?? BASE_HEADING_STYLE : BASE_HEADING_STYLE);
+  return { style: base && headingStyleWith(base, sl.fields).style, text: sl.text, level: sl.level, kind: sl.kind };
+}
+
+/** A property token left on a heading in a band (`[who::sam]`): a chip after the heading, never its text. */
+const propertyChip = (t: { key: string; value: string }) => chip(C.dark, C.grey) + ` ${t.key}::${t.value} ` + RESET;
+
+/**
+ * A line that declares a heading style (`# Plot style [heading-style::plot] [heading-pattern::dots] …`, anywhere in a
+ * note): what it declares, as chips, and a small band drawn by it; never its tokens (raw and the editor show them).
+ * Null for any other line.
+ */
+function styleDeclaration(line: string, W: number): string[] | null {
+  const d = headingStyleDeclaration(line);
+  if (!d) return null;
+  const s = d.style;
+  const text = d.text.replace(/^#{1,6}\s+/, "");
+  const facts = s ? [
+    s.pattern, `${s.rows} row${s.rows === 1 ? "" : "s"}`, `${s.align}/${s.row}`,
+    ...(s.tone !== "neutral" ? [s.tone] : []), ...(s.letters !== "plain" ? [s.letters] : []),
+    ...(s.padding.rows || s.padding.cols !== 2 ? [`padding ${s.padding.rows} ${s.padding.cols}`] : []),
+    ...(s.margin.rows || s.margin.cols ? [`margin ${s.margin.rows} ${s.margin.cols}`] : []),
+    ...(s.defaults.length ? [`default for ${s.defaults.map(x => (x === "rule" ? "---" : "#".repeat(x))).join(" ")}`] : []),
+  ] : [];
+  const name = s?.name ?? propertyTokensInLine(line).find(t => t.key === "heading-style")?.value ?? "";
+  const summary = chip(C.dark, C.white) + ` style ${name} ` + RESET + fg(C.grey) + (facts.length ? " " + facts.join(" · ") : "") + RESET
+    + (d.problems.length ? fg(C.yellow) + " · ⚠ " + d.problems.join(" · ") + RESET : "")
+    + (text ? fg(C.dark) + "  " + text + RESET : "");
+  const out = [headOf(summary, W) + RESET];
+  // The preview: the style drawn on its own name, in the room a narrow note leaves.
+  const band = s && drawBand(s, Math.min(W, 56), 2, BOLD + (s.tone !== "neutral" ? fg(TONE[s.tone]) : fg(C.white)) + bandLetters(text || name, s.letters) + UNBOLD + RESET, text || name);
+  if (band) out.push(...band.rows);
+  return out;
 }
 
 /**
@@ -654,7 +694,9 @@ function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | 
 function headingLabel(text: string, level: number, style: HeadingStyle, fold?: Disclosure): string {
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const ink = fold?.selected ? C.yellow : style.tone !== "neutral" ? TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
-  return (glyph ? (fold!.selected ? fg(C.yellow) : fg(C.lcyan)) + glyph + " " : "") + BOLD + fg(ink) + styleMarks(bandLetters(text, style.letters), { bold: false }) + UNBOLD + RESET + (fold?.folded ? foldedNote(fold) : "");
+  const props = propertyTokensInLine(text), words = props.length ? withoutPropertyTokens(text).replace(/\s{2,}/g, " ").trim() : text;
+  return (glyph ? (fold!.selected ? fg(C.yellow) : fg(C.lcyan)) + glyph + " " : "") + BOLD + fg(ink) + styleMarks(bandLetters(words, style.letters), { bold: false }) + UNBOLD + RESET
+    + props.map(t => " " + propertyChip(t)).join("") + (fold?.folded ? foldedNote(fold) : "");
 }
 
 /** Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). */
