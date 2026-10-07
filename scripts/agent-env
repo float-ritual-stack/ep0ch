@@ -66,7 +66,9 @@ settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLI
   # Private XDG folders: the backup commands read ~/.config/ep0ch/backup.env (its repository, mirrors and keys) from
   # $XDG_CONFIG_HOME, the Litestream guard's pause records live in $XDG_STATE_HOME, and a cache or data folder of the
   # person's is theirs. None of them is the real one here.
-  XDG_CONFIG_HOME="$dir/xdg/config" XDG_DATA_HOME="$dir/xdg/data" XDG_STATE_HOME="$dir/xdg/state" XDG_CACHE_HOME="$dir/xdg/cache")
+  XDG_CONFIG_HOME="$dir/xdg/config" XDG_DATA_HOME="$dir/xdg/data" XDG_STATE_HOME="$dir/xdg/state" XDG_CACHE_HOME="$dir/xdg/cache"
+  # AWS tools read ~/.aws whatever XDG says: point them at empty files here.
+  AWS_SHARED_CREDENTIALS_FILE="$dir/xdg/config/aws-credentials" AWS_CONFIG_FILE="$dir/xdg/config/aws-config")
 
 if [ "$mode" = print ]; then
   for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done

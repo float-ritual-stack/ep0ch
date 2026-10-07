@@ -36,11 +36,13 @@ describe("scripts/agent-env", () => {
     mkdirSync(join(home, ".config/ep0ch"), { recursive: true });
     const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"), XDG_STATE_HOME: join(home, ".local/state"), XDG_CACHE_HOME: join(home, ".cache"),
       RESTIC_PASSWORD: "owner-secret", RESTIC_REPOSITORY: "s3:owner", LITESTREAM_ACCESS_KEY_ID: "owner-key", AWS_SECRET_ACCESS_KEY: "owner-aws", EP0CH_AGENT_ROOT: root };
-    const r = Bun.spawnSync([script, "xdg", "--", "sh", "-c", 'echo "$XDG_CONFIG_HOME $XDG_DATA_HOME $XDG_STATE_HOME $XDG_CACHE_HOME"; echo "[${RESTIC_PASSWORD-}${RESTIC_REPOSITORY-}${LITESTREAM_ACCESS_KEY_ID-}${AWS_SECRET_ACCESS_KEY-}]"'], { env, stdout: "pipe", stderr: "pipe" });
-    const [dirs, secrets] = r.stdout.toString().trim().split("\n");
+    const r = Bun.spawnSync([script, "xdg", "--", "sh", "-c", 'echo "$XDG_CONFIG_HOME $XDG_DATA_HOME $XDG_STATE_HOME $XDG_CACHE_HOME"; echo "[${RESTIC_PASSWORD-}${RESTIC_REPOSITORY-}${LITESTREAM_ACCESS_KEY_ID-}${AWS_SECRET_ACCESS_KEY-}]"; echo "$AWS_SHARED_CREDENTIALS_FILE $AWS_CONFIG_FILE"'], { env, stdout: "pipe", stderr: "pipe" });
+    const [dirs, secrets, aws] = r.stdout.toString().trim().split("\n");
     const d = join(root, "xdg");
     expect(dirs).toBe(`${d}/xdg/config ${d}/xdg/data ${d}/xdg/state ${d}/xdg/cache`);
     expect(secrets).toBe("[]");
+    // AWS tools read ~/.aws whatever XDG says: they're pointed at files of its own.
+    expect(aws).toBe(`${d}/xdg/config/aws-credentials ${d}/xdg/config/aws-config`);
     // The same settings an agent's printed export lines give: nothing of the person's, the private folders.
     const printed = Bun.spawnSync([script, "xdg", "--print"], { env, stdout: "pipe" }).stdout.toString();
     expect(printed).toContain(`export XDG_CONFIG_HOME=${d}/xdg/config`);
