@@ -120,8 +120,8 @@ describe("rulesFromBlocks", () => {
 });
 
 test("a pattern that repeats a repeating group is refused: it could take forever on one line", () => {
-  for (const bad of ["(a+)+$", "(?:\\w*x)*", "(a{2,})+", "(x|y*)*z", "(a|aa)+$", "(?:x|y)*", "^((a+))+$", "(?:a+)+", "(a*)*", "(a|a)*", "((a|b))+c", "(a{1,9}){1,9}", "(a+)\\1", "a*a*a*b", ".*.*.*x", "\\s*\\w+\\d*z", ".*\\w*\\s*x"]) expect("problem" in compileRulePattern(bad)).toBe(true);
-  for (const ok of ["(\\S.*?)!!!$", "^(?:[-*]\\s+)?(\\S.*?)\\s*!!!\\s*$", "(ab)+", "[a+]+", "(a|b)c", "(?:foo|bar):", "a*xa*xa*y", "\\s*!!!\\s*$", "(\\w+)?x+y*"]) expect(compileRulePattern(ok)).toBeInstanceOf(RegExp);
+  for (const bad of ["(a+)+$", "(?:\\w*x)*", "(a{2,})+", "(x|y*)*z", "(a|aa)+$", "(?:x|y)*", "^((a+))+$", "(?:a+)+", "(a*)*", "(a|a)*", "((a|b))+c", "(a{1,9}){1,9}", "(a+)\\1", "a*a*a*b", ".*.*.*x", "\\s*\\w+\\d*z", ".*\\w*\\s*x", "^(a?a?)+$", "^a*aa*aa*aa*b", "^(?:a)*(?:a)*(?:a)*(?:a)*b"]) expect("problem" in compileRulePattern(bad)).toBe(true);
+  for (const ok of ["(\\S.*?)!!!$", "^(?:[-*]\\s+)?(\\S.*?)\\s*!!!\\s*$", "(ab)+", "[a+]+", "(a|b)c", "(?:foo|bar):", "a*xa*xa*y", "\\s*!!!\\s*$", "(\\w+)?x+y*", "a+|b+|c+|d+x*", "(?<n>a|b)c", "(?=a+)b"]) expect(compileRulePattern(ok)).toBeInstanceOf(RegExp);
 });
 
 test("a known catastrophic shape is refused fast, and a long line cannot make a safe pattern slow", () => {
