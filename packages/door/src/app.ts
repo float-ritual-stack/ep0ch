@@ -33,7 +33,7 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
-import { doorReport, onStatusChange, waitingCounts } from "./desk/program-status";
+import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -357,7 +357,7 @@ export class App implements Ctx {
    */
   private reportStatus() {
     if (this.reportTimer || this.closed) return;
-    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport()); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport(statusHolders(this.drawer))); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
   }
   /** Where the status bar's waiting-on-you count sits, for a click (host.waiting). */
   private waitingAt: { from: number; to: number; row: number } | null = null;
@@ -384,7 +384,7 @@ export class App implements Ctx {
     connectFigures(board, () => this.redraw());
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
-    this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); });
+    this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
     this.reportStatus();
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
@@ -955,7 +955,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts()).plain}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts(waitingOnYou(this.drawer))).plain}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1073,7 +1073,7 @@ export class App implements Ctx {
     const backupPart = backup ? `${fg(C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
     const newPart = this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : "";
     // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
-    const waiting = waitingText(waitingCounts());
+    const waiting = waitingText(waitingCounts(waitingOnYou(this.drawer)));
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
     const right = `${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);

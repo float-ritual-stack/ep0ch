@@ -251,6 +251,8 @@ export class PtyPane implements Pane {
   hint(): string { return this.exited !== null ? "⏎ runs it again" : `click or ⏎ types here · ${ESCAPE_CHORD} back to the door`; }
 
   /** What the "waiting on you" list and the door's own report call it: its name on the desk, else its program. */
+  /** The door it's on (its host layer, one per App): the waiting list, the status bar and the door's own report are that door's. */
+  get door(): unknown { const c = this.desk?.ctx; return c ? c.hostLayer ?? c : undefined; }
   statusName(): string { return this.run.label || this.tileName || this.run.shows || basename(this.run.cmd[0] ?? "") || "terminal"; }
   /** The glyph its header shows for what its program reported (none for idle, or without records). */
   headStatus(now = Date.now()): { glyph: string; sgr: string } | null {

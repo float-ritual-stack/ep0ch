@@ -285,7 +285,7 @@ export class AgentDrawer {
     const tile = this.tabs().find(t => t.kind === WAITING_YOU_KIND_NAME)?.name ?? (await d.openTile({ kind: WAITING_YOU_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
     if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
     this.host.redraw();
-    return { tile, waiting: waitingOnYou().length };
+    return { tile, waiting: waitingOnYou(this).length };
   }
 
   /**
@@ -1101,7 +1101,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     keys: "the status bar's waiting count, the drawer's waiting-on-you tab",
     touches: "nothing", replay: "safe",
     args: {},
-    run() { return { waiting: waitingOnYou().map((r, i) => rowFacts(r, i + 1)) }; },
+    run(_, { drawer }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)) }; },
   }),
   "host.agent": def({
     summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the drawer's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",

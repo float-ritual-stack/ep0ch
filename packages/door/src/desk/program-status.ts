@@ -24,6 +24,11 @@ export interface StatusHolder {
   statusName(): string;
   /** Its tile id (`t3`, a drawer tab's `k2`), once it has one. */
   readonly tileId: string | null;
+  /**
+   * The door it's on, by its host layer (the drawer: one per App, the same through a screen's frame): each door shows
+   * and reports its own tiles, never another door's in the same process.
+   */
+  readonly door?: unknown;
   /** The layout it was started in (`desk`, `daily`): its child id in the door's own report. */
   readonly place?: string | null;
 }
@@ -53,41 +58,53 @@ export class TileStatus {
   seen(): boolean { const gone = this.records.seen(); if (gone) this.changed(); return gone; }
   /** The record asking most of the person, or null. */
   urgent(): StatusRecord | null { return this.records.urgent(); }
-  private changed() { this.at = Date.now(); notify(); }
+  private changed() { this.at = Date.now(); notify(this); }
 }
 
 const HOLDERS = new Set<StatusHolder>();
-const LISTENERS = new Set<() => void>();
+const LISTENERS = new Map<() => void, unknown>();
+/** The doors whose tiles changed since listeners last heard (undefined: a tile on no door yet, heard by all). */
+const changedDoors = new Set<unknown>();
 let notifying = false;
-/** Something changed: listeners hear once per tick, however many reports came in it. */
-function notify() {
+const doorOf = (s: TileStatus | StatusHolder): unknown => ("status" in s ? s : [...HOLDERS].find(h => h.status === s))?.door;
+/** Something changed: each door's listeners hear once per tick, however many reports came in it, and only for their own tiles. */
+function notify(from: TileStatus | StatusHolder) {
+  changedDoors.add(doorOf(from));
   if (notifying) return;
   notifying = true;
-  queueMicrotask(() => { notifying = false; for (const f of [...LISTENERS]) f(); });
+  queueMicrotask(() => {
+    notifying = false;
+    const doors = [...changedDoors];
+    changedDoors.clear();
+    for (const [f, door] of [...LISTENERS]) if (door === undefined || doors.includes(door) || doors.includes(undefined)) f();
+  });
 }
 
 /** A terminal tile is on the door (its first start); `dropStatus` when it closes. */
-export function holdStatus(h: StatusHolder): void { if (!HOLDERS.has(h)) { HOLDERS.add(h); if (h.status.records.size) notify(); } }
-export function dropStatus(h: StatusHolder): void { if (HOLDERS.delete(h) && h.status.records.size) notify(); }
-/** Hear every change to any tile's records (the status bar, the list, the door's own report). Returns the unsubscribe. */
-export function onStatusChange(f: () => void): () => void { LISTENERS.add(f); return () => LISTENERS.delete(f); }
-/** Every terminal tile with records now. */
-export function statusHolders(): StatusHolder[] { return [...HOLDERS].filter(h => h.status.records.size > 0); }
+export function holdStatus(h: StatusHolder): void { if (!HOLDERS.has(h)) { HOLDERS.add(h); if (h.status.records.size) notify(h); } }
+export function dropStatus(h: StatusHolder): void { if (HOLDERS.has(h)) { const had = h.status.records.size > 0; if (had) notify(h); HOLDERS.delete(h); } }
+/**
+ * Hear changes to the records of `door`'s tiles (its status bar, its list, its own report); undefined: every door's.
+ * Returns the unsubscribe.
+ */
+export function onStatusChange(f: () => void, door?: unknown): () => void { LISTENERS.set(f, door); return () => LISTENERS.delete(f); }
+/** `door`'s terminal tiles with records now (undefined: every door's in this process). */
+export function statusHolders(door?: unknown): StatusHolder[] { return [...HOLDERS].filter(h => h.status.records.size > 0 && (door === undefined || h.door === door)); }
 
 /** One row of the "waiting on you" list: a record that asks something of the person, and its tile. */
 export interface WaitingRow { holder: StatusHolder; name: string; tile: string | null; record: StatusRecord; at: number }
 
 /** What asks something of the person, across every terminal tile: blocked first, then failed, then done; newest first within each. */
-export function waitingOnYou(): WaitingRow[] {
+export function waitingOnYou(door?: unknown): WaitingRow[] {
   const rows: WaitingRow[] = [];
-  for (const h of HOLDERS) for (const r of h.status.records.list()) {
+  for (const h of statusHolders(door)) for (const r of h.status.records.list()) {
     if (r.state === "blocked" || r.state === "done" || r.state === "error") rows.push({ holder: h, name: h.statusName(), tile: h.tileId, record: r, at: h.status.at });
   }
   return rows.sort((a, b) => ATTENTION[b.record.state] - ATTENTION[a.record.state] || b.at - a.at);
 }
 
 /** How many of each the list holds: the status bar's count. */
-export function waitingCounts(rows = waitingOnYou()): { blocked: number; error: number; done: number } {
+export function waitingCounts(rows: readonly WaitingRow[]): { blocked: number; error: number; done: number } {
   const n = { blocked: 0, error: 0, done: 0 };
   for (const r of rows) n[r.record.state as keyof typeof n]++;
   return n;
@@ -146,7 +163,7 @@ export function terminfoWithPst(stateDir: string): string | null {
  * `<layout>/<tile>` (`desk/claude`, `drawer/shell`), with its program's app and words and the tile's name as its
  * title. Herdr's sidebar (or any terminal) can then see what waits inside a door without reading its screen.
  */
-export function doorReport(holders: readonly StatusHolder[] = statusHolders()): Map<string, StatusInput> {
+export function doorReport(holders: readonly StatusHolder[]): Map<string, StatusInput> {
   const want = new Map<string, StatusInput>();
   let top: { r: StatusRecord; name: string } | null = null;
   for (const h of holders) {

@@ -29,10 +29,12 @@ export class WaitingYouPane implements Pane {
   private view = new RowView();
   private off: (() => void) | null = null;
 
-  rows(): WaitingRow[] { return waitingOnYou(); }
+  /** The door it's on: its list is that door's terminals. */
+  private door: unknown = undefined;
+  rows(): WaitingRow[] { return waitingOnYou(this.door); }
   title() { const n = this.rows().length; return n ? `waiting on you · ${n}` : "waiting on you · nothing"; }
   hint() { return "j k pick · ⏎ or click goes to it · x seen"; }
-  init(desk: DeskApi) { this.off?.(); this.off = onStatusChange(() => desk.redraw()); }
+  init(desk: DeskApi) { this.door = desk.ctx.hostLayer ?? desk.ctx; this.off?.(); this.off = onStatusChange(() => desk.redraw(), this.door); }
   dispose() { this.off?.(); this.off = null; }
 
   render(w: number, h: number, focused: boolean): PaneView {

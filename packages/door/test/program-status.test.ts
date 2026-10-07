@@ -35,7 +35,7 @@ describe.skipIf(!cttyPrefix())("a terminal tile reads its program's status", () 
     expect(p.headStatus()?.glyph).toBe("◆");
     const row = waitingOnYou().find(r => r.holder === p);
     expect(row?.name).toBe("prog");
-    expect(waitingText(waitingCounts()).plain).toContain("◆1");
+    expect(waitingText(waitingCounts(waitingOnYou().filter(r => r.holder === p))).plain).toContain("◆1");
     expect(p.describe().status).toEqual([{ id: "", state: "blocked", kind: "permission", msg: "Allow deploy?" }]);
   }, 15_000);
 
