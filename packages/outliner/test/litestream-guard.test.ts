@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { metaDir, recoverPaused, replicatorsFor, running, withLitestreamPaused } from "../src/litestream-guard";
+import { cancelRetry, metaDir, recoverPaused, replicatorsFor, running, stuckPauses, withLitestreamPaused } from "../src/litestream-guard";
 import { instancesIn, litestreamUnits, templateInstance } from "../src/litestream-units";
 
 const root = mkdtempSync(join(tmpdir(), "litestream-guard-"));
@@ -19,13 +19,16 @@ writeFileSync(join(home, ".config/systemd/user/litestream.service"), `[Service]\
 writeFileSync(join(home, ".config/systemd/user/litestream-mirror@.service"), `[Service]\nExecStart=%h/.local/bin/litestream restore -f -config %h/m.yml %h/outline-mirrors/laptop/%i.sqlite\n`);
 
 /** A fake systemctl: the replicator's state, and every call made. */
-function fakeSystemd(state: { active: boolean; stopFails?: boolean }) {
+function fakeSystemd(state: { active: boolean; stopFails?: boolean; startFails?: number }) {
   const calls: string[] = [];
   const run = (argv: string[]) => {
     calls.push(argv.slice(1).join(" "));
     if (argv[2] === "is-active") return { code: state.active ? 0 : 3, out: state.active ? "active" : "inactive" };
     if (argv[2] === "stop") { if (state.stopFails) return { code: 1, out: "Failed to stop litestream.service: Access denied" }; state.active = false; return { code: 0, out: "" }; }
-    if (argv[2] === "start") { state.active = true; return { code: 0, out: "" }; }
+    if (argv[2] === "start") {
+      if (state.startFails) { state.startFails--; return { code: 1, out: "Failed to start litestream.service: Unit is masked" }; }
+      state.active = true; return { code: 0, out: "" };
+    }
     return { code: 1, out: "?" };
   };
   return { run, calls };
@@ -127,5 +130,31 @@ describe("the Litestream guard", () => {
     const names = instancesIn("litestream-mirror@float-hub.service loaded active running x\nlitestream-mirror@notes.service loaded active running y\nother.service loaded", tpl.name);
     expect(names).toEqual(["float-hub", "notes"]);
     expect(templateInstance(tpl, "notes")).toMatchObject({ name: "litestream-mirror@notes.service", output: join(home, "outline-mirrors/laptop/notes.sqlite") });
+  });
+
+  test("a start that fails after the change leaves no holder (this process lives on), marked failed, and is retried until it works", async () => {
+    const sd = fakeSystemd({ active: true, startFails: 2 });
+    const log: string[] = [];
+    const opts = { ...o(sd.run), retryDelays: [5], log: (l: string) => log.push(l) };
+    await withLitestreamPaused([join(outlines, "garden.sqlite")], "deleting garden", () => {}, opts);
+    // The record has no holder: a live host process must not keep the replicator stopped.
+    expect(holdersOf("litestream.service")).toEqual([]);
+    expect(stuckPauses(opts)).toMatchObject([{ unit: "litestream.service", attempts: 1, error: expect.stringContaining("masked"), fix: "systemctl --user start litestream.service" }]);
+    for (let waited = 0; stuckPauses(opts).length && waited < 2000; waited += 10) await Bun.sleep(10);
+    cancelRetry();
+    expect(stuckPauses(opts)).toEqual([]);
+    expect(pausedUnits()).toEqual([]);
+    expect(sd.calls.filter(c => c.endsWith("start litestream.service")).length).toBe(3);
+    expect(log.some(l => l.includes("still stopped after try 1"))).toBe(true);
+    expect(log.some(l => l.includes("started again (try 2)"))).toBe(true);
+  });
+
+  test("recoverPaused that can't start it keeps the record and marks the failure, counting tries", () => {
+    const sd = fakeSystemd({ active: false, startFails: 1 });
+    pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z" });
+    expect(recoverPaused(o(sd.run))).toEqual([]);
+    expect(stuckPauses(o(sd.run))).toMatchObject([{ attempts: 1 }]);
+    expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
+    expect(pausedUnits()).toEqual([]);
   });
 });

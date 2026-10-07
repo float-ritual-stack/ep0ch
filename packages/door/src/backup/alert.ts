@@ -74,6 +74,8 @@ export interface BackupState {
   lastPrune?: string;
   drill?: Drill;
   netmail?: NetmailState;
+  /** Litestream replicators a change stopped and starting them again failed (outliner litestream-guard `stuckPauses`). */
+  guard?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[];
 }
 
 export interface Incident { key: string; title: string; detail: string; fix: string; since: string }
@@ -145,6 +147,11 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
     out.push({ key: `netmail-pull:${pull.hub}`, since: pull.failingSince!, title: `pulling queued MCP writes from ${pull.hub} fails`,
       detail: `${machine} hasn't pulled its queued writes from ${pull.hub} since ${hhmm(pull.failingSince!)}: ${pull.detail}`,
       fix: `ep0ch mcp pull   (it says why; ssh ${pull.hub} ep0ch mcp queue status shows what waits)` });
+  }
+  for (const g of s.guard ?? []) {
+    out.push({ key: `guard:${machine}/${g.unit}`, since: g.since, title: `Litestream ${g.unit} stopped on ${machine}`,
+      detail: `${g.unit} was stopped for a change to an outline's file at ${hhmm(g.since)} and starting it again failed ${g.attempts} time${g.attempts === 1 ? "" : "s"} (last ${hhmm(g.failedAt)}): ${g.error}; until it runs nothing is replicated`,
+      fix: g.fix });
   }
   if (s.drill && !s.drill.ok) {
     out.push({ key: `drill:${machine}`, since: s.drill.at, title: `restore drill failed on ${machine}`, detail: s.drill.detail,

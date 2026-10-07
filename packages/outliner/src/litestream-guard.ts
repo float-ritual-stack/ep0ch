@@ -12,7 +12,9 @@
 // disk (a row of `<state>/litestream-paused/pauses.sqlite`) listing the processes holding it, so changes in several processes share
 // one stop and the last one out starts it; a holder that died (a crash, a kill) is pruned by the next guard, the host's
 // start and the backup job (`recoverPaused`), which start the replicator again. A replicator whose state or config
-// can't be read, or that won't stop, refuses the change with the commands that make it by hand. Scratch folders no
+// can't be read, or that won't stop, refuses the change with the commands that make it by hand. A start that fails after the
+// change drops this process's hold (a host lives on) and marks the record failed: retried with growing waits, and said by
+// the host's log, doctor and the backup alert (`stuckPauses`). Scratch folders no
 // config covers are never touched.
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -36,6 +38,9 @@ export interface GuardOptions {
   records?: string;
   /** Whether a process is alive (a test's fake). */
   alive?: (pid: number) => boolean;
+  /** Waits between tries to start a stopped replicator again (default RETRY_DELAYS_MS) and where each try is said (default stderr). */
+  retryDelays?: readonly number[];
+  log?: (line: string) => void;
 }
 
 const platformOf = (p = process.platform): Platform => (p === "linux" ? "linux" : p === "darwin" ? "macos" : "other");
@@ -75,7 +80,13 @@ export function running(u: Pick<LitestreamUnit, "kind" | "name">, run: Run, uid:
 }
 
 /** A pause on disk: the changes holding it (`<pid>:<n>`, one per change, so nested changes in one process each count). */
-interface PauseRecord { unit: string; kind: LitestreamUnit["kind"]; path: string; holders: string[]; since: string; state?: "stopping" | "paused" }
+interface PauseRecord { unit: string; kind: LitestreamUnit["kind"]; path: string; holders: string[]; since: string; state?: "stopping" | "paused"; failed?: StartFailure }
+/** The last time starting the replicator again failed: when, why and how many tries. The record stays, with no holder, until one succeeds. */
+interface StartFailure { at: string; error: string; attempts: number }
+const failure = (prev: StartFailure | undefined, out: string): StartFailure => ({ at: new Date().toISOString(), error: out.split("\n").at(-1) || "no output", attempts: (prev?.attempts ?? 0) + 1 });
+
+/** A replicator left stopped because starting it again failed: what doctor, the backup alert and the host's log say. */
+export interface StuckPause { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }
 const pidOf = (holder: string | number) => Number(String(holder).split(":")[0]);
 let changes = 0;
 
@@ -116,9 +127,53 @@ export function recoverPaused(o: GuardOptions = {}): string[] {
       if (rec.holders.length) { p.put(rec); continue; }
       const r = run(startArgv({ kind: rec.kind, name: rec.unit, path: rec.path } as LitestreamUnit, uid));
       if (r.code === 0) { p.del(rec.unit); started.push(rec.unit); }
+      else p.put({ ...rec, failed: failure(rec.failed, r.out) });
     }
     return started;
   });
+}
+
+/** The replicators whose start failed and wait for a retry (read only: nothing is made or changed). */
+export function stuckPauses(o: GuardOptions = {}): StuckPause[] {
+  const file = join(recordsOf(o), "pauses.sqlite"), alive = o.alive ?? aliveDefault, uid = process.getuid?.() ?? 0;
+  if (!existsSync(file)) return [];
+  let db: Database | undefined;
+  try {
+    db = new Database(file, { readonly: true });
+    return (db.query("SELECT record FROM pauses").all() as { record: string }[]).map(r => JSON.parse(r.record) as PauseRecord)
+      .filter(r => r.failed && !r.holders.some(h => alive(pidOf(h))))
+      .map(r => ({ unit: r.unit, since: r.since, failedAt: r.failed!.at, error: r.failed!.error, attempts: r.failed!.attempts, fix: said(startArgv({ kind: r.kind, name: r.unit, path: r.path } as LitestreamUnit, uid)) }));
+  } catch { return []; } finally { db?.close(); }
+}
+
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+/** Stops the schedule (the host's stop, a test). */
+export function cancelRetry(): void { if (retryTimer) clearTimeout(retryTimer); retryTimer = undefined; }
+/** Waits between tries to start a stopped replicator again: 5 s, 15 s, a minute, five, then every fifteen minutes. */
+export const RETRY_DELAYS_MS = [5_000, 15_000, 60_000, 300_000, 900_000];
+
+/**
+ * Tries again, with growing waits, until every replicator a change left stopped runs again: a start that failed (the
+ * unit busy, systemd restarting) is usually fine a moment later. Each failure is said to the log; the timer never
+ * keeps a process alive (a short command leaves it to the host's start and the backup job). One schedule at a time.
+ * Returns when the first try has been scheduled, and never throws.
+ */
+export function retryRecovery(o: GuardOptions = {}): void {
+  if (retryTimer) return;
+  const delays = o.retryDelays ?? RETRY_DELAYS_MS, log = o.log ?? ((line: string) => console.error(line));
+  const attempt = (n: number) => {
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      try {
+        for (const unit of recoverPaused(o)) log(`Litestream ${unit}: started again (try ${n + 1})`);
+        const stuck = stuckPauses(o);
+        for (const s of stuck) log(`Litestream ${s.unit}: still stopped after try ${n + 1}: ${s.error}; start it: ${s.fix}`);
+        if (stuck.length) attempt(n + 1);
+      } catch (error) { log(`litestream guard: ${(error as Error).message}`); attempt(n + 1); }
+    }, delays[Math.min(n, delays.length - 1)]!);
+    retryTimer.unref?.();
+  };
+  attempt(0);
 }
 
 /**
@@ -136,6 +191,7 @@ export async function withLitestreamPaused<T>(files: readonly string[], what: st
   if (units.length) recoverPaused(o);
   const held: LitestreamUnit[] = [];
   const me = `${process.pid}:${++changes}`;
+  let startFailed = false;
   const release = () => {
     if (!held.length) return;
     withPauses(dir, p => {
@@ -144,11 +200,16 @@ export async function withLitestreamPaused<T>(files: readonly string[], what: st
         const holders = (rec?.holders ?? []).filter(h => h !== me && alive(pidOf(h)));
         if (rec && holders.length) { p.put({ ...rec, holders }); continue; }
         const r = run(startArgv(u, uid));
-        if (r.code === 0) p.del(u.name);
-        // Left for recoverPaused (the next guard, the host's start, the backup job), and said.
-        else console.error(`litestream guard: ${u.name} didn't start again after ${what}: ${r.out}; start it: ${said(startArgv(u, uid))}`);
+        if (r.code === 0) { p.del(u.name); continue; }
+        // This change is over, so it no longer holds the pause (a holder that lives as long as the host would keep
+        // recoverPaused from ever starting it): the record stays without a holder, marked failed, for a retry
+        // (below, here), the next guard, the host's start and the backup job; doctor and the backup alert say it.
+        p.put({ unit: u.name, kind: u.kind, path: u.path, since: new Date().toISOString(), state: "paused", ...rec, holders: [], failed: failure(rec?.failed, r.out) });
+        console.error(`litestream guard: ${u.name} didn't start again after ${what}: ${r.out}; trying again; by hand: ${said(startArgv(u, uid))}`);
+        startFailed = true;
       }
     });
+    if (startFailed) retryRecovery(o);
   };
   try {
     // One unit at a time, each in short transactions of its own, so a unit already paused keeps its committed record

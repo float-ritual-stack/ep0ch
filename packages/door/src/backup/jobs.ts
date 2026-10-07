@@ -184,6 +184,9 @@ export function replaceMirror(copy: string, file: string): void {
 export const newer = (a: { seq?: number | null; at?: string }, b: { seq?: number | null; at?: string }) =>
   a.seq != null && b.seq != null ? a.seq > b.seq : (a.at ?? "") > (b.at ?? "");
 
+/** Whether a snapshot is newer than the mirror's copy: by change, else (no change feed) by the snapshot's `time` against the copy's `at`. */
+export const snapshotNewer = (snap: { seq: number | null; time: string }, m: { seq?: number | null; at?: string }) => newer({ seq: snap.seq, at: snap.time }, m);
+
 /** The outlines' changes on another machine, asked over ssh (read-only), or null when it doesn't answer. */
 async function remoteSeqs(ssh: string, names: string[], c: BackupConfig): Promise<Record<string, number> | null> {
   const script = names.filter(n => OUTLINE_NAME.test(n)).map(n => `printf '%s %s\\n' ${n} "$(sqlite3 -readonly "\${EP0CH_OUTLINES:-$HOME/outlines}/${n}.sqlite" 'select max(change_id) from change_feed' 2>/dev/null)"`).join("; ");
@@ -257,7 +260,7 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
   const tmp = join(folder, `.${snap.outline}.sqlite.incoming-${process.pid}`);
   try {
     // A copy here from sqlite3_rsync may be newer than the newest snapshot: it stays.
-    if (!existsSync(file) || (m.snapshot !== snap.id && newer(snap, m))) {
+    if (!existsSync(file) || (m.snapshot !== snap.id && snapshotNewer(snap, m))) {
       const r = await dumpTo(c, c.repoOf(src.machine), snap, tmp);
       const verdict = "error" in r ? r.error : integrity(tmp);
       if (verdict !== "ok") { m.behindSince ??= snap.time; m.error = `restoring snapshot ${snap.id.slice(0, 8)}: ${verdict}`; o.say(`✗ mirror ${key}: ${m.error}`); return; }
@@ -373,11 +376,14 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
   }
   try {
     // A change to an outline's file that crashed while Litestream was paused for it left the replicator stopped.
-    try {
-      const { recoverPaused } = await import("@ep0ch/outliner/litestream-guard");
-      for (const unit of recoverPaused({ env: c.env })) say(`Litestream ${unit}: started again (a change to an outline paused it and didn't finish)`);
-    } catch (e) { say(`✗ Litestream guard: ${(e as Error).message}`); }
     const s = readBackupState(c.state);
+    try {
+      const { recoverPaused, stuckPauses } = await import("@ep0ch/outliner/litestream-guard");
+      for (const unit of recoverPaused({ env: c.env })) say(`Litestream ${unit}: started again (a change to an outline paused it and didn't finish)`);
+      // One that still won't start is an incident (the alert's), said every run until it does.
+      s.guard = stuckPauses({ env: c.env });
+      for (const g of s.guard) say(`✗ Litestream ${g.unit} is stopped and didn't start (${g.error}): ${g.fix}`);
+    } catch (e) { say(`✗ Litestream guard: ${(e as Error).message}`); }
     // Each part stands alone: one failing never stops the others.
     const snap = await snapshot(c, s, { now, say, step: o.step }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"] }; });
     writeBackupState(c.state, s);

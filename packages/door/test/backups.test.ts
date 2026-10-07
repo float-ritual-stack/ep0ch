@@ -163,6 +163,14 @@ describe("gathering from a scratch home, with a fake run", () => {
     expect(localTxid(join(home, "outlines/garden.sqlite"))).toBe(9);
   });
 
+  test("doctor: a replicator a change stopped that won't start again is failed, with the command that starts it", async () => {
+    const b = await gatherBackups({ platform: "linux", home, env: { PATH: "/usr/bin" }, run, now: NOW });
+    const stuck = [{ unit: "litestream.service", since: "2026-05-02T09:00:00Z", failedAt: "2026-05-02T09:05:00Z", error: "Unit is masked", attempts: 2, fix: "systemctl --user start litestream.service" }];
+    const line = backupChecks({ ...b, stuck }, home).find(c => c.name === "litestream pause litestream.service");
+    expect(line).toMatchObject({ status: "missing", fix: "systemctl --user start litestream.service", detail: expect.stringContaining("failed 2 times") });
+    expect(backupChecks(b, home).map(c => c.name)).not.toContain("litestream pause litestream.service");
+  });
+
   test("doctor's checks: running units, the log's errors with the fresh start, each replica and the mirror; no key printed", async () => {
     const b = await gatherBackups({ platform: "linux", home, env: { PATH: "/usr/bin" }, run, now: NOW, restore: true });
     const checks = backupChecks(b, home);
