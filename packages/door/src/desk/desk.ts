@@ -62,7 +62,7 @@ import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, 
  * rule; and (PIE-491) the layout's revision and the next tile and split ids, so a restarted door never gives
  * out a revision or an id an agent may still hold from before (a Herdr agent outlives the door).
  */
-interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown> }
+interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown>; zoom?: string }
 /** The desk's own spec (PIE-515): the desk as it has always opened, kept in desk.json, and the screen that loads named layouts. */
 export function deskSpec(): ScreenSpec {
   // A layout saved under the name "desk" is the desk's own.
@@ -247,6 +247,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (saved?.root) { this.build({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, false, true); this.layoutName = saved.layout ?? null; }
     else this.build(spec.layout, false, false, true);
     this.fromSpec(spec);
+    // A zoomed tile comes back zoomed (PIE-643), when that tile is still here.
+    const zoomed = !want && typeof saved?.zoom === "string" ? this.idNamed(saved.zoom) : undefined;
+    if (zoomed !== undefined) try { this.apply({ op: "zoom", tile: zoomed, on: true }); } catch { /* the layout has no zoom for it now */ }
     // A screen a person made (a screen note) opened by its name: ^W w saves it again under it.
     if (madeScreen(spec.name)) { this.layoutName = spec.name; this.madeAs = spec.name; this.madeBase = { ...madeScreen(spec.name)! }; }
     // What leaving asks about: a screen of the person's own changed since it was saved (or since it opened, blank).
@@ -264,7 +267,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.spec.name === "detail") {
       // Its target is the note it holds now (`--screen detail <id>`, screen.open target=).
       const p = this.pane("detail");
-      if (p instanceof DetailPane) { const a = p.spec(); return typeof a.note === "string" ? { target: a.note } : a; }
+      if (p instanceof DetailPane) { const { nav: _nav, ...a } = p.spec(); return typeof a.note === "string" ? { target: a.note } : a; }
     }
     return this.screenOpenArgs;
   }
@@ -565,7 +568,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   save() {
     if (!this.spec.saves || !this.writes) return;
     const models = Object.fromEntries([...this.models].map(([cid, m]) => [this.columnsIn().find(c => c.id === cid)?.key ?? cid, m.save?.()] as const).filter(([, v]) => v !== undefined));
-    writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk, outlineState());
+    writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), ...(this.zoom !== null && this.panes.has(this.zoom) ? { zoom: this.nameOf(this.zoom) } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk, outlineState());
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────
@@ -1745,6 +1748,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
+  /** A reader's history changed, or the door is handing over: the layout is saved with it (PIE-643). */
+  keepLayout() { this.save(); }
+  keepPlace() { this.save(); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
   reopen(): { action: string; tile: string; args?: Record<string, unknown> }[] {

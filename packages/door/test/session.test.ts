@@ -9,7 +9,7 @@
 //   program still running with its scrollback, an unsaved draft and the layout; two clients consistent; an agent
 //   acting through the control socket; `end` asking while programs run, then ending.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -839,7 +839,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   let scratch: Scratch;
   const saved: Record<string, string | undefined> = {};
   const env = (k: string, v: string) => { saved[k] = process.env[k]; process.env[k] = v; };
-  let plot = "";
+  let plot = "", hostSock = "";
   const control = (req: Record<string, unknown>) => new Promise<any>((res, rej) => {
     const s = connect(join(dir, "door.sock"));
     let buf = "";
@@ -858,7 +858,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     plot = (await b.request<{ id: string }>("create", { parentId: null, text: "Seed swap list\nBeans, chard", author: "agent" })).id;
     b.close();
     env("EP0CH_STATE", join(scratch.root, "door"));
-    env("EP0CH_SOCKET", sock);
+    env("EP0CH_SOCKET", sock); hostSock = sock;
     env("EP0CH_WS", scratch.name);
     dir = (placeFor([]) as Place).dir;
     env("EP0CH_DAILY_AGENT", "sh");
@@ -873,6 +873,62 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     await scratch.dispose();
   }, 30_000);
+
+  test("a handover keeps a reader's way back: three notes, then back in order with the scroll kept, the zoom and the focus too, and the same after another handover (PIE-643)", async () => {
+    // A trail of three: the shed links the tools, the tools link the rake. The shed is long, its link far down.
+    const b = new SocketBoard(hostSock);
+    await b.info();
+    const make = async (text: string) => (await b.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
+    const rake = await make("Rake\nTines up.");
+    const tools = await make(`Tools\nSharp ones first. The rake: ((${rake})).`);
+    const shed = await make(`Shed\n${Array.from({ length: 90 }, (_, i) => `Row ${i + 1} of the shed.`).join("\n")}\nThe tools are in ((${tools})).`);
+    b.close();
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => a.screen().includes("outline"), "the desk", 10_000);
+    await control({ cmd: "act", action: "open", args: { id: shed }, as: "test-agent" });
+    await until(() => a.screen().includes("Row 1 of the shed"), "the shed in the reader", 10_000);
+    a.type("2");
+    const state = async () => (await control({ cmd: "peek" })).screen.state;
+    const reader = async () => (await state()).readers.find((r: any) => r.name === "reader");
+    for (let i = 0; i < 50 && (await state()).focus !== "reader"; i++) await Bun.sleep(100);
+    const follow = async (to: string) => {
+      a.type("]");
+      await Bun.sleep(150);
+      a.type("\r");
+      await until(() => a.screen().includes(to), `${to} after the link`, 10_000);
+    };
+    await follow("Sharp ones first");
+    await follow("Tines up");
+    const titles = async () => (await reader()).history.back.map((x: any) => x.title);
+    expect((await titles()).slice(0, 2)).toEqual(["Tools", "Shed"]);
+    await control({ cmd: "act", action: "tile.zoom", tile: "reader", as: "test-agent" });
+    expect((await state()).zoom).toBe(2);   // the reader, tile 2
+
+    const hand = async (c: HandoffClient) => {
+      expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+      await until(() => c.closed, "the old daemon to let the terminal go", 5000);
+      const n = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+      await until(() => n.screen().includes("handed over to a new daemon"), "the handoff said", 10_000);
+      return n;
+    };
+    const b1 = await hand(a);
+    await until(() => b1.screen().includes("Tines up"), "the rake after the handoff", 10_000);
+    expect(await state()).toMatchObject({ zoom: 2, focus: "reader" });
+    expect((await titles()).slice(0, 2)).toEqual(["Tools", "Shed"]);
+    b1.type("\x1b[1;3D");                                   // alt+←
+    await until(() => b1.screen().includes("Sharp ones first"), "back on the tools", 10_000);
+    b1.type("\x1b[1;3D");
+    await until(() => b1.screen().includes("The tools are in") && !b1.screen().includes("Row 1 of the shed"), "back on the shed, as far down as it was", 10_000);
+    expect((await reader()).history.forward.map((x: any) => x.title)).toEqual(["Tools", "Rake"]);
+
+    // Once more, from the middle of the trail: forward is still there, and the place with it.
+    const b2 = await hand(b1);
+    await until(() => b2.screen().includes("The tools are in") && !b2.screen().includes("Row 1 of the shed"), "the shed after the second handoff", 10_000);
+    b2.type("\x1b[1;3C");                                   // alt+→
+    await until(() => b2.screen().includes("Sharp ones first"), "forward to the tools", 10_000);
+    await control({ cmd: "act", action: "tile.zoom", tile: "reader", args: { on: false }, as: "test-agent" });
+    b2.close();
+  }, 180_000);
 
   test("`session restart`: a new daemon, the same shell with its output, the screens and the edit open again", async () => {
     const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);

@@ -214,6 +214,7 @@ export async function serve(args: string[]): Promise<never> {
     over = true;
     checkpoints?.write(true);
     checkpoints?.stop();
+    app.keepPlaces();
     for (const s of app.holders()) { try { s.keepDrafts?.(); } catch { /* the rest still go */ } }
     // A ctrl+e editor on a temp file has no tile to come back to: its text is copied out, and it ends.
     for (const s of app.holders()) { try { s.keepEdits?.(); } catch { /* the rest still go */ } }

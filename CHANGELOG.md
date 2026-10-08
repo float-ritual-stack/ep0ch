@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A handover keeps where each reader has been (PIE-643)
+
+- **Fixed:** `ep0ch install --apply` (and `ep0ch session upgrade`, a restart, a quit and come back) no longer empties a
+  reader's back and forward. Each reader tile (reader, detail, and one in the drawer) saves its note, its back and forward
+  stacks, how far down it is, the `[ ]` position, folds, expanded threads and figure choices with the layout; a zoomed tile
+  comes back zoomed, and the focus was already kept. A reader that follows the current note shows the note it had.
+- **Kept as before:** the river's trails (saved with its layout), the drawer's open state and its tiles, floats, programs and
+  open edits.
+- **Still lost:** a river column's own scroll, selection and folds; the outline tree's open rows and selection; the main
+  menu's selection. Their saved history is `nav` in the tile's entry in `desk.json`, versioned: a file of another version is
+  read as having none.
+- **Run:** nothing beyond `ep0ch install --apply`. No protocol or schema change.
+
 ### What an agent may do to each tile (PIE-639)
 
 - **New:** each tile has a level for agents. `free` (the default) is as before; `edit` lets an agent edit the note the tile
