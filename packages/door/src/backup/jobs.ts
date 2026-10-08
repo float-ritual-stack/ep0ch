@@ -42,6 +42,16 @@ export function changeSeq(path: string): number | null {
   } catch { return null; } finally { db?.close(); }
 }
 
+/** An outline's schema version (`PRAGMA user_version`, read-only), or null when it can't be read. */
+export function schemaVersion(path: string): number | null {
+  let db: Database | undefined;
+  try {
+    db = new Database(path, { readonly: true });
+    db.run("PRAGMA busy_timeout = 5000");
+    return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+  } catch { return null; } finally { db?.close(); }
+}
+
 /** A consistent, integrity-checked copy of a database (VACUUM INTO from a read-only connection), mode 0600. */
 export function copyDatabase(path: string, dest: string): void {
   const src = new Database(path, { readonly: true });
@@ -91,9 +101,10 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   o.step?.(`checking ${outlines.length} outline${outlines.length === 1 ? "" : "s"} for changes`);
-  const changed = outlines.map(x => ({ ...x, seq: changeSeq(x.path) })).filter(x => {
+  const changed = outlines.map(x => ({ ...x, seq: changeSeq(x.path), schema: schemaVersion(x.path) })).filter(x => {
     const st = s.outlines[x.name] ??= {};
-    const moved = o.force || x.seq === null || st.seq === undefined || st.seq !== x.seq;
+    // A migration changes the schema and not the change feed: a different schema than the newest snapshot's is a change.
+    const moved = o.force || x.seq === null || st.seq === undefined || st.seq !== x.seq || (x.schema !== null && st.schema !== x.schema);
     if (moved) st.pendingSince ??= new Date(now()).toISOString();
     else { delete st.pendingSince; delete st.error; }
     return moved;
@@ -114,10 +125,10 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       try { copyDatabase(x.path, copy); }
       catch (e) { st.error = `copying ${x.path}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); continue; }
       o.step?.(`${x.name}: uploading to restic`);
-      const r = await backupFile(c, repo, copy, x.name, x.seq);
+      const r = await backupFile(c, repo, copy, x.name, x.seq, x.schema);
       rmSync(copy, { force: true });
       if ("error" in r) { st.error = r.error; failed.push(x.name); say(`✗ ${x.name}: ${r.error}`); continue; }
-      Object.assign(st, { seq: x.seq, at: new Date(now()).toISOString(), snapshot: r.id });
+      Object.assign(st, { seq: x.seq, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
       delete st.pendingSince; delete st.error;
       uploaded.push(x.name);
       say(`✓ ${x.name} (change ${x.seq ?? "?"}) → snapshot ${r.id.slice(0, 8)}`);
@@ -259,14 +270,21 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
   if (m.remoteSeq != null && snap.seq !== null && m.remoteSeq > snap.seq) m.pendingSince ??= o.iso(); else delete m.pendingSince;
   const tmp = join(folder, `.${snap.outline}.sqlite.incoming-${process.pid}`);
   try {
+    // A snapshot of a newer schema replaces the copy even at the same change: a migration doesn't move the change feed.
+    const have = existsSync(file) ? schemaVersion(file) : null;
+    const migrated = have !== null && snap.schema != null && snap.schema > have && m.snapshot !== snap.id;
     // A copy here from sqlite3_rsync may be newer than the newest snapshot: it stays.
-    if (!existsSync(file) || (m.snapshot !== snap.id && snapshotNewer(snap, m))) {
+    if (!existsSync(file) || migrated || (m.snapshot !== snap.id && snapshotNewer(snap, m) && !(have !== null && snap.schema != null && snap.schema < have))) {
       const r = await dumpTo(c, c.repoOf(src.machine), snap, tmp);
       const verdict = "error" in r ? r.error : integrity(tmp);
       if (verdict !== "ok") { m.behindSince ??= snap.time; m.error = `restoring snapshot ${snap.id.slice(0, 8)}: ${verdict}`; o.say(`✗ mirror ${key}: ${m.error}`); return; }
+      // A snapshot from before the schema tag may be older than the copy here: its file says.
+      const got = schemaVersion(tmp);
+      if (have !== null && got !== null && got < have) { m.snapshot = snap.id; delete m.behindSince; delete m.error; o.say(`mirror ${key}: snapshot ${snap.id.slice(0, 8)} is schema ${got}, older than the copy here (${have}); kept the copy`); return; }
       chmodSync(tmp, 0o600);
       replaceMirror(tmp, file);
       Object.assign(m, { snapshot: snap.id, seq: snap.seq, at: snap.time, source: "restic", refreshed: o.iso() });
+      if (migrated) o.say(`mirror ${key}: schema ${have} → ${snap.schema} (the machine migrated)`);
       delete m.behindSince; delete m.error;
       o.say(`✓ mirror ${key} ← snapshot ${snap.id.slice(0, 8)} (change ${snap.seq ?? "?"}, ${hhmm(snap.time)})${folder.includes("/.restic/") ? " (beside the Litestream follower)" : ""}`);
     } else { delete m.behindSince; delete m.error; }

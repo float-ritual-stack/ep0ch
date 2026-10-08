@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Mirrors follow a schema bump, and the gateway never sends you to `install` for one
+
+- **Fixed:** the backup job treated a migration as no change (it moves `user_version`, not the change feed), so
+  mirrors kept the old schema for good. A different schema than the newest snapshot's is a change now; snapshots carry
+  a `schema=N` tag, `backup status` state keeps it, and a mirror takes a snapshot at a newer schema even at the same
+  change (never an older one over a newer copy).
+- **Fixed:** the remote MCP gateway migrates a copy one or more schemas behind on its own private `.serve` copy, with
+  the migration scripts install runs (never the mirror), and says so in the outline's note. Where no script reaches
+  the version it lists the outline `unreachable` with `on <machine>: ep0ch backup run --force`, and still shows the
+  outline's access and `writes` (read from the copy's metadata), with the reason.
+- **Changed:** between a Litestream follower's copy and the backup job's, the one nearer this build's schema wins, then
+  the later change; a stale follower loses a tie. `ep0ch doctor` gives an erroring follower
+  (`error applying updates`) its fresh-restore command.
+- **Run:** on the machine behind (the laptop): `ep0ch backup run --force` once, so the mirror gets a current snapshot.
+
 ### A rule's text pattern can no longer hang the host (PIE-630)
 
 - **Changed:** a rule's text pattern is read structurally and refused when it can backtrack without bound: a repeated

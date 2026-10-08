@@ -391,7 +391,12 @@ export function backupChecks(b: BackupFacts, home: string): { name: string; stat
     else if (log.errorsLastHour) {
       const ltx = log.lostState ?? [];
       const detail = `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour; latest: ${log.latest!.line}`;
-      const fix = ltx.length
+      // A follower that can't apply the replica's updates (its local copy stopped matching the replica's levels) keeps
+      // serving what it has: the backup job's restore is what the gateway reads until it has a fresh start.
+      const applying = u.role === "follow" && !ltx.length && /error applying updates|iterate level \d+ ltx/i.test(log.latest?.line ?? "");
+      const fix = applying
+        ? `the gateway reads the backup job's copy (<mirrors>/.restic) meanwhile; give the follower a fresh restore: ${stopCommand(u)} && rm -f ${dbs.flatMap(d => [d.path, `${d.path}-txid`, `${d.path}-wal`, `${d.path}-shm`]).join(" ")} && ${startCommand(u)}`
+        : ltx.length
         ? `${ltx.join(", ")}: Litestream lost a file of its local state; give ${ltx.length === 1 ? "it" : "them"} a fresh start: ${freshStart(u, ltx.map(name => dbs.find(d => basename(d.path) === name) ?? { path: join("<outlines>", name), url: null }), home)}`
         : `read it (${u.kind === "systemd" ? `journalctl --user -u ${u.name} -n 50` : `tail -50 ${u.logPaths?.join(" ")}`}), then ${restartCommand(u)}`;
       add(`${label} log`, { status: "missing", detail, fix });
