@@ -421,8 +421,8 @@ test("a title that begins with -- is the title, from the CLI and from the work_c
     return r.json;
   };
   const id = created.json.workId as string;
-  expect(await run("work_stage", { item: id, stage: "doing", expectedRevision: 1 })).toMatchObject({ workStage: "doing" });
-  expect(await run("work_set", { item: id, key: "arc", value: "--arc-of-dashes" })).toMatchObject({ value: "--arc-of-dashes" });
-  await run("work_body", { item: id, body: "## --flags heading\n\nFirst." });
-  expect(await run("note_section", { block: id, heading: "## --flags heading", body: "Second." })).toMatchObject({ previous: expect.stringContaining("First.") });
+  expect(await run("work_stage", { ref: id, stage: "doing", expectedRevision: 1 })).toMatchObject({ workStage: "doing" });
+  expect(await run("work_set", { ref: id, key: "arc", value: "--arc-of-dashes" })).toMatchObject({ value: "--arc-of-dashes" });
+  await run("work_body", { ref: id, body: "## --flags heading\n\nFirst." });
+  expect(await run("note_section", { ref: id, heading: "## --flags heading", body: "Second." })).toMatchObject({ previous: expect.stringContaining("First.") });
 });
