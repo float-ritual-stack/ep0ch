@@ -64,6 +64,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(by("tile.close")).toMatchObject({ label: "close", key: "ctrl+w x", tile: expect.stringMatching(/^t\d+$/) });
     expect(by("tile.float")).toMatchObject({ label: "float", key: "ctrl+w f" });
     expect(by("edit")).toMatchObject({ group: "Note", key: "e" });
+    expect(by("note.copy")).toMatchObject({ group: "Note", label: "copy note", key: "Y" });
     // Back has nothing to go back to yet: not in the menu.
     expect(by("back")).toBeUndefined();
     // $EDITOR on a draft is a row only while one is being written.

@@ -156,3 +156,38 @@ describe("copying a block", () => {
     expect(copies.at(-1)).toBe("the clippings");
   });
 });
+
+describe("copying the whole note", () => {
+  test("Y with nothing selected copies the note's source as stored, said as lines; a selection's Y is still that selection's source", async () => {
+    const { s, h, copies, flashes, draw } = setup();
+    draw();
+    s.key(char("Y"), h);
+    await until(() => copies.length === 1);
+    expect(copies[0]).toBe(TEXT);
+    expect(flashes.at(-1)).toBe(`copied the note, ${TEXT.split("\n").length} lines`);
+    // With a selection, Y is that selection's source and not the note.
+    s.key(char("v"), h); for (const c of "lll") s.key(char(c), h);
+    s.key(char("Y"), h);
+    await until(() => copies.length === 2);
+    expect(copies[1]!.length).toBeLessThan(TEXT.length);
+    expect(TEXT).toContain(copies[1]!);
+    s.key({ kind: "esc" }, h);
+    // y with nothing selected still only hints, and now names Y.
+    s.key(char("y"), h);
+    expect(flashes.at(-1)).toContain("Y copies the whole note");
+    expect(copies).toHaveLength(2);
+  });
+
+  test("an agent's note.copy returns the text and never touches the person's clipboard; the person's goes to it", async () => {
+    const { s, h, copies, flashes } = setup();
+    const theirs = await s.act("note.copy", {}, h, AGENT) as { text: string; lines: number; clipboard: boolean };
+    expect(theirs).toMatchObject({ text: TEXT, lines: TEXT.split("\n").length, clipboard: false });
+    expect(copies).toEqual([]);
+    expect(flashes.at(-1)).toContain("your clipboard is untouched");
+    const mine = await s.act("note.copy", {}, h, { kind: "user" } as Actor) as { clipboard: boolean };
+    expect(mine.clipboard).toBe(true);
+    expect(copies).toEqual([TEXT]);
+  });
+});
+
+const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await Bun.sleep(10); };

@@ -1337,6 +1337,16 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(dragged).toContain("Here's a callout block.\nIt supports Markdown and links.");
     expect(dragged).toContain("- and lists\n- inside it");              // the list markers as the note has them
     for (const bad of ["│", "╭", "╰", "╮", "╯", "∙"]) expect(dragged).not.toContain(bad);
+    // The whole note: an agent's note.copy gets its source back (the clipboard untouched); Y, with nothing selected, copies it for the person.
+    const whole = await app.act({ action: "note.copy", tile: "reader", as: "test-agent" }) as any;
+    expect(whole.clipboard).toBe(false);
+    expect(whole.text).toContain("Here's a callout block.");
+    const n = copies().length;
+    press({ kind: "esc" });
+    press({ kind: "char", ch: "Y" });
+    await until(() => copies().length > n, "Y copied the whole note");
+    expect(copies().at(-1)).toBe(osc52(whole.text));
+    expect((app as any).message).toContain(`copied the note, ${whole.lines} lines`);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

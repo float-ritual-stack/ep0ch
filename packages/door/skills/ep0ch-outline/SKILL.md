@@ -167,6 +167,46 @@ subtree is shown. The public listener has no index, and an embed there of a note
 "not shared", but the note's own text and children are public. `publish list` shows the public URL in its
 PUBLIC column. Removing `public` takes the note off at once.
 
+## Shaping a note: a floor, not a ceiling
+
+Every note clears this floor:
+
+- State lives in properties, not prose (status, owner, channel, related), so views can filter it.
+- Anything with a status is live: a query, view or embed, never a copied list that drifts.
+- Text meant to leave the outline is one copyable block (a quote or fence), so its ⧉ copies exactly that.
+- What the reader needs first comes first: one line saying what this is and what's left.
+- Context that matters less is folded (`[!note]-`), not deleted.
+- Link, don't direct: `((id|label))`.
+
+Above the floor, use whatever makes this note clearer. The examples are one way each, not the way: an outbox draft
+(a purpose callout, a before-it-posts checklist, the message in one quote, folded sources), a session plan (now, open
+questions, steps as live queries), a decision record (the question, options as a compare figure, the call, what would
+change it). Reach past them: ask `outline_components` (or `ep0ch library --brief`) for what exists and pick what
+fits. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
+the content.
+
+A worked outbox draft (fictional). The properties are on the first line; the message is the one quote, so its ⧉
+copies the message and nothing else; the sources are folded:
+
+````markdown
+Ticket: staff the seed swap table [type::outbox] [outbox::next] [status::draft]
+> [!abstract] A ticket for the allotment committee asking for two volunteers on the 14th. Left: pick the channel.
+
+Before it posts
+- [ ] the date matches ((7c1d0a52-3b64-4f0e-9a21-5e8d6b4c2f10|Seed swap plan))
+- [ ] one volunteer named for the cash box
+- [ ] channel chosen
+
+> **To:** Allotment committee
+> **Subject:** Two volunteers for the seed swap, Saturday the 14th
+> **Ask:** Can two of you run the table from 10 to 12? One keeps the cash box.
+> **Needed by:** Friday
+
+> [!note]- Sources
+> - ((7c1d0a52-3b64-4f0e-9a21-5e8d6b4c2f10|Seed swap plan)): date and hours
+> - ((a41b9e07-62d3-48c5-b0f7-13c9d5e8a264|Committee rota)): who is free
+````
+
 ## Components you can write in a note
 
 A note can hold more than text. Reach for these before writing a table or a status by hand. Each is part of the

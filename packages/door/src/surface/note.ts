@@ -3039,6 +3039,24 @@ export class NoteSurface {
     return { n: i + 1, kind: b.kind, text: b.text, lines, clipboard: false };
   }
 
+  /**
+   * The whole note's source text, as stored (header chips, fences and all): the person's goes to their clipboard (OSC 52)
+   * and is said as "copied N lines", like a block's; an agent's is only returned. Works whatever the reader draws.
+   */
+  async copyNote(host: SurfaceHost, actor: Actor): Promise<{ id: string; text: string; lines: number; clipboard: boolean }> {
+    const m = await this.whole();
+    const text = m.text, lines = text.split("\n").length, said = `${lines} line${lines === 1 ? "" : "s"}`;
+    if (!text.trim()) throw new ActionRefused("the note has nothing in it to copy");
+    if (actor.kind === "user") {
+      if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
+      host.ctx.flash(`copied the note, ${said}`);
+      return { id: m.id, text, lines, clipboard: true };
+    }
+    host.ctx.flash(`copied the note, ${said}, for itself · your clipboard is untouched`);
+    this.noteAgent(actor, `copied the note, ${said}`);
+    return { id: m.id, text, lines, clipboard: false };
+  }
+
   /** Refused unless the last render drew the note (the elements come from it). */
   requireDrawn() {
     if (!this.drawn && !this.digesting) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
@@ -4031,7 +4049,9 @@ export class NoteSurface {
       }
       // y on a code block, a quote or a callout (or something in one) that is the current element copies its text (PIE-638).
       if (c === "y" && e && this.blockOf(e) !== null) { void this.runKey("block.copy", {}, host); return true; }
-      if (c === "y" || c === "Y") { host.ctx.flash("nothing is selected · drag across the text, or v and move · [ ] to a code block or quote, then y copies it"); return true; }
+      // Y with nothing selected copies the whole note's source (note.copy); with a selection it is that selection's source.
+      if (c === "Y") { void this.runKey("note.copy", {}, host); return true; }
+      if (c === "y") { host.ctx.flash("nothing is selected · drag across the text, or v and move · [ ] to a code block or quote, then y copies it · Y copies the whole note"); return true; }
       if (c !== "v") return false;
       void this.runKey("select.mode", {}, host);
       return true;
@@ -5788,6 +5808,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (actor.kind === "agent") await surface.whole();
       if (n !== undefined && element !== undefined) throw new ActionRefused("say n or element, not both");
       const r = surface.copyBlock(n ?? (element !== undefined ? surface.blockNumberOf(element) : undefined), host, actor);
+      host.redraw();
+      return r;
+    },
+  }),
+  "note.copy": def({
+    summary: "copy the whole note's source text as stored (header chips, fences and all): the person's goes to their clipboard (OSC 52) and the status line says \"copied the note, N lines\"; an agent's is returned to it and never touches the person's clipboard",
+    keys: "Y with nothing selected, the tile menu's \"copy note\"",
+    touches: "nothing", replay: "safe",
+    menu: noteRow("copy note", "Y"),
+    args: {},
+    async run(_, { surface, host }, actor) {
+      const r = await surface.copyNote(host, actor);
       host.redraw();
       return r;
     },
