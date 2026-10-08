@@ -165,10 +165,17 @@ describe("copying the whole note", () => {
     await until(() => copies.length === 1);
     expect(copies[0]).toBe(TEXT);
     expect(flashes.at(-1)).toBe(`copied the note, ${TEXT.split("\n").length} lines`);
+    // With a selection, Y is that selection's source and not the note.
+    s.key(char("v"), h); for (const c of "lll") s.key(char(c), h);
+    s.key(char("Y"), h);
+    await until(() => copies.length === 2);
+    expect(copies[1]!.length).toBeLessThan(TEXT.length);
+    expect(TEXT).toContain(copies[1]!);
+    s.key({ kind: "esc" }, h);
     // y with nothing selected still only hints, and now names Y.
     s.key(char("y"), h);
     expect(flashes.at(-1)).toContain("Y copies the whole note");
-    expect(copies).toHaveLength(1);
+    expect(copies).toHaveLength(2);
   });
 
   test("an agent's note.copy returns the text and never touches the person's clipboard; the person's goes to it", async () => {
