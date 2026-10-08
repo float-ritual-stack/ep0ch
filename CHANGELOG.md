@@ -27,6 +27,10 @@ are its record. The outliner's entries from then are kept below, under
 
 - **New:** agents discover components without the library screen: `ep0ch library --brief [<component>…]`, the Claude mod's and the MCP gateway's `outline_components` tool, and each component as an MCP resource (`resources/list`, `ep0ch://<outline>@<machine>/components/<id>`) for claude.ai to `@`-mention. Per component: purpose, where it goes, each property as `key: values (default) — meaning`, one example.
 
+### Copy the whole note
+
+- **New:** `Y` in a reader or river column with nothing selected, the tile menu's "copy note" and `act note.copy` copy the note's whole source text ("copied the note, N lines"; an agent's is returned, never your clipboard). With a selection, `Y` still copies that selection's source.
+
 ### What an agent may do to each tile (PIE-639)
 
 - **New:** each tile has a level for agents. `free` (the default) is as before; `edit` lets an agent edit the note the tile

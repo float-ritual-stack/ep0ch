@@ -595,6 +595,7 @@ export class RiverColumn extends ReaderPane {
       if (this.surface.editing) return false;
       // y on a code block, a quote or a callout that is the current element copies its text (PIE-638).
       if (c === "y" && this.surface.msg?.id === this.noteOf()?.id && this.surface.currentBlock() !== null) { this.run(desk, "column.block"); return true; }
+      if (c === "Y" && this.surface.msg?.id === this.noteOf()?.id) { this.run(desk, "column.note"); return true; }
       if (c === "y" || c === "Y") { desk.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
       if (c !== "v" || !this.drawn) return false;
       const at = { row: this.top, col: 0 };
@@ -795,6 +796,13 @@ export class RiverColumn extends ReaderPane {
     return { chars: [...text].length, text };
   }
 
+  /** `column.note`: the whole note the column shows, copied as the reader copies it (note.copy). */
+  copyNote(actor: Actor, desk: DeskApi) {
+    const m = this.noteOf();
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    return this.surface.copyNote(this.host(desk), actor);
+  }
+
   /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
   copyBlock(n: number | undefined, actor: Actor, desk: DeskApi) {
     const m = this.noteOf();
@@ -911,6 +919,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "which block, from 1, in reading order; default the one the person's current element is in" } },
     run: ({ n }, { pane, desk }, actor) => columnOf(pane).copyBlock(n, actor, desk),
+  }),
+  "column.note": def({
+    summary: "copy the whole note a river column shows, source text as stored, as the reader's note.copy: the person's goes to their clipboard (\"copied the note, N lines\"), an agent's is given back",
+    keys: "Y with nothing selected",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run: (_, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk),
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
