@@ -70,6 +70,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     (await boardOn(host, outline, "x").request<{ entries: { block: { id: string }; actorId?: string; sessionId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId: "mcp:chat.example.test", limit: 100, kinds: ["text", "properties"] }))
       .entries.filter(e => e.block.id === blockId).map(e => ({ actorId: e.actorId, sessionId: e.sessionId }));
   const textOf = async (host: ScratchHost, outline: string, machine: string, id: string) => (await boardOn(host, outline, machine).records([id])).records[0]!;
+  const make = async (outline: string, key: string, text: string) => { ids[key] = (await boardOn(here, outline, HERE).request<{ id: string }>("create", { parentId: null, text, author: "user" })).id; };
   const pull = (extra: Record<string, string> = {}) => pullNetmail({
     hub: "hub-box", machine: FAR, state: join(dir, "far-state"), env: { ...env, ...extra },
     open: async outline => boardOn(far, outline, FAR),
@@ -84,12 +85,15 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     for (const [h, name] of [[here, "garden-notes"], [here, "pond-notes"], [here, "quiet-notes"], [far, "attic-notes"]] as const) await h.create(name);
     const garden = boardOn(here, "garden-notes", HERE), pond = boardOn(here, "pond-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
     await garden.configureMcpAccess("full"); await pond.configureMcpAccess("propose"); await quiet.configureMcpAccess("read"); await attic.configureMcpAccess("full");
+    for (const b of [garden, pond, attic]) await b.request("work-ids.configure", { prefix: "GDN" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request<{ id: string }>("create", { parentId: null, text, author: "user" })).id; };
     await make(garden, "seeds", "Seed swap list [season::spring]\nRunner beans for the allotment next door.");
     await make(pond, "frogs", "Frog count\nTwelve at dusk by the reeds.");
     await make(quiet, "still", "Still water\nNothing stirs.");
     await make(attic, "trunk", "Trunk contents [room::attic]\nOld maps of the canal.");
     await make(attic, "lamps", "Lamp list\nTwo oil lamps, one cracked.");
+    await make(attic, "map", "Map drawer\nCharts of the canal.");
+    await make(attic, "keys", "Key hook\nThree brass keys.");
 
     dir = scratchDir("ep0ch-mcpw-");
     mirrors = join(dir, "mirrors");
@@ -124,7 +128,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
     const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links", "outline_components", "outline_create", "outline_patch", "outline_comment", "outline_set_property"]);
+    expect(names).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links", "outline_components", "outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id"]);
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
@@ -158,6 +162,31 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(stale.json.outcome).toBe("proposed");
     expect(stale.json.said).toContain("proposed, not applied");
     expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text).toContain("allotment next door");
+  });
+
+  test("full: outline_assign_id stamps the next work id as the note's page address, attributed; again it is unchanged; stale is refused", async () => {
+    await make("garden-notes", "draft", "Reply to the swap thread\nSee you at ten.");
+    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.draft! });
+    const read = (await tool("outline_read", { uri })).json;
+    const stale = await tool("outline_assign_id", { uri, revision: read.revision + 5 });
+    expect(stale.isError).toBe(true);
+    const done = await tool("outline_assign_id", { uri, revision: read.revision });
+    expect(done.json).toMatchObject({ outcome: "applied", uri, detail: { workId: "GDN-001", page: "[[GDN-001]]" } });
+    const now = await textOf(here, "garden-notes", HERE, ids.draft!);
+    expect(now.text).toContain("[work-id::GDN-001]");
+    expect(now.text).not.toContain("[page::");
+    expect(await editsBy(here, "garden-notes", ids.draft!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: PERSON });
+    const again = await tool("outline_assign_id", { ref: "[[GDN-001]]", outline: "garden-notes", revision: now.revision });
+    expect(again.json).toMatchObject({ outcome: "unchanged", detail: { workId: "GDN-001" } });
+    expect((await tool("outline_assign_id", { uri })).isError).toBe(true);
+  });
+
+  test("propose: outline_assign_id is refused, since a stamp is no proposal", async () => {
+    const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+    const refused = await tool("outline_assign_id", { uri, revision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("needs full access");
+    expect((await textOf(here, "pond-notes", HERE, ids.frogs!)).text).not.toContain("work-id");
   });
 
   test("propose: a patch and a property are proposals; a new block is a comment on its parent; read takes no writes", async () => {
@@ -281,6 +310,23 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(await pull()).toMatchObject({ ok: false, settled: [] });
     rmSync(join(state, "netmail-applied.json"));
     expect((await pull()).settled.map(s => s.state)).toEqual(["applied"]);
+  }, 60_000);
+
+  test("a far box's outline: a queued outline_assign_id stamps the note when pulled, and refuses one that changed meanwhile", async () => {
+    const attic = boardOn(far, "attic-notes", FAR);
+    const uri = (key: string) => formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids[key]! });
+    const read = async (key: string) => (await tool("outline_read", { uri: uri(key) })).json;
+    const first = await tool("outline_assign_id", { uri: uri("map"), revision: (await read("map")).revision });
+    const second = await tool("outline_assign_id", { uri: uri("keys"), revision: (await read("keys")).revision });
+    expect([first, second].map(q => q.json.outcome)).toEqual(["queued", "queued"]);
+    const keysNow = await textOf(far, "attic-notes", FAR, ids.keys!);
+    await attic.request("update", { blockId: ids.keys, text: "Key hook, now by the door", expectedRevision: keysNow.revision, mutation: { author: "user" } });
+    const landed = await pull();
+    expect(landed.settled.map(s => s.state)).toEqual(["applied", "refused"]);
+    expect(landed.settled[1]!.said).toContain("changed since editing began");
+    expect((await textOf(far, "attic-notes", FAR, ids.map!)).text).toContain("[work-id::GDN-001]");
+    expect((await textOf(far, "attic-notes", FAR, ids.keys!)).text).not.toContain("work-id");
+    expect(await editsBy(far, "attic-notes", ids.map!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: PERSON });
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {

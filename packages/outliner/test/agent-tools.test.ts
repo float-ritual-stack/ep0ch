@@ -332,6 +332,25 @@ test("set-property replaces a header chip in place or adds one at the line's end
   expect((await agent("set-property", { ref: list.id, key: "tag2", value: "x]y", revision: list.revision })).stderr).toContain("without ]");
 });
 
+test("assign-id stamps the next work id on a note as its page address, attributed; a second call answers unchanged", async () => {
+  const { store, agent, cli } = await setup();
+  store.configureWorkIdPrefix("GDN");
+  const note = store.create("Reply to the seed swap [kind::draft]\nSee you at ten.");
+  const done = await agent("assign-id", { ref: note.id, revision: note.revision });
+  expect(done.json).toMatchObject({ outcome: "applied", id: note.id, workId: "GDN-001", page: "[[GDN-001]]" });
+  const after = store.get(note.id)!;
+  expect(after.text).toContain("[work-id::GDN-001]");
+  expect(after.text).not.toContain("[page::");
+  expect(done.json.revision).toBe(after.revision);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--limit", "5"])).stdout);
+  expect(activity.entries.map((e: any) => [e.block.id, e.actorId, e.sessionId])).toEqual([[note.id, "garden-agent", "s-9"]]);
+  const again = await agent("assign-id", { ref: "[[GDN-001]]", revision: after.revision });
+  expect(again.json).toMatchObject({ outcome: "unchanged", workId: "GDN-001" });
+  const stale = await agent("assign-id", { ref: store.create("Other").id, revision: 99 });
+  expect(stale.exitCode).toBe(1);
+  expect((await agent("assign-id", { ref: note.id, revision: after.revision }, "")).exitCode).toBe(1);
+});
+
 test("writes without an actor are refused; reads need none", async () => {
   const { store, cli } = await setup();
   const note = store.create("Hose reel");

@@ -2262,6 +2262,8 @@ export type OutlinerRequestAction =
       action: "work-ids.allocate";
       blockId: string;
       expectedRevision: number;
+      /** Who stamped it: an agent's allocation is attributed. */
+      mutation?: MutationProvenance;
     }
   | { id: string; action: "changes.since"; sequence: number; limit?: number };
 

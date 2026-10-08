@@ -784,9 +784,36 @@ export async function setBlockProperty(
   return { ...result, id: block.id, key: chip?.key ?? key, previous: chip?.value ?? null, value };
 }
 
+// ─── A work id for a note ──────────────────────────────────────────────────
+
+export type AssignIdResult =
+  | { outcome: "applied"; id: string; workId: string; page: string; revision: number }
+  | { outcome: "unchanged"; id: string; workId: string; page: string; revision: number };
+
+/**
+ * Stamps the outline's next work id (the `work-ids.allocate` the CLI's `work-id-allocate` runs) on an existing note,
+ * against the revision the agent read. The id is the note's page address, so `[[HUB-002]]` reaches it: no `[page::…]`.
+ * A note that already has one answers with it, unchanged. For notes that aren't roadmap items (a draft in an outbox);
+ * work_create is for those. Attributed to `actor`.
+ */
+export async function assignWorkId(
+  client: AgentToolsClient,
+  input: { ref: string; revision: number },
+  actor: AgentActor,
+): Promise<AssignIdResult> {
+  const revision = requireRevision(input.revision);
+  const block = await writableBlock(client, input.ref);
+  const had = workIdOf(block);
+  if (had) return { outcome: "unchanged", id: block.id, workId: had, page: `[[${had}]]`, revision: block.revision };
+  const done = await client.request<{ workId: string; block: Block }>({
+    action: "work-ids.allocate", blockId: block.id, expectedRevision: revision, mutation: mutationOf(actor),
+  });
+  return { outcome: "applied", id: block.id, workId: done.workId, page: `[[${done.workId}]]`, revision: done.block.revision };
+}
+
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "set-property", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "set-property", "assign-id", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -813,6 +840,7 @@ export function runAgentOperation(
     case "changes": return changesSince(client, any);
     case "patch": return patchDraft(client, any, writer());
     case "set-property": return setBlockProperty(client, any, writer());
+    case "assign-id": return assignWorkId(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
     case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
   }

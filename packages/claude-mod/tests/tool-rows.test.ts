@@ -68,6 +68,12 @@ describe('the formatter: one row per tool', () => {
     expect(proposed!.warning).toBe('proposed, not applied: the text changed under it')
   })
 
+  test('outline_assign_id: the id given, or already there', () => {
+    const input = { ref: NOTE, revision: 3 }
+    expect(words(toolRowOf(done('outline_assign_id', input, { outcome: 'applied', workId: 'GDN-001', page: '[[GDN-001]]' })))).toBe('✎ ((0f3c2a1b…)) · id GDN-001')
+    expect(words(toolRowOf(done('outline_assign_id', input, { outcome: 'unchanged', workId: 'GDN-001' })))).toBe('✎ ((0f3c2a1b…)) · id GDN-001 · (already had it)')
+  })
+
   test('outline_set_property: the chip set, and applied, proposed or no change', () => {
     const input = { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }
     expect(words(toolRowOf(done('outline_set_property', input, { outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved' }] }))))
@@ -154,7 +160,7 @@ describe('the formatter: one row per tool', () => {
 
   test('every tool the mod draws has a row for a usual input', () => {
     expect([...WRITE_TOOLS, ...READ_TOOLS].sort()).toEqual([
-      'note_section', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_patch', 'outline_read',
+      'note_section', 'outline_assign_id', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_patch', 'outline_read',
       'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
       'work_deliver', 'work_set', 'work_stage',
     ])
