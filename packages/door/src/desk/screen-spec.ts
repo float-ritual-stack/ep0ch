@@ -226,3 +226,43 @@ export function screenSpec(name: string, args?: Record<string, unknown>): Screen
 export const screenTargetArg = (name: string): string | undefined => registrations.get(name)?.target;
 /** Every screen registered, by name. */
 export const screenNames = (): string[] => [...specs.keys()];
+
+// ── a screen mounted in another (PIE-651) ──────────────────────────────────────
+
+/**
+ * The part of a screen named `key` (a container's key, or a tile's name) as a screen of its own: its layout is that
+ * subtree, and what the spec names outside it is left out (a key bound to a tile that isn't there, its band, where its
+ * opens land and its keys go home), so a mount of the board's lanes is the lanes alone. A container whose tiles come from
+ * data (the lanes) holds a place holder until its source fills it: a screen is never blank. Throws when there's no such part.
+ */
+export function partSpec(spec: ScreenSpec, key: string): ScreenSpec {
+  const found = savedNodes(spec.layout.root).find(n => (n.t === "leaf" ? n.name === key : n.key === key));
+  if (!found) throw new Error(`the ${spec.name} screen has no part ${key}; its parts: ${screenParts(spec).join(", ") || "none"}`);
+  let root = JSON.parse(JSON.stringify(found.t === "dock" ? found.kid : found));
+  if (!leafNames(root).length && root.t === "columns") root = { ...root, kids: [{ t: "leaf", kind: "filling", name: `${key}-filling`, label: `${key} · filling from its source…` }], weights: [1] };
+  const tiles = new Set(leafNames(root)), places = new Set([...tiles, ...containerKeys(root)]);
+  const inside = (name: string | undefined) => name === undefined || name === "all" || places.has(name);
+  const { saves: _saves, band, home, lands, keys, ...rest } = spec;
+  const policy = spec.layout.policy ? { ...spec.layout.policy } : undefined;
+  if (policy?.opensInto && !places.has(policy.opensInto)) delete policy.opensInto;
+  const focus = typeof spec.layout.focus === "string" && tiles.has(spec.layout.focus) ? spec.layout.focus : leafNames(root)[0];
+  return {
+    ...rest,
+    title: `${spec.title} · ${key}`,
+    layout: { root, ...(focus ? { focus } : {}), ...(spec.layout.rule ? { rule: spec.layout.rule } : {}), ...(policy && Object.keys(policy).length ? { policy } : {}) },
+    ...(keys ? { keys: keys.filter(b => inside(b.tile)) } : {}),
+    ...(band && tiles.has(band) ? { band } : {}),
+    ...(home && places.has(home) ? { home } : {}),
+    ...(lands && places.has(lands) ? { lands } : {}),
+  };
+}
+/** The parts of a screen a mount can name (`part=`): its containers' keys, then its tiles' names. */
+export const screenParts = (spec: ScreenSpec): string[] => [...containerKeys(spec.layout.root), ...leafNames(spec.layout.root)];
+
+/**
+ * A group (PIE-651): tiles gathered into one tile, laid out as a screen of their own (a tab's split, "splits in my
+ * tabs"). Its spec is its tree; it has no screen elsewhere, no keys of its own and no file: the tile holding it saves it.
+ */
+export function groupSpec(root: unknown, label?: string): ScreenSpec {
+  return { name: "group", title: label || "group", digits: false, layout: { root: root as LayoutSpec["root"] } };
+}

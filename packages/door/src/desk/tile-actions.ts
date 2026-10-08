@@ -37,7 +37,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string; view?: string }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string; view?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -123,7 +123,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.open": def({
-    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=tree, reader, detail (note=<id>, or page=<name> to pin the note [[name]]), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
+    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader, detail (note=<id>, or page=<name> to pin the note [[name]]), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
     keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
     touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
     args: {
@@ -136,6 +136,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       page: { type: "string", optional: true, about: "detail: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
+      screen: { type: "string", optional: true, about: "screen (a mount, PIE-651): the screen it mounts (board, river, brief, a screen you made…)" },
+      part: { type: "string", optional: true, about: "screen: a container's key of it to mount alone (the board's lanes)" },
+      target: { type: "string", optional: true, about: "screen: what it opens on, where it takes one (the board's hub, detail's note)" },
+      label: { type: "string", optional: true, about: "screen: what its title (and its spine) says" },
       to: { type: "string", optional: true, tile: true, about: "the tile it opens beside (default the focused one; tile= also names it)" },
       where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
@@ -450,7 +454,47 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.selectTab(reader, by, actor);
     },
   }),
+  "tile.group": def({
+    summary: "gather tiles into a group (PIE-651): one tile holding them laid out as a screen of their own, so a tab set's tab can hold a split. tile=<tile> alone, or node=<a container's id or key> whole, takes the group's place; with=<another tile> joins it beside it (where=right, left, up, down). On a group (or on=false) its tiles spill back where it was. ^W e goes into a group; tile=<group>/<tile> names one of its tiles for act. A container filled from data (the board's lanes) isn't gathered: mount its screen's part instead (tile.open kind=screen part=)",
+    keys: "^W G (a group: spills it); a click on ⊟ spill on a group's header; the tile menu",
+    touches: "shape", replay: "ask", confirms: true,
+    says: r => (r.spilled ? `spilled ${r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.tile}`),
+    menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", now: ({ d, reader }) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : null) },
+    args: {
+      on: { type: "boolean", optional: true, about: "true gathers, false spills a group back; default: a group spills, any other tile is gathered" },
+      node: { type: "string", optional: true, about: "a container (its id from layout.get, or its key) to gather whole, in place of tile=" },
+      with: { type: "string", optional: true, tile: true, about: "another tile to put beside it in the group" },
+      where: { type: "string", optional: true, about: "with with=: right (default), left, up or down of it" },
+      name: { type: "string", optional: true, about: "the group tile's name (default group, numbered)" },
+      label: { type: "string", optional: true, about: "what its title says" },
+    },
+    run({ on, node, with: w, where, name, label }, { d, reader }, actor) {
+      const pl = whereOf(where, "tile.group", "right");
+      if (pl === "tabs" || pl === "next" || pl.startsWith("edge-")) throw new ActionRefused("tile.group: where is right, left, up or down");
+      return (on ?? !d.isGroup(reader)) ? d.groupTile(reader, { node, with: w, where: pl as Dir, name, label }, actor) : d.ungroupTile(reader, actor);
+    },
+  }),
   // Last, so a tile's menu lists its Tile rows first and the Screen group after them.
+  "screen.mount": def({
+    summary: "put this screen on the desk as a mount (PIE-651): a tile there holding it, live, that folds to a spine and pops out again (mount.out). part=<a container's key> puts that part alone (the board's lanes: part=lanes); the tile menu offers the container around the tile. A screen popped out of a mount goes back to it (as q does). Its arrangement goes with it; from then on the mount's is its own. On the desk itself: refused (tile.open kind=screen mounts a screen there)",
+    keys: "^W M (this screen); ^W I (the part around the focused tile); the tile menu's Screen rows",
+    touches: "screen", replay: "ask", says: r => (r.back ? `back to the mount ${r.tile}` : `put the ${r.screen}${r.part ? `'s ${r.part}` : ""} on the desk as ${r.tile}`),
+    menu: { label: "put this screen on the desk", group: SCREEN, key: "ctrl+w M", now: ({ d }) => (d.mountable() ? null : { hide: true }) },
+    args: { part: { type: "string", optional: true, about: "a container's key (or a tile's name) of this screen: that part alone" } },
+    async run({ part }, { d }, actor) { return await d.mountOnDesk(part, actor); },
+  }),
+  "screen.part": def({
+    summary: "put the part of this screen around tile=<tile> on the desk as a mount (PIE-651): its nearest container with a key (the board's lanes, readers, outline, links), as screen.mount part= does",
+    keys: "^W I; the tile menu's Screen rows",
+    touches: "screen", replay: "ask", says: r => `put the ${r.screen}'s ${r.part} on the desk as ${r.tile}`,
+    menu: { label: "put this part on the desk", group: SCREEN, key: "ctrl+w I", now: ({ d, reader }) => { const k = d.mountable() ? d.partAround(reader) : null; return k ? { label: `put ${k} on the desk` } : { hide: true }; } },
+    args: {},
+    async run(_, { d, reader }, actor) {
+      const k = d.partAround(reader);
+      if (!k) throw new ActionRefused(`${reader ?? "this tile"} is in no container with a key; screen.mount puts the whole screen on the desk`);
+      return await d.mountOnDesk(k, actor);
+    },
+  }),
   "screen.save": def({
     summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
     keys: "^W w",

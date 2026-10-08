@@ -19,7 +19,7 @@ import { inResize, resizeEnded, resizing } from "../resize";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
-import { actorRule, Dispatcher, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
+import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
@@ -28,7 +28,7 @@ import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
-import { containerKeys, leafNames, madeScreen, newNoteRule, savedNodes, screenNames, screenTargetArg, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
+import { containerKeys, leafNames, madeScreen, newNoteRule, savedNodes, screenNames, screenParts, screenSpec, screenTargetArg, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { theme, themed } from "../theme";
@@ -39,7 +39,7 @@ import { presentLinks } from "../refs";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, defaultLinkRole, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
-  neighbour, node, parentNode, parentOf, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
+  neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   type Fold, type Grab, type HostMode, type LayoutState, type LinkRole, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
@@ -53,6 +53,7 @@ import { fileOpenNote } from "./file-open";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
+import { ScreenTile } from "./screen-tile";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -62,7 +63,22 @@ import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, 
  * rule; and (PIE-491) the layout's revision and the next tile and split ids, so a restarted door never gives
  * out a revision or an id an agent may still hold from before (a Herdr agent outlives the door).
  */
-interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown>; zoom?: string }
+/**
+ * How a desk is made beyond its spec. `layout`: a named layout to lay it out as. `given`: tiles the host made, by name
+ * (`adopt`: they are this desk's own from now on, moved here whole: a group's tiles, PIE-651). `writes: false`: it reads
+ * its save but never writes it. `saved`: the state it comes back as, instead of its spec's file (a mounted screen's, kept in
+ * its mount's tile spec), and `onSave`: what a save does instead of writing that file (the desk holding the mount saves).
+ */
+export interface DeskOpts {
+  layout?: string; given?: ReadonlyMap<string, Pane>; adopt?: boolean; writes?: boolean; where?: () => Whereabouts; idPrefix?: string;
+  openArgs?: Record<string, unknown>; saved?: unknown; onSave?: () => void;
+  /**
+   * Where an open goes that this screen has no reader for (a mounted part, the board's lanes alone, PIE-651): the screen
+   * holding the mount opens it where the mount's opens land.
+   */
+  outward?: (m: Msg, by: Actor, fresh: boolean) => Promise<{ reader: string | null; id: string }>;
+}
+export interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown>; zoom?: string }
 /** The desk's own spec (PIE-515): the desk as it has always opened, kept in desk.json, and the screen that loads named layouts. */
 export function deskSpec(): ScreenSpec {
   // A layout saved under the name "desk" is the desk's own.
@@ -90,6 +106,8 @@ const WM: Record<string, [string, Record<string, unknown>, ("n" | "-")?]> = {
   g: ["tile.agent", {}],
   // The tile's menu (PIE-492), as its header's ⋯ and a right-click open it.
   ".": ["tile.menu", {}],
+  // A mounted screen (PIE-651): out to its full screen, into it; this screen (or the part around the tile) onto the desk; a group.
+  u: ["mount.out", {}], e: ["mount.enter", {}], M: ["screen.mount", {}, "-"], I: ["screen.part", {}], G: ["tile.group", {}],
 };
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
@@ -231,18 +249,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `opts.given`: tiles the host made (the showcase's), by name, used for the spec's leaves of those names.
    * `opts.writes: false`: it reads its save but never writes it (the board in a tile: the board screen owns delivery.json).
    */
-  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean; where?: () => Whereabouts; idPrefix?: string; openArgs?: Record<string, unknown> } = {}) {
+  constructor(readonly spec: ScreenSpec = deskSpec(), opts: DeskOpts = {}) {
     this.title = spec.title;
     this.idPrefix = opts.idPrefix ?? "t";
     this.whereNow = opts.where ?? null;
     this.writes = opts.writes ?? true;
     this.given = opts.given ?? new Map();
+    this.adopts = !!opts.adopt;
+    this.onSave = opts.onSave ?? null;
+    this.outward = opts.outward ?? null;
     this.screenOpenArgs = opts.openArgs ?? null;
     this.marksStore = new LocalMarks(!!spec.layouts);
     // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
     watchTileKinds(this);
     const want = opts.layout && spec.layouts ? layoutNamed(opts.layout) : null;
-    const last = spec.saves ? savedScreen(readState<unknown>(spec.saves, outlineState()), spec) : null;
+    // A mounted screen (PIE-651) comes back as its mount saved it, never from its full screen's file.
+    const last = opts.saved !== undefined ? savedScreen(opts.saved, spec) : spec.saves ? savedScreen(readState<unknown>(spec.saves, outlineState()), spec) : null;
     this.resume(last);
     this.focus = 0;
     if (last?.models && typeof last.models === "object") this.savedModels = { ...last.models };
@@ -250,6 +272,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (want) { this.build(want.spec); this.layoutName = opts.layout!; }
     else if (saved?.root) { this.build({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, false, true); this.layoutName = saved.layout ?? null; }
     else this.build(spec.layout, false, false, true);
+    // Tiles given to keep (a group made of tiles from another screen, PIE-651): moved here whole, they keep what they show.
+    if (this.adopts) for (const [id, p] of this.panes) if ([...this.given.values()].includes(p)) this.movedIn.add(id);
     this.fromSpec(spec);
     // A zoomed tile comes back zoomed (PIE-643), when that tile is still here.
     const zoomed = !want && typeof saved?.zoom === "string" ? this.idNamed(saved.zoom) : undefined;
@@ -544,7 +568,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private startTile(id: number, moved = false) {
     const p = this.panes.get(id)!;
     const env: TileEnv = {
-      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.spec.saves ?? null,
+      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.home ?? this.spec.saves ?? null,
       tile: name => { const t = this.idNamed(name); return t !== undefined ? this.panes.get(t) : undefined; },
       followers: () => (this.panes.has(id) ? this.followers(id) : []),
       ...(moved ? { moved } : {}),
@@ -587,12 +611,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
 
   private readonly writes: boolean;
+  /**
+   * Where a mounted screen's tiles are known across session daemons (PIE-651): its mount's own place (`desk.json:t5`),
+   * set by the mount before the tiles start, so a terminal in it is never taken for one on the full screen.
+   */
+  home: string | null = null;
   /** Where the person is, as a host that frames this screen says it (the drawer's tiles: only while the keys are in the drawer). */
   private whereNow: (() => Whereabouts) | null = null;
+  /** A mounted screen's save (PIE-651): the desk holding it saves its own layout, which carries this one's (`savedState`). */
+  private readonly onSave: (() => void) | null;
+  /** Where an open with no reader here goes (a mounted part's): the screen holding the mount. */
+  private readonly outward: DeskOpts["outward"] | null;
+  /** Given tiles are this desk's own (a group's): saved, ended and carried as any tile moved here. */
+  private readonly adopts: boolean;
   save() {
+    if (this.onSave) return this.onSave();
     if (!this.spec.saves || !this.writes) return;
+    writeState(this.spec.saves, this.savedState(), outlineState());
+  }
+  /** The screen as its save keeps it: the layout, the focus, the open rule, the zoom, the revision and ids, its models' state. */
+  savedState(): SavedDesk {
     const models = Object.fromEntries([...this.models].map(([cid, m]) => [this.columnsIn().find(c => c.id === cid)?.key ?? cid, m.save?.()] as const).filter(([, v]) => v !== undefined));
-    writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), ...(this.zoom !== null && this.panes.has(this.zoom) ? { zoom: this.nameOf(this.zoom) } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk, outlineState());
+    return { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), ...(this.zoom !== null && this.panes.has(this.zoom) ? { zoom: this.nameOf(this.zoom) } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) };
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────
@@ -601,7 +641,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const again = !!this.ctx;
     this.ctx = ctx; this.onScreen = true;
     if (again) return;
-    for (const id of this.all()) this.startTile(id);
+    for (const id of this.all()) this.startTile(id, this.movedIn.has(id));
     this.allModels();
     void this.fillColumns();
   }
@@ -663,6 +703,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = this.columnsIn().find(x => x.id === cid);
     if (!c) return;
     this.filledOnce.add(cid);
+    // A part of a screen mounted alone (PIE-651) held a place holder until its source answered: its tiles take the place now.
+    if (order.length) for (const id of leaves(c)) { const p = this.panes.get(id); if (p && !this.sourced.has(id) && kindOf(p)?.placeholder) this.closeId(id); }
     for (const t of fresh) this.startTile(t.id);
     this.modelOf(cid)?.filled?.(got.title);
     this.redraw();
@@ -732,7 +774,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Never ended with this screen: a program still running in a tile here, and anything the drawer gave this screen
     // that still holds work, go into your drawer (said once, for all of them). A tile its host made (the showcase's
     // exhibits) is the host's, and ends with it.
-    const host = this.ctx?.hostLayer, given = new Set(this.given.values());
+    const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
     const keep = host ? this.carried(given) : [];
     if (keep.length) {
       const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false })));
@@ -747,6 +789,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The desk to open: the one kept running in the background, else a new one. */
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
   private onScreen = false;
+  /** Popped out of a mount (PIE-651, `mount.out`): the mount it came from; `screen.mount` and `q` go back to it. */
+  poppedFrom: { tile: Pane; desk: DeskApi } | null = null;
+  /** Programs run in its tiles (a group's terminal): the tile holding it holds work. */
+  holdsPrograms(): boolean { return this.running().length > 0; }
   /** Shown or not, for a screen a host draws itself (the drawer's tiles): its tiles' repaints reach the door only while shown. */
   shownAs(on: boolean) { if (this.ctx) this.onScreen = on; }
   /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
@@ -1258,6 +1304,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A linked tile that takes notes its own way (an extension's kind): it takes it there.
     if (to !== undefined && actor.kind === "agent") { const no = this.agentNo(to, "opening a note in it"); if (no) throw new ActionRefused(no); }
     if (to !== undefined && this.openInto(to, m)) { this.redraw(); return { reader: this.nameOf(to), id: m.id }; }
+    // A mounted part with no reader of its own (the lanes alone): where the mount's opens land, on the screen holding it.
+    if (this.outward && !this.namedReaders().length && this.spec.lands === undefined) return this.outward(m, actor, fresh);
     return this.land(m, actor);
   }
 
@@ -1335,6 +1383,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       answer: answerIn("tile"),
     }));
     return [
+      // A tile of a screen mounted here (PIE-651), by its path: `tile=<mount>/<tile>`, any action that screen takes.
+      {
+        claims: (req: ActRequest) => isTilePath(req.tile) && !!this.mountIn(req)?.takes(this.pathRest(req)),
+        delegate: (req?: ActRequest) => (req ? this.mountIn(req) : null),
+        request: (req: ActRequest) => this.pathRest(req),
+        answer: (out: unknown, req: ActRequest) => ({ ...(out && typeof out === "object" ? out : { result: out }), tile: req.tile }),
+        listed: false,
+      },
       { set: DESK_ACTIONS, takes: "screen", on: at => ({ d: this, reader: at.place ?? at.name }) },
       { set: TILE_ACTIONS, takes: "screen", on: at => ({ d: this, reader: at.place ?? at.name }) },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: at.name }) },
@@ -1378,6 +1434,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The kind sets' dispatcher: the same tiles and rules as the desk's (rebuilt with the registry, which changes). */
   private kindDispatch(regs: Registration[]): Dispatcher { return new Dispatcher(this.dispatchHost(), regs); }
+  /** The dispatcher of the screen mounted in the tile a path's first part names (`tile=<mount>/…`). */
+  private mountIn(req: ActRequest): Dispatcher | null {
+    const head = req.tile?.slice(0, req.tile.indexOf("/")) ?? "";
+    const t = head ? this.dispatch.tile(head) : null, p = t ? this.pane(t.name) : undefined;
+    return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
+  }
+  /** The request as the mounted screen reads it: the rest of the path names its tile. */
+  private pathRest(req: ActRequest): ActRequest { const rest = req.tile!.slice(req.tile!.indexOf("/") + 1); return { ...req, ...(rest ? { tile: rest } : { tile: undefined }) }; }
   /** The dispatcher of the whole screen in the tile a request names (a board in a tile), if it names one. */
   private screenIn(req: ActRequest): Dispatcher | null {
     // By the dispatcher's grammar (a name, an id, a number, an alias, a block id), as every other tile= is read.
@@ -2942,7 +3006,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const base = this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
@@ -2961,6 +3025,130 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startTile(id);
     this.save(); this.redraw();
     return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where, ...(also.link !== undefined ? { from: this.nameOf(also.link) } : {}) };
+  }
+
+  // ── mounts and groups (PIE-651) ──
+
+  /** A mount's fields from tile.open's (`target=` fills the screen's target argument: the board's hub). */
+  private mountFields(t: NewTile): Partial<TileSpec> {
+    if (!t.screen && t.inner === undefined) return {};
+    const arg = t.screen ? screenTargetArg(t.screen) : undefined;
+    if (t.target !== undefined && t.screen && !arg) throw new ActionRefused(`the ${t.screen} screen takes no target`);
+    if (t.screen && !screenNames().includes(t.screen)) throw new ActionRefused(`no screen ${t.screen}; screens: ${screenNames().filter(n => n !== "desk").join(", ")}`);
+    if (t.screen === "desk") throw new ActionRefused("the desk holds mounts; it isn't mounted in itself");
+    if (t.part && t.screen) { const full = screenSpec(t.screen, t.target && arg ? { [arg]: t.target } : t.args); if (full && !screenParts(full).includes(t.part)) throw new ActionRefused(`the ${t.screen} screen has no part ${t.part}; its parts: ${screenParts(full).join(", ")}`); }
+    const args = { ...(t.args ?? {}), ...(t.target !== undefined && arg ? { [arg]: t.target } : {}) };
+    return { ...(t.screen ? { screen: t.screen } : {}), ...(Object.keys(args).length ? { args } : {}), ...(t.part ? { part: t.part } : {}), ...(t.label ? { label: t.label } : {}), ...(t.inner !== undefined ? { inner: t.inner } : {}) };
+  }
+  /** Tile `sel` is a group (tiles gathered into one, PIE-651). */
+  isGroup(sel: string | undefined): boolean { const t = this.tileNamed(sel, false); const p = t ? this.panes.get(t.id) : undefined; return p instanceof ScreenTile && p.group; }
+
+  /**
+   * Gather tiles into a group (PIE-651, `tile.group`): tile `sel` (or the container `o.node`), with `o.with` beside it,
+   * leave this layout whole into a new tile holding them as a screen of their own, in the place they leave. The layout
+   * says yes first (the move rules, for each tile); their instances move, so nothing in them ends.
+   */
+  groupTile(sel: string | undefined, o: { node?: string; with?: string; where?: Dir; name?: string; label?: string }, actor: Actor): TileDone {
+    if (o.name !== undefined) { const bad = tileNameProblem(o.name); if (bad) throw new ActionRefused(`tile.group: ${bad}`); }
+    const t = this.tile(sel);
+    const target = o.node !== undefined ? nodeById(this.root, o.node) ?? node(this.root, o.node) : null;
+    if (o.node !== undefined && !target) throw new ActionRefused(`there's no container ${o.node} on the ${this.title}; layout.get names them`);
+    const w = o.with !== undefined ? this.tile(o.with) : null;
+    const inside = target ? leaves(target) : [t.id];
+    if (w && inside.includes(w.id)) throw new ActionRefused(`${w.name} is gathered already`);
+    let sub: SavedTree = (target ? serializeTree(target, id => this.specOf(id)) : this.specOf(t.id)) as SavedTree;
+    if (w) {
+      const before = o.where === "left" || o.where === "up";
+      sub = { t: "split", dir: o.where === "up" || o.where === "down" ? "col" : "row", weights: [0.5, 0.5], kids: before ? [this.specOf(w.id), sub] : [sub, this.specOf(w.id)] } as SavedTree;
+    }
+    const ids = [...inside, ...(w ? [w.id] : [])];
+    const gid = this.nextId;
+    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : {}), with: gid, kind: "screen", ...(o.name ? { name: o.name } : {}) }, actor);
+    if (!r.ok) throw new ActionRefused(r.refused);
+    const given = new Map(ids.map(id => [this.nameOf(id), this.panes.get(id)!] as const));
+    const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
+    const focusIn = ids.includes(this.focus) ? this.nameOf(this.focus) : this.nameOf(ids[0]!);
+    const g = new ScreenTile("screen", { ...(o.label ? { label: o.label } : {}), inner: { root: sub, focus: focusIn } }, undefined, given);
+    this.put(g);
+    this.commit(r);
+    for (const [id, p] of gathered) this.forgetTile(id, p);
+    this.startTile(gid);
+    this.save(); this.redraw();
+    return { tile: this.nameOf(gid), id: this.tileId(gid), grouped: [...given.keys()] };
+  }
+
+  /** A group spills back (PIE-651): its tiles, as it laid them out, take its place here, whole. */
+  ungroupTile(sel: string | undefined, actor: Actor): TileDone {
+    const t = this.tile(sel), g = this.panes.get(t.id);
+    if (!(g instanceof ScreenTile) || !g.group) throw new ActionRefused(`${t.name} isn't a group (tile.group gathers tiles into one)`);
+    const inner = g.inner;
+    if (!inner) throw new ActionRefused(`${t.name} has nothing in it yet`);
+    const out = inner.release();
+    // Each tile under a new id here, in the tree the group had.
+    const ids = new Map<number, number>();
+    let next = this.nextId;
+    for (const x of out.tiles) ids.set(x.id, next++);
+    const tree = mapTree(out.tree, id => ids.get(id)!);
+    const r = this.ask({ op: "ungroup", tile: t.id, tree, names: out.tiles.map(x => [ids.get(x.id)!, x.name] as [number, string]) }, actor);
+    if (!r.ok) { inner.takeBack(out); throw new ActionRefused(r.refused); }
+    for (const x of out.tiles) { const id = this.put(x.pane); this.movedIn.add(id); }
+    this.commit(r);
+    this.forgetTile(t.id, g);
+    g.dispose();
+    for (const x of out.tiles) this.startTile(ids.get(x.id)!, true);
+    this.save(); this.redraw();
+    return { tile: t.name, spilled: out.tiles.map(x => this.nameOf(ids.get(x.id)!)) };
+  }
+  /**
+   * Every tile leaves this desk whole (a group spilling back, PIE-651): the tree they were in (by this desk's ids), each
+   * with its instance and name. Nothing ends; `takeBack` puts them back as they were when the other screen refuses them.
+   */
+  release(): { tree: LNode; tiles: { id: number; name: string; pane: Pane }[]; panes: Map<number, Pane> } {
+    if (this.floats.length) throw new ActionRefused(`${this.floats.map(f => this.nameOf(f.id)).join(", ")} float${this.floats.length === 1 ? "s" : ""} in it: put ${this.floats.length === 1 ? "it" : "them"} back first (^W f inside, ^W e goes in)`);
+    const tiles = leaves(this.root).map(id => ({ id, name: this.nameOf(id), pane: this.panes.get(id)! }));
+    const out = { tree: this.root, tiles, panes: new Map(this.panes) };
+    for (const x of tiles) this.forgetTile(x.id, x.pane);
+    return out;
+  }
+  takeBack(out: { panes: Map<number, Pane> }) { for (const [id, p] of out.panes) this.panes.set(id, p); }
+
+  /** This screen can go on the desk as a mount (screen.mount): it's a registered screen, and not the desk or a mount. */
+  mountable(): boolean { return this.spec.name !== "desk" && this.spec.name !== "group" && !this.onSave && screenNames().includes(this.spec.name) && !this.ctx?.hostLayer?.isDrawer(this); }
+  /** The key of the nearest container around tile `sel` that has one (the board's lanes, readers): a part a mount can hold. */
+  partAround(sel: string | undefined): string | null {
+    const t = this.tileNamed(sel, false);
+    if (!t) return null;
+    const keys = chainOf(this.root, t.id).flatMap(c => ("key" in c && typeof c.key === "string" ? [c.key] : []));
+    const known = new Set(screenParts(this.spec));
+    return keys.reverse().find(k => known.has(k)) ?? null;
+  }
+  /**
+   * `screen.mount` (PIE-651): this screen (or its part `part`) onto the desk as a mount. Popped out of a mount, it goes
+   * back to it. Else the desk comes up (the one under this screen, else the desk running or a new one in this one's
+   * place) with a mount beside its focused tile, carrying this screen's arrangement.
+   */
+  async mountOnDesk(part: string | undefined, actor: Actor): Promise<Record<string, unknown>> {
+    if (!this.mountable()) throw new ActionRefused(this.spec.name === "desk" ? "this is the desk: tile.open kind=screen screen=<name> mounts a screen here" : `the ${this.title} can't go on the desk (it's no registered screen, or it's in a mount already)`);
+    if (part !== undefined && !screenParts(this.spec).includes(part)) throw new ActionRefused(`the ${this.title} has no part ${part}; its parts: ${screenParts(this.spec).join(", ")}`);
+    const from = this.poppedFrom;
+    const ctx = this.ctx;
+    if (from && part === undefined) {
+      const name = from.desk.nameOfPane?.(from.tile);
+      ctx.pop();
+      if (name && actor.kind !== "agent") { await from.desk.perform?.("tile.expand", {}, USER, from.tile)?.catch(() => {}); from.desk.focusPane?.(from.tile, actor); }
+      return { tile: name ?? null, back: true, screen: this.spec.name };
+    }
+    const stack = ctx.screens?.() ?? [];
+    const under = stack.at(-2);
+    let desk: Desk;
+    if (under instanceof Desk && under.spec.name === "desk") { desk = under; ctx.pop(); }
+    else { desk = Desk.resume(); ctx.replace(desk); }
+    const arg = screenTargetArg(this.spec.name), target = this.screenOpenArgs?.target;
+    const args = arg && typeof target === "string" ? { [arg]: target } : {};
+    const models = this.savedState().models;
+    const inner = part === undefined ? this.savedState() : models ? { models } : undefined;
+    return await desk.openTile({ kind: "screen", screen: this.spec.name, ...(Object.keys(args).length ? { args } : {}), ...(part ? { part } : {}), ...(inner !== undefined ? { inner } : {}) }, undefined, "right", actor)
+      .then(r => ({ ...r, screen: this.spec.name, ...(part ? { part } : {}) }));
   }
 
   closeTile(sel: string | undefined, actor: Actor): TileDone {
@@ -4631,3 +4819,12 @@ function previewLines(m: Msg, w: number): string[] {
   return body.flatMap(l => (l.text ? wrap(l.literal ? l.text : emphasis(presentLinks(l.text, false, null, m.text)), w, { code: true }) : [""]).map(x => colourBody(x, l.literal)));
 }
 export { previewLines as searchPreviewLines };
+
+/** A tree with its tiles' ids mapped (a group's tiles under this screen's ids as it spills, PIE-651). */
+function mapTree(n: LNode, f: (id: number) => number): LNode {
+  if (n.t === "leaf") return leaf(f(n.id));
+  if (n.t === "tabs") return { ...n, ids: n.ids.map(f) };
+  if (n.t === "dock") return { ...n, kid: mapTree(n.kid, f) };
+  if (n.t === "flow") return { ...n, kids: n.kids.map(k => mapTree(k, f)), ...(n.anchor !== undefined ? { anchor: f(n.anchor) } : {}), ...(n.keep !== undefined ? { keep: f(n.keep) } : {}), ...(n.read !== undefined ? { read: f(n.read) } : {}), ...(n.held ? { held: n.held.map(f) } : {}), trail: undefined };
+  return { ...n, kids: n.kids.map(k => mapTree(k, f)) } as LNode;
+}

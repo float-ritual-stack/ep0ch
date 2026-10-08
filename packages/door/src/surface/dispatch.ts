@@ -18,6 +18,9 @@ import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, agentLabel, asActor, declaredKeys, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
+/** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
+export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");
+
 export interface TileRef {
   /** Its name: what answers say, and what `tile=` matches first. */
   name: string;
@@ -330,7 +333,8 @@ export class Dispatcher {
   /** One request, for one actor: who owns it, the revision, then that set's run. */
   private run(req: ActRequest, actor: Actor, typed = false): unknown {
     const args = { ...(req.args ?? {}) };
-    if (this.host.revision && "expected" in args) {
+    // A path (`tile=<mount>/<tile>`, PIE-651) names a tile of a screen mounted in a tile: expected= is that screen's revision.
+    if (this.host.revision && "expected" in args && !isTilePath(req.tile)) {
       const why = this.host.revision(args.expected);
       if (why) throw new ActionRefused(why);
       delete args.expected;

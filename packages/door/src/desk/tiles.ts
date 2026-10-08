@@ -44,6 +44,13 @@ export interface TileSpec {
   source?: string;
   /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */
   preview?: boolean;
+  /** A mount (PIE-651): the screen it mounts, by its registered name (`board`), and what that screen opens with (its target: the hub). */
+  screen?: string;
+  args?: Record<string, unknown>;
+  /** A mount of a part of its screen: the container's key (or tile's name) it holds alone (`lanes`). */
+  part?: string;
+  /** A mount's own layout, as its desk saves it (a group's whole tree): the mount comes back as it was, never as its full screen was. */
+  inner?: unknown;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   link?: string;
   /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */

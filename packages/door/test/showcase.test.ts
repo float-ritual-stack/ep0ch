@@ -408,7 +408,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
-    screen: ["board ·", "preview · board"],
+    screen: ["board ·", "· lanes", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
@@ -1945,6 +1945,74 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "tile.collapse", tile: focus0, args: { on: true }, as: "test-agent" })).rejects.toThrow(/has the person's keys/);
     press({ kind: "esc" });
   }, 30_000);
+
+  test("mounts (PIE-651): the board mounted live folds to a spine named for it and opens by click, alt+h and act; it pops out to the full board and back; its lanes alone; a tab holding a group", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" })).toMatchObject({ key: "screen" });
+    await until(() => marks.screen!.every(m => screen().includes(m)), "the screen section");
+    const stage = () => S().stages.get(S().sel).top;
+    const tiles = () => stage().describe().panes as any[];
+    const tile = (name: string) => tiles().find(x => x.name === name);
+    const at = () => S().stageRect;
+    const click = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
+    const get = async () => (await app.act({ action: "layout.get", args: {}, as: "test-agent" })) as any;
+    // layout.get: each mount says what it mounts, and its own layout under its own ids; the lanes alone are filled, the place holder gone.
+    await until(() => { sc.render(app); const m = stage().pane("lanes")?.layoutOf(true).mount; return m?.layout?.tiles.length > 0 && m.layout.tiles.every((t: any) => t.kind === "query"); }, "the lanes mount filled", 8000);
+    const l0 = await get();
+    const bm = l0.tiles.find((t: any) => t.name === "board");
+    expect(bm).toMatchObject({ kind: "screen", mount: { screen: "board", group: false, layout: { focus: expect.any(String) } } });
+    expect(bm.mount.layout.tiles.map((t: any) => t.name)).toEqual(expect.arrayContaining(["preview", "tree", "backlinks"]));
+    expect(l0.tiles.find((t: any) => t.name === "lanes").mount).toMatchObject({ screen: "board", part: "lanes" });
+    await until(() => /^board · /.test(tile("board").title), "the board's title");
+    const before = tile("board").rect;
+    // By act: the person's folds and opens the board (it has their keys, so an agent's is refused); an agent's folds the lanes mount.
+    expect(tiles().find(x => x.focused).name).toBe("board");
+    await expect(app.act({ action: "tile.collapse", tile: "board", args: {}, as: "test-agent" })).rejects.toThrow(/has the person's keys/);
+    expect(await stage().dispatch.press("tile.collapse", {}, "board")).toMatchObject({ collapsed: true });
+    expect(await stage().dispatch.press("tile.expand", {}, "board")).toMatchObject({ collapsed: false });
+    expect(await app.act({ action: "tile.collapse", tile: "lanes", args: {}, as: "test-agent" })).toMatchObject({ collapsed: true });
+    expect(tile("lanes").title).toMatch(/^board · .* · lanes$/);
+    expect(await app.act({ action: "tile.expand", tile: "lanes", args: {}, as: "test-agent" })).toMatchObject({ collapsed: false });
+    // A tile inside the mount by its path: the board's own preview folds there, and nothing out here moves.
+    expect(await app.act({ action: "tile.collapse", tile: "board/preview", args: { on: true }, as: "test-agent" })).toMatchObject({ tile: "board/preview", collapsed: true });
+    expect((await get()).tiles.find((t: any) => t.name === "board").mount.layout.tiles.find((t: any) => t.name === "preview").collapsed).toBe(true);
+    await app.act({ action: "tile.expand", tile: "board/preview", args: {}, as: "test-agent" });
+    // A tab holding a split: the reader and the thread gathered into a group in the reader's tab.
+    const grouped = await app.act({ action: "tile.group", tile: "reader", args: { with: "thread" }, as: "test-agent" }) as any;
+    expect(grouped).toMatchObject({ grouped: ["reader", "thread"] });
+    const gt = (await get()).tiles.find((t: any) => t.name === grouped.tile);
+    expect(gt.tabs).toEqual([grouped.tile, "activity"]);
+    expect(gt.mount).toMatchObject({ group: true, layout: { tree: { split: "row" } } });
+    expect(gt.mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["reader", "thread"]);
+    await expect(app.act({ action: "tile.group", tile: grouped.tile, args: { on: false }, as: "test-agent" })).rejects.toThrow(/is a tab/);
+    // Pop out (the person's): the full board over this screen, its own instance; screen.mount (as q does) comes back to the mount where it was.
+    expect(await stage().dispatch.press("mount.out", {}, "board")).toMatchObject({ screen: "board" });
+    await until(() => stage().spec?.name === "board", "the full board");
+    expect(stage().poppedFrom).toBeTruthy();
+    expect(await stage().dispatch.press("screen.mount", {})).toMatchObject({ back: true, tile: "board" });
+    await until(() => stage().spec?.name === "showcase", "back on the stage");
+    expect(tile("board")).toMatchObject({ kind: "screen", rect: before });
+    // By mouse: the ▾ on its frame folds it (stacked over the lanes: a horizontal spine named for the screen); a click on the spine opens it at its size.
+    sc.render(app);
+    const g = (stage().foldButtons as any[]).find(b => stage().nameOf(b.id) === "board");
+    click(at().col + g.from, at().row + g.row); sc.render(app);
+    expect(tile("board")).toMatchObject({ collapsed: true, collapsedDir: "h", title: expect.stringMatching(/^board · /) });
+    expect(sc.render(app).lines.map(plain).join("\n")).toMatch(/▸ board · /);
+    click(at().col + tile("board").rect.col + 2, at().row + tile("board").rect.row); sc.render(app);
+    expect(tile("board").collapsed).toBeUndefined();
+    expect(tile("board").rect).toEqual(before);
+    // By keys, with the keys on it (the spine's click gave them): alt+h folds and opens it; ^W e goes in, ctrl+] comes out.
+    expect(tiles().find(x => x.focused).name).toBe("board");
+    press({ kind: "alt", ch: "h" });
+    expect(tile("board").collapsed).toBe(true);
+    press({ kind: "alt", ch: "h" });
+    expect(tile("board").collapsed).toBeUndefined();
+    press({ kind: "char", ch: "w", ctrl: true }); ch("e");
+    expect(tile("board").title).toMatch(/· in$/);
+    press({ kind: "char", ch: "]", ctrl: true });
+    expect(tile("board").title).not.toMatch(/· in$/);
+    press({ kind: "esc" });
+  }, 40_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();

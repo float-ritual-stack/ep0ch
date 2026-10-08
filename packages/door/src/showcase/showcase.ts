@@ -320,10 +320,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "screen", need: "put a whole screen in a tile (the board, the river, the brief)", part: "ScreenTile over FramedScreen: the screen itself in a rectangle, its selection followed by a preview tile", files: "src/desk/screen-tile.ts, src/showcase/frame.ts",
+    key: "screen", need: "mount a screen in another (the board on the desk), a part of one (its lanes), or a group of tiles a tab can hold; pop one out to its full screen and back", part: "the mount (PIE-651): ScreenTile over FramedScreen, the screen's own spec on its own desk inside the tile (partSpec for a part, groupSpec for a group); its title is its spine's label; tile.open kind=screen, mount.out (^W u, ⤢ full), mount.enter (^W e, ⏎ in), screen.mount (^W M) and screen.part (^W I) on a full screen, tile.group (^W G); tile=<mount>/<tile> for act", files: "src/desk/screen-tile.ts, src/desk/screen-spec.ts (partSpec, groupSpec), src/desk/screen-specs.ts (mountDesk), src/showcase/frame.ts",
+    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ⤢ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=thread` puts the thread beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared",
     stage(n, show) {
-      const b = new ScreenTile("board"), p = new PreviewPane({ tile: "board" });
-      return deskOf({ title: "showcase · screen", panes: [b, p], layout: ([a, c]) => pair("col", 0.65, leaf(a!), leaf(c!)) }, show, []);
+      const args = n.hub ? { args: { hub: n.hub.id } } : {};
+      const board = new ScreenTile("screen", { screen: "board", ...args }), lanes = new ScreenTile("screen", { screen: "board", part: "lanes", ...args });
+      const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      return deskOf({
+        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "thread", "activity"],
+        layout: ([b, l, c, rd, h, a]) => pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
+      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
   {
