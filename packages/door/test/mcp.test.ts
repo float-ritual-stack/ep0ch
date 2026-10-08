@@ -1,9 +1,10 @@
-// PIE-520: the local stdio MCP server is read-only, bound to the outline the CLI can open, and serves canonical
+// PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
-import { mcpCommand } from "../src/mcp";
+import { answerMcp, mcpCommand } from "../src/mcp";
+import { machineOutlines } from "../src/mcp-gateway";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -125,7 +126,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(tool(response(id)?.result).content[0]!.text).toContain(`names other-garden@${machine}; this MCP server is bound to ${scratch.name}@${machine}`);
     }
     // The bound outline is the one this server lists: live, read now, with its access setting.
-    expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }] });
+    expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }], tools: { writes: false, said: expect.stringContaining("only the read tools are offered") } });
     expect(JSON.parse(tool(response(7)?.result).content[0]!.text).reachability).toMatchObject({ source: "live", asOf: expect.any(String) });
     const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
     expect(publishedRead.record.links.map(link => link.target)).toContain(privateNote.id);
@@ -150,4 +151,73 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(code).toBe(2);
     expect(out[0]).toContain("mcp doesn't take");
   }, 30_000);
+
+  describe("one security model: the stdio server writes by the same access levels as the gateway", () => {
+    const stdio = async (messages: unknown[]) => {
+      const out: string[] = [];
+      expect(await mcpCommand(["mcp"], { input: linesOf(messages.map(m => JSON.stringify(m))), write: line => out.push(line), err: line => out.push(`ERR ${line}`) })).toBe(0);
+      return out.map(l => JSON.parse(l) as RpcResponse);
+    };
+    const hello = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", clientInfo: { name: "claude-desktop", version: "1" } } };
+    const names = (r: RpcResponse | undefined) => (fields(r?.result).tools as { name: string }[]).map(t => t.name);
+    const setAccess = (level: string) => mcpCommand(["mcp", "access", level], { input: linesOf([]), write: () => {}, err: () => {} });
+    const called = (r: RpcResponse | undefined) => { const t = tool(r?.result); return { isError: !!t.isError, json: (() => { try { return JSON.parse(t.content[0]!.text); } catch { return null; } })(), text: t.content[0]!.text }; };
+    const patch = (id: number, revision: number, observed: string, replacement: string) =>
+      ({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "outline_patch", arguments: { uri: target.uri, revision, patches: [{ observed, replacement }] } } });
+    const revisionOf = async () => (await board.records([target.id])).records[0]!.revision;
+
+    test("none and read offer no write tools and refuse a write; propose makes proposals; full applies, as mcp:<client>", async () => {
+      await setAccess("none");
+      expect(names((await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }])).find(r => r.id === 2))).not.toContain("outline_patch");
+      await setAccess("read");
+      const readOnly = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }, patch(3, await revisionOf(), "Ready for local tools", "Ready")]);
+      expect(names(readOnly.find(r => r.id === 2))).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components"]);
+      expect(called(readOnly.find(r => r.id === 3)).isError).toBe(true);
+
+      await setAccess("propose");
+      const proposed = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }, patch(3, await revisionOf(), "Ready for local tools", "Ready for stdio proposals")]);
+      expect(names(proposed.find(r => r.id === 2))).toContain("outline_patch");
+      expect(called(proposed.find(r => r.id === 3)).json).toMatchObject({ outcome: "proposed" });
+      expect((await board.records([target.id])).records[0]!.text).toContain("Ready for local tools");
+
+      await setAccess("full");
+      const full = await stdio([hello, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Written over stdio" } } }, patch(5, await revisionOf(), "Ready for local tools", "Ready for stdio writes")]);
+      const made = called(full.find(r => r.id === 4)).json;
+      expect(made.outcome).toBe("applied");
+      expect(called(full.find(r => r.id === 5)).json).toMatchObject({ outcome: "applied", machine });
+      expect((await board.records([target.id])).records[0]!.text).toContain("Ready for stdio writes");
+      const child = (await board.records([made.uri.split("/b/")[1]])).records[0]!;
+      expect(child).toMatchObject({ author: "agent", actor: "mcp:claude-desktop" });
+      // A stale revision is a proposal, never an overwrite: the same check the gateway makes.
+      const stale = await stdio([hello, patch(6, 1, "Ready for stdio writes", "Overwritten")]);
+      expect(called(stale.find(r => r.id === 6)).json.outcome).toBe("proposed");
+      expect((await board.records([target.id])).records[0]!.text).not.toContain("Overwritten");
+      await setAccess("read");
+    }, 60_000);
+
+    test("EP0CH_MCP_PERSONAS maps the client name as it does for the gateway", async () => {
+      await setAccess("full");
+      const was = process.env.EP0CH_MCP_PERSONAS;
+      process.env.EP0CH_MCP_PERSONAS = "claude-desktop=desk";
+      try {
+        const r = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Named by persona" } } }]);
+        const child = (await board.records([called(r.find(x => x.id === 2)).json.uri.split("/b/")[1]])).records[0]!;
+        expect(child.actor).toBe("mcp:desk");
+      } finally { if (was === undefined) delete process.env.EP0CH_MCP_PERSONAS; else process.env.EP0CH_MCP_PERSONAS = was; await setAccess("read"); }
+    }, 30_000);
+
+    test("stdio and the HTTP gateway list the same tools for the same grant and caller, at every level", async () => {
+      const sock = scratch.sock;
+      const gateway = machineOutlines(scratch.name, () => {}, async () => Object.assign(new SocketBoard(sock), { address: { outline: scratch.name, machine } }) as any, [], async () => [scratch.name]);
+      try {
+        for (const level of ["none", "read", "propose", "full"]) {
+          await setAccess(level);
+          const viaStdio = names((await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }])).find(r => r.id === 2));
+          const viaHttp = names((await answerMcp(gateway, JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }), { sub: "user_fictional_a", clientId: "claude-desktop" }))!.reply as RpcResponse);
+          expect(viaStdio, level).toEqual(viaHttp);
+          expect(viaStdio.includes("outline_patch"), level).toBe(level === "propose" || level === "full");
+        }
+      } finally { gateway.close(); await setAccess("read"); }
+    }, 60_000);
+  });
 });

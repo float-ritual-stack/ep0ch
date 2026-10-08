@@ -1,7 +1,7 @@
 // An MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it over stdio,
-// bound to the outline this process can already open, and only reads; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
+// bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
 // serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
-// (src/mcp-mirror.ts), and adds the write tools (src/mcp-writes.ts) for a caller its token names. Both answer through
+// (src/mcp-mirror.ts), and the caller its token names. Both offer the write tools (src/mcp-writes.ts) by the outline's access, to a caller: the gateway's token's, stdio's client (the MCP `initialize` clientInfo, as `mcp:<client>`). Both answer through
 // `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
@@ -21,9 +21,10 @@ import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { actorOf, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
-                                   read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
-                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_links, outline_components; resources/read with envelope,
-                                   and the outline's components as resources (resources/list)
+                                   local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
+                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
+                                   and the outline's components as resources (resources/list). At \`propose\` and \`full\` it offers the
+                                   same write tools as the gateway, as \`mcp:<client>\` (the client the MCP initialize names)
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
                                    server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
@@ -31,8 +32,8 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
-                                   propose and full let the gateway's write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a mirror's outline queues them
+                                   propose and full let the write tools (outline_create, outline_patch,
+                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a gateway's mirror of an outline queues them when its machine is away
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -56,7 +57,11 @@ export type McpServed = McpSource;
  * A board to read, and where it is served from. `home`: a mirror's outline lives on that machine, in the database
  * whose instance id the copy carries; a write to it queues for that machine.
  */
-export interface McpBoard { board: Board; served: McpServed; home?: { machine: string; instanceId: string | null } }
+export interface McpBoard {
+  board: Board; served: McpServed; home?: { machine: string; instanceId: string | null };
+  /** Served live from a machine whose mirror this server also keeps: writes queued for it that haven't landed yet still overlay a read. */
+  queuedFor?: string;
+}
 
 /** Served live, read now. */
 export const servedLive = (now = Date.now()): McpServed => ({ source: "live", asOf: new Date(now).toISOString() });
@@ -65,6 +70,8 @@ export const servedLive = (now = Date.now()): McpServed => ({ source: "live", as
 export interface McpOutlineListing {
   outline: string;
   machine: string;
+  /** An outline of another machine whose own name for itself is `machine`: the ssh name that reaches it (accepted in a URI too). */
+  sshName?: string;
   uri: string;
   /** `unreachable`: a mirror this server was told of that has no copy here yet. */
   source: McpServed["source"] | "unreachable";
@@ -72,6 +79,8 @@ export interface McpOutlineListing {
   access?: McpAccessLevel;
   /** What a write to it becomes: applied or proposed here, or queued for its home machine; absent when it takes none. */
   writes?: "applied" | "proposals" | "queued";
+  /** An outline of another machine: how it is served now (its host through the shared ssh forward, or the mirror and why) and when that was last checked. */
+  route?: { via: "live" | "mirror"; checkedAt: string | null; why?: string; command?: string };
   /** A mirror's queued writes: how many wait, the oldest, and when its home machine last pulled. */
   queue?: { waiting: number; oldest: string | null; lastPull: string | null; said?: string };
   note?: string;
@@ -85,6 +94,10 @@ export interface McpQueue {
   receipt(id: string): NetmailReceipt | null;
   /** One caller's writes about a block that the mirror doesn't show yet (the read-your-writes overlay). */
   pending(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
+  /** A write made live on the machine's own host, kept with the queued ones (settled at once, with the revision it made). */
+  live(entry: Omit<NetmailEntry, "id" | "queuedAt">, done: { state: "applied" | "proposed" | "unchanged"; said: string; uri?: string; revision?: number }): NetmailEntry;
+  /** The newest write through this server to an outline (or one block) that took effect on its machine. */
+  lastApplied(machine: string, outline: string, blockId?: string): { id: string; at: string; revision: number | null; live: boolean; uri: string | null } | null;
   /** All of one caller's writes about a block, oldest first (what a receipt compares for "superseded"). */
   history(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
 }
@@ -124,7 +137,8 @@ export function boundOutlines(board: Board): McpOutlines {
       return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
     },
     async list() {
-      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: (await board.mcpAccessStatus()).level }];
+      const level = (await board.mcpAccessStatus()).level, writes = writesAt(level);
+      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}) }];
     },
   };
 }
@@ -229,7 +243,7 @@ async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promi
 
 /** Where an answer came from, in words: nothing for a live outline, as before. */
 const servedWords = (outlines: McpOutlines, { served }: McpBoard) =>
-  served.source === "mirror" ? `, read-only mirror on ${outlines.machine} as of ${served.asOf}${served.note ? `: ${served.note}` : ""}` : "";
+  served.source === "mirror" ? `, read-only mirror on ${outlines.machine} as of ${served.asOf}${served.note ? `: ${served.note}` : ""}` : served.machine ? `, live from ${served.machine}'s own host` : "";
 
 const reachability = (outlines: McpOutlines, target: McpBoard, status: McpAccessStatus, id: string, revision: number | undefined): McpReachability => ({
   id,
@@ -297,12 +311,18 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   if ("error" in read) return toolError(read.error);
   // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
   // A write the home machine has applied stays until the mirror's copy has reached the revision it made.
-  const waiting = (caller && target.home && outlines.netmail ? outlines.netmail.pending(target.home.machine, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
+  const queuedAt = target.home?.machine ?? target.queuedFor;
+  const waiting = (caller && queuedAt && outlines.netmail ? outlines.netmail.pending(queuedAt, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
     .filter(w => w.state === "queued" || (w.resultRevision ?? 0) > read.record.revision);
   const pending = pendingOverlay(read.record.body, waiting);
+  // A mirror older than a write made through this server: the newest such write to the note, and its revision.
+  const newest = target.served.source === "mirror" && target.home && outlines.netmail ? outlines.netmail.lastApplied(target.home.machine, target.board.address.outline, target.id) : null;
+  const staleSince = newest && (newest.revision ?? 0) > read.record.revision
+    ? { revision: newest.revision, at: newest.at, queueId: newest.id, said: `this mirror copy is at revision ${read.record.revision}; a write made through this server already made revision ${newest.revision} on ${target.home!.machine} (${newest.live ? "live" : "applied by its pull"}), so the note is newer than this answer` }
+    : null;
   // The note's comment threads, compact: a reply is how an agent learns it was answered. A board that can't list them still reads.
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
-  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}), ...(threads ? { threads } : {}) });
+  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
@@ -653,11 +673,10 @@ function toolsFor(outlines: McpOutlines) {
   ];
 }
 
-/** Whether the write tools are offered: to a remote caller, when some outline it can reach takes writes. */
-const writesOffered = (outlines: McpOutlines, caller: McpCaller | undefined, listed: McpOutlineListing[]) =>
-  !!caller && outlines.kind === "remote" && listed.some(o => !!o.writes);
+/** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
+const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
-  return !!caller && outlines.kind === "remote" && writesOffered(outlines, caller, await outlines.list());
+  return !!caller && writesOffered(caller, await outlines.list());
 }
 
 /** Said wherever access changes: a connected client keeps the tool list it fetched. */
@@ -665,8 +684,7 @@ export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when
 
 async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined): Promise<ToolResult> {
   const listed = await outlines.list();
-  if (outlines.kind !== "remote") return toolText({ outlines: listed });
-  const writes = writesOffered(outlines, caller, listed);
+  const writes = writesOffered(caller, listed);
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
     outlines: listed,
@@ -704,7 +722,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  * Undefined for a tool this server doesn't offer (callTool says so).
  */
 function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
-  const writes = !!caller && outlines.kind === "remote";
+  const writes = !!caller;
   const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])];
   const definition = definitions.find(d => d.name === name);
   if (!definition) return undefined;
@@ -725,11 +743,11 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   if (params.name === "outline_read") return readRecord(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args);
-  if (params.name === "outline_write_status" && caller && outlines.kind === "remote") return writeStatusTool(outlines, args, caller);
+  if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
-  if (isWriteTool(params.name) && caller && outlines.kind === "remote") return writeTool(outlines, params.name, args, caller);
+  if (isWriteTool(params.name) && caller) return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
 }
 
@@ -787,9 +805,24 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
         said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that; the base you wrote against is the mirror as of ${base.asOf} (~${base.ageMinutes} min old)`,
       });
     }
+    // Served live from a machine this server also queues for: writes made while it was away wait for its pull, and the
+    // service checks each one's revision then, so a write made now and one made before never apply twice.
+    const earlier = target.queuedFor && outlines.netmail ? outlines.netmail.pending(target.queuedFor, where.outline, target.id, { actorId: actor.actorId, subject: caller.sub }).filter(w => w.state === "queued") : [];
     const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}`);
-    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, said: done.said, detail: done.detail });
+    // Kept with the queued writes: a read that falls back to the mirror lays it over the note until the copy catches up.
+    if (target.queuedFor && outlines.netmail) {
+      const d = done.detail as { edits?: { blockId: string; revision?: number }[]; revision?: number } | undefined;
+      const revision = d?.edits?.find(e => e.blockId === target.id)?.revision ?? (tool === "outline_create" ? d?.revision : undefined);
+      try {
+        outlines.netmail.live({
+          machine: target.queuedFor, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input, revision: shape.revision ?? null,
+          mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: board.outlineInstanceId, level: status.level, actorId: actor.actorId, subject: caller.sub, clientId: caller.clientId ?? null,
+        }, { state: done.outcome, said: done.said, uri: done.uri, ...(done.outcome === "applied" && revision !== undefined ? { revision } : {}) });
+      } catch (e) { outlines.log?.(`mcp write: couldn't record the live write for the mirror's overlay: ${(e as Error).message}`); }
+    }
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
+    const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
+    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);
@@ -885,6 +918,21 @@ export async function answerMcp(outlines: McpOutlines, text: string, caller?: Mc
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 
+/** The subject a stdio caller has: there is no token, so one fixed name; its client name is what tells callers apart. */
+export const STDIO_SUBJECT = "stdio";
+
+/** The `clientInfo.name` of an `initialize` request in this line, if it is one. */
+function clientNamed(line: string): string | undefined {
+  if (!line.includes("initialize")) return undefined;
+  try {
+    for (const m of [JSON.parse(line)].flat()) {
+      const name = m?.method === "initialize" ? m.params?.clientInfo?.name : undefined;
+      if (typeof name === "string" && name.trim()) return name.trim().slice(0, 64);
+    }
+  } catch { /* not JSON: answerMcp says so */ }
+  return undefined;
+}
+
 function mcpArgs(argsIn: string[]): string[] | { error: string } {
   const args = argsIn.slice(1), out: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -922,8 +970,8 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAcce
 const ACCESS_SAYS: Record<McpAccessLevel, string> = {
   none: " (denied)",
   read: " (read-only MCP allowed, stdio and the remote gateway)",
-  propose: " (reads, and the remote gateway's writes as proposals for you to apply)",
-  full: " (reads, and the remote gateway's writes applied, checked against the revision they read; a note open in your draft gets a proposal instead)",
+  propose: " (reads, and writes as proposals for you to apply, over stdio and the remote gateway alike)",
+  full: " (reads, and writes applied, checked against the revision they read; a note open in your draft gets a proposal instead; stdio and the remote gateway alike)",
 };
 
 async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
@@ -964,8 +1012,12 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
   const outlines = boundOutlines(board);
   const write = io.write ?? (line => process.stdout.write(`${line}\n`));
   try {
+    // No token on stdio: the caller is the client the MCP `initialize` names, written as `mcp:<client>` (and mapped by
+    // EP0CH_MCP_PERSONAS) exactly as the gateway's callers are.
+    let clientId: string | undefined;
     for await (const line of io.input ?? stdinLines()) {
-      const answer = await answerMcp(outlines, line);
+      clientId = clientNamed(line) ?? clientId;
+      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}) });
       if (answer?.reply) write(JSON.stringify(answer.reply));
     }
     return 0;

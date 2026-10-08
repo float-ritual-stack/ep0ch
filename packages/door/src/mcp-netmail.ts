@@ -148,6 +148,29 @@ export class Netmail {
     return (this.db.query("SELECT * FROM entries WHERE machine = ? AND state = 'queued' ORDER BY queued_at, rowid").all(machine) as Record<string, unknown>[]).map(entryOf);
   }
 
+  /**
+   * A write made live on the machine's own host, kept beside the queued ones (PIE-661): already settled, so a pull never
+   * takes it, with the revision it made, so a read from the mirror lays it over the note until the copy reaches that
+   * revision, and so the mirror can be called older than it. Its `said` starts with `live:`.
+   */
+  recordLive(e: Omit<NetmailEntry, "id" | "queuedAt">, done: { state: NetmailSettled["state"]; said: string; uri?: string; revision?: number }, now = Date.now()): NetmailEntry {
+    const entry = this.enqueue(e, now);
+    const at = new Date(now).toISOString();
+    this.db.query("UPDATE entries SET state = ?, settled_at = ?, said = ?, result_uri = ?, result_revision = ? WHERE id = ?")
+      .run(done.state, at, `live: ${done.said}`, done.uri ?? null, Number.isInteger(done.revision) ? done.revision! : null, entry.id);
+    return entry;
+  }
+
+  /**
+   * The newest write through the gateway to one machine's outline (or one of its blocks) that took effect there: queued
+   * and since applied by a pull, or made live. `live`: made live (the gateway's own clock; a pulled one's time is the pull's).
+   */
+  lastApplied(machine: string, outline: string, blockId?: string): { id: string; at: string; revision: number | null; live: boolean; uri: string | null } | null {
+    const r = this.db.query(`SELECT id, settled_at, result_revision, said, result_uri FROM entries WHERE machine = ? AND outline = ?${blockId ? " AND block_id = ?" : ""} AND state = 'applied' ORDER BY settled_at DESC, rowid DESC LIMIT 1`)
+      .get(...(blockId ? [machine, outline, blockId] : [machine, outline])) as { id: string; settled_at: string; result_revision: number | null; said: string | null; result_uri: string | null } | null;
+    return r ? { id: r.id, at: r.settled_at, revision: r.result_revision, live: !!r.said?.startsWith("live: "), uri: r.result_uri } : null;
+  }
+
   /** One entry with what it became so far, or none. */
   receipt(id: string): NetmailReceipt | null {
     const r = this.db.query("SELECT * FROM entries WHERE id = ?").get(id) as Record<string, unknown> | null;

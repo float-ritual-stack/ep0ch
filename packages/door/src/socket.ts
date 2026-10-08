@@ -202,6 +202,12 @@ import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protoc
 export interface McpSource {
   /** `asOf`: live, when it was read; a mirror, the newest change its copy holds (the home machine's own clock). */
   source: "live" | "mirror"; asOf: string; note?: string;
+  /** A live read of another machine's outline (through the shared ssh forward): that machine. */
+  machine?: string;
+  /** A mirror served because the live route to its machine wasn't there: why, and when it was tried (ISO). */
+  liveTried?: { at: string; why: string; command?: string };
+  /** A mirror older than a write made live through the gateway: when, and what it made. */
+  staleSince?: { at: string; revision: number | null; uri: string | null; said: string };
   /** A mirror's copy: its file under the mirrors folder, and when that file last changed here. */
   copy?: { file: string; copiedAt: string };
   /** A mirror whose follower has stopped or fallen behind its replica: since when (when known), and why. */
