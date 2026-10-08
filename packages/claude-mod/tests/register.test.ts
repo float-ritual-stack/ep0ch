@@ -494,7 +494,7 @@ describe('register', () => {
     expect(session.runs.find(run => run.argv.includes('link'))?.argv).toContain('admin-detail')
 
     const empty = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: ' ' })
-    expect(empty.deny).toContain('Give a Work ID')
+    expect(empty.deny).toContain('Give the ref')
   })
 
   describe('in neither a door nor Herdr: the note opens here, in the mentions pane (openNote\'s third case)', () => {

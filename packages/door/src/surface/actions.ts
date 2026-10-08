@@ -4,6 +4,7 @@
 // action is never silent: the status bar says "an agent (<id>) …", the reader it touched says what it
 // did, and what it writes is recorded as `author: agent` with its actor id.
 import type { Actor } from "../socket";
+import { checkToolArgs, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
 
@@ -403,9 +404,33 @@ export function hintSpots(drawn: string, keyStyles: readonly string[]): { from: 
   return out;
 }
 
-function coerce(action: string, spec: Record<string, ArgSpec>, raw: Record<string, unknown>): Record<string, unknown> {
+/** A value that looks like what an argument takes, for the example call in an error. */
+const placeholder = (k: string, s: ArgSpec): string | number | boolean =>
+  s.type === "number" ? 1 : s.type === "boolean" ? true : k === "id" ? "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : k === "tile" || s.tile ? "main" : "text";
+
+/**
+ * The names of a call checked once for every action (@ep0ch/outline-core/tool-args): the block argument is `id`, and
+ * `ref` and the other names models give a note (`reference`, `block`, `blockId`, `uri`, `note`) are accepted for it; two of
+ * them naming different blocks are refused. An unknown, missing or conflicting argument is answered with the action's
+ * arguments and a call that works. Values are coerced below, as `k=v` words are all text.
+ */
+export function checkedActionArgs(action: string, spec: Record<string, ArgSpec>, raw: Record<string, unknown>): Record<string, unknown> {
+  const properties = Object.fromEntries(Object.entries(spec).map(([k, s]) => [k, { type: s.type, description: s.about }]));
+  const required = Object.entries(spec).filter(([, s]) => !s.optional).map(([k]) => k);
+  const aliases = "id" in spec && !("ref" in spec) ? { id: ["ref", ...REF_ALIASES.filter(name => name !== "id" && !(name in spec))] } : undefined;
+  const checked = checkToolArgs({
+    name: action, namesOnly: true, schema: { type: "object", properties, required },
+    example: Object.fromEntries(required.map(k => [k, placeholder(k, spec[k]!)])),
+    ...(aliases ? { aliases } : {}),
+    callText: (name, args) => `ep0ch act ${name}${Object.entries(args).map(([k, v]) => ` ${k}=${v}`).join("")}`,
+  }, raw);
+  if (!checked.ok) throw new ActionRefused(checked.error);
+  return checked.args;
+}
+
+function coerce(action: string, spec: Record<string, ArgSpec>, input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of Object.keys(raw)) if (!(k in spec)) throw new ActionRefused(`${action} takes no ${k}; it takes ${Object.keys(spec).join(", ") || "nothing"}`);
+  const raw = checkedActionArgs(action, spec, input);
   for (const [k, s] of Object.entries(spec)) {
     const v = raw[k];
     if (v === undefined || v === null) { if (!s.optional) throw new ActionRefused(`${action} needs ${k} (${s.about})`); continue; }

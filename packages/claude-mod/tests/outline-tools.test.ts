@@ -1,5 +1,7 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
+import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL } from '../hooks/outline-tools'
+import { WORK_TOOLS } from '../hooks/work-tools'
 
 tier('user')
 
@@ -141,7 +143,7 @@ describe('outline tools', () => {
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toMatchObject({ policy: 'edit', allowStructural: true })
     const runs = session.agentRuns().length
     const odd = await $.tool.call({ tool: 'mcp__pi-outliner__outline_patch', ref: NOTE, revision: 3, patches, policy: 'tidy' })
-    expect(odd.deny).toContain('edit (the default) or prose')
+    expect(odd.deny).toContain('must be one of edit, prose')
     expect(session.agentRuns().length).toBe(runs)
   })
 
@@ -164,7 +166,7 @@ describe('outline tools', () => {
       expect(blank.deny).toBeDefined()
     }
     const noRevision = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, text: 'Seed swap' })
-    expect(noRevision.deny).toContain('read the note with outline_read first')
+    expect(noRevision.deny).toContain('Missing required `expectedRevision`')
     const two = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, expectedRevision: 3, text: 'x', append: 'y' })
     expect(two.deny).toContain('exactly one')
     expect(session.agentRuns()).toEqual([])
@@ -308,5 +310,74 @@ describe('door tools', () => {
     const refused = await $.tool.call({ tool: 'mcp__pi-outliner__door_open', id: NOTE })
     expect(refused.deny).toBe(`Could not show ${NOTE}: middle holds an edit; an agent never takes it`)
     expect(session.runs.some(run => run.argv[0] === 'herdr' && run.argv[1] !== 'plugin')).toBe(false)
+  })
+})
+
+// One canonical `ref` for "which note", its aliases, and the corrective error (hooks/tool-args.ts).
+describe('tool arguments', () => {
+  const REF_TOOLS = [...OUTLINE_TOOLS, ...WORK_TOOLS, SHOW_TOOL, ...DOOR_TOOLS].filter(tool => 'ref' in ((tool.inputSchema.properties as Record<string, unknown>) ?? {}))
+  const ALIASES = ['ref', 'id', 'reference', 'block', 'blockId', 'uri', 'note', 'item']
+
+  test('every tool that takes a note takes it as ref, and as each alias', () => {
+    expect(REF_TOOLS.map(tool => tool.name).sort()).toEqual([
+      'door_open', 'note_section', 'outline_assign_id', 'outline_comment', 'outline_edit', 'outline_patch', 'outline_read', 'outline_resolve',
+      'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_set', 'work_stage',
+    ])
+    for (const tool of REF_TOOLS) {
+      for (const alias of ALIASES.filter(alias => alias !== 'item' || WORK_TOOLS.includes(tool as never))) {
+        const { ref, ...rest } = tool.example as Record<string, unknown>
+        const checked = checkedInput(tool, { tool: tool.name, ...rest, [alias]: ref })
+        expect(checked, `${tool.name} ${alias}`).toEqual({ input: { ...rest, ref } })
+      }
+      // view_order's old name for it, view
+      if (tool.name === 'view_order') expect(checkedInput(tool, { view: 'PIE-1' })).toEqual({ input: { ref: 'PIE-1' } })
+    }
+  })
+
+  test('two aliases that name different notes are refused, naming both; the same note spelt two ways is accepted', () => {
+    for (const tool of REF_TOOLS) {
+      const { ref: _ref, ...rest } = tool.example as Record<string, unknown>
+      const conflict = checkedInput(tool, { ...rest, ref: 'PIE-520', id: 'PIE-588' })
+      expect(typeof conflict).toBe('string')
+      expect(conflict).toContain('Ambiguous')
+      expect(conflict).toContain('`ref` is "PIE-520"')
+      expect(conflict).toContain('`id` is "PIE-588"')
+      expect(conflict).toContain('pass one `ref`')
+      expect(conflict).toContain(`Example: ${tool.name} `)
+      expect(checkedInput(tool, { ...rest, ref: `((${NOTE}))`, id: NOTE })).toEqual({ input: { ...rest, ref: `((${NOTE}))` } })
+    }
+  })
+
+  test('an unknown argument is named with the closest valid one, the arguments, and a call that works', () => {
+    const typo = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { refe: 'PIE-12', depth: 1 }) as string
+    expect(typo).toContain('`refe` is not an argument of outline_read; did you mean `ref`?')
+    expect(typo).toContain('Arguments: ref (string, required)')
+    expect(typo).toContain('Call it as: outline_read {"ref":"PIE-12","depth":1}')
+    const wrong = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { title: 'Seed swap plan' }) as string
+    expect(wrong).toContain('the required `ref` is missing, so you probably meant `ref`')
+    const typed = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { ref: 'PIE-12', depth: 'deep' }) as string
+    expect(typed).toContain('`depth` must be integer 0-6; got string "deep"')
+    expect(typed).toContain('Example: outline_read {"ref":"PIE-123","depth":1}')
+    const missing = checkedInput(WORK_TOOLS.find(t => t.name === 'work_stage')!, { stage: 'doing' }) as string
+    expect(missing).toContain('Missing required `ref`')
+    expect(missing).toContain('Example: work_stage {"ref":"PIE-123","stage":"doing"}')
+  })
+
+  test('through the session: a conflict runs and opens nothing, an identical pair runs once, and show says what to send', async ($, on) => {
+    const session = sessionIn(on, () => undefined)
+    await session.begin(() => $.session.start(START))
+    const edit = { expectedRevision: 3, append: 'x' }
+    const conflict = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, id: THREAD, ...edit })
+    expect(conflict.deny).toContain('Ambiguous')
+    const stage = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', ref: 'PIE-1', item: 'PIE-2', stage: 'doing' })
+    expect(stage.deny).toContain('Ambiguous')
+    const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', ref: 'PIE-1', reference: 'PIE-2' })
+    expect(shown.deny).toContain('Ambiguous')
+    const opened = await $.tool.call({ tool: 'mcp__pi-outliner__show', refrence: 'PIE-1' })
+    expect(opened.deny).toContain('did you mean `ref`?')
+    expect(session.runs).toEqual([])
+    const same = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: `((${NOTE}))`, id: NOTE, ...edit })
+    expect(same).toMatchObject({ result: ANSWERS.edit })
+    expect(session.agentRuns().length).toBe(1)
   })
 })

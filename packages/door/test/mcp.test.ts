@@ -93,7 +93,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(fields(response(4)?.result).protocolVersion).toBe("2025-11-25");
     const listed = fields(response(5)?.result).tools as { name: string; inputSchema?: any }[];
     expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components"]);
-    expect(listed[1]!.inputSchema.oneOf).toEqual([{ required: ["uri"] }, { required: ["ref"] }, { required: ["id"] }]);
+    expect(listed[1]!.inputSchema.oneOf).toEqual([{ required: ["ref"] }, { required: ["uri"] }]);
 
     const find = JSON.parse(tool(response(6)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
     expect(find.matches).toContainEqual(expect.objectContaining({ id: privateNote.id, uri: privateNote.uri }));

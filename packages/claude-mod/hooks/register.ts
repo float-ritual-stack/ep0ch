@@ -22,7 +22,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { actorOf, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
+import { actorOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -288,27 +288,7 @@ export function register(on: On, options: PluginOptions): void {
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     $.ui.status(statusLine(null))
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
-    await $.tool.register({
-      name: 'show',
-      description:
-        'Show an Outliner note in the Outliner Detail beside this conversation in Herdr (the one linked to the ' +
-        "Tree in this Herdr workspace, or one opened when there is none), so the person can read it beside the chat. " +
-        "When this session runs in an ep0ch-door tile, it opens in that door, where its tile's opens land, instead; " +
-        'with neither (the desktop app, VS Code, a terminal outside Herdr), in this mod\'s mentions pane beside the chat. ' +
-        'It never moves their focus, and a Detail they are editing in refuses it. Use it when pointing the person at a note matters; ' +
-        'references in replies are already clickable.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          reference: {
-            type: 'string',
-            description: 'A Work ID (PIE-123), [[page]], ((block-uuid)), bare block UUID, or pi-outliner:// URI.',
-          },
-        },
-        required: ['reference'],
-        additionalProperties: false,
-      },
-    })
+    await $.tool.register({ name: SHOW_TOOL.name, description: SHOW_TOOL.description, inputSchema: SHOW_TOOL.inputSchema })
     // Off the start's dispatch: each registration republishes the tool server (~20ms), and these tools are
     // loaded on demand, so the session never waits for them. The door tools act in the door this Claude runs
     // in: only in a door tile, where EP0CH_CONTROL names it.
@@ -370,7 +350,9 @@ export function register(on: On, options: PluginOptions): void {
 
   for (const tool of WORK_TOOLS) {
     on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
-      const command = tool.command(e as Record<string, unknown>)
+      const checked = checkedInput(tool, e as Record<string, unknown>)
+      if (typeof checked === 'string') return { deny: checked }
+      const command = tool.command(checked.input)
       if (typeof command === 'string') return { deny: command }
       if (!references) await loadReferences($, option)
       const workspace = references?.workspace
@@ -385,7 +367,9 @@ export function register(on: On, options: PluginOptions): void {
 
   for (const tool of OUTLINE_TOOLS) {
     on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
-      const input = e as Record<string, unknown>
+      const checked = checkedInput(tool, e as Record<string, unknown>)
+      if (typeof checked === 'string') return { deny: checked }
+      const input = checked.input
       const command = tool.command(input)
       if (typeof command === 'string') return { deny: command }
       if (!references) await loadReferences($, option)
@@ -403,7 +387,9 @@ export function register(on: On, options: PluginOptions): void {
 
   // The library's brief, from the session's outline: `ep0ch` is the door's CLI, run in the bound folder.
   on('tool.call', { tool: `mcp__pi-outliner__${COMPONENTS_TOOL.name}` }, async ($, e) => {
-    const command = componentsArgv(e as Record<string, unknown>)
+    const checked = checkedInput(COMPONENTS_TOOL, e as Record<string, unknown>)
+    if (typeof checked === 'string') return { deny: checked }
+    const command = componentsArgv(checked.input)
     if (typeof command === 'string') return { deny: command }
     if (!references) await loadReferences($, option)
     const workspace = references?.workspace
@@ -418,8 +404,10 @@ export function register(on: On, options: PluginOptions): void {
     on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
       const control = await $.env.get('EP0CH_CONTROL')
       if (!control) return { deny: 'The door tools work only in an ep0ch-door tile (EP0CH_CONTROL is not set).' }
+      const checked = checkedInput(tool, e as Record<string, unknown>)
+      if (typeof checked === 'string') return { deny: checked }
       try {
-        return { result: await runDoorTool($, tool.name, e as Record<string, unknown>, control, option) }
+        return { result: await runDoorTool($, tool.name, checked.input, control, option) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
@@ -428,9 +416,11 @@ export function register(on: On, options: PluginOptions): void {
 
   on('tool.call', { tool: 'mcp__pi-outliner__show' }, async ($, e) => {
     // A plugin tool's arguments arrive flat on the event, beside `tool`.
-    const reference: unknown = e.reference
+    const checked = checkedInput(SHOW_TOOL, e as Record<string, unknown>)
+    if (typeof checked === 'string') return { deny: checked }
+    const reference: unknown = checked.input.ref
     const uri = typeof reference === 'string' ? outlinerUriFor(reference) : null
-    if (!uri) return { deny: 'Give a Work ID, [[page]], ((block-uuid)) or pi-outliner:// URI to show.' }
+    if (!uri) return { deny: 'Give the ref: a Work ID, [[page]], ((block-uuid)) or pi-outliner:// URI to show.' }
     if (!references) await loadReferences($, option)
     try {
       return { result: shownText(await openNote($, references?.workspace ?? null, uri, await actorFor($, {})), String(reference)) }
@@ -879,9 +869,9 @@ async function runDoorTool(
     }
     case 'door_open': {
       // The same open as a click or `show`: in this door first (EP0CH_CONTROL is set, or the tool is refused).
-      const ref = typeof input.id === 'string' ? input.id.trim() : ''
+      const ref = typeof input.ref === 'string' ? input.ref.trim() : ''
       const uri = ref ? outlinerUriFor(ref) : null
-      if (!uri) throw Error('Give the note to open: its id, ((id)), [[page]] or Work ID.')
+      if (!uri) throw Error('Give the ref of the note to open: its id, ((id)), [[page]] or Work ID.')
       if (!references) await loadReferences($, option)
       try {
         return shownText(await openNote($, references?.workspace ?? null, uri, await actorFor($, input)), ref)

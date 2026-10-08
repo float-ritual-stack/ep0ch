@@ -289,7 +289,6 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
 const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
   ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123); for outline_read and outline_comment also a Resource: resource:<id> or a [file::path] token" },
-  id: { type: "string", description: "Alias of ref" },
 };
 const REVISION = { type: "integer", minimum: 1, description: "The revision outline_read returned. A note that changed since gets a proposal, never an overwrite." };
 
@@ -300,7 +299,7 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     properties: { ...REF_ADDRESS, outline, ...properties },
     required,
     additionalProperties: false,
-    oneOf: [{ required: ["uri"] }, { required: ["ref"] }, { required: ["id"] }],
+    oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
   });
   const answer = "The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI. " +
     "An outline at `propose` access takes proposals only; `full` applies; `read` takes no writes (list_outlines shows each one's access).";

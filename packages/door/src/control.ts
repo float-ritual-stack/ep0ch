@@ -231,9 +231,13 @@ function openRef(arg: string): { blockId: string; fragment?: string; address?: {
 
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
-  const commandArgs = args.filter(a => a !== "--json");
+  let commandArgs = args.filter(a => a !== "--json");
   const wantsJson = args.includes("--json");
-  const [cmd, arg] = commandArgs;
+  const [cmd] = commandArgs;
+  let arg = commandArgs[1];
+  // `open ref=PIE-123` (or id=, reference=, block=, blockId=, uri=, note=) is `open PIE-123`: the ref by the name a model gives it.
+  const named = cmd === "open" && arg ? /^(?:ref|id|reference|block|blockId|uri|note)=(.+)$/s.exec(arg) : null;
+  if (named) { commandArgs = [cmd!, named[1]!, ...commandArgs.slice(2)]; arg = named[1]; }
   let req: Record<string, unknown>;
   // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
   if (cmd === "subscribe") {
@@ -249,7 +253,7 @@ export async function controlClient(args: string[]): Promise<number> {
   try {
     // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
     // itself writes only under its state (snapPath).
-    if (cmd === "open" && (!arg || (arg.includes("=") && !arg.startsWith("file:")))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>] [--json], or a file: open file:<absolute path> [diff=true]");
+    if (cmd === "open" && (!arg || (arg.includes("=") && !arg.startsWith("file:")))) throw new Error("open needs the note's ref (a block id, ((id)), [[page]] or Work ID): open <ref> [from=<tile>] [--as <your id>] [--json], for example `ep0ch open PIE-123`, or a file: open file:<absolute path> [diff=true]");
     // A block reference as written (`((id))`, `((id|label))`, `((id^fragment))`, what a picker prints) names the same
     // note, through outline-core's one parser; a canonical URI carries its outline address too. A fragment (`^anchor`,
     // `#anchor`) goes on to the open, whose reader scrolls to it. Anything else is passed as the door's own id.

@@ -17,12 +17,18 @@
  * Every write is `author: agent`, attributed to the actor `actorOf` picks.
  */
 
+import { checkToolArgs, type ToolSchema } from './tool-args'
+
 type Json = Record<string, unknown>
 
 export interface OutlineToolDefinition {
   name: string
   description: string
   inputSchema: Json
+  /** A call that works. */
+  example: Json
+  /** Names this tool also answers to for an argument, beyond the reference aliases for `ref`. */
+  aliases?: Record<string, readonly string[]>
   /** The CLI `agent` operation and its JSON input, or the reason the input is unusable. */
   command(input: Record<string, unknown>): { operation: string; input: Json } | string
 }
@@ -58,8 +64,9 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
 export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   {
     name: 'outline_read',
+    example: {"ref": "PIE-123", "depth": 1},
     description:
-      "Read a note: its full text (never just the title), properties, revision, who last wrote it and when, and its " +
+      "Read the note `ref`: its full text (never just the title), properties, revision, who last wrote it and when, and its " +
       'children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. ' +
       '`complete` says whether anything was left out; a child with `more` has unread children. Read before you ' +
       'edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a ' +
@@ -77,8 +84,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_find',
+    example: {"text": "seed swap"},
     description:
-      'Find blocks by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view ' +
+      'Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view ' +
       'grammar (`type=roadmap-item AND work-stage=doing`), or a saved view. text, property, hasKey, query and under ' +
       'combine; view stands alone. Returns rows (id, title, revision); read one with outline_read.',
     inputSchema: schema({
@@ -99,8 +107,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_resolve',
+    example: {"ref": "[[Seed Swap]]"},
     description:
-      'Resolve a reference ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without ' +
+      'Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without ' +
       'reading the whole note. An unknown page is an error, never a new page.',
     inputSchema: schema({ ref: REF }, ['ref'], false),
     command(input) {
@@ -110,8 +119,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_edit',
+    example: {"ref": "PIE-123", "expectedRevision": 3, "append": "One more line."},
     description:
-      'Rewrite a note, checked against the revision you read with outline_read: its whole `text`, one ' +
+      'Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one ' +
       '`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. Give exactly one. ' +
       'Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then ' +
       'edit), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only ' +
@@ -145,6 +155,7 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_create',
+    example: {"parent": "PIE-123", "text": "Bring labels"},
     description:
       'Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). ' +
       'Returns its id, ((ref)) and revision.',
@@ -160,8 +171,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_comment',
+    example: {"ref": "PIE-123", "body": "Is this still true?", "whole": true},
     description:
-      'Start a comment thread on a note, as you: on an exact `quote` of its source text (add start, prefix or ' +
+      'Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, prefix or ' +
       'suffix when the quote repeats), or on the `whole` note. Returns the thread id for outline_reply and ' +
       'outline_resolve_thread. A requestId makes a retry return the same thread. `ref` may be a Resource ' +
       '(`resource:<id>` or a `[file::path]` token) instead of a note: the quote is exact text of the file as ' +
@@ -186,6 +198,7 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_reply',
+    example: {"thread": "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", "body": "Yes, checked today."},
     description: 'Reply in a comment thread, as you. `thread` is the id outline_comment returned (or a thread you read).',
     inputSchema: schema({ thread: { type: 'string' }, body: { type: 'string' }, requestId: { type: 'string' } }, ['thread', 'body']),
     command(input) {
@@ -195,6 +208,7 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_resolve_thread',
+    example: {"thread": "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", "resolved": true},
     description: 'Resolve a comment thread (resolved: true), or reopen it (false), as you.',
     inputSchema: schema({ thread: { type: 'string' }, resolved: { type: 'boolean' } }, ['thread', 'resolved']),
     command(input) {
@@ -204,23 +218,26 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'view_order',
+    example: {"ref": "((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", "ids": ["PIE-123", "PIE-124"]},
+    aliases: { ref: ['view'] },
     description:
-      'A view\'s hand-set order (a view with no [sort::] is ordered by hand: the order its board lanes, ' +
+      'Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, ' +
       'figures and Tree show). With `ids`, put those members first, in the order given; the rest keep their order ' +
       'after them. Ids are block ids, ((id)) or Work IDs. Refused for a sorted view (the refusal names the fix) and ' +
       'for an id the view doesn\'t hold. Returns the order after the write.',
     inputSchema: schema({
-      view: { type: 'string', description: 'The view (a virtual-branch block): id, ((id)) or [[page]]' },
+      ref: { type: 'string', description: 'The view (a virtual-branch block): id, ((id)) or [[page]]' },
       ids: { type: 'array', items: { type: 'string' }, description: 'Members to put first, in this order; omit to read the order' },
-    }, ['view']),
+    }, ['ref']),
     command(input) {
-      if (!nonEmpty(input.view)) return 'Give the view: its id or ((id)).'
+      if (!nonEmpty(input.ref)) return 'Give the ref of the view: its id or ((id)).'
       if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.some(id => !nonEmpty(id)))) return 'ids is a list of block ids, ((id))s or Work IDs.'
-      return { operation: 'view-order', input: inputOf(input, ['view', 'ids']) }
+      return { operation: 'view-order', input: { view: input.ref, ...inputOf(input, ['ids']) } }
     },
   },
   {
     name: 'outline_changes',
+    example: {"since": "2026-03-01T09:00:00Z"},
     description:
       'What changed since a point: an ISO time, or the `cursor` an earlier call returned. Each block once, at its ' +
       'latest change, newest first, with who made it (author, actorId, sessionId). `author` (user, agent, system) and ' +
@@ -240,8 +257,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_patch',
+    example: {"ref": "PIE-123", "revision": 3, "patches": [{"observed": "Borlotti", "replacement": "Borlotti only"}]},
     description:
-      'Small edits to a note the person may be typing in, without waiting for their save (draft.patch); for ' +
+      'Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for ' +
       'rewriting your own pages, such as a status page, use outline_edit. Each patch names the exact `observed` text ' +
       '(never empty) and its `replacement`, against the `revision` outline_read returned; all apply as one edit or ' +
       'none. A live draft gets it in place; otherwise it is an ordinary edit of the saved note. policy `edit` (the ' +
@@ -281,8 +299,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_set_property',
+    example: {"ref": "PIE-123", "key": "status", "value": "open", "revision": 3},
     description:
-      'Set one [key::value] property on a note\'s header line (the chips that end its first line): the value replaced ' +
+      'Set one [key::value] property on the header line of the note `ref` (the chips that end its first line): the value replaced ' +
       'where the key is, or the chip added at the line\'s end. Against the `revision` outline_read returned, as one ' +
       'outline_patch span, so it has the patch\'s rules: a live draft gets it in place, and a note that changed since ' +
       'becomes a proposal (outcome: proposed). A key written more than once is a list: edit it with outline_patch.',
@@ -300,8 +319,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   },
   {
     name: 'outline_assign_id',
+    example: {"ref": "((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", "revision": 3},
     description:
-      'Give an existing note the outline\'s next work id (outliner work-id-allocate), against the `revision` ' +
+      'Give the note `ref` the outline\'s next work id (outliner work-id-allocate), against the `revision` ' +
       'outline_read returned: the id is stamped on the note and is its page address, so `[[HUB-002]]` reaches it ' +
       '(no [page::…] needed; adding one duplicates it). The prefix is whatever the outline has. For notes that ' +
       'aren\'t roadmap items, such as an outbox draft; work_create is only for roadmap items on the workboard. ' +
@@ -320,10 +340,13 @@ export interface DoorToolDefinition {
   name: string
   description: string
   inputSchema: Json
+  /** A call that works. */
+  example: Json
 }
 
 export const COMPONENTS_TOOL = {
   name: 'outline_components',
+  example: { components: ['callout'] } as Json,
   description:
     'The components a note can hold, as this session\'s outline has them (ep0ch library --brief): per component its ' +
     'purpose, where it goes, each property as `key: values (default) — meaning`, and a minimal example. The ' +
@@ -348,6 +371,7 @@ export function componentsArgv(input: Record<string, unknown>): { argv: string[]
 export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   {
     name: 'door_where',
+    example: {},
     description:
       'Where this session runs (ep0ch where): the layers (ssh › herdr › door tile), which are live, and whether the ' +
       'person is typing in your tile. Only reads.',
@@ -355,11 +379,13 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   },
   {
     name: 'door_peek',
+    example: {},
     description: 'What the door shows the person now (ep0ch peek): the screen as structured state and as text. Only reads.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'door_act',
+    example: { action: 'block.mark', args: { id: '7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34' } },
     description:
       "Run one of the door's actions as you (ep0ch act, attributed with --as and said on the person's screen). " +
       '`ep0ch actions` names them; door_peek shows the state they act on. The door never lets an agent take the ' +
@@ -383,13 +409,14 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   },
   {
     name: 'door_open',
+    example: { ref: 'PIE-123' },
     description:
-      'Open a note in the door this session runs in, where your tile’s opens land (from=$EP0CH_TILE), as you. It ' +
+      'Open the note `ref` in the door this session runs in, where your tile’s opens land (from=$EP0CH_TILE), as you. It ' +
       "never moves the person's focus; the door says which reader it went to.",
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'A block id, ((id)), [[page]] or Work ID' }, actor: ACTOR },
-      required: ['id'],
+      properties: { ref: { type: 'string', description: 'The note: a block id, ((id)), [[page]] or Work ID' }, actor: ACTOR },
+      required: ['ref'],
       additionalProperties: false,
     },
   },
@@ -458,4 +485,51 @@ export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: 
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
   }
   return 'claude-code'
+}
+
+// ─── Checked input ─────────────────────────────────────────────────────────
+
+/** Any tool this mod registers, as `checkedInput` needs it. */
+export interface ToolWithSchema {
+  name: string
+  inputSchema: Json
+  example?: Json
+  aliases?: Record<string, readonly string[]>
+}
+
+/**
+ * A tool call's input checked once, for every tool: aliases of `ref` renamed, unknown, missing and mistyped
+ * arguments answered with the schema line and a working call (tool-args.ts). A plugin tool's arguments arrive flat on
+ * the event, beside `tool`, so `tool` is not one of them. The input to use, or the denial text.
+ */
+export function checkedInput(tool: ToolWithSchema, event: Record<string, unknown>): { input: Record<string, unknown> } | string {
+  const checked = checkToolArgs(
+    { name: tool.name, schema: tool.inputSchema as ToolSchema, example: tool.example ?? {}, ...(tool.aliases ? { aliases: tool.aliases } : {}), ignore: EVENT_KEYS },
+    event,
+  )
+  return checked.ok ? { input: checked.args } : checked.error
+}
+
+/** What a plugin tool event carries besides the tool's arguments. */
+const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd'] as const
+
+/** `show`: opens a note for the person (the mod's own handler, hooks/register.ts). */
+export const SHOW_TOOL: ToolWithSchema & { description: string } = {
+  name: 'show',
+  example: { ref: 'PIE-123' },
+  description:
+        'Show the note `ref` to the person: in the Outliner Detail beside this conversation in Herdr (the one linked to the ' +
+        "Tree in this Herdr workspace, or one opened when there is none), so the person can read it beside the chat. " +
+        "When this session runs in an ep0ch-door tile, it opens in that door, where its tile's opens land, instead; " +
+        'with neither (the desktop app, VS Code, a terminal outside Herdr), in this mod\'s mentions pane beside the chat. ' +
+        'It never moves their focus, and a Detail they are editing in refuses it. Use it when pointing the person at a note matters; ' +
+        'references in replies are already clickable.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ref: { type: 'string', description: 'The note: a Work ID (PIE-123), [[page]], ((block-uuid)), bare block UUID, or pi-outliner:// URI.' },
+    },
+    required: ['ref'],
+    additionalProperties: false,
+  },
 }
