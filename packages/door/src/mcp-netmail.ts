@@ -341,8 +341,8 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
   if (level !== "propose" && level !== "full") return refused(`MCP access for ${e.outline} is ${level} here now, so the write queued at ${e.queuedAt} was dropped`);
   const info = await board.info();
   const uri = (blockId: string) => formatEp0chBlockUri({ ...board.address, blockId });
-  // A comment carries the entry's id as its request id: tried again, the host returns the one it made.
-  const input = e.tool === "outline_comment" && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
+  // A comment, a reply or a resolve carries the entry's id as its request id: tried again, the host returns the one it made.
+  const input = (e.tool === "outline_comment" || e.tool === "outline_reply" || e.tool === "outline_resolve_thread") && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
   const write: McpWrite = { tool: e.tool, blockId: e.blockId, input, ...(e.revision !== null ? { revision: e.revision } : {}) };
   if (retry && e.tool === "outline_create") {
     const made = (await board.children(e.blockId)).find(c => c.text === e.input.text && c.author === e.actorId);

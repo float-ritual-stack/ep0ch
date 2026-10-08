@@ -606,9 +606,12 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 
 ### Writes (PIE-615)
 
-Four tools, offered to a remote caller when some outline it reaches takes writes: `outline_create` (a block under a
-parent), `outline_patch` (spans of a note, `draft.patch`), `outline_comment` and `outline_set_property` (one header
-chip, as one patch span). They take the Claude mod's shapes, addressed as the reads are (a `uri`, or a `ref` in an
+Seven tools (with `outline_assign_id`), offered to a remote caller when some outline it reaches takes writes: `outline_create` (a block under a
+parent), `outline_patch` (spans of a note, `draft.patch`), `outline_comment`, `outline_reply` and
+`outline_resolve_thread` (a note's comment threads) and `outline_set_property` (one header chip, as one patch span).
+`outline_threads` reads the threads (each one's id, open or resolved, its quote and every comment with author and time;
+`outline_read` carries a compact summary, so a client notices a reply). A reply or a resolve is addressed by the note and
+a `thread` id. They take the Claude mod's shapes, addressed as the reads are (a `uri`, or a `ref` in an
 `outline`), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`, behind the mod's tools)
 over the outline's socket (`src/mcp-writes.ts`): the service checks revisions, anchors comments and keeps pages and
 linked anchors. What a write becomes is the outline's access:
@@ -616,8 +619,8 @@ linked anchors. What a write becomes is the outline's access:
 | Access | A patch or a property | A new block | A comment |
 |---|---|---|---|
 | `none`, `read` | refused, with the command that allows it | refused | refused |
-| `propose` | a proposal under the note (apply anyway, or dismiss) | a comment on its parent carrying the text | a comment |
-| `full` | applied against the revision the caller read; changed since, or open in someone's draft: a proposal (into that draft) | created | a comment |
+| `propose` | a proposal under the note (apply anyway, or dismiss) | a comment on its parent carrying the text | a comment, a reply, a resolve (each changes only its thread) |
+| `full` | applied against the revision the caller read; changed since, or open in someone's draft: a proposal (into that draft) | created | a comment, a reply, a resolve |
 
 Every write is an agent's: its actor `mcp:<client>` (a URL client id by its host: claude.ai's is `mcp:claude.ai`), its
 session the token's subject. The outline's activity records both, the gateway's log has a line for each write, and a door
@@ -648,6 +651,25 @@ A write to an outline whose home is another machine answers `queued` with a `que
   outline's access like the other reads, on a live outline or a mirror. The outline evaluates it (`blocks.query`,
   `views.read`, through `ep0ch find`'s own selection) and the answer is block records with `uri` and `revision`, `limit`
   (1 to 50, default 20), `offset`, `more`, `nextOffset` and `total`. A read-only copy now answers those three actions.
+
+Without a note, `outline_threads` is the outline's inbox: the open threads anywhere in it, newest activity first, narrowed
+by `lastFrom` (who spoke last: `evan`, `daddy`; a gateway's `mcp:` prefix is optional), `mentions` (an `@name` in any
+comment) and `since` (ISO time or epoch ms). It is what a scheduled check calls. Every ref-taking tool accepts `id` as
+`ref`'s alias. A write's answer carries `base` (`live`, or the mirror's `asOf` and its age in minutes), so an agent knows
+how stale the revision it wrote against is.
+
+A reply or a resolve for a thread that is not on the note is refused. Queued for another machine's outline and the thread
+gone when it lands, it becomes a comment on the whole note saying so. Whether a comment asks for an answer (PIE-551) is
+not recorded by the service yet, so no thread field says it: read the thread's last comment.
+
+### Who a connection writes as
+
+By default a write is `mcp:<client>` (claude.ai's is `mcp:claude.ai`). To name a connection, set `EP0CH_MCP_PERSONAS` on
+the gateway's machine, in its environment or in `~/.config/ep0ch/mcp.env`: a comma list of `<who>=<name>`, `<who>` being
+the OAuth client's short name or the token's subject, so `claude.ai=daddy` makes its writes `mcp:daddy` (a subject wins
+over a client; a name is letters, digits, `.`, `_`, `-`). It is read at each write, so a change needs no restart. The
+mod names itself the same way on its own machine: `OUTLINER_ACTOR`, else `EP0CH_AGENT` (the door's name for the agent),
+else `claude-code`; set one per laptop or session (`cowboy`) and the records and the door show it.
 
 ### Netmail: writes to another machine's outline
 

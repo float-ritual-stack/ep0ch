@@ -128,7 +128,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
     const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_find", "outline_query", "outline_links", "outline_components", "outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_write_status"]);
+    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_set_property", "outline_assign_id", "outline_write_status"]);
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
@@ -215,7 +215,10 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(trunkRead.reachability.source).toBe("mirror");
 
     const q1 = await tool("outline_patch", { uri: trunk, revision: trunkRead.revision, patches: [{ observed: "Old maps", replacement: "Old survey maps" }] });
+    expect(q1.json.said).toContain("min old");
     expect(q1.json).toMatchObject({ outcome: "queued", queuedFor: `attic-notes@${FAR}`, lastPull: null, said: expect.stringContaining(`queued for attic-notes@${FAR} (${FAR} hasn't pulled yet)`) });
+    expect(q1.json.base.source).toBe("mirror");
+    expect(typeof q1.json.base.ageMinutes).toBe("number");
     const q2 = await tool("outline_comment", { uri: trunk, quote: "canal", body: "Which canal?" });
     const q3 = await tool("outline_create", { uri: trunk, text: "A brass compass" });
     const q4 = await tool("outline_patch", { uri: lamps, revision: lampsRead.revision, patches: [{ observed: "one cracked", replacement: "both mended" }] });
@@ -256,6 +259,121 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(await pull()).toMatchObject({ ok: true, taken: 0 });
     const children = await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: ids.trunk });
     expect(children.filter(c => c.text.includes("brass compass"))).toHaveLength(1);
+  }, 60_000);
+
+  test("comment threads: a claude.ai comment, a mod's reply, the gateway reads it, replies and resolves; propose allows both, read neither", async () => {
+    const seeds = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
+    const garden = boardOn(here, "garden-notes", HERE);
+    const thread = async (uri: string) => (await tool("outline_threads", { uri })).json;
+    // claude.ai comments on a passage; cowboy (Claude Code, with the mod) replies through the service as itself.
+    const c = await tool("outline_comment", { uri: seeds, quote: "Seed swap list", body: "Should this say which variety?" });
+    if (!c.json) throw new Error(c.text);
+    const id = c.json.detail.thread as string;
+    await garden.reply(`mod-reply-${id}`, id, "Scarlet runner; I'll add it.", { kind: "agent", id: "claude-code:cowboy" });
+    // The gateway reads the thread whole, with who said what.
+    const read = (await thread(seeds)).threads.find((t: { thread: string }) => t.thread === id);
+    expect(read).toMatchObject({ status: "open", quote: "Seed swap list", anchored: true });
+    expect(read.comments.map((x: { author: string; body: string }) => [x.author, x.body])).toEqual([["mcp:chat.example.test", "Should this say which variety?"], ["claude-code:cowboy", "Scarlet runner; I'll add it."]]);
+    expect(read.comments[1].at).toMatch(/^\d{4}-\d\d-\d\dT/);
+    // outline_read carries a compact summary, so an agent notices the reply.
+    const summary = (await tool("outline_read", { uri: seeds })).json.threads;
+    expect(summary.open).toBeGreaterThanOrEqual(1);
+    expect(summary.latest.find((t: { thread: string }) => t.thread === id)).toMatchObject({ comments: 2, last: { by: "claude-code:cowboy", body: "Scarlet runner; I'll add it." } });
+    // Reply, then resolve, as the remote client.
+    const r = await tool("outline_reply", { uri: seeds, thread: id, body: "Thanks, that settles it." });
+    expect(r.json).toMatchObject({ outcome: "applied", said: expect.stringContaining(`replied in thread ${id}`) });
+    expect((await thread(seeds)).threads.find((t: { thread: string }) => t.thread === id).comments.at(-1)).toMatchObject({ author: "mcp:chat.example.test", body: "Thanks, that settles it." });
+    expect((await tool("outline_resolve_thread", { uri: seeds, thread: id, resolved: true })).json.outcome).toBe("applied");
+    expect((await tool("outline_threads", { uri: seeds, status: "open" })).json.threads.some((t: { thread: string }) => t.thread === id)).toBe(false);
+    expect((await tool("outline_threads", { uri: seeds, status: "resolved" })).json.threads.some((t: { thread: string }) => t.thread === id)).toBe(true);
+    expect((await tool("outline_resolve_thread", { uri: seeds, thread: id, resolved: false })).json.said).toContain("now open");
+    // A thread that isn't on the note is refused; a bad shape is too.
+    expect((await tool("outline_reply", { uri: seeds, thread: "no-such-thread", body: "hello" })).text).toContain("No thread no-such-thread");
+    expect((await tool("outline_resolve_thread", { uri: seeds, thread: id })).isError).toBe(true);
+    // Propose access takes replies and resolves: they change only the thread. Read access takes neither.
+    const frogs = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+    const pc = await tool("outline_comment", { uri: frogs, whole: true, body: "Count again at dawn?" });
+    expect((await tool("outline_reply", { uri: frogs, thread: pc.json.detail.thread, body: "Yes." })).json.outcome).toBe("applied");
+    expect((await tool("outline_resolve_thread", { uri: frogs, thread: pc.json.detail.thread, resolved: true })).json.outcome).toBe("applied");
+    const still = formatEp0chBlockUri({ outline: "quiet-notes", machine: HERE, blockId: ids.still! });
+    expect((await tool("outline_reply", { uri: still, thread: id, body: "x" })).text).toContain("takes no writes");
+    expect((await tool("outline_threads", { uri: still })).isError).toBe(false);
+  });
+
+  test("the inbox: open threads across the outline, by who spoke last, mention and time; a persona names the connection; id is ref's alias", async () => {
+    const seeds = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
+    const garden = boardOn(here, "garden-notes", HERE);
+    const before = Date.now();
+    // The connection's owner names it: this client writes as daddy.
+    process.env.EP0CH_MCP_PERSONAS = "chat.example.test=daddy";
+    let id = "";
+    try {
+      const c = await tool("outline_comment", { id: ids.seeds, outline: "garden-notes", whole: true, body: "@evan can the swap list name a date?" });
+      expect(c.json.base).toMatchObject({ source: "live", ageMinutes: 0 });
+      id = c.json.detail.thread;
+    } finally { delete process.env.EP0CH_MCP_PERSONAS; }
+    const mine = (await tool("outline_threads", { uri: seeds })).json.threads.find((t: { thread: string }) => t.thread === id);
+    expect(mine.comments[0].author).toBe("mcp:daddy");
+    // The inbox, without a note.
+    const inbox = async (args: Record<string, unknown>) => (await tool("outline_threads", { outline: "garden-notes", ...args })).json;
+    const all = await inbox({});
+    expect(all.notes.some((n: { id: string; threads: { thread: string }[] }) => n.id === ids.seeds && n.threads.some(t => t.thread === id))).toBe(true);
+    expect(all.completeness.kind).toBe("complete");
+    const has = (r: any) => r.notes.flatMap((n: { threads: { thread: string }[] }) => n.threads.map(t => t.thread)).includes(id);
+    expect(has(await inbox({ lastFrom: "daddy" }))).toBe(true);
+    expect(has(await inbox({ lastFrom: "mcp:daddy" }))).toBe(true);
+    expect(has(await inbox({ lastFrom: "evan" }))).toBe(false);
+    expect(has(await inbox({ mentions: "evan" }))).toBe(true);
+    expect(has(await inbox({ mentions: "@nobody" }))).toBe(false);
+    expect(has(await inbox({ since: new Date(before - 1000).toISOString() }))).toBe(true);
+    expect(has(await inbox({ since: new Date(Date.now() + 60_000).toISOString() }))).toBe(false);
+    // A reply from the person moves the thread to them; resolving takes it out of the open inbox.
+    await garden.reply("inbox-reply", id, "Saturday the 14th.", { kind: "agent", id: "evan" });
+    expect(has(await inbox({ lastFrom: "evan" }))).toBe(true);
+    expect(has(await inbox({ lastFrom: "daddy" }))).toBe(false);
+    await tool("outline_resolve_thread", { uri: seeds, thread: id, resolved: true });
+    expect(has(await inbox({}))).toBe(false);
+    expect(has(await inbox({ status: "resolved" }))).toBe(true);
+    expect((await tool("outline_threads", { outline: "garden-notes", status: "nope" })).isError).toBe(true);
+    expect((await tool("outline_threads", { outline: "garden-notes", since: "yesterday-ish" })).isError).toBe(true);
+    // The tool list says id is an address, and list_outlines names the refresh some clients need.
+    expect((await tool("list_outlines", {})).json.tools.said).toContain("RefreshMcpTools");
+  });
+
+  test("a far box's threads queue: a reply and a resolve land when it pulls; a thread gone by then becomes a whole-note comment saying so", async () => {
+    const trunk = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! });
+    const attic = boardOn(far, "attic-notes", FAR);
+    // The far box's person comments there; the mirror catches up; the gateway reads it.
+    const now = await textOf(far, "attic-notes", FAR, ids.trunk!);
+    const made = await attic.comment("thread-seed", ids.trunk!, now.revision, "Is the canal map dated?", { quote: "canal", start: now.text.indexOf("canal") });
+    follow("attic-notes");
+    await Bun.sleep(100);
+    const seen = (await tool("outline_threads", { uri: trunk })).json;
+    // (the mirror refreshes on a timer, so the snapshot may not show the thread yet; the queue below doesn't need it)
+    const queued = [
+      await tool("outline_reply", { uri: trunk, thread: made.id, body: "Dated 1890, on the back." }),
+      await tool("outline_resolve_thread", { uri: trunk, thread: made.id, resolved: true }),
+      await tool("outline_reply", { uri: trunk, thread: "thread-that-never-was", body: "Anyone there?" }),
+    ];
+    expect(queued.map(q => q.json.outcome)).toEqual(["queued", "queued", "queued"]);
+    // Replies and resolves follow the receipts path: a queueId, outline_write_status, and the caller's `pending` on a read.
+    expect(queued.every(q => typeof q.json.queueId === "string")).toBe(true);
+    expect((await tool("outline_write_status", { queueId: queued[0]!.json.queueId })).json.state).toBe("queued");
+    const pend = (await tool("outline_read", { uri: trunk })).json.pending;
+    expect(pend.replies.map((r: { body: string }) => r.body)).toEqual(["Dated 1890, on the back.", "Anyone there?"]);
+    expect(pend.resolves).toHaveLength(1);
+    expect(seen).toMatchObject({ uri: trunk, reachability: { source: "mirror" }, threads: expect.any(Array) });
+    const done = await pull();
+    expect(done.ok).toBe(true);
+    expect(done.settled.map(s => s.state)).toEqual(["applied", "applied", "applied"]);
+    const after = (await attic.comments(ids.trunk!));
+    const ours = after.find(t => t.id === made.id)!;
+    expect(ours.open).toBe(false);
+    expect(ours.replies.map(r => [r.author, r.body])).toEqual([["mcp:chat.example.test", "Dated 1890, on the back."]]);
+    const gone = after.find(t => t.body.includes("thread that is gone"))!;
+    expect(gone.body).toContain("thread-that-never-was");
+    expect(gone.body).toContain("Anyone there?");
+    expect(await pull()).toMatchObject({ ok: true, taken: 0 });
   }, 60_000);
 
   test("a pull cut off before the hub heard re-tells it from the ledger, applying nothing twice", async () => {
@@ -355,5 +473,21 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change })).toEqual({ actor: "mcp:chat.example.test", verb: "changed", blockId: "b1" });
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change, catchUp: true })).toBeNull();
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change: { ...change, actor: { author: "agent", actorId: "claude-code" } } })).toBeNull();
+  });
+});
+
+describe("personas: who a connection writes as", () => {
+  const caller = { sub: "user_fictional_a", clientId: "https://chat.example.test/oauth/client-metadata" };
+  test("a client or subject maps to a name; none keeps the client's; a bad name is ignored; the file works too", () => {
+    expect(actorOf(caller, {}).actorId).toBe("mcp:chat.example.test");
+    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy", sessionId: "user_fictional_a" });
+    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy, user_fictional_a=sysop" }).actorId).toBe("mcp:sysop");
+    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=not a name!" }).actorId).toBe("mcp:chat.example.test");
+    const home = scratchDir("ep0ch-persona-");
+    try {
+      mkdirSync(join(home, ".config", "ep0ch"), { recursive: true });
+      writeFileSync(join(home, ".config", "ep0ch", "mcp.env"), "# who\nEP0CH_MCP_PERSONAS=chat.example.test=daddy\n");
+      expect(actorOf(caller, { HOME: home }).actorId).toBe("mcp:daddy");
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

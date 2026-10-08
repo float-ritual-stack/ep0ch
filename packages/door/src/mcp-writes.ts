@@ -1,5 +1,6 @@
-// The remote MCP gateway's writes (PIE-615): five tools, one write path. The tools take the Claude mod's shapes
-// (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property` and `outline_assign_id`), addressed as the read tools are (a
+// The remote MCP gateway's writes (PIE-615): seven tools, one write path. The tools take the Claude mod's shapes
+// (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`, `outline_reply`,
+// `outline_resolve_thread` and `outline_assign_id`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
 // service checks revisions, anchors comments, refuses a dropped page or anchor, and turns a patch that no longer matches
@@ -8,7 +9,8 @@
 // What the outline's access setting allows decides what a write becomes:
 //   read, none  no write at all;
 //   propose     a proposal: a patch or a property is a draft.patch proposal (`propose: always`), a new block is a comment
-//               on its parent carrying the text, and a comment is a comment (it changes nothing but its thread);
+//               on its parent carrying the text, and a comment, a reply and a resolve are what they say (each changes
+//               nothing but its thread: a thread's state is not the note);
 //   (outline_assign_id stamps a work id, which is no text proposal: it is applied at full and refused below it.)
 //   full        applied, through the service's revision checks; a note open in someone's draft gets a proposal in that
 //               draft instead (`propose: held`), never a change under their cursor.
@@ -18,6 +20,11 @@
 // Every write is `author: agent`, its actor `mcp:<client>` (the OAuth client: a URL client id by its host, so claude.ai's
 // reads `mcp:claude.ai`) and its session the OAuth subject, so the outline's activity, the door's flash and the gateway's
 // log all say who wrote it.
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parseEnvFile } from "./backup/config";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { BoardAddress } from "./notes-cli";
@@ -26,7 +33,7 @@ import type { SocketBoard } from "./socket";
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -42,7 +49,28 @@ export function clientName(clientId: string | undefined): string {
   try { const url = new URL(clientId); if (url.hostname) return url.hostname; } catch { /* not a URL */ }
   return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "client";
 }
-export const actorOf = (caller: McpCaller): WriteActor => ({ actorId: `mcp:${clientName(caller.clientId)}`, sessionId: caller.sub });
+
+/** A persona's name: what an actor id may hold after `mcp:`. */
+const PERSONA = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * The name a connection writes as, when its owner gave it one: `EP0CH_MCP_PERSONAS` (in the environment, else in
+ * `~/.config/ep0ch/mcp.env`) is a comma list of `<who>=<name>`, `<who>` being the OAuth client (its short name, as
+ * clientName gives it: claude.ai) or the token's subject. claude.ai=daddy makes the gateway's writes `mcp:daddy`.
+ * Read at each write, so a change takes effect without a restart. A subject wins over a client.
+ */
+export function personaOf(caller: McpCaller, env: Record<string, string | undefined> = process.env): string | undefined {
+  let list = env.EP0CH_MCP_PERSONAS;
+  if (list === undefined) {
+    try {
+      const file = join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
+      list = existsSync(file) ? parseEnvFile(readFileSync(file, "utf8")).EP0CH_MCP_PERSONAS : undefined;
+    } catch { list = undefined; }
+  }
+  const map = new Map((list ?? "").split(",").map(e => e.split("=").map(x => x.trim()) as [string, string]).filter(([k, v]) => k && v && PERSONA.test(v)));
+  return map.get(caller.sub) ?? (caller.clientId ? map.get(clientName(caller.clientId)) ?? map.get(caller.clientId) : undefined);
+}
+export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>): WriteActor => ({ actorId: `mcp:${personaOf(caller, env) ?? clientName(caller.clientId)}`, sessionId: caller.sub });
 
 /** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
 export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
@@ -91,6 +119,12 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
       if (!nonEmpty(args.body)) return { error: "Give a non-empty comment." };
       if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
       return { tool, input: pick(args, ["body", "quote", "whole", "start", "prefix", "suffix", "requestId"]) };
+    case "outline_reply":
+      if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply." };
+      return { tool, input: pick(args, ["thread", "body", "requestId"]) };
+    case "outline_resolve_thread":
+      if (!nonEmpty(args.thread) || typeof args.resolved !== "boolean") return { error: "Give the thread (an id outline_threads returned) and resolved: true or false." };
+      return { tool, input: pick(args, ["thread", "resolved"]) };
     case "outline_set_property":
       if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
       if (!nonEmpty(args.key) || !nonEmpty(args.value)) return { error: "Give the key and a non-empty value." };
@@ -105,6 +139,8 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
 interface AgentTools {
   createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; deduplicated?: boolean }>;
+  replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
+  resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
   assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
@@ -161,7 +197,35 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}`, detail: r }
     : { outcome: "proposed", uri: o.uri(write.blockId), said: `${what} proposed, not applied: ${r.reason}; the proposal is ${o.uri(r.proposalId)}, under the note for its owner to apply or dismiss`, detail: r };
+  // A reply or a resolve names a thread of the note it is addressed to. One that isn't there (deleted, or never on this note) is a refusal here; a queued write lands on the whole note, saying so.
+  const threadGone = async (): Promise<string | null> => {
+    const thread = String(write.input.thread);
+    return (await board.comments(write.blockId)).some(t => t.id === thread) ? null : thread;
+  };
+  const gone = async (what: string, thread: string, note: string): Promise<WriteOutcome> => {
+    const body = `${what} a thread that is gone (${thread}; as it read when this was written, ${o.queued!.at}):\n\n${note}`;
+    const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body, requestId: `${String(write.input.requestId ?? randomUUID())}:gone` }, o.actor);
+    return { outcome: "applied", uri: o.uri(write.blockId), said: `commented on the whole of ${o.uri(write.blockId)} (thread ${c.thread}): the thread ${thread} was gone when it landed`, detail: c };
+  };
   switch (write.tool) {
+    case "outline_reply": {
+      const missing = await threadGone();
+      if (missing) {
+        if (o.queued) return gone("Replied to", missing, String(write.input.body));
+        throw new Error(`No thread ${missing} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
+      }
+      const r = await tools.replyTo(client, write.input, o.actor);
+      return { outcome: "applied", uri: o.uri(write.blockId), said: `replied in thread ${r.thread} on ${o.uri(write.blockId)} (reply ${r.reply})`, detail: r };
+    }
+    case "outline_resolve_thread": {
+      const missing = await threadGone();
+      if (missing) {
+        if (o.queued) return gone(write.input.resolved ? "Resolved" : "Reopened", missing, `(${write.input.resolved ? "resolve" : "reopen"} asked of ${o.actor.actorId}; nothing to change)`);
+        throw new Error(`No thread ${missing} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
+      }
+      const r = await tools.resolveThread(client, write.input, o.actor);
+      return { outcome: "applied", uri: o.uri(write.blockId), said: `thread ${r.thread} on ${o.uri(write.blockId)} is now ${r.lifecycle}`, detail: r };
+    }
     case "outline_create": {
       if (kind === "applied" && !o.proposeOnly) {
         const made = await tools.createBlock(client, { parent: write.blockId, ...write.input }, o.actor);
@@ -203,6 +267,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
 const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
   ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123)" },
+  id: { type: "string", description: "Alias of ref" },
 };
 const REVISION = { type: "integer", minimum: 1, description: "The revision outline_read returned. A note that changed since gets a proposal, never an overwrite." };
 
@@ -213,10 +278,11 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     properties: { ...REF_ADDRESS, outline, ...properties },
     required,
     additionalProperties: false,
-    oneOf: [{ required: ["uri"] }, { required: ["ref"] }],
+    oneOf: [{ required: ["uri"] }, { required: ["ref"] }, { required: ["id"] }],
   });
   const answer = "The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI. " +
     "An outline at `propose` access takes proposals only; `full` applies; `read` takes no writes (list_outlines shows each one's access).";
+  const threadWrite = { thread: { type: "string", description: "The thread's id, from outline_threads or outline_comment. The uri or ref is the note it is on." } };
   return [
     {
       name: "outline_create",
@@ -242,6 +308,16 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
         body: { type: "string" }, quote: { type: "string", description: "Exact source text the comment is about" }, whole: { type: "boolean" },
         start: { type: "integer", minimum: 0 }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
       }, ["body"]),
+    },
+    {
+      name: "outline_reply",
+      description: `Reply in a comment thread of a note (the uri or ref is the note; thread is the id outline_threads returned). A requestId makes a retry return the same reply. A reply changes nothing but its thread, so propose access allows it. If the thread is gone by the time a queued reply lands, it becomes a comment on the whole note saying so. ${answer}`,
+      inputSchema: addressed({ ...threadWrite, body: { type: "string" }, requestId: { type: "string" } }, ["thread", "body"]),
+    },
+    {
+      name: "outline_resolve_thread",
+      description: `Resolve a comment thread of a note (resolved: true), or reopen it (false). Settling a thread changes only the thread, never the note, so propose access allows it. ${answer}`,
+      inputSchema: addressed({ ...threadWrite, resolved: { type: "boolean" } }, ["thread", "resolved"]),
     },
     {
       name: "outline_set_property",

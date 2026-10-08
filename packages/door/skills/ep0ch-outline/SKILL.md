@@ -52,6 +52,21 @@ belong to the block; text after a chip makes it an inline aside.
   --limit 1`, refuse to write from an empty read, pass `--expected <revision>` and `--author agent --actor
   <id>`. Prefer the tools; never wrap `update` in a script.
 
+### Refining a draft with another agent: comment threads
+
+When a draft (an email, a post) is refined between agents, say claude.ai over the MCP gateway and Claude Code with the
+mod, the draft lives in one note and the talk lives in its comment threads, not in pasted copies. Draft in the note;
+comment on the passage to change (`outline_comment` with the `quote`); the other agent reads the threads
+(`outline_threads` on the gateway, `outline_read` shows the open count and each latest comment) and replies
+(`outline_reply`) or patches the note (`outline_patch`); when it is settled, `outline_resolve_thread`. Resolving
+changes only the thread, so a `propose` outline allows it. Check the thread's last comment before answering: nothing
+records whether a comment wants an answer. `outline_threads` with no note is the inbox (open threads anywhere,
+`lastFrom`, `mentions`, `since`): a scheduled check calls that. Each agent writes under its own name (the gateway's
+persona, the mod's `OUTLINER_ACTOR` or `EP0CH_AGENT`), so a thread shows who said what.
+
+On a page two agents work on, put the items that change (steps, outbox items) in child blocks, each with its own
+revision, so concurrent edits rarely collide.
+
 ## outline_edit or outline_patch
 
 - **Your own pages** (a status page, the briefing you keep, a note you wrote): `outline_edit` with the
