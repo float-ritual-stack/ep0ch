@@ -207,6 +207,7 @@ pane, region or column, the table below says what it is today.
 
 | Canonical | Meaning | Code | Tree/Detail |
 |---|---|---|---|
+| Blockdown | The source language a note is written in: Markdown-adjacent (prose, lists, fences, links) plus the outline's own forms (`[key::value]` properties, `((id))` references and embeds, `[[page]]` links, `::component` blocks, heading and callout styles). Not a Markdown dialect with compatibility promises: it may deviate wherever the outline needs to. Markdown is one render target (export, the publisher, MCP's `resources/read`), with HTML and terminal drawing beside it | outline-core's grammars (`header-line.ts`, `link-syntax.ts`, `code-fence.ts`, the property grammar) | the note's text |
 | reader | Any tile or screen hosting a note surface | `ReaderPane` `pan:184`, `MessageReader` `scr:273` | Detail |
 | note surface | Draws, folds, edits, comments on a note | `NoteSurface` `note:107` | Detail body |
 | mode (a reader's) | What takes a reader's keys besides reading: a step's status choice, the property panel, the edit, the comment session; open ones form its mode stack, in a fixed precedence | `ReaderMode`, `ModeStack`, `PRECEDENCE` (`src/surface/modes.ts`) | edit mode, inspector |

@@ -98,6 +98,13 @@ is the note "Note logic: shared, server-side and duplicated" under the latest pu
 them is ongoing work. Drawing is each client's own: the door, Detail and the publisher draw differently, and they
 share the structure (blocks, links, figures, fences), not the drawing.
 
+## Blockdown, not Markdown
+
+A note's source is **Blockdown**: Markdown-adjacent, plus the outline's own forms (properties, references, embeds,
+page links, components). It makes no promise of Markdown compatibility and deviates where the outline needs to.
+Markdown is a render target (export, the publisher, MCP), not the source's definition. Say "Blockdown" for the
+source; the grammars are outline-core's ([glossary](packages/door/docs/UI-GRAMMAR.md#reading-and-editing-the-note-surface)).
+
 ## Mouse and agents are first-class
 
 - Every action works by mouse, by keys and through `act`. Define it as an action in an `ActionSet`
