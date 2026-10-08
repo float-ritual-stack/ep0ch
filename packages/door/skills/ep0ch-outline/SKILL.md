@@ -105,8 +105,8 @@ When they ask you to orient them and plan a stretch of work (a morning brain boo
   comments, and the code first. Open a loop with another person only when it really can't be found.
 - **Read a ticket in full:** the description, every comment, and its parent for context.
 - **Draft messages in the outline.** A message to someone else is an outbox item the person reviews and approves.
-  Never send one yourself unless they say so. Give it a work id from the outline's own allocator (`work_create`, so
-  it reads like `HUB-12` in that outline's prefix) and a `[page::…]` name, so it can be referenced by id or
+  Never send one yourself unless they say so. Give it a work id from the outline's own allocator (`work_create`; it
+  uses whatever prefix that outline was set up with) and a `[page::…]` name, so it can be referenced by id or
   `[[page]]` instead of a free-form title. A team's ticket ids (Jira's `PC-…`) stay references, never allocated.
 - **Introduce a work item** in a line the first time it comes up, and again after a break, so the person doesn't
   have to recall what `XYZ-123` was.
@@ -191,7 +191,7 @@ A worked outbox draft (fictional). The properties are on the first line; the mes
 copies the message and nothing else; the sources are folded:
 
 ````markdown
-HUB-12 — Ticket: staff the seed swap table [type::outbox] [outbox::next] [status::draft] [work-id::HUB-12] [page::hub-12-seed-swap]
+GDN-12 — Ticket: staff the seed swap table [type::outbox] [outbox::next] [status::draft] [work-id::GDN-12] [page::gdn-12-seed-swap]
 > [!abstract] A ticket for the allotment committee asking for two volunteers on the 14th. Left: pick the channel.
 
 Before it posts
