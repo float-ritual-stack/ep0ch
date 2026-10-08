@@ -10,7 +10,7 @@ import { codeSpanRanges, literalLines } from "./code-ranges";
 import { noteStructure } from "./component-block";
 import { BAND_ALIGNS as ALIGNS, BAND_PATTERNS, HEADING_STYLE_NAME, type BandAlign as Align, type BandPattern } from "./heading-styles";
 import { unsafePatternReason } from "./pattern-safety";
-import { propertyTokenPattern } from "./property-grammar";
+import { propertyTokenMatches } from "./property-grammar";
 
 // ── constructs ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -134,7 +134,7 @@ export function ruleHits(text: string, match: { text?: RegExp; kind?: KindSpec }
     if (match.kind && !owner) continue;
     const line = lines[i]!.slice(0, MAX_PATTERN_LINE);
     // Code spans and property tokens are never prose: `[rule-text::!!(.+)!!]` doesn't match its own rule note.
-    const code = [...codeSpanRanges(line), ...[...line.matchAll(propertyTokenPattern())].map(t => ({ start: t.index, end: t.index + t[0].length }))];
+    const code = [...codeSpanRanges(line), ...propertyTokenMatches(line).map(t => ({ start: t.start, end: t.end }))];
     const global = new RegExp(pattern.source, pattern.flags + "g");
     for (const hit of line.matchAll(global)) {
       if (!hit[0]) break;

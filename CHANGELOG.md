@@ -36,6 +36,16 @@ are its record. The outliner's entries from then are kept below, under
   proposal); a live write says how many of the caller's queued writes to that note still wait; a live read still shows
   them as `pending`. `list_outlines` gives each mirrored outline's `route`. `EP0CH_MCP_LIVE=0` turns it off. No
   `PROTOCOL` change: restart the gateway (`ep0ch install --apply` on float-2) to get it.
+### A property value holding links parses whole (PIE-663)
+
+- **Fixed:** `[related::[[PC-967]], ((id|daytime plan step 6))]` was read as `[[PC-967`. A value now runs to the
+  property's own closing `]`, with `[[page]]`, `[[page|label]]`, `((id))`, `((id|label))` and embeds balanced inside it
+  (a `]` in a `((id|label))` label is fine). Brackets that don't balance on their line end the value at the first `]`,
+  as before, and never reach the next line.
+- **New:** a query `related=[[PC-967]]` (or `related=((id))`) finds a note whose value is a list holding that link; a
+  property can be written with a link value (`properties.patch`, the door's property editor).
+- **Changed:** `PROTOCOL` is 114 and the property parser is version 8: the host re-indexes every outline's properties
+  the first time it opens one. **Run:** restart the host (`ep0ch install --apply`), nothing else.
 
 ### Agent tools take one `ref` argument, and wrong arguments get the right call back
 

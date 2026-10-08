@@ -1,6 +1,6 @@
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
-import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, isWritablePropertyValue, propertyTokenMatches, propertyValueHolds, type RawPropertyToken } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { blockReferenceEnvelopeRanges } from "@ep0ch/outline-core/link-syntax";
@@ -16,10 +16,10 @@ import type {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 7;
+export const PROPERTY_PARSER_VERSION = 8;
 
 interface PropertyMatch {
-  match: RegExpExecArray;
+  match: RawPropertyToken;
   start: number;
 }
 
@@ -117,8 +117,8 @@ function hashtagCandidates(
   // Tags are prose, not the fragments or labels inside a link. Property values
   // already have an owner; a hash inside one must not create another property.
   const excluded = [...literalRanges, ...protectedCodeRanges(text), ...properties, ...blockReferenceEnvelopeRanges(text)];
+  for (const token of propertyTokenMatches(text)) excluded.push({ start: token.start, end: token.end });
   for (const pattern of [
-    propertyTokenPattern(),
     /\[\[[^\]\r\n]*\]\]/g,
     /!?\[[^\]\r\n]*\]\((?:\\.|[^\\)\r\n])*\)/g,
     /^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*/gm,
@@ -157,8 +157,8 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
   const literalRanges = scanPropertyLiteralRanges(text);
   const matches: PropertyMatch[] = [];
   let literalIndex = 0;
-  for (const match of text.matchAll(propertyTokenPattern())) {
-    const start = match.index;
+  for (const match of propertyTokenMatches(text)) {
+    const start = match.start;
     while (literalIndex < literalRanges.length && literalRanges[literalIndex].end <= start) {
       literalIndex += 1;
     }
@@ -180,10 +180,10 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
 
     for (let index = 0; index < lineMatches.length; index += 1) {
       const { match, start } = lineMatches[index];
-      const raw = match[0];
+      const raw = match.raw;
       bracketCandidates.push({
-        key: match[1].toLowerCase(),
-        value: match[2].trim(),
+        key: match.key.toLowerCase(),
+        value: match.value.trim(),
         raw,
         start,
         end: start + raw.length,
@@ -415,8 +415,8 @@ export function validateProperty(key: string, value: string): BlockProperty {
   const normalizedKey = normalizePropertyKey(key);
   const normalizedValue = value.trim();
   if (!normalizedValue) throw new Error(`Property value cannot be empty: ${key}`);
-  if (/[\]\r\n]/.test(normalizedValue)) {
-    throw new Error(`Property value cannot contain ], CR, or LF: ${key}`);
+  if (!isWritablePropertyValue(normalizedValue)) {
+    throw new Error(`Property value must be one line with balanced brackets (links such as [[page]] and ((id|label)) are fine): ${key}`);
   }
   return { key: normalizedKey, value: normalizedValue };
 }
@@ -528,8 +528,7 @@ export function matchingPropertyRecords(
     filters.some(
       (filter) =>
         property.key === filter.key &&
-        (filter.value === undefined ||
-          property.value.toLowerCase() === filter.value.toLowerCase()),
+        (filter.value === undefined || valueMatches(property.value, filter.value)),
     )
   );
 }
@@ -545,10 +544,13 @@ export function matchesFilters(
       (property) =>
         property.key === filter.key &&
         (propertyScope === "all" || ("scope" in property ? property.scope : "block") === propertyScope) &&
-        (filter.value === undefined ||
-          property.value.toLowerCase() === filter.value.toLowerCase()),
+        (filter.value === undefined || valueMatches(property.value, filter.value)),
     )
   );
+}
+
+function valueMatches(value: string, wanted: string): boolean {
+  return propertyValueHolds(value, wanted);
 }
 
 export function getProperty(properties: readonly BlockProperty[], key: string): string | undefined {

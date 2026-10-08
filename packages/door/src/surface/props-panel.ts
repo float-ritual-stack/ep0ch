@@ -5,6 +5,7 @@
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
@@ -70,11 +71,11 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   return v;
 }
 
-/** A value `properties.patch` would take, or why not (the service's own rules: non-empty, no `]`, one line). */
+/** A value `properties.patch` would take, or why not (the service's own rules: non-empty, one line, balanced brackets). */
 export function checkValue(r: PropRow, value: string): string | null {
   const v = value.trim();
   if (!v) return "a property value can't be empty";
-  if (/[\]\r\n]/.test(v)) return "a property value can't contain ] or a line break";
+  if (!isWritablePropertyValue(v)) return "a property value is one line with balanced brackets (a link such as [[page]] is fine)";
   if (r.syntax === "hashtag" && !/^[\p{L}\p{N}_/-]+$/u.test(v)) return "a #hashtag value is one word; e edits the note to change it into a [key::value]";
   return null;
 }

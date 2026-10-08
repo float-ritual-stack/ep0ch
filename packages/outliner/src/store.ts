@@ -1,4 +1,5 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { isLinkValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
@@ -3830,6 +3831,12 @@ export class OutlinerStore {
           `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ?${propertyScopePredicate})`,
         );
         parameters.push(filter.key);
+      } else if (isLinkValue(filter.value)) {
+        // A link filter also finds a list that holds it: `related=[[X]]` matches `[related::[[Y]], [[X]]]` (properties.ts valueMatches).
+        predicates.push(
+          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND (LOWER(property.value) = LOWER(?) OR INSTR(',' || LOWER(REPLACE(property.value, ', ', ',')) || ',', ',' || LOWER(?) || ',') > 0)${propertyScopePredicate})`,
+        );
+        parameters.push(filter.key, filter.value, filter.value);
       } else {
         predicates.push(
           `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND LOWER(property.value) = LOWER(?)${propertyScopePredicate})`,

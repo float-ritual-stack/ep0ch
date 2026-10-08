@@ -1,5 +1,5 @@
 import { parsePropertyRecords } from "./properties";
-import { PROPERTY_KEY_SOURCE, PROPERTY_TOKEN_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { isPropertyTokenLine, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 
 /**
  * Context-scoped resolution: "the nearest X" for a position in a block.
@@ -141,7 +141,8 @@ export function blockPropertyKeys(text: string, matcher: ContextKeyMatcher): str
     }));
 }
 
-const PROPERTY_ONLY_LINE = new RegExp(String.raw`^[ \t]*(?:(?:${PROPERTY_TOKEN_SOURCE}[ \t]*)+|${PROPERTY_KEY_SOURCE}::.*)$`);
+const BARE_PROPERTY_LINE = new RegExp(String.raw`^[ \t]*${PROPERTY_KEY_SOURCE}::.*$`);
+const isPropertyOnlyLine = (line: string) => BARE_PROPERTY_LINE.test(line) || isPropertyTokenLine(line);
 
 /**
  * The subject line and the preamble after it: where an ancestor's own
@@ -156,7 +157,7 @@ function blockHead(text: string): string {
     const lineEnd = newline < 0 ? text.length : newline;
     const line = text.slice(start, lineEnd);
     if (line.trim()) {
-      if (seenSubject && !PROPERTY_ONLY_LINE.test(line)) break;
+      if (seenSubject && !isPropertyOnlyLine(line)) break;
       seenSubject = true;
       end = lineEnd;
     }

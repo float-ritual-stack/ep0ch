@@ -2,7 +2,7 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { balanceStyles, balanceTags, C, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { theme } from "./theme";
-import { isEscapedAt, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
+import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 // ── what may reach the terminal (PIE-510) ──
 // A note's title, an extension's name, a service error: any of them can hold bytes a terminal acts on (an OSC 52
@@ -122,10 +122,11 @@ export function colourBody(line: string, literal = false): string {
   if (/^#{1,6} /.test(line)) return fg(C.white) + styleMarks(line) + RESET;
   if (/^> ?/.test(line)) return fg(C.lgreen) + styleMarks(line) + RESET;
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
+  // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
+  if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(C.grey)}`);
   return fg(C.grey) + line
     .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
-    .replace(propertyTokenPattern(), (all: string, k: string, v: string, at: number, s: string) => literal || isEscapedAt(s, at) ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))
