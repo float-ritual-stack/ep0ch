@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -288,4 +288,88 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     const after = await two.board(FAR, "attic-notes");
     expect("away" in after).toBe(true);
   }, 30_000);
+
+  test("a live write is laid over the next read from the mirror, which says it is older than the write", async () => {
+    laptopBack(); clock += 50_000;
+    const read = (await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" })).json;
+    expect(read.reachability.source).toBe("live");
+    const wrote = await tool("outline_patch", { ref: ids.lamps, outline: "attic-notes", revision: read.revision, patches: [{ observed: "Lamp list", replacement: "Lamp inventory" }] });
+    expect(wrote.json.outcome).toBe("applied");
+    laptopAway(); clock += 50_000;
+    const fallback = (await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" })).json;
+    expect(fallback.reachability.source).toBe("mirror");
+    // The mirror is the copy from before (follow() ran once, at the start): the write is shown over it, and said to be missing from it.
+    expect(fallback.pending.spans).toContainEqual(expect.objectContaining({ observed: "Lamp list", replacement: "Lamp inventory", shown: true }));
+    expect(fallback.staleSince.revision).toBeGreaterThan(fallback.record.revision);
+    expect(fallback.staleSince.said).toContain("newer than this answer");
+    const other = (await tool("outline_find", { query: "Lamp", outline: "attic-notes" })).json;
+    expect(other).toMatchObject({ source: "mirror" });
+    const row = (await tool("list_outlines", {})).json.outlines[0];
+    expect(row.staleSince).toMatchObject({ said: expect.stringContaining("made live through this server") });
+    // A pull takes nothing for it: it was never queued.
+    expect(await pull()).toMatchObject({ ok: true });
+    expect((await farRecord(ids.lamps!)).text).toContain("Lamp inventory");
+    // The copy is the laptop's instance, whatever served it: the id its own host reports.
+    const onFar = boardOn(far, "attic-notes", FAR);
+    await onFar.info();
+    expect(fallback.outlineInstanceId).toBe(onFar.outlineInstanceId);
+    laptopBack();
+  }, 120_000);
+
+  test("one outline, one identity: the copy carries its source's instance id, and the machine's own name and the ssh name reach the same outline", async () => {
+    // A stand-in for the laptop's forward whose host names itself differently from the ssh name.
+    const proxy = join(dir, "named.sock");
+    const server: Server = createServer(c => {
+      const up = connect(far.sock);
+      c.pipe(up);
+      let buf = "";
+      up.on("data", d => {
+        buf += d.toString();
+        for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
+          const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          const msg = JSON.parse(line);
+          if (msg.result?.location) msg.result.location.hostname = "Evans-MacBook-Pro.local";
+          c.write(JSON.stringify(msg) + "\n");
+        }
+      });
+      const end = () => { c.destroy(); up.destroy(); };
+      c.on("error", end); up.on("error", end); c.on("close", end); up.on("close", end);
+    });
+    await new Promise<void>(r => server.listen(proxy, r));
+    let proxyDown = false;
+    const named = new LiveMachines({ forward: async () => { if (proxyDown) throw new Error("no route to host"); return { socket: proxy }; }, now: () => clock, budgetMs: 10_000 });
+    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), named);
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    const OWN = "Evans-MacBook-Pro.local";
+    try {
+      const ssh = `ep0ch://attic-notes@${FAR}/b/${ids.trunk}`, own = `ep0ch://attic-notes@${OWN}/b/${ids.trunk}`;
+      // Before its host has answered, the ssh name is the only name; once it has, answers use the machine's own.
+      const first = (await tool("outline_read", { uri: ssh }, gw)).json;
+      expect(first.reachability.source).toBe("live");
+      expect(first.uri).toBe(own);
+      const viaOwn = (await tool("outline_read", { uri: own }, gw)).json;
+      const viaSsh = (await tool("outline_read", { uri: ssh }, gw)).json;
+      expect(viaOwn.uri).toBe(own);
+      expect(viaSsh.record.id).toBe(viaOwn.record.id);
+      const onFar = boardOn(far, "attic-notes", FAR);
+      await onFar.info();
+      expect(viaOwn.outlineInstanceId).toBe(onFar.outlineInstanceId);
+      const listed = (await tool("list_outlines", {}, gw)).json.outlines[0];
+      expect(listed).toMatchObject({ machine: OWN, sshName: FAR, uri: `ep0ch://attic-notes@${OWN}` });
+      // Away: a write addressed by the machine's own name queues for the ssh name's pull, and either name reads it back.
+      proxyDown = true; clock += 50_000;
+      const queued = await tool("outline_create", { uri: own, text: "Queued under the machine's own name" }, gw);
+      expect(queued.json).toMatchObject({ outcome: "queued", queuedFor: `attic-notes@${FAR}` });
+      for (const uri of [own, ssh]) {
+        const mirrorRead = (await tool("outline_read", { uri }, gw)).json;
+        expect(mirrorRead).toMatchObject({ uri: own, reachability: { source: "mirror" }, outlineInstanceId: onFar.outlineInstanceId });
+        expect(mirrorRead.pending.newBlocks).toContainEqual(expect.objectContaining({ text: "Queued under the machine's own name" }));
+      }
+      expect((await pull()).settled.map(s => s.state)).toEqual(["applied"]);
+      expect((await childrenOf(ids.trunk!)).filter(t => t.startsWith("Queued under"))).toEqual(["Queued under the machine's own name"]);
+    } finally { gw.stop(); outlines.close(); server.close(); rmSync(join(mirrors, ".home"), { recursive: true, force: true }); }
+  }, 60_000);
 });

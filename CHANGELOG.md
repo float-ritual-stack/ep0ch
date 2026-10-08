@@ -26,6 +26,12 @@ are its record. The outliner's entries from then are kept below, under
   copy that is 40 minutes old while the laptop is awake.
 - **Unchanged fallback:** when it doesn't answer, the mirror serves and writes queue exactly as before, and the answer
   says why and when it tried. A host on another `PROTOCOL` counts as away, naming `ep0ch install --apply` to run on it.
+- **One identity:** the mirror's private copy kept a fresh instance id of its own, so the same outline answered with two
+  (the mirror's, the laptop's). It now keeps the one the copy carries. Answers name the outline by its machine's own
+  name once its host has answered live (the ssh name stays accepted, `list_outlines` gives both), and a URI under
+  either reaches it; a queued write applies the same under both.
+- **Live writes show up:** a write made live is remembered, so a read that falls back to the mirror shows it over the
+  note as `pending` and says `staleSince` until the copy catches up.
 - **Safe:** a write queued while the laptop was away applies once when it pulls (a note changed live meanwhile becomes a
   proposal); a live write says how many of the caller's queued writes to that note still wait; a live read still shows
   them as `pending`. `list_outlines` gives each mirrored outline's `route`. `EP0CH_MCP_LIVE=0` turns it off. No

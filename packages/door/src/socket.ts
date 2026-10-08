@@ -206,6 +206,8 @@ export interface McpSource {
   machine?: string;
   /** A mirror served because the live route to its machine wasn't there: why, and when it was tried (ISO). */
   liveTried?: { at: string; why: string; command?: string };
+  /** A mirror older than a write made live through the gateway: when, and what it made. */
+  staleSince?: { at: string; revision: number | null; uri: string | null; said: string };
   /** A mirror's copy: its file under the mirrors folder, and when that file last changed here. */
   copy?: { file: string; copiedAt: string };
   /** A mirror whose follower has stopped or fallen behind its replica: since when (when known), and why. */

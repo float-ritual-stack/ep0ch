@@ -90,6 +90,10 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const read = JSON.parse((await tool("outline_read", { uri: note.uri })).text);
     expect(read).toMatchObject({ uri: note.uri, reachability: { status: "reachable", level: "read", source: "mirror", asOf: expect.any(String), reason: expect.stringContaining("read-only mirror") }, record: { id: note.id, body: expect.stringContaining("Runner beans") } });
     const found = JSON.parse((await tool("outline_find", { query: "Seed swap", outline: "garden-notes" })).text);
+    // The copy is its source's instance: the id the outline's own host reports, not one the private serve copy minted.
+    await garden.info();
+    expect(garden.outlineInstanceId).toBeTruthy();
+    expect(read.outlineInstanceId).toBe(garden.outlineInstanceId);
     expect(found).toMatchObject({ outline: "garden-notes", machine: FAR, source: "mirror", asOf: read.reachability.asOf });
     expect(found.matches).toContainEqual(expect.objectContaining({ id: note.id, uri: note.uri }));
     const resource = await call("resources/read", { uri: note.uri });

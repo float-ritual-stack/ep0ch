@@ -14,7 +14,7 @@
 // database's instance id (read from the copy's metadata before the host here opens it): a write queued for the home
 // machine carries it, and that machine applies the write as read only when its database is still that one.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
@@ -34,6 +34,7 @@ type OutlineHostClass = new (o: { outlinesFolder: string; readOnly: boolean; log
  * by its own (looser) settings, not the door's.
  */
 const OUTLINE_HOST_MODULE = "@ep0ch/outliner/outline-host";
+const OUTLINE_INSTANCE_MODULE = "@ep0ch/outliner/outline-instance";
 const loadOutlineHost = async () => (await import(OUTLINE_HOST_MODULE) as { OutlineHost: OutlineHostClass }).OutlineHost;
 
 /** How often a read looks for a newer copy; a change is at most this late. */
@@ -165,11 +166,25 @@ export class OutlineMirror {
   constructor(readonly outline: string, readonly machine: string, folder: string, private readonly log: (line: string) => void = console.error, private readonly now: () => number = Date.now,
     private readonly askHealth: (follow: string) => Promise<MirrorStale | null> = followerHealth,
     private readonly migrate: MigrateCopy = migrateWithScripts()) {
+    this.homeFile = join(folder, ".home", machine, `${outline}.name`);
     this.follow = join(folder, machine, `${outline}.sqlite`);
     this.restic = join(folder, ".restic", machine, `${outline}.sqlite`);
     // This process's own folder: another gateway on the same mirrors serves from its own.
     this.work = join(folder, ".serve", machine, outline, String(process.pid));
   }
+
+  /**
+   * The name the outline's own machine gives itself (its host's hostname, as a URI machine name), learned the last time
+   * its host answered live, and kept across restarts. Null until then. The ssh name stays an accepted alias.
+   */
+  homeName(): string | null {
+    try { return readFileSync(this.homeFile, "utf8").trim() || null; } catch { return null; }
+  }
+  rememberHome(name: string): void {
+    if (name === this.homeName()) return;
+    try { mkdirSync(dirname(this.homeFile), { recursive: true, mode: 0o700 }); writeFileSync(this.homeFile, `${name}\n`); } catch { /* the alias is a convenience */ }
+  }
+  private readonly homeFile: string;
 
   /** Whether a copy has arrived (Litestream's follow, or the backup job's restore, made the file). */
   exists(): boolean { return existsSync(this.follow) || existsSync(this.restic); }
@@ -316,6 +331,9 @@ export class OutlineMirror {
       }
       if (migrated) this.log(`mcp mirror ${this.outline}@${this.machine}: migrated the served copy of ${this.relative(from)} from schema ${migrated.from} to ${migrated.to} (the mirror itself is untouched)`);
       const homeInstanceId = instanceIdOf(served);
+      // The host opening the copy would mint a fresh instance id for a file it hasn't seen closed; a copy is its source's
+      // instance, so it is told to keep the one it carries (answers name the outline's id, not the copy's).
+      (await import(OUTLINE_INSTANCE_MODULE) as { adoptOutlineInstance(path: string): void }).adoptOutlineInstance(served);
       const OutlineHost = await loadOutlineHost();
       host = new OutlineHost({ outlinesFolder: dir, readOnly: true, log: line => this.log(`mcp mirror ${this.outline}@${this.machine}: ${line}`) });
       await host.start();

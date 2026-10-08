@@ -28,8 +28,9 @@ export interface LiveRoute {
   command?: string;
 }
 
-type Verdict = { up: true; at: number; board: NotesBoard } | { up: false; at: number; why: string; command?: string };
-export type LiveAnswer = { board: NotesBoard } | { away: { why: string; checkedAt: string; command?: string } };
+type Verdict = { up: true; at: number; board: NotesBoard; host: string } | { up: false; at: number; why: string; command?: string };
+/** `host`: the machine's own name for itself, as its outline host reports it (os.hostname). */
+export type LiveAnswer = { board: NotesBoard; host: string } | { away: { why: string; checkedAt: string; command?: string } };
 
 export interface LiveOptions {
   /** The machine's forward, answering (started when it isn't): outline-core's rule. */
@@ -108,7 +109,7 @@ export class LiveMachines {
       if (this.tries.has(key)) this.verdicts.set(key, v);
       return this.away(machine, v);
     }
-    return verdict.up ? { board: verdict.board } : this.away(machine, verdict);
+    return verdict.up ? { board: verdict.board, host: verdict.host } : this.away(machine, verdict);
   }
 
   /** The forward answers, its host speaks this PROTOCOL and opens the outline: the outline is live. */
@@ -133,10 +134,11 @@ export class LiveMachines {
       board = Object.assign(new SocketBoard(socket, REQUEST_TIMEOUT_MS, outline), { address: { outline, machine } }) as SocketBoard;
       this.boards.set(key, board);
     }
-    try { await board.info(); }
+    let host: string;
+    try { host = (await board.info()).host; }
     catch (e) { this.boards.delete(key); board.close(); this.log(`mcp live: ${machine}: ${outline}: ${firstLine(e)}`); return this.fail(`its host can't open ${outline}: ${firstLine(e)}`); }
     if (this.closed) { this.boards.delete(key); board.close(); return this.fail("the gateway is shutting down"); }
-    return { up: true, at: this.now(), board: board as unknown as NotesBoard };
+    return { up: true, at: this.now(), board: board as unknown as NotesBoard, host };
   }
 
   close() { this.closed = true; for (const b of this.boards.values()) b.close(); this.boards.clear(); }

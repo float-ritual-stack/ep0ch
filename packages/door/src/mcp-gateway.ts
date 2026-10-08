@@ -144,7 +144,9 @@ const localNames = async () => {
 export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
-  const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
+  /** An outline's machine as answers name it: what it calls itself once its host has answered live, else its ssh name. */
+  const nameOf = (m: OutlineMirror) => m.homeName() ?? m.machine;
+  const mirrored = () => mirrors.map(m => `${m.outline}@${nameOf(m)}`).join(", ");
   const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const read = await mirror.read();
     if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.`, ...(read.access ? { access: read.access } : {}) };
@@ -161,15 +163,29 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * else the mirror, saying why. Writes still queued for the machine overlay a live read, so a caller sees its own.
    */
   const routed = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
-    if (!live) return mirrorRead(mirror);
+    const named = <T extends McpBoard>(b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; return b; };
+    if (!live) { const r = await mirrorRead(mirror); return "error" in r ? r : named(r); }
     const a = await live.board(mirror.machine, mirror.outline);
     if ("board" in a) {
-      return { board: a.board, served: { source: "live", asOf: new Date().toISOString(), machine: mirror.machine, note: `${mirror.outline} lives on ${mirror.machine}; read from its own outline host over ssh, now` }, queuedFor: mirror.machine };
+      // The outline's own machine names itself: that is its name in answers from now on (the ssh name still reaches it).
+      const home = canonicalLocalMachineName(a.host);
+      if (home !== machine) mirror.rememberHome(home);
+      return named({ board: a.board, served: { source: "live", asOf: new Date().toISOString(), machine: nameOf(mirror), note: `${mirror.outline} lives on ${nameOf(mirror)}; read from its own outline host over ssh, now` }, queuedFor: mirror.machine });
     }
     const { why, checkedAt, command } = a.away;
     const copy = await mirrorRead(mirror);
     if ("error" in copy) return { ...copy, error: `${why}. ${copy.error}` };
-    return { ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) } } };
+    // A mirror older than a write made live through this server: said, with what it made.
+    const wrote = netmailAt ? lastLiveWrite(mirror) : null;
+    const staleSince = wrote && Date.parse(wrote.at) > Date.parse(copy.served.copy?.copiedAt ?? copy.served.asOf)
+      ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
+    return named({ ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) }, ...(staleSince ? { staleSince } : {}) } });
+  };
+  /** The newest write made live to this mirror's outline through this server, if any. */
+  const lastLiveWrite = (mirror: OutlineMirror) => {
+    store ??= existsSync(netmailAt!) ? new Netmail(netmailAt!) : null;
+    const w = store?.lastApplied(mirror.machine, mirror.outline);
+    return w?.live ? w : null;
   };
   // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
   let store: Netmail | null = null;
@@ -192,11 +208,11 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
     async board(named?: NamedOutline) {
       const name = named?.outline ?? defaultOutline;
-      if (!name) return { error: `Name the outline: an outline on ${machine}${mirrored ? ` or a mirror (${mirrored})` : ""}.` };
+      if (!name) return { error: `Name the outline: an outline on ${machine}${mirrors.length ? ` or a mirror (${mirrored()})` : ""}.` };
       if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(name)} isn't an outline name.` };
-      const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine));
+      const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine || named.machine === m.homeName()));
       if (mirror) return routed(mirror);
-      if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrored ? ` and mirrors of ${mirrored}` : ""}.` };
+      if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrors.length ? ` and mirrors of ${mirrored()}` : ""}.` };
       return local(name);
     },
     ...(netmailAt ? {
@@ -206,6 +222,8 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
         // Reads open the store only if there is one; the home machine's `queue settle` is another process, and SQLite shows its commits.
         receipt(id) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.receipt(id) ?? null; },
         pending(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who) ?? []; },
+        live(entry, done) { store ??= new Netmail(netmailAt); return store.recordLive(entry, done); },
+        lastApplied(machine, outline, blockId) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.lastApplied(machine, outline, blockId) ?? null; },
         history(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who, false) ?? []; },
       },
     } : {}),
@@ -233,13 +251,13 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
           // The access setting is the outline's, read from the copy's metadata even when the copy can't be opened: writes
           // are offered by it, and the note says why none can be made yet.
           const level = "access" in target ? target.access : undefined, writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
-          rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", ...(route ? { route } : {}), ...(level ? { access: level } : {}), ...(writes ? { writes } : {}), note: `${target.error}${writes ? ` Its access setting (${level}) takes writes, but one can be made only once the copy can be read.` : ""}`, ...(writes || q ? { queue } : {}) });
+          rows.push({ outline: m.outline, machine: nameOf(m), ...(nameOf(m) !== m.machine ? { sshName: m.machine } : {}), uri: `ep0ch://${m.outline}@${nameOf(m)}`, source: "unreachable", ...(route ? { route } : {}), ...(level ? { access: level } : {}), ...(writes ? { writes } : {}), note: `${target.error}${writes ? ` Its access setting (${level}) takes writes, but one can be made only once the copy can be read.` : ""}`, ...(writes || q ? { queue } : {}) });
           continue;
         }
         const level = await access(target);
         // Served live, a write is applied or proposed by the machine's host at once; from the mirror it queues.
         const writes = level && writesAt(level) && (target.served.source === "live" ? writesAt(level) : netmailAt ? "queued" as const : null);
-        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(route ? { route } : {}), ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
+        rows.push({ outline: m.outline, machine: nameOf(m), ...(nameOf(m) !== m.machine ? { sshName: m.machine } : {}), uri: `ep0ch://${m.outline}@${nameOf(m)}`, ...target.served, access: level, ...(route ? { route } : {}), ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
       }
       return rows;
     },
