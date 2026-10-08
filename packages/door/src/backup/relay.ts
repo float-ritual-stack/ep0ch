@@ -43,8 +43,7 @@ const sha256 = (path: string) => new Bun.CryptoHasher("sha256").update(readFileS
 export async function relay(c: BackupConfig, hub: string, copy: string, o: { outline: string; seq: number | null; schema: number | null; timeoutMs?: number }): Promise<Received> {
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
   if (!MACHINE_NAME.test(c.machine) || !/^\d+$/.test(String(o.seq ?? 0)) || !/^\d+$/.test(String(o.schema ?? 0))) return { ok: false, error: "the relay's arguments aren't plain names and numbers" };
-  // The bytes, not Bun.file(copy): Bun on macOS refuses a file-backed Blob as a spawn's stdin ("Non-regular files
-  // aren't supported yet"), and hashing what is sent keeps the checksum and the stream the same bytes.
+  // Read once: the checksum is of exactly the bytes sent.
   const bytes = readFileSync(copy);
   const argv = `--machine ${c.machine} --outline ${o.outline}${o.seq !== null ? ` --seq ${o.seq}` : ""}${o.schema !== null ? ` --schema ${o.schema}` : ""} --sha256 ${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`;
   const r = await ssh(c.env, hub, `ep0ch backup receive ${argv}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
@@ -122,8 +121,16 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
   }
 }
 
+/** All of stdin, read through node's stream: `Bun.stdin.stream()` throws "Non-regular files aren't supported yet" when
+ *  stdin is the socket sshd hands a command (Bun 1.4.2), which is exactly how the relay arrives. */
+async function readStdin(): Promise<Blob> {
+  const parts: Buffer[] = [];
+  for await (const chunk of process.stdin) parts.push(chunk as Buffer);
+  return new Blob([Buffer.concat(parts)]);
+}
+
 /** `ep0ch backup receive …` (over ssh, from the relaying machine's job): the file on stdin; one JSON line out. */
-export async function receiveCommand(args: readonly string[], c: BackupConfig, io: { out: (s: string) => void }, stdin: () => ReadableStream<Uint8Array> | Blob = () => Bun.stdin.stream()): Promise<number> {
+export async function receiveCommand(args: readonly string[], c: BackupConfig, io: { out: (s: string) => void }, stdin: () => ReadableStream<Uint8Array> | Blob | Promise<Blob> = readStdin): Promise<number> {
   const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
   const num = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : null);
   const machine = flag("--machine") ?? "", outline = flag("--outline") ?? "";
@@ -133,7 +140,7 @@ export async function receiveCommand(args: readonly string[], c: BackupConfig, i
   mkdirSync(dir, { recursive: true, mode: 0o700 }); chmodSync(dir, 0o700);
   const part = join(dir, `.${outline}.sqlite.part-${process.pid}`);
   try {
-    await Bun.write(part, new Response(stdin() as BodyInit));
+    await Bun.write(part, new Response(await stdin() as BodyInit));
     chmodSync(part, 0o600);
     return say(await receive(c, { machine, outline, seq: num(flag("--seq")), schema: num(flag("--schema")), ...(flag("--sha256") ? { sha256: flag("--sha256")! } : {}), part }));
   } catch (e) { return say({ ok: false, error: (e as Error).message }); }
