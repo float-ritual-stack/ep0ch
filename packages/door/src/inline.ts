@@ -8,7 +8,7 @@
 import { STYLE } from "./style";
 
 /** A link as presentLinks marks it (colour on, its text and tags, colour off), or a code span. */
-const ATOM = /[][^]*|(`+)[^`]*?\1(?!`)/g;
+const ATOM = /[][^]*|(`+)[^`]*?\1(?!`)/g;
 const HOLD = "￼";
 /**
  * The escapes resolved here: a delimiter or a backslash. Detail resolves every ASCII punctuation escape; the

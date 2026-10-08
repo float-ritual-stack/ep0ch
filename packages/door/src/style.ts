@@ -64,8 +64,8 @@ const ANSI_RE = /\x1b\[[\d;]*m/g;
 // ── presentation marks: a link's colour (src/refs.ts) and inline Markdown styles (src/inline.ts) ──
 // Placed in read-mode text before it's wrapped, turned into colour and SGR styles after (colourBody), so
 // a bold span or a link that wraps keeps its style on every row. Like link tags they take no room.
-/** Every presentation mark: U+E000-U+E002 a link's colour, U+E003-U+E008 bold, italic and strike on/off. */
-export const MARKS = /[\uE000-\uE008]/g;
+/** Every presentation mark: U+E000-U+E002 and U+E009 a link's colour (U+E009 an external one), U+E003-U+E008 bold, italic and strike on/off. */
+export const MARKS = /[\uE000-\uE009]/g;
 export const stripMarks = (s: string) => s.replace(MARKS, "");
 /** Inline Markdown style marks, on and off, as Detail's styles: strong, emphasis, strikethrough. */
 export const STYLE = { bold: ["\uE003", "\uE004"], italic: ["\uE005", "\uE006"], strike: ["\uE007", "\uE008"] } as const;
@@ -118,7 +118,7 @@ const SIMPLE = /^[\x20-\x7e\xa0-\u02ff\u2010-\u205e\u2190-\u22ff\u2500-\u25fc]*$
 /** `s` as the glyphs a terminal draws (grapheme clusters), plain text with no colour codes. */
 export const graphemes = (s: string): string[] => (SIMPLE.test(s) ? [...s] : Array.from(SEGMENTER.segment(s), g => g.segment));
 /** One glyph's cells: 0 for a link tag, a mark or a lone zero-width character, 2 for a wide one. */
-export const glyphWidth = (g: string) => (isTag(g) || (g >= "\uE000" && g <= "\uE008") ? 0 : g.length === 1 && g < "\x7f" ? 1 : Bun.stringWidth(g));
+export const glyphWidth = (g: string) => (isTag(g) || (g >= "\uE000" && g <= "\uE009") ? 0 : g.length === 1 && g < "\x7f" ? 1 : Bun.stringWidth(g));
 
 /** Where a link is on screen: row `line`, columns `from` (inclusive) to `to` (exclusive), link `n`. */
 export interface LinkRange { line: number; from: number; to: number; n: number }

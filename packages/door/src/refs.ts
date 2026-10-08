@@ -16,6 +16,9 @@ import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
+/** A link to the web, not to the outline: its own colour (the theme's `external`) and a ↗ after its label. */
+export const EXTERNAL_ON = "";
+export const isExternalUrl = (url: string) => /^https?:\/\//i.test(url);
 export { stripMarks };
 
 /** What a reference's answer is kept under: its target. Its label is how the note writes it, not what it resolves to. */
@@ -244,9 +247,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // src/links.ts); drawn as a link, the id would be gone.
   const lines = text.split("\n"), typed = noteStructure(lines);
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
-  const mark = (v: LinkView, to: LinkTarget) => {
+  const mark = (v: LinkView, to: LinkTarget, external = false) => {
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-    return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
+    return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + v.text + (external ? "↗" : "") + off + LINK_OFF;
   };
   return lines.map((line, i) => {
     if (typed[i]! >= 0) return line;
@@ -259,7 +262,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     for (const l of linkOccurrences(line)) {
       if (l.kind === "markdown") {
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
-        spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }) });
+        spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
       } else if (!l.embed || !embeds) {

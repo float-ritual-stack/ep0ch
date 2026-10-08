@@ -11,7 +11,9 @@ import { Mirror } from "../src/mirror";
 import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
 import { readFileSync } from "node:fs";
-import { chip, CHIP_MAX_LUMINANCE } from "../src/style";
+import { chip, CHIP_MAX_LUMINANCE, fgRgb } from "../src/style";
+import { colourBody } from "../src/text";
+import { presentLinks } from "../src/refs";
 import { MainMenu, MENU_SCREENS } from "../src/screens";
 import { SEED } from "../src/showcase/seed";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -195,6 +197,32 @@ describe("the palettes themselves (every background, not only the ones these scr
       } finally { setTheme("calm"); }
     });
   }
+  test("external links are drawn in the theme's external colour with a ↗; internal links keep the cyan; pi-outliner:// links are internal", () => {
+    const line = colourBody(presentLinks("See [the society](https://example.org/a), [[Bike shed]] and [the page](pi-outliner://page/Bike%20shed).", false, null));
+    const ext = fgRgb(THEMES.calm.external), plainText = line.replace(/\x1b\[[\d;]*m/g, "");
+    setTheme("calm");
+    const drawn = colourBody(presentLinks("See [the society](https://example.org/a) and [the page](pi-outliner://page/Bike%20shed).", false, null));
+    expect(drawn).toContain(ext + "the society↗");
+    expect(drawn).not.toContain(ext + "the page");
+    expect(plainText).toContain("the society↗");
+    expect(plainText).not.toContain("the page↗");
+  });
+  test("external links (a Markdown link to the web): readable on the ground and on a selection, dark-capped, and a hue of its own beside the cyan of an internal link", () => {
+    for (const t of Object.values(THEMES)) {
+      const ground = t.ground ?? VGA_RGB[0]!, e = t.external, cyan = t.palette[11]!;
+      expect(contrast(e, ground), t.name).toBeGreaterThanOrEqual(4.5);
+      if (t.name !== "classic") {
+        expect(contrast(e, t.tint.select), t.name).toBeGreaterThanOrEqual(4.5);
+        expect(luminance(e), t.name).toBeLessThan(luminance([240, 240, 240]));
+        expect(Math.max(...e), t.name).toBeLessThanOrEqual(235);
+      }
+      // Blue-violet, not cyan: its red is up with its blue, its green is the lowest-ish; cyan's red is the lowest.
+      expect(e[0]! - cyan[0]!, t.name).toBeGreaterThan(20);
+      expect(e[2]! - e[1]!, t.name).toBeGreaterThan(20);
+      expect(Math.abs(e[1]! - cyan[1]!), t.name).toBeGreaterThan(30);
+    }
+  });
+
   test("tile edges (PIE-535): every frame shows at 3:1 on the ground; the focused one is warmer and brighter, apart from the typing yellow", () => {
     for (const t of Object.values(THEMES)) {
       const ground = t.ground ?? t.palette[0]!;
