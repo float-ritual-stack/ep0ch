@@ -1088,6 +1088,11 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
 - **No dead panes.** Every agent, in the drawer or in a terminal tile, starts inside your login shell. When it exits
   or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same
   environment: `claude --resume`, `claude --continue`, another agent, anything. Nothing restarts it behind your back.
+- **What changed.** The status bar's `+N new` is the notes an agent, another client or an extension changed since you last
+  looked (your own edits aren't news), from the service's change feed. A click on it, or `alt+o`, opens the **what-changed
+  list** as a tab in your drawer (`changes.open`): who changed each note, what and when; `⏎` or a double click opens the note
+  where opens land, `alt+⏎` or an alt-click in a new detail, `d` shows the change under the row, `x` marks it seen. Looking
+  marks what it holds seen (kept per outline, so a restart starts from there); an agent's open never does.
 - **What waits on you.** A program in a terminal tile can say what it's doing (OSC 7501, the Program Status
   Protocol): working (with its progress), blocked on you (a permission, a question, a login), done, or failed. The
   tile's header and tab show it as a glyph (`◴ 40%`, `◆`, `?`, `✓`, `✗`), the chip says it (`▲ claude · needs you`), and

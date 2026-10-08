@@ -291,6 +291,12 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 |---|---|---|---|
 | `status.list` | | the status bar's count, the waiting-on-you tab | read-only: every blocked, failed and unseen done record across the screen's terminals and the drawer's, most urgent first, each with `n`, `tile`, `name` and since when |
 | `host.waiting` | | `alt+w`, a click on the status bar's `◆1 ✓2 on you` | the waiting-on-you list as a tab in the drawer: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown |
+| `changes.open` | | `alt+o`, a click on the status bar's `+N new` | the what-changed list as a tab in the drawer: the person's pulls the drawer up, goes to it and marks what it holds seen; an agent's opens it behind the tab shown and marks nothing |
+| `changes.list` | | the status bar's `+N new`, the what-changed tab | read-only: each note others changed since the person looked (id, title, who, kind, when, seen), newest first; never marks anything seen |
+| `changes.pick` | `n` or `id` | `j` `k`, the wheel, a click, in the list | refused while the person is typing there |
+| `changes.go` | `n` or `id`, `fresh` | `⏎`, a double click; `alt+⏎`, an alt-click | opens the row's note where opens land (in the drawer: on the screen shown, as its details open); an agent's never takes the person's focus |
+| `changes.diff` | `n` or `id` | `d` | the change under a row (the note's earlier text against the new); an agent's returns the lines and leaves the person's rows alone |
+| `changes.seen` | | `x` | the person's only: marks the list seen and keeps the position |
 | `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
 | `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |

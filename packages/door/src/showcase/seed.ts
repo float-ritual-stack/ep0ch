@@ -49,6 +49,9 @@ export const SEED = {
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
   labels: "Jar labels",
+  logBeans: "Bean row log",
+  logCompost: "Compost bay log",
+  logShed: "Shed door log",
   rota: "Greenhouse watering rota",
   hedge: "Hedge trimming plan",
   compost: "Compost bay rules",
@@ -375,6 +378,9 @@ export const KEPT = {
  * shows. Under it, at seed time, a remote client's patch at `propose` (a proposal) and its comment, made through the
  * gateway's own write path (src/mcp-writes.ts).
  */
+/** The notes the what-changed section's scripted agent edits, with the line it writes (a round number follows). */
+export const LOGS = [["logBeans", "Staked and tied, round"], ["logCompost", "Turned the heap, round"], ["logShed", "Oiled the hinges, round"]] as const;
+
 export const REMOTE_WRITES = [
   SEED.remoteWrites,
   "",
@@ -822,6 +828,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
+  // What changed (PIE-647): three notes a scripted agent edits when the section opens.
+  for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
   const labels = await make(notes.root.id, LABELS_BEFORE);
   notes.labels = await board.update(labels.id, LABELS, labels.revision!);
   {

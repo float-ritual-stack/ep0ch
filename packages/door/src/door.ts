@@ -69,6 +69,9 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     app.outline = o.service.outline;
     app.machine = o.place?.machine;
     o.board.subscribe(e => app.event(e));
+    // What changed since the person last looked (PIE-647): the feed from where they left off.
+    app.whatChanged.outline = o.service.outline ?? o.service.workspace;
+    void app.whatChanged.seed(o.board);
     // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
     void app.loadExtensions();
     // The screens people made (screen notes), read before a screen opens: `--screen <name>` may name one.
