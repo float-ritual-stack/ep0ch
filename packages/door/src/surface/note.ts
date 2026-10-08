@@ -229,8 +229,8 @@ export interface HeaderInfo {
   properties: number;
 }
 
-/** How much of the theme's brightest the title keeps in a tile that doesn't have the keys: a clear step down, never brighter than the theme allows. */
-const TITLE_UNFOCUSED = 0.6;
+/** How much of the theme's brightest the title keeps in a tile that doesn't have the keys: a clear step down (not further: the night theme's text must keep 4.5:1), never brighter than the theme allows. */
+const TITLE_UNFOCUSED = 0.7;
 
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
 interface HeaderBlock {
@@ -843,14 +843,11 @@ export class NoteSurface {
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
-    const first = big ? 3 : 2;
-    const rows = [
-      fg(C.dark) + pad(this.crumbs, w) + RESET,
-      ink + pad(title, w) + RESET,
-      ...(big ? [pad("", w)] : []),
-      ...metaRows.map(r => pad(r, w) + RESET),
-    ];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: 1, text: title, ink, big } };
+    const first = this.printed ? 1 : big ? 3 : 2;
+    // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = ink + pad(title, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big } };
   }
 
   /**
