@@ -392,10 +392,9 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       const bystander = await create(null, "A bystander note");
       await Bun.sleep(300);
       reset();
-      const events = (app as any).events;
       const b0 = await current(bystander);
-      await other.update(bystander, "A bystander note, edited", b0.revision);
-      await until(() => (app as any).events > events, "the event");
+      await other.update(bystander, "A bystander note, edited", b0.revision, { kind: "agent", id: "helper" });
+      await until(() => (app as any).whatChanged.list().some((r: any) => r.blockId === bystander && r.kind === "edited"), "the event");
       await settled("the redraw");
       const unrelated = tally();
       console.log(`  requests after an unrelated edit: ${JSON.stringify(unrelated)}`);

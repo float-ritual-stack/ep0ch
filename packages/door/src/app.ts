@@ -35,6 +35,7 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
+import { WhatChanged } from "./desk/what-changed";
 import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
@@ -80,6 +81,8 @@ export interface HostLayer {
    * a screen under this one.
    */
   goTo(p: Pane, actor: Actor): { tile: string; in: "drawer" | "screen" };
+  /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own. */
+  openOnScreen(id: string, fresh: boolean, actor: Actor): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
 }
@@ -95,6 +98,8 @@ export interface Ctx {
   extensionChanges?: boolean;
   /** Extension writes since logon, counted apart from `events`. */
   extEvents?: number;
+  /** What others changed since the person last looked (PIE-647), from the change feed. */
+  whatChanged?: WhatChanged;
   /** The backup job's alert on this machine (PIE-607): the status bar's mark and what it says, or null. */
   backupAlert?(): { text: string; say: string } | null;
   board: SocketBoard;
@@ -331,7 +336,12 @@ export class App implements Ctx {
   /** The video mode (the display's: in a session, the client with the person's keys). */
   get video(): Video { return this.display.video; }
   set video(v: Video) { this.display.video = v; }
-  events = 0;
+  /** How many notes others changed since the person looked (what the welcome and the status bar say). */
+  get events(): number { return this.whatChanged.count(); }
+  /** The notes others changed since the person last looked: the status bar's `+N new` and the what-changed list. */
+  readonly whatChanged = new WhatChanged();
+  /** Where the status bar's `+N new` sits, for a click (changes.open). */
+  private changedAt: { from: number; to: number; row: number } | null = null;
   reconnects = 0;
   /** Changes extensions wrote since logon (a refreshed ticket): counted apart, shown when asked for. */
   extEvents = 0;
@@ -392,6 +402,7 @@ export class App implements Ctx {
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
     this.reportStatus();
+    this.whatChanged.subscribe(() => this.redraw());
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
@@ -674,8 +685,9 @@ export class App implements Ctx {
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
     const remote = remoteWrite(e);
     if (remote) void this.sayRemoteWrite(remote);
-    if (isExtensionChange(e)) { this.extEvents++; if (this.extensionChanges) this.events++; }
-    else if (e.change || e.action !== "reconnected") this.events++;
+    // The status bar's count is the feed's distinct notes others changed since the person looked (src/desk/what-changed.ts).
+    this.whatChanged.heard(e);
+    if (isExtensionChange(e)) this.extEvents++;
     this.stack.at(-1)?.onEvent?.(e, this);
     // The drawer's desk is on every screen: its readers hear the outline change as the screen shown does.
     this.drawer.made?.onEvent(e);
@@ -895,7 +907,7 @@ export class App implements Ctx {
     }
     // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
     // mark, says what's stale (backups.alert).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"]] as const) {
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"]] as const) {
       if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
         if (k.action === "down") void this.dispatch.press(action);
         return;
@@ -907,6 +919,8 @@ export class App implements Ctx {
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+w: what waits on you, the list in your drawer (host.waiting), on every screen but in a terminal tile (its program's).
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
+    // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.
+    if (k.kind === "alt" && k.ch === "o" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("changes.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     const nTop = this.stack.at(-1);
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
@@ -965,7 +979,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts(waitingOnYou(this.drawer))).plain}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts(waitingOnYou(this.drawer))).plain}|${this.whatChanged.count()}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1081,7 +1095,8 @@ export class App implements Ctx {
     // A stale backup (PIE-607): marked until it clears; a click says what and the fix (backups.alert).
     const backup = this.backupAlert();
     const backupPart = backup ? `${fg(C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
-    const newPart = this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : "";
+    const newCount = this.whatChanged.count();
+    const newPart = newCount ? `${fg(C.yellow)}+${newCount} new ${fg(C.lcyan)}│ ` : "";
     // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
     const waiting = waitingText(waitingCounts(waitingOnYou(this.drawer)));
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
@@ -1096,6 +1111,8 @@ export class App implements Ctx {
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
     this.drawer.chipAt = chip && from >= 0 ? { from, to: from + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
     const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
+    const changedFrom = cols - width(newPart + extPart + tail);
+    this.changedAt = newCount && changedFrom >= 0 ? { from: changedFrom, to: changedFrom + width(`+${newCount} new`), row: this.term.info.rows - 1 } : null;
     this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);

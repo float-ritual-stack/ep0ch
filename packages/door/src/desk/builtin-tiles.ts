@@ -19,6 +19,7 @@ import { DetailPane, dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 import { WAITING_YOU_KIND } from "./waiting-you";
+import { WHAT_CHANGED_KIND } from "./what-changed";
 import { recordFacts } from "./program-status";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
@@ -201,6 +202,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, WHAT_CHANGED_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

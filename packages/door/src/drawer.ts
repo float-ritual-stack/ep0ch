@@ -49,6 +49,7 @@ import type { TileDone, Where } from "./desk/tile-actions";
 import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
 import { statusMark, waitingOnYou } from "./desk/program-status";
 import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
+import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { PTY_ACTIONS } from "./desk/pty-actions";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
@@ -286,6 +287,47 @@ export class AgentDrawer {
     if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
     this.host.redraw();
     return { tile, waiting: waitingOnYou(this).length };
+  }
+
+  /**
+   * The what-changed list (src/desk/what-changed.ts: the notes others changed since the person last looked) as a tab in
+   * the drawer, as `waiting` opens its own. The person's opening it is looking: what it holds is marked seen (the status
+   * bar's count goes to 0), while the list keeps marking those rows new. An agent's opens it behind the tab shown and
+   * never marks anything seen.
+   */
+  async changes(actor: Actor): Promise<{ tile: string; changed: number; seen: boolean }> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready");
+    const store = this.host.ctx?.()?.whatChanged;
+    if (!store) throw new ActionRefused("there is no outline here to have changed");
+    const person = actor.kind !== "agent";
+    // Looking marks what is held seen: only once the changes since the kept position are in.
+    await store.settled();
+    if (person && !this.open) { this.offered = true; this.set(true, actor); }
+    const tile = this.tabs().find(t => t.kind === WHAT_CHANGED_KIND_NAME)?.name ?? (await d.openTile({ kind: WHAT_CHANGED_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
+    const changed = store.count();
+    if (person) {
+      (d.pane(tile) as unknown as WhatChangedPane | undefined)?.keepFresh(store.unseenIds());
+      store.markSeen();
+      this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown();
+    }
+    this.host.redraw();
+    return { tile, changed, seen: person };
+  }
+
+  /** The what-changed rows, titles read, for `changes.list`. */
+  async changesRead(): Promise<{ changed: Record<string, unknown>[] }> {
+    const door = this.host.ctx?.();
+    await door?.whatChanged?.titles(door.board);
+    return { changed: door?.whatChanged?.facts() ?? [] };
+  }
+
+  /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
+  async openOnScreen(id: string, fresh: boolean, actor: Actor): Promise<{ reader: string | null; id: string }> {
+    const screen = tilesOf(this.host.screen?.());
+    if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
+    if (screen.hasPlaces()) return screen.openPlace(id, fresh ? "new-detail" : "detail", actor);
+    return screen.openLanding(id, actor);
   }
 
   /**
@@ -1095,6 +1137,21 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     says: (out: { tile?: string }) => `· opened the waiting-on-you list in the drawer (${out.tile ?? "waiting-you"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.waiting(actor); },
+  }),
+  "changes.open": def({
+    summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: changes.pick, changes.go (⏎, alt+⏎ in a new detail), changes.diff, changes.seen",
+    keys: "alt+o (on every screen), a click on the status bar's +N new",
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string }) => `· opened what changed in the drawer (${out.tile ?? "what-changed"})`,
+    args: {},
+    run(_, { drawer }, actor) { return drawer.changes(actor); },
+  }),
+  "changes.list": def({
+    summary: "what changed since the person last looked, read: each note others changed (id, title, who, kind, when, seen, revision), newest first, from the service's change feed. Changes nothing, and never marks anything seen",
+    keys: "the status bar's +N new, the drawer's what-changed tab",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { drawer }) { return drawer.changesRead(); },
   }),
   "status.list": def({
     summary: "what waits on the person, read: each terminal tile's program status rows that ask something of them (blocked, failed, done unseen), most urgent first, with the tile, the record (state, kind, progress, app, title, msg) and since when. `peek` gives every terminal's records too (terminal.status)",

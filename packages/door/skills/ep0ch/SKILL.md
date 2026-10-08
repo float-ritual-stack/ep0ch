@@ -234,6 +234,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The river** is a screen spec on the desk too: its columns are `river.column` tiles in a flow (`library`, then
   `column`, `column2`…). `open id= from=<column>` puts a note in the column after it; `column.select`, `column.filter`, `column.complete` (what a filter's word offers),
   `column.tag` act in a column (never the one the person has the keys in); `tile.widen` and `tile.hold` (held full) shape it.
+- **What changed since the person looked** (PIE-647): the status bar's `+N new` is the notes others changed since they last
+  looked, from the change feed. `changes.list` reads the rows (id, title, who, kind, when, seen), `changes.open` opens the
+  list in their drawer behind the tab shown, `changes.go` and `changes.diff` act on a row. Marking it seen
+  (`changes.seen`, and the person's own open of the list) is theirs; yours is refused and your open never clears it.
 - **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
   done as seen (`status.seen`) is theirs; yours is refused.

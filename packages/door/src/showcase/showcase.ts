@@ -43,9 +43,10 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
+import { WhatChangedPane } from "../desk/what-changed";
 import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -106,6 +107,17 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
     then?.(d);
   });
   return d;
+}
+
+/** The scripted agent of the what-changed section: each log note one round on, as garden-agent. */
+const GARDENER: Actor = { kind: "agent", id: "garden-agent" };
+export async function gardenRound(board: Ctx["board"], n: Notes) {
+  for (const [key, line] of LOGS) {
+    const m = n[key] ? await board.get(n[key]!.id) : null;
+    if (!m) continue;
+    const round = Number(/ (\d+)$/.exec(m.text)?.[1] ?? 0) + 1;
+    await board.update(m.id, `${m.text.split("\n")[0]}\n${line} ${round}`, m.revision!, GARDENER).catch(() => {});
+  }
 }
 
 /** A whole Markdown document pasted into a note by mistake (fictional): the undo section's big paste. */
@@ -277,6 +289,16 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "changes", need: "show what others changed since the person last looked, and take them to it", part: "what changed (PIE-647, src/desk/what-changed.ts): the status bar's +N new is the distinct notes others changed since you looked, from the service's change feed (the person's own edits aren't news); changes.open (alt+o, a click on +N new) opens the list in your drawer, a tile kind of its own: who, what and when, ⏎ or a click opens the note where opens land, alt+⏎ in a new detail, d shows the change (block.revisions); the person's looking marks it seen, kept per outline, an agent's never does", files: "src/desk/what-changed.ts, src/drawer.ts (changes.open, changes.list), src/app.ts (the status bar's count), src/showcase/seed.ts (LOGS)",
+    aside: "garden-agent edited the three log notes when this section opened: the status bar says +3 new · the list on the left shows them newest first, with who changed each and what, a ● on the ones you haven't looked at; d on a row shows the change under it (the note's earlier text against the new) · ⏎ or a click opens the note in the reader on the right, alt+⏎ or an alt-click in a new detail · a click on +3 new, or alt+o on any screen, opens the same list in your drawer, and looking clears the count (x does too) · `act changes.list` reads the rows as an agent, `act changes.open` opens the tab behind yours, and neither clears what you haven't seen",
+    stage(n, show) {
+      const list = new WhatChangedPane(), r = new ReaderPane(true);
+      // The scripted agent: three notes edited by garden-agent, each visit one round further.
+      const withAgent: Shower = after => show(ctx => { void gardenRound(ctx.board, n); after(ctx); });
+      return deskOf({ title: "showcase · what changed", panes: [list, r], names: ["changes", "reader"], layout: ([a, b]) => row(0.55, a!, b!) }, withAgent, [[r, n.logBeans]]);
     },
   },
   {

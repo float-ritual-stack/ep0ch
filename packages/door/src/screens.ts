@@ -459,8 +459,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     args: { include: { type: "boolean", optional: true, about: "true to include extension changes, false to leave them out; default: toggle" } },
     run({ include }, { ctx }) {
       ctx.extensionChanges = include ?? !ctx.extensionChanges;
-      ctx.events = (ctx.events ?? 0) + (ctx.extensionChanges ? (ctx.extEvents ?? 0) : -(ctx.extEvents ?? 0));
-      if (ctx.events < 0) ctx.events = 0;
+      if (ctx.whatChanged) ctx.whatChanged.includeExt = !!ctx.extensionChanges;
       ctx.flash(ctx.extensionChanges ? "what changed includes extension writes (refreshed tickets)" : "what changed leaves extension writes out");
       ctx.redraw();
       return { include: ctx.extensionChanges };

@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The status bar's +N new opens what changed (PIE-647)
+
+- **`+N new` counts notes, not events.** It is the distinct notes an agent, another client or (when asked for, with a click
+  on `+N ext`) an extension changed since you last looked; your own edits are never news. It used to count every change event
+  since the door started and never went down.
+- **Click it, or press `alt+o`, to see them.** The **what-changed list** opens as a tab in your drawer: one row per note,
+  newest first, with its title, who changed it (an agent's id, `ext:…`), what (edited, created, moved, commented, property
+  set) and when. `⏎` or a double click opens the note where opens land, `alt+⏎` or an alt-click in a new detail, `d` shows the
+  change under the row (the note's earlier text against the new, from the revisions the service keeps), `x` marks it seen.
+- **Looking clears it, and it stays cleared.** Opening the list marks what it holds seen and the count goes to 0; where you
+  last looked is kept per outline, so a restart counts only what changed after it. An agent's open or read never clears it.
+- **Agents:** `changes.open` (behind your tab, marking nothing), `changes.list` (the rows), `changes.go`, `changes.diff`;
+  `changes.seen` is yours. Rows come from the service's change feed (`changes.since`): no second log.
+- **Run:** nothing beyond the usual `ep0ch install --apply`. The kitchen sink has a `changes` section.
+
+
 ### A handover keeps where each reader has been (PIE-643)
 
 - **Fixed:** `ep0ch install --apply` (and `ep0ch session upgrade`, a restart, a quit and come back) no longer empties a
