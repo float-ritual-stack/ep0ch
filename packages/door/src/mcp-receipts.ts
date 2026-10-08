@@ -101,7 +101,7 @@ export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary 
 export interface PendingOverlay {
   said: string;
   entries: { queueId: string; tool: string; queuedAt: string; state: "queued" | "applied" }[];
-  /** The block's body with each waiting patch laid over it, each replacement fenced ⟦pending <id>⟧…⟦/pending⟧; absent when no patch is waiting. */
+  /** The block's body with each waiting patch laid over it, each replacement fenced {{pending <id>}}…{{/pending}}; absent when no patch is waiting. */
   body?: string;
   /** Per patch span: whether it was found in the body (a span in the header chips or one that no longer matches isn't laid over). */
   spans: { queueId: string; observed: string; replacement: string; shown: boolean }[];
@@ -147,10 +147,10 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
     // Fences are put in at their offsets in one pass, so a replacement inside another's keeps both whole.
     const at: { pos: number; order: number; end: number; text: string }[] = [];
     for (const m of marks) {
-      if (m.end === m.start) at.push({ pos: m.start, order: 1, end: m.end, text: `⟦pending ${short(m.id)}: removes “${m.observed}”⟧` });
+      if (m.end === m.start) at.push({ pos: m.start, order: 1, end: m.end, text: `{{pending ${short(m.id)}: removes “${m.observed}”}}` });
       else {
-        at.push({ pos: m.start, order: 1, end: m.end, text: `⟦pending ${short(m.id)}⟧` });
-        at.push({ pos: m.end, order: 0, end: m.end, text: "⟦/pending⟧" });
+        at.push({ pos: m.start, order: 1, end: m.end, text: `{{pending ${short(m.id)}}}` });
+        at.push({ pos: m.end, order: 0, end: m.end, text: "{{/pending}}" });
       }
     }
     at.sort((x, y) => x.pos - y.pos || x.order - y.order || y.end - x.end);
@@ -160,7 +160,7 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
     out.body = shown;
   }
   out.said = `${waiting.length} of your write${waiting.length === 1 ? "" : "s"} to this note ${waiting.length === 1 ? "is" : "are"} not in this copy yet (state queued: waiting for its home machine; applied: done there, the copy hasn't caught up): ` +
-    "record.body is the mirror's text; pending.body lays them over it, each replacement between ⟦pending …⟧ and ⟦/pending⟧. A patch can quote either; they apply in the order queued. Only your own writes are shown.";
+    "record.body is the mirror's text; pending.body lays them over it, each replacement between {{pending …}} and {{/pending}}. A patch can quote either; they apply in the order queued. Only your own writes are shown.";
   return out;
 }
 

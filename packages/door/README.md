@@ -640,8 +640,8 @@ A write to an outline whose home is another machine answers `queued` with a `que
   shows once the next copy arrives. The queue's store is version 2: on the gateway's machine, with the gateway stopped,
   `bun packages/door/scripts/migrations/netmail-v1-to-v2.ts ~/outline-mirrors/.netmail.sqlite --write`.
 - **Read your writes.** `outline_read` of a mirror's block adds `pending` for the caller's own still-queued writes about
-  it: `pending.body` is the body with each queued patch laid over it, every replacement between `⟦pending <id>⟧` and
-  `⟦/pending⟧` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
+  it: `pending.body` is the body with each queued patch laid over it, every replacement between `{{pending <id>}}` and
+  `{{/pending}}` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
   blocks and comments are listed. `record.body` stays the mirror's own text. Another caller's waiting writes are never
   shown. Once the home machine has applied them and the mirror follows, `pending` goes.
 - **`outline_query`** runs the views' grammar (`type=outbox-item outbox=next`, `type=ticket NOT work-stage=done`; the

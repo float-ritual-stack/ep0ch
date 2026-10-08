@@ -189,7 +189,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     // The mirror's own text is untouched; the overlay is beside it.
     expect(mine.record.body).toContain("Three candles");
     expect(mine.pending.entries.map((e: { queueId: string }) => e.queueId)).toEqual([q.json.queueId, prop.json.queueId]);
-    expect(mine.pending.body).toContain(`⟦pending ${q.json.queueId.slice(0, 8)}⟧Four candles⟦/pending⟧`);
+    expect(mine.pending.body).toContain(`{{pending ${q.json.queueId.slice(0, 8)}}}Four candles{{/pending}}`);
     expect(mine.pending.body).not.toContain("Three candles");
     expect(mine.pending.spans).toEqual([{ queueId: q.json.queueId, observed: "Three candles", replacement: "Four candles", shown: true }]);
     expect(mine.pending.properties).toEqual([{ queueId: prop.json.queueId, key: "room", value: "cellar" }]);
@@ -268,7 +268,7 @@ describe("the overlay of a caller's waiting writes", () => {
       entry("aaaaaaaa-1", "outline_patch", { patches: [{ observed: "brass key", replacement: "brass key, tarnished" }, { observed: "no such text", replacement: "x" }] }),
       entry("bbbbbbbb-2", "outline_patch", { patches: [{ observed: "tarnished", replacement: "polished" }, { observed: "Three candles", replacement: "" }] }),
     ])!;
-    expect(o.body).toBe("Maps of the canal. A ⟦pending aaaaaaaa⟧brass key, ⟦pending bbbbbbbb⟧polished⟦/pending⟧⟦/pending⟧. ⟦pending bbbbbbbb: removes “Three candles”⟧.");
+    expect(o.body).toBe("Maps of the canal. A {{pending aaaaaaaa}}brass key, {{pending bbbbbbbb}}polished{{/pending}}{{/pending}}. {{pending bbbbbbbb: removes “Three candles”}}.");
     expect(o.spans.map(s => s.shown)).toEqual([true, false, true, true]);
   });
 
