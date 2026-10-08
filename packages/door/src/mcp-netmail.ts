@@ -130,7 +130,7 @@ export class Netmail {
     } catch (e) { this.db.exec("ROLLBACK"); this.db.close(); throw e; }
     if (version !== 0 && version !== SCHEMA_VERSION) {
       this.db.close();
-      throw new Error(`${path} is netmail store version ${version}; this ep0ch reads version ${SCHEMA_VERSION} (${version === 1 ? `bun ${join(import.meta.dir, "..", "scripts", "migrations", "netmail-v1-to-v2.ts")} ${path}` : "move it aside once the home machines have pulled it, and the next write makes a new one"})`);
+      throw new Error(`${path} is netmail store version ${version}; this ep0ch reads version ${SCHEMA_VERSION} (move it aside once the home machines have pulled it, and the next write makes a new one)`);
     }
   }
 
