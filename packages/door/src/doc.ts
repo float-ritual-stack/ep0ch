@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
-import { balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -581,6 +581,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   insert(src.length);
   // The inline code spans as drawn (nested documents' are found again in the rows they were framed into), and every block in reading order.
   const finish = (lines: string[]) => { blocks.push(...codeSpans(lines, source)); blocks.sort((a, b) => a.row - b.row || a.col - b.col); return blocks; };
+  // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
+  out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
   if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
   return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) };
