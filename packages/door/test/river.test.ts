@@ -20,7 +20,7 @@ const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
 test("every river column action has keys and a summary", () => {
   const list = COLUMN_ACTIONS.list();
-  expect(list.map(a => a.name)).toEqual(["column.select", "column.links", "column.link", "column.replies", "column.complete", "column.scroll", "column.filter", "column.tag", "column.split", "column.copy"]);
+  expect(list.map(a => a.name)).toEqual(["column.select", "column.links", "column.link", "column.replies", "column.complete", "column.scroll", "column.filter", "column.tag", "column.split", "column.block", "column.copy"]);
   for (const a of list) { expect(a.summary.length).toBeGreaterThan(10); expect(a.keys).toBeTruthy(); }
 });
 

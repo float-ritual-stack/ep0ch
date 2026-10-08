@@ -1235,6 +1235,47 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("copy a block (PIE-638): the callouts' ⧉ copies a callout's text as written by click, y and act; a drag across a frame copies the words", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "callouts" }, as: "test-agent" })).toMatchObject({ key: "callouts" });
+    await until(() => screen().includes("Callouts, as Obsidian writes them"), "the callouts drawn", 8000);
+    await app.act({ action: "scroll", tile: "reader", args: { to: "end" }, as: "test-agent" });
+    await until(() => screen().includes("♨ Soup stock"), "the last callout drawn", 8000);
+    const before = written.length;
+    const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
+    // An agent lists them and copies one: the text comes back, the clipboard is untouched.
+    const listed = await app.act({ action: "blocks", tile: "reader", as: "test-agent" }) as any;
+    const soup = listed.blocks.findIndex((b: any) => b.text.startsWith("Bones, an onion")) + 1;
+    expect(soup).toBeGreaterThan(0);
+    const theirs = await app.act({ action: "block.copy", tile: "reader", args: { n: soup }, as: "test-agent" }) as any;
+    expect(theirs).toMatchObject({ kind: "callout", clipboard: false, text: "Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type." });
+    expect(copies()).toEqual([]);
+    // The person clicks its ⧉ (top right of the frame): it reaches the clipboard, said as lines.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("♨ Soup stock")), x = [...rows[y]!].indexOf("⧉");
+    expect(x).toBeGreaterThan(0);
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => copies().length > 0, "the callout copied by its ⧉");
+    expect(copies()).toEqual([osc52("Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type.")]);
+    expect((app as any).message).toContain("copied 1 line");
+    // An inline code span (`dish`) is a click target too: its contents, without the backticks.
+    const rows2 = sc.render(app).lines.map(plain), sy = rows2.findIndex(l => l.includes("Bones, an onion")), sx = rows2[sy]!.indexOf("dish is an alias");
+    press({ kind: "mouse", action: "down", button: 0, x: sx + 1, y: sy }); press({ kind: "mouse", action: "up", button: 0, x: sx + 1, y: sy });
+    await until(() => copies().length > 1, "the code span copied");
+    expect(copies().at(-1)).toBe(osc52("dish"));
+    expect((app as any).message).toContain("copied 4 chars");
+    // A drag across the framed lines copies the words, with no bar or edge.
+    const a = rows.findIndex(l => l.includes("Here's a callout block.")), z = rows.findIndex(l => l.includes("A second paragraph"));
+    const x0 = rows[a]!.indexOf("Here's"), x1 = rows[z]!.indexOf("paragraph") + 8;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y: a }); press({ kind: "mouse", action: "drag", button: 0, x: x0 + 3, y: a });
+    press({ kind: "mouse", action: "drag", button: 0, x: x1, y: z }); press({ kind: "mouse", action: "up", button: 0, x: x1, y: z });
+    await until(() => copies().length > 2, "the drag copied");
+    const dragged = Buffer.from(copies().at(-1)!.split(";")[2]!.replace("\x07", ""), "base64").toString("utf8");
+    expect(dragged).toContain("Here's a callout block.\nIt supports Markdown and links.");
+    expect(dragged).toContain("- and lists\n- inside it");              // the list markers as the note has them
+    for (const bad of ["│", "╭", "╰", "╮", "╯", "∙"]) expect(dragged).not.toContain(bad);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");

@@ -605,4 +605,50 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       expect(col.text).toBeNull();
     } finally { app.pop(); }
   });
+
+  test("a river column copies a quote and a code block by their ⧉ and by y, and a drag across a quote copies the words (PIE-638)", async () => {
+    const draft = await create(null, "Draft to Sam\n> Hi Sam, the hedge is cut.\n> Clippings are by the gate.\n\n```sh\ncd ~/garden\ntrim --all\n```");
+    const river = openScreen("river") as Desk, R = () => riverView(river);
+    app.push(river);
+    try {
+      await until(() => !!R().column(1)?.items, "the Library", 10_000);
+      await app.act({ action: "open", args: { id: draft.id }, as: "test-agent-419" });
+      const lines = () => river.render(river.ctx).lines;
+      await until(() => plain(lines().join("\n")).includes("Clippings are by the gate."), "the note's column");
+      await Bun.sleep(500);
+      lines();
+      const col = R().byNote(draft.id)!;
+      // Held full (p), so the column isn't squeezed past its copy control.
+      await app.act({ action: "tile.hold", tile: (river as any).nameOfPane(col), as: "test-agent-419" });
+      lines();
+      const rect = river.rectOf(col)!;
+      const copyAt = (y: number) => ({ x: [...plain(lines()[y]!)].indexOf("⧉"), y });
+      const quoteRow = where(lines(), "Hi Sam", rect).y, codeRow = where(lines(), "cd ~/garden", rect).y - 1;
+      writes.length = 0;
+      click(copyAt(quoteRow));
+      await Bun.sleep(100);
+      expect(copied()).toEqual(["Hi Sam, the hedge is cut.\nClippings are by the gate."]);
+      expect(message()).toContain("copied 2 lines");
+      click(copyAt(codeRow));
+      await Bun.sleep(100);
+      expect(copied().at(-1)).toBe("cd ~/garden\ntrim --all");
+      // By keys: [ ] to the quote, then y.
+      writes.length = 0;
+      key({ kind: "char", ch: "]" });
+      key({ kind: "char", ch: "y" });
+      await Bun.sleep(100);
+      expect(copied()).toEqual(["Hi Sam, the hedge is cut.\nClippings are by the gate."]);
+      // An agent's copy is returned, the clipboard untouched.
+      const mine = copied().length;
+      const theirs = await app.act({ action: "column.block", args: { n: 2 }, tile: (river as any).nameOfPane(col), as: "test-agent-419" });
+      expect(theirs).toMatchObject({ text: "cd ~/garden\ntrim --all", clipboard: false });
+      expect(copied()).toHaveLength(mine);
+      // A drag across both quote lines: no bar.
+      writes.length = 0;
+      const a = where(lines(), "Hi Sam", rect), z = where(lines(), "by the gate.", rect);
+      drag({ x: a.x, y: a.y }, { x: z.x + 11, y: z.y });
+      await Bun.sleep(150);
+      expect(copied()).toEqual(["Hi Sam, the hedge is cut.\nClippings are by the gate."]);
+    } finally { app.pop(); }
+  });
 });

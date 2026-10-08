@@ -13,7 +13,7 @@
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import { ch, isUp, isDown, type Key } from "../term";
-import { RESET, tint } from "../style";
+import { glyphWidth, RESET, tint } from "../style";
 import { themed } from "../theme";
 
 /** A cell in rendered rows: `row` in content (not screen) rows, `col` in cells. */
@@ -26,7 +26,17 @@ export interface SelectRows {
   cells(row: number): string[];
   /** Cells at the start of the row that are the reader's margin: drawn, never copied. */
   margin?(row: number): number;
+  /**
+   * Cell ranges [from, to) of the row that are drawn decoration inside the text (a quote's or callout's bar,
+   * a frame's right edge, a bullet glyph, a fold arrow, a gutter): drawn, never copied. `to` may be Infinity.
+   */
+  cuts?(row: number): readonly (readonly [number, number, string?])[] | undefined;
+  /** A row that is only decoration (a frame's top or bottom edge): left out of a copy, no blank line in its place. */
+  edge?(row: number): boolean;
 }
+
+/** Cell `col` of `row` is drawn decoration (rows.cuts). */
+const isCut = (rows: SelectRows, row: number, col: number): boolean => !!rows.cuts?.(row)?.some(([a, b]) => col >= a && col < b);
 
 // The tints below are the theme's (src/theme.ts): `let`s set again on a theme switch, so every importer draws the new one.
 /** The person's selection: calm, readable over any text colour, on the board and under kitty+crt. */
@@ -58,12 +68,13 @@ export function cellsOf(line: string): string[] {
 }
 
 /** Rows made from drawn lines. */
-export function rowsOf(lines: readonly string[], margin?: (row: number) => number): SelectRows {
+export function rowsOf(lines: readonly string[], margin?: (row: number) => number, trim?: (row: number) => { cuts: [number, number, string?][]; edge?: true } | undefined): SelectRows {
   const cache = new Map<number, string[]>();
   return {
     count: lines.length,
     cells: r => { let c = cache.get(r); if (!c) cache.set(r, c = cellsOf(lines[r] ?? "")); return c; },
     margin,
+    ...(trim ? { cuts: (r: number) => trim(r)?.cuts, edge: (r: number) => !!trim(r)?.edge } : {}),
   };
 }
 
@@ -91,25 +102,36 @@ export class Selection {
   text(rows: SelectRows): string {
     const s = this.start, e = this.end, out: string[] = [];
     for (let r = s.row; r <= e.row && r < rows.count; r++) {
+      if (rows.edge?.(r)) continue;
       const cells = rows.cells(r), m = rows.margin?.(r) ?? 0;
       const from = Math.max(m, r === s.row ? s.col : 0), to = Math.min(cells.length, r === e.row ? e.col + 1 : cells.length);
-      out.push(to > from ? cells.slice(from, to).join("").trimEnd() : "");
+      const cuts = rows.cuts?.(r);
+      // A cut with a replacement (a bullet glyph drawn for the note's "- ") gives the replacement once, where its first cell is.
+      const kept: string[] = [];
+      if (to > from) for (let c = from; c < to; c++) {
+        const cut = cuts?.find(([a, b]) => c >= a && c < b);
+        if (!cut) kept.push(cells[c]!);
+        else if (cut[2] && c === Math.max(cut[0], from)) kept.push(cut[2]);
+      }
+      out.push(kept.join("").trimEnd());
     }
     return out.join("\n");
   }
 }
 
 const isSpace = (c: string | undefined) => c === undefined || /\s/.test(c);
+/** Blank, or drawn decoration (a word or a line doesn't start or end on one). */
+const blankAt = (rows: SelectRows, row: number, cells: readonly string[], col: number) => isSpace(cells[col]) || isCut(rows, row, col);
 
 /** Double click: the word under `p` (a run of non-blanks), or the blank run it's in. */
 export function wordAt(rows: SelectRows, p: Pos): Selection {
   const cells = rows.cells(p.row), m = rows.margin?.(p.row) ?? 0;
   const col = Math.max(m, Math.min(p.col, cells.length - 1));
   if (col < 0 || col >= cells.length) return new Selection({ ...p }, { ...p });
-  const blank = isSpace(cells[col]);
+  const blank = blankAt(rows, p.row, cells, col);
   let a = col, b = col;
-  while (a > m && isSpace(cells[a - 1]) === blank) a--;
-  while (b + 1 < cells.length && isSpace(cells[b + 1]) === blank) b++;
+  while (a > m && blankAt(rows, p.row, cells, a - 1) === blank) a--;
+  while (b + 1 < cells.length && blankAt(rows, p.row, cells, b + 1) === blank) b++;
   return new Selection({ row: p.row, col: a }, { row: p.row, col: b });
 }
 
@@ -117,9 +139,33 @@ export function wordAt(rows: SelectRows, p: Pos): Selection {
 export function lineAt(rows: SelectRows, row: number): Selection {
   const cells = rows.cells(row), m = rows.margin?.(row) ?? 0;
   let start = m, end = cells.length - 1;
-  while (end > m && isSpace(cells[end])) end--;
-  while (start < end && isSpace(cells[start])) start++;
+  while (end > m && blankAt(rows, row, cells, end)) end--;
+  while (start < end && blankAt(rows, row, cells, start)) start++;
   return new Selection({ row, col: start }, { row, col: Math.max(start, end) });
+}
+
+/**
+ * `line` with `glyph` (in `style`) in visible cell `col`, when that cell is blank, a rule `─` or past the line's end (then the line is
+ * padded to it); else null: the control doesn't cover text. The line's own colours stay for the cells after it.
+ */
+export function putCell(line: string, col: number, glyph: string, style: string): string | null {
+  let out = "", at = 0, state = "";
+  for (const part of line.split(SGR)) {
+    if (!part) continue;
+    if (part.startsWith("\x1b[")) { state = part === RESET || part === "\x1b[m" ? "" : state + part; out += part; continue; }
+    for (const c of part) {
+      const w = TAG.test(c) ? 0 : glyphWidth(c);
+      if (!w) { out += c; continue; }
+      // Counted in terminal columns, as the control's place is: a wide character before it moves it, one on it covers text.
+      if (col >= at && col < at + w) {
+        if (w !== 1 || (c !== " " && c !== "─")) return null;
+        out += style + glyph + RESET + state;
+      } else out += c;
+      at += w;
+    }
+  }
+  if (at > col) return out;
+  return out + RESET + " ".repeat(col - at) + style + glyph + RESET;
 }
 
 /**
