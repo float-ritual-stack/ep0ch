@@ -164,7 +164,7 @@ serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `ou
 `outline_links` and `resources/read` of `ep0ch://` URIs from one implementation, each outline gated by
 `ep0ch mcp access` (`none` by default). The remote gateway also writes where an outline's access is `propose` or
 `full` (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`: the Claude mod's operations, as
-`mcp:<client>`), and queues writes to another machine's outline until that machine pulls them (PIE-615). The door
+`mcp:<client>`), and queues writes to another machine's outline until that machine pulls them (PIE-615); `outline_write_status` follows a queued write, `outline_read` shows the caller's own queued edits as `pending`, and `outline_query` runs the views' grammar or a saved view (PIE-648). The door
 README's "Remote MCP gateway" has the setup.
 
 ## The shell: screens and lists

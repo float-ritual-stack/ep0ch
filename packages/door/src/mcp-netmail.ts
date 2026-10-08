@@ -58,7 +58,23 @@ export interface NetmailEntry {
 }
 
 /** What an entry became on its home machine. */
-export interface NetmailSettled { id: string; state: "applied" | "proposed" | "unchanged" | "refused"; said: string; uri?: string; at: string }
+export interface NetmailSettled {
+  id: string; state: "applied" | "proposed" | "unchanged" | "refused"; said: string; uri?: string; at: string;
+  /** The revision the block had once applied (a patch, a property or a new block), when the write made one. */
+  revision?: number;
+  /** A proposal's URI, when it became one: the receipt (outline_write_status) follows it in the mirror. */
+  proposal?: string;
+}
+
+/** An entry as the receipt reads it: what was queued, and what it became (state `queued` until its home machine tells). */
+export interface NetmailReceipt extends NetmailEntry {
+  state: "queued" | NetmailSettled["state"];
+  settledAt: string | null;
+  said: string | null;
+  resultUri: string | null;
+  resultRevision: number | null;
+  proposalUri: string | null;
+}
 
 /** One machine's queue, as list_outlines, doctor and the backup job show it. */
 export interface NetmailSummary { machine: string; waiting: number; oldest: string | null; lastPull: string | null; byOutline: Record<string, number> }
@@ -74,7 +90,18 @@ export function netmailFile(env: Env = process.env): string {
   return join(folder, ".netmail.sqlite");
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+const entryOf = (r: Record<string, unknown>): NetmailEntry => ({
+  id: r.id as string, machine: r.machine as string, outline: r.outline as string, uri: r.uri as string, blockId: r.block_id as string,
+  tool: r.tool as McpWriteTool, input: JSON.parse(r.input as string), revision: r.revision as number | null, mirrorRevision: r.mirror_revision as number | null,
+  textHash: r.text_hash as string | null, instanceId: r.instance_id as string | null, level: r.level as McpAccessLevel, actorId: r.actor_id as string,
+  subject: r.subject as string, clientId: r.client_id as string | null, queuedAt: r.queued_at as string,
+});
+const receiptOf = (r: Record<string, unknown>): NetmailReceipt => ({
+  ...entryOf(r), state: r.state as NetmailReceipt["state"], settledAt: r.settled_at as string | null, said: r.said as string | null,
+  resultUri: r.result_uri as string | null, resultRevision: r.result_revision as number | null, proposalUri: r.proposal_uri as string | null,
+});
 
 /** The hub's queue: one SQLite file, one writer at a time (SQLite's own lock), opened per use. */
 export class Netmail {
@@ -94,7 +121,7 @@ export class Netmail {
           id TEXT PRIMARY KEY, machine TEXT NOT NULL, outline TEXT NOT NULL, uri TEXT NOT NULL, block_id TEXT NOT NULL,
           tool TEXT NOT NULL, input TEXT NOT NULL, revision INTEGER, mirror_revision INTEGER, text_hash TEXT, instance_id TEXT,
           level TEXT NOT NULL, actor_id TEXT NOT NULL, subject TEXT NOT NULL, client_id TEXT, queued_at TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'queued', settled_at TEXT, said TEXT, result_uri TEXT
+          state TEXT NOT NULL DEFAULT 'queued', settled_at TEXT, said TEXT, result_uri TEXT, result_revision INTEGER, proposal_uri TEXT
         );
         CREATE INDEX entries_waiting ON entries (machine, state, queued_at);
         CREATE TABLE pulls (machine TEXT PRIMARY KEY, at TEXT NOT NULL);
@@ -103,7 +130,7 @@ export class Netmail {
     } catch (e) { this.db.exec("ROLLBACK"); this.db.close(); throw e; }
     if (version !== 0 && version !== SCHEMA_VERSION) {
       this.db.close();
-      throw new Error(`${path} is netmail store version ${version}; this ep0ch reads version ${SCHEMA_VERSION} (move it aside once the home machines have pulled it, and the next write makes a new one)`);
+      throw new Error(`${path} is netmail store version ${version}; this ep0ch reads version ${SCHEMA_VERSION} (${version === 1 ? `bun ${join(import.meta.dir, "..", "scripts", "migrations", "netmail-v1-to-v2.ts")} ${path}` : "move it aside once the home machines have pulled it, and the next write makes a new one"})`);
     }
   }
 
@@ -118,20 +145,26 @@ export class Netmail {
   /** The machine's waiting entries, oldest first; `pulled` records that it dialed in. */
   take(machine: string, pulled?: number): NetmailEntry[] {
     if (pulled !== undefined) this.db.query("INSERT INTO pulls (machine, at) VALUES (?, ?) ON CONFLICT(machine) DO UPDATE SET at = excluded.at").run(machine, new Date(pulled).toISOString());
-    const rows = this.db.query("SELECT * FROM entries WHERE machine = ? AND state = 'queued' ORDER BY queued_at, rowid").all(machine) as Record<string, unknown>[];
-    return rows.map(r => ({
-      id: r.id as string, machine: r.machine as string, outline: r.outline as string, uri: r.uri as string, blockId: r.block_id as string,
-      tool: r.tool as McpWriteTool, input: JSON.parse(r.input as string), revision: r.revision as number | null, mirrorRevision: r.mirror_revision as number | null,
-      textHash: r.text_hash as string | null, instanceId: r.instance_id as string | null, level: r.level as McpAccessLevel, actorId: r.actor_id as string,
-      subject: r.subject as string, clientId: r.client_id as string | null, queuedAt: r.queued_at as string,
-    }));
+    return (this.db.query("SELECT * FROM entries WHERE machine = ? AND state = 'queued' ORDER BY queued_at, rowid").all(machine) as Record<string, unknown>[]).map(entryOf);
+  }
+
+  /** One entry with what it became so far, or none. */
+  receipt(id: string): NetmailReceipt | null {
+    const r = this.db.query("SELECT * FROM entries WHERE id = ?").get(id) as Record<string, unknown> | null;
+    return r ? receiptOf(r) : null;
+  }
+
+  /** A caller's entries about one block, oldest first: its pending ones (`queued`), or all of them. */
+  forBlock(outline: string, blockId: string, who: { actorId: string; subject: string }, pending = true): NetmailReceipt[] {
+    return (this.db.query(`SELECT * FROM entries WHERE outline = ? AND block_id = ? AND actor_id = ? AND subject = ?${pending ? " AND state = 'queued'" : ""} ORDER BY queued_at, rowid`)
+      .all(outline, blockId, who.actorId, who.subject) as Record<string, unknown>[]).map(receiptOf);
   }
 
   /** Records what the machine's entries became; an id it doesn't hold waiting is skipped. Returns how many settled. */
   settle(machine: string, results: NetmailSettled[]): number {
-    const q = this.db.query("UPDATE entries SET state = ?, settled_at = ?, said = ?, result_uri = ? WHERE id = ? AND machine = ? AND state = 'queued'");
+    const q = this.db.query("UPDATE entries SET state = ?, settled_at = ?, said = ?, result_uri = ?, result_revision = ?, proposal_uri = ? WHERE id = ? AND machine = ? AND state = 'queued'");
     let n = 0;
-    this.db.transaction(() => { for (const r of results) n += q.run(r.state, r.at, r.said, r.uri ?? null, r.id, machine).changes; })();
+    this.db.transaction(() => { for (const r of results) n += q.run(r.state, r.at, r.said, r.uri ?? null, Number.isInteger(r.revision) ? r.revision! : null, typeof r.proposal === "string" ? r.proposal : null, r.id, machine).changes; })();
     return n;
   }
 
@@ -285,6 +318,13 @@ export interface PullResult { ok: boolean; detail: string; taken: number; settle
 /** The service answered no (or the operation refused before writing): the entry is settled as refused. */
 const definitive = (e: unknown) => e instanceof Refused || (e as Error)?.name === "WorkToolRefusal" || (e as Error)?.name === "DraftPatchRefusal";
 
+/** What a receipt keeps of a write's answer: the revision it made, or the proposal it became (as the agent operations answer). */
+function receiptDetail(done: WriteOutcome, uri: (blockId: string) => string): Pick<NetmailSettled, "revision" | "proposal"> {
+  const d = done.detail as { edits?: { revision?: number }[]; revision?: number; proposalId?: string } | null;
+  const revision = done.outcome === "applied" ? d?.edits?.[0]?.revision ?? d?.revision : undefined;
+  return { ...(Number.isInteger(revision) ? { revision } : {}), ...(done.outcome === "proposed" && d?.proposalId ? { proposal: uri(d.proposalId) } : {}) };
+}
+
 /**
  * Applies one queued entry to this machine's outline, as its access allows now; null when the outcome is unknown (the
  * service didn't answer), so it waits for the next pull. `retry`: a write begun before and cut off, whose block may
@@ -320,7 +360,7 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
   const effective: McpAccessLevel = e.level === "propose" || level === "propose" ? "propose" : "full";
   try {
     const done: WriteOutcome = await applyWrite(board, write, { level: effective, actor: { actorId: e.actorId, sessionId: e.subject }, uri, proposeOnly, ...(revision !== undefined ? { revision } : {}), queued: { at: e.queuedAt } });
-    return { id: e.id, state: done.outcome, said: `${done.said} (queued ${e.queuedAt})`, ...(done.uri ? { uri: done.uri } : {}), at: at() };
+    return { id: e.id, state: done.outcome, said: `${done.said} (queued ${e.queuedAt})`, ...(done.uri ? { uri: done.uri } : {}), ...receiptDetail(done, uri), at: at() };
   } catch (err) {
     if (definitive(err)) return refused(`refused here: ${(err as Error).message}`);
     return null;

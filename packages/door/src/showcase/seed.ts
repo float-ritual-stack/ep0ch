@@ -395,6 +395,7 @@ export const REMOTE_WRITES = [
   "Where the queue shows:",
   "- `ep0ch mcp queue status` on the gateway's machine: how many writes wait for each machine, the oldest, its last pull, and what the latest ones became",
   "- `list_outlines`, the MCP tool: a mirrored outline's `writes: queued` and its `queue`",
+  "- `outline_write_status`, the MCP tool: one queued write by its `queueId` (queued with the machine's last pull, applied with its revision, proposed with the proposal's URI, superseded, or rejected with why); and `outline_read` lays the caller's own still-queued edits over the mirror's text, marked ⟦pending⟧",
   "- `ep0ch doctor` and `ep0ch backup status`: a netmail line for each machine, and on the home machine its last pull",
   "- the door's status bar: an alert once writes have waited a day while their machine was online",
 ].join("\n");

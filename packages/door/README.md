@@ -627,6 +627,29 @@ read when claude.ai connects: after changing an outline's access, reconnect the 
 or go (a call is checked against the access now, whatever the list said). `list_outlines`' `tools.said` and
 `ep0ch mcp access` (when a change adds or removes the write tools) say so.
 
+### Receipts, read-your-writes and queries (PIE-648)
+
+A write to an outline whose home is another machine answers `queued` with a `queueId`. Three things follow it:
+
+- **`outline_write_status(queueId)`** says where it stands: `queued` (with that machine's last pull), `applied` (with the
+  block's revision), `proposed` (with the proposal's URI: the note had changed), `superseded` (proposed, then replaced by
+  the same caller's later write of the same kind to the same note) or `rejected` (with why: refused there, or its owner
+  dismissed the proposal). Only the caller's own writes. The home machine's pull tells the gateway what each entry became
+  (`ep0ch mcp queue settle`, over the ssh the pull already uses), with the revision it made or the proposal it became; a
+  proposal's later life (applied or dismissed by its owner, which sends it to the Trash) is read from the mirror, so it
+  shows once the next copy arrives. The queue's store is version 2: on the gateway's machine, with the gateway stopped,
+  `bun packages/door/scripts/migrations/netmail-v1-to-v2.ts ~/outline-mirrors/.netmail.sqlite --write`.
+- **Read your writes.** `outline_read` of a mirror's block adds `pending` for the caller's own still-queued writes about
+  it: `pending.body` is the body with each queued patch laid over it, every replacement between `⟦pending <id>⟧` and
+  `⟦/pending⟧` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
+  blocks and comments are listed. `record.body` stays the mirror's own text. Another caller's waiting writes are never
+  shown. Once the home machine has applied them and the mirror follows, `pending` goes.
+- **`outline_query`** runs the views' grammar (`type=outbox-item outbox=next`, `type=ticket NOT work-stage=done`; the
+  grammar of `[query::…]` and `ep0ch find --query`) or a saved view by its block id (`view`), read-only, gated by the
+  outline's access like the other reads, on a live outline or a mirror. The outline evaluates it (`blocks.query`,
+  `views.read`, through `ep0ch find`'s own selection) and the answer is block records with `uri` and `revision`, `limit`
+  (1 to 50, default 20), `offset`, `more`, `nextOffset` and `total`. A read-only copy now answers those three actions.
+
 ### Netmail: writes to another machine's outline
 
 A mirror's outline (float-hub@laptop) is never written on the gateway's machine. Its writes wait there in a store of
