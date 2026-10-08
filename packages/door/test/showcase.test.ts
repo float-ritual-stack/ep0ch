@@ -135,7 +135,9 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(seeded.notes.markdownFigures.text).toContain(`!((${block.id}))`);
     expect((await board.children(block.id)).map(k => k.text)).toEqual(["Apr: sow under glass", "**May: plant out** — when the nights are warm", "*Jun: first picking*"]);
     // Narrow, the timeline's events wrap whole (no · cut) and the spine runs down beside the wrapped note.
-    const narrow = (await drawNote(board, seeded.notes.markdownFigures.id, 40))!.map(plain);
+    // (The figure's rows load with the page, so draw until they are in.)
+    let narrow: string[] = [];
+    for (let n = 0; n < 50 && !narrow.some(l => l.includes("plant out")); n++) { narrow = (await drawNote(board, seeded.notes.markdownFigures.id, 40))!.map(plain); if (!narrow.some(l => l.includes("plant out"))) await Bun.sleep(100); }
     const tlAt = narrow.findIndex(l => l.includes("plant out"));
     expect(narrow.slice(tlAt, tlAt + 3).join("\n")).toMatch(/plant out[\s\S]*│\s+when the nights are warm/);
     // The chore queue figure sorts by a property: ranks as numbers, the chore without one last.
