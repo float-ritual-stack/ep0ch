@@ -142,17 +142,6 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 
-  test("a timeline's events wrap whole when narrow (no · cut), the spine beside the wrapped note", async () => {
-    // On a connection of its own, as `ep0ch show` beside the door would be (drawNote lends the one it is given).
-    const reader = new SocketBoard(scratch.sock);
-    await reader.info();
-    const narrow = (await drawNote(reader, seeded.notes.markdownFigures.id, 40, { quiet: 600, max: 15_000 }))!.map(plain);
-    reader.close();
-    const tlAt = narrow.findIndex(l => l.includes("plant out"));
-    expect(tlAt, narrow.join("\n")).toBeGreaterThan(-1);
-    expect(narrow.slice(tlAt, tlAt + 3).join("\n")).toMatch(/plant out[\s\S]*│\s+when the nights are warm/);
-  }, 30_000);
-
   test("every figure fits its width (PIE-581): the figures note drawn at 40, 80 and 160 columns has no line past the edge", async () => {
     for (const w of [40, 80, 160]) {
       const lines = (await drawNote(board, seeded.notes.figures.id, w))!.map(plain);
@@ -1950,6 +1939,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await own.info();
     const drawn = (await drawNote(own, seeded.notes.markdownFigures.id, 100))!.map(plain).join("\n");
     for (const m of shown) expect(drawn).toContain(m);
+    // Narrow, the timeline of child bullets wraps its note whole (no · cut) with the spine beside it.
+    const narrow = (await drawNote(own, seeded.notes.markdownFigures.id, 40))!.map(plain);
+    const tlAt = narrow.findIndex(l => l.includes("plant out"));
+    expect(tlAt, narrow.join("\n")).toBeGreaterThan(-1);
+    expect(narrow.slice(tlAt, tlAt + 3).join("\n")).toMatch(/plant out[\s\S]*│\s+when the nights are warm/);
     const keys = (await drawNote(own, seeded.notes.keys.id, 100))!.map(plain).join("\n");
     own.close();
     for (const m of ["THE READER (FROM THE REGISTRY)", "[e]", "edit", "[g] then [d]", "[ctrl][k]"]) expect(keys).toContain(m);
