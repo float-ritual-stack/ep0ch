@@ -128,6 +128,8 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       o.step?.(`${x.name}: snapshotting (VACUUM INTO)`);
       try { copyDatabase(x.path, copy); }
       catch (e) { st.error = `copying ${x.path}: ${(e as Error).message}`; failed.push(x.name); say(`✗ ${x.name}: ${st.error}`); continue; }
+      // What the copy holds, which an edit between the check above and the copy may have moved on from.
+      x.seq = changeSeq(copy) ?? x.seq; x.schema = schemaVersion(copy) ?? x.schema;
       let why = direct;
       if (!why) {
         o.step?.(`${x.name}: uploading to restic`);

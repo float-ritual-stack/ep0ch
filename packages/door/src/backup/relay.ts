@@ -42,6 +42,7 @@ const sha256 = (path: string) => new Bun.CryptoHasher("sha256").update(readFileS
 /** One outline's checked copy sent to the hub; what the hub made of it. */
 export async function relay(c: BackupConfig, hub: string, copy: string, o: { outline: string; seq: number | null; schema: number | null; timeoutMs?: number }): Promise<Received> {
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
+  if (!MACHINE_NAME.test(c.machine) || !/^\d+$/.test(String(o.seq ?? 0)) || !/^\d+$/.test(String(o.schema ?? 0))) return { ok: false, error: "the relay's arguments aren't plain names and numbers" };
   const argv = `--machine ${c.machine} --outline ${o.outline}${o.seq !== null ? ` --seq ${o.seq}` : ""}${o.schema !== null ? ` --schema ${o.schema}` : ""} --sha256 ${sha256(copy)}`;
   const r = await ssh(c.env, hub, `ep0ch backup receive ${argv}`, Bun.file(copy), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
   try { return lastJson(r.out) as Received; } catch { /* no answer from the command itself */ }
@@ -75,6 +76,8 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
   const verdict = integrity(o.part);
   if (verdict !== "ok") return { ok: false, error: `the copy failed its integrity check: ${verdict}` };
   const got = schemaVersion(o.part), seq = changeSeq(o.part);
+  // A file with no readable change feed has no order to compare by: it never replaces a mirror.
+  if (seq === null || got === null) return { ok: false, error: "the copy has no readable change feed or schema version, so it can't be ordered against the mirror" };
   if (o.schema !== null && got !== o.schema) return { ok: false, error: `the copy is schema ${got ?? "?"}, not the ${o.schema} it was sent as` };
   if (o.seq !== null && seq !== o.seq) return { ok: false, error: `the copy is at change ${seq ?? "?"}, not the ${o.seq} it was sent as` };
   const release = await lockFor(c, o.lockWaitMs ?? 90_000);
@@ -89,8 +92,8 @@ export async function receive(c: BackupConfig, o: { machine: string; outline: st
     const have = existsSync(file) ? schemaVersion(file) : null, haveSeq = existsSync(file) ? changeSeq(file) : null;
     let mirror: NonNullable<Received["mirror"]>;
     // A newer schema there stays; the same schema takes a later change, never an earlier one (#286's rule).
-    if (have !== null && got !== null && got < have) mirror = "older";
-    else if (!existsSync(file) || (have !== null && got !== null && got > have) || haveSeq === null || seq === null || newer({ seq }, { seq: haveSeq })) {
+    if (have !== null && got < have) mirror = "older";
+    else if (!existsSync(file) || (have !== null && got > have) || haveSeq === null || newer({ seq }, { seq: haveSeq })) {
       const tmp = join(folder, `.${o.outline}.sqlite.incoming-${process.pid}`);
       tmpFiles.push(tmp);
       copyFileSync(o.part, tmp); chmodSync(tmp, 0o600);

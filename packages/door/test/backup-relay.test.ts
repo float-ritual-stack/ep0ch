@@ -172,6 +172,12 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(await r({ schema: 5 })).toMatchObject({ ok: false, error: expect.stringContaining("schema 3, not the 5") });
     expect(await r({ machine: "stranger" })).toMatchObject({ ok: false, error: expect.stringContaining("doesn't mirror stranger") });
     expect(await r({ machine: "float-2" })).toMatchObject({ ok: false });
+    // A database with no change feed has no order to compare by: it never replaces a mirror.
+    rmSync(part, { force: true });
+    const bare = new Database(part); bare.run("CREATE TABLE blocks (id TEXT)"); bare.run("PRAGMA user_version = 3"); bare.close();
+    const before = changeSeq(hubCopy());
+    expect(await r({ seq: null })).toMatchObject({ ok: false, error: expect.stringContaining("no readable change feed") });
+    expect(changeSeq(hubCopy())).toBe(before);
     writeFileSync(part, "not a database");
     expect(await r({})).toMatchObject({ ok: false, error: expect.stringContaining("integrity") });
   });
