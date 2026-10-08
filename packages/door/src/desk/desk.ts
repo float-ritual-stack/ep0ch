@@ -2312,12 +2312,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose opens land in itself (the welcome's preview) says nothing about where they go.
     const link = this.layout.links.get(id);
     if (link !== undefined && link !== id && this.panes.has(link)) {
-      put(` → ${this.nameOf(link)}`, fg(C.lmagenta));
       // What the link does (PIE-646), when there is a choice: a click on it changes it (tile.link role=), as the tile menu does.
-      if (this.linkChoice(id)) {
-        const role = this.layout.linkRoles.get(id) ?? "preview", from = xNow();
-        put(` ${role === "target" ? "⏎ target" : "◌ preview"}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
-      }
+      // In a narrow header the role's glyph leads, so the name being cut short never hides it.
+      const to = this.nameOf(link), role = this.linkChoice(id) ? this.layout.linkRoles.get(id) ?? "preview" : null;
+      const word = role === "target" ? "⏎ target" : "◌ preview";
+      if (role && ` → ${to} ${word}`.length <= max - xNow() - 10) {
+        put(` → ${to}`, fg(C.lmagenta));
+        const from = xNow(); put(` ${word}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
+      } else if (role) {
+        const from = xNow(); put(` ${word[0]}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
+        put(`→ ${to}`, fg(C.lmagenta));
+      } else put(` → ${to}`, fg(C.lmagenta));
     } else if (this.linkVia(id) === "origin") put(` ⏎ ${this.nameOf(this.originId(id)!)}`, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     const ag = this.agentOf(id).level;
