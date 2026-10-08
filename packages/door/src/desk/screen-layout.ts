@@ -24,7 +24,7 @@ import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
-  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
@@ -171,6 +171,13 @@ export type Op<I = number> =
   | { op: "replace"; tile: I; with: I; kind: string; name?: string }
   /** A tile leaves this layout whole, to go on elsewhere (your drawer, PIE-498): moved, not closed. */
   | { op: "take"; tile: I; heir?: { id: I; name?: string } }
+  /**
+   * A group (PIE-651): tile `tile`, or the container `node` (its id or key), and the tiles `take` names, leave this
+   * layout whole, and a new tile `with` (a group tile holding them as its own screen) takes the place of `tile` or `node`.
+   */
+  | { op: "group"; tile?: I; node?: string; take?: I[]; with: I; kind: string; name?: string }
+  /** A group tile `tile` spills back (PIE-651): `tree`, its tiles under new ids with their `names`, takes its place. */
+  | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][]; folds?: [I, Fold][]; agents?: [I, AgentLevel][]; links?: [I, I, LinkRole | undefined][] }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
   | { op: "float"; tile: I; at?: At<I> }
@@ -221,6 +228,10 @@ const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
   links: new Map(s.links), linkRoles: new Map(s.linkRoles), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
+
+/** The leaf node of tile `id` where it stands alone (not a tab): what a group's tree replaces. */
+const findLeaf = <I>(n: LNode<I>, id: I): LNode<I> | null =>
+  n.t === "leaf" ? (n.id === id ? n : null) : n.t === "tabs" ? null : kidsOf(n).reduce<LNode<I> | null>((f, k) => f ?? findLeaf(k, id), null);
 
 /** The tests run with the state frozen: a caller that changes it in place, past `apply`, throws there. */
 const FREEZE = process.env.NODE_ENV === "test";
@@ -621,6 +632,8 @@ class Step<I> {
       case "close": return this.close(op.tile, !!op.gone);
       case "replace": return this.replace(op);
       case "take": return this.take(op.tile, op.heir);
+      case "group": return this.group(op);
+      case "ungroup": return this.ungroup(op);
       case "move": return this.move(op.tile, op.to);
       case "swap": return this.swap(op.tile, op.with);
       case "float":
@@ -672,6 +685,8 @@ class Step<I> {
       case "close": return no(op.tile, "closing it");
       case "replace": return no(op.tile, "replacing it");
       case "take": return no(op.tile, "taking it away");
+      case "group": { const nd = op.node !== undefined ? nodeById(this.d.tree, op.node) ?? node(this.d.tree, op.node) : null; return each([...(nd ? leaves(nd) : op.tile !== undefined ? [op.tile] : []), ...(op.take ?? [])], "gathering it into a group"); }
+      case "ungroup": return no(op.tile, "spilling its group");
       case "move": no(op.tile, "moving it"); if (op.to.kind === "tabs") no(op.to.target, "putting another tile in its tabs"); return;
       case "swap": no(op.tile, "swapping it"); return no(op.with, "swapping it");
       case "float": return no(op.tile, "floating it");
@@ -878,6 +893,76 @@ class Step<I> {
       if (had) this.d.focus = heir.id;
     } else this.lift(id);
     this.d.answer = { tile: name, taken: true, ...(heir ? { heir: this.d.names.get(heir.id) } : {}) };
+  }
+  /**
+   * Tiles leave the layout whole into a group tile (PIE-651), which takes the place of tile `op.tile` or container
+   * `op.node`: the move rules ask of each (not out of a locked shape or a container that keeps its tiles, never the tile
+   * the person types in, an agent never the one with their keys), and the screen keeps a tile (the group).
+   */
+  private group(op: Extract<Op<I>, { op: "group" }>) {
+    if (this.all().includes(op.with)) refuse(`${this.name(op.with)} is in the layout already`);
+    const target: LNode<I> | null = op.node !== undefined ? nodeById(this.d.tree, op.node) ?? node(this.d.tree, op.node) : null;
+    if (op.node !== undefined && !target) refuse(`there's no container ${op.node} in the layout`);
+    if (op.node === undefined) { if (op.tile === undefined) refuse("a group gathers a tile (tile=) or a container (node=)"); this.present(op.tile!); this.notFloat(op.tile!, "gathering it into a group"); }
+    const inside = target ? leaves(target) : [op.tile!];
+    const extra = (op.take ?? []).filter(t => !inside.includes(t));
+    const all = [...inside, ...extra];
+    if (!all.length) refuse(`${op.node} holds no tiles to gather`);
+    for (const t of all) {
+      this.present(t);
+      const name = this.name(t);
+      this.guard(t, "move");
+      this.drag(t);
+      const e = this.policyAt(t), f = this.facts(t);
+      if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
+      if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
+      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't gather it into a group`);
+    }
+    // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.
+    if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
+    const had = all.includes(this.d.focus);
+    // The tiles taken beside it leave first; then the gathered place becomes the group tile.
+    for (const t of extra) { const fl = this.isFloat(t); const next = fl ? this.d.tree : remove(this.d.tree, t); if (!next) refuse(`${this.name(t)} is the screen's last tile`); this.d.tree = normalise(next!); this.d.floats = this.d.floats.filter(f => f.id !== t); }
+    if (target) this.d.tree = replaceNode(this.d.tree, target, leaf(op.with));
+    else if (this.isFloat(op.tile!)) refuse(`${this.name(op.tile!)} is a float`);
+    else swapLeaf(this.d.tree, op.tile!, op.with);
+    this.d.tree = normalise(this.d.tree);
+    const names = all.map(t => this.name(t));
+    for (const t of all) this.forget(t);
+    let name = op.name;
+    if (name !== undefined && named(this.d, name) !== undefined) name = undefined;
+    this.d.names.set(op.with, name ?? autoName(this.d, op.kind));
+    if (had) this.d.focus = op.with;
+    this.d.answer = { tile: this.d.names.get(op.with), grouped: names };
+  }
+  /** A group tile gives its place back to its tiles (PIE-651): `op.tree`, laid out as the group held them. */
+  private ungroup(op: Extract<Op<I>, { op: "ungroup" }>) {
+    this.present(op.tile);
+    const name = this.name(op.tile);
+    this.notFloat(op.tile, `spilling ${name}`);
+    this.shape(op.tile, `spilling ${name}`);
+    this.guard(op.tile, "spill");
+    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't spill it`);
+    const fresh = leaves(op.tree);
+    if (!fresh.length) refuse(`${name} holds no tiles`);
+    for (const t of fresh) if (this.all().includes(t)) refuse(`${this.name(t)} is in the layout already`);
+    // Its containers come in under ids of this layout's own (stamped as the step ends), never the group's.
+    const tree = clone(op.tree);
+    const strip = (n: LNode<I>) => { if (n.t !== "leaf") { delete (n as { id?: string }).id; kidsOf(n).forEach(strip); } };
+    strip(tree);
+    const had = this.d.focus === op.tile;
+    if (tabsOf(this.d.tree, op.tile) && tree.t !== "leaf") refuse(`${name} is a tab: a tab holds one tile or a group, so it stays a group there · move it out of the tab set first (^W T)`);
+    if (tree.t === "leaf") swapLeaf(this.d.tree, op.tile, tree.id);
+    else this.d.tree = replaceNode(this.d.tree, findLeaf(this.d.tree, op.tile)!, tree);
+    this.d.tree = normalise(this.d.tree);
+    this.forget(op.tile);
+    for (const [t, n] of op.names) this.d.names.set(t, named(this.d, n) === undefined ? n : autoName(this.d, n.replace(/[-\d]+$/, "") || "tile"));
+    // What the group's layout said of each tile comes with it: its spine, what an agent may do to it, its links among them.
+    for (const [t, f] of op.folds ?? []) if (fresh.includes(t)) this.d.collapsed.set(t, { ...f });
+    for (const [t, l] of op.agents ?? []) if (fresh.includes(t)) this.d.agents.set(t, l);
+    for (const [t, to, role] of op.links ?? []) if (fresh.includes(t) && fresh.includes(to)) { this.d.links.set(t, to); if (role) this.d.linkRoles.set(t, role); }
+    if (had) this.d.focus = fresh[0]!;
+    this.d.answer = { tile: name, spilled: fresh.map(t => this.d.names.get(t)) };
   }
   /** Tile `id` out of the tree (or the floats), its flow column passed on, the keys to its heir. */
   private lift(id: I) {

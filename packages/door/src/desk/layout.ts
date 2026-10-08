@@ -387,6 +387,24 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   return { ...n, kids, weights };
 }
 
+/**
+ * Node `target` (by identity) gives its place to `by`: its parent's kid (a split's, columns', a flow's, a dock's) or the
+ * root, its weight kept (PIE-651: a container gathered into a group tile, a group tile spilled back as its tree). Changes
+ * the tree in place; answers the root, which is `by` when `target` was the root.
+ */
+export function replaceNode<I>(root: LNode<I>, target: LNode<I>, by: LNode<I>): LNode<I> {
+  if (root === target) return by;
+  const walk = (n: LNode<I>): boolean => {
+    if (n.t === "dock") { if (n.kid === target) { n.kid = by; return true; } return walk(n.kid); }
+    if (!isLine(n)) return false;
+    const i = n.kids.indexOf(target);
+    if (i >= 0) { n.kids[i] = by; return true; }
+    return n.kids.some(walk);
+  };
+  walk(root);
+  return root;
+}
+
 /** Leaf `from` becomes leaf `to` where it is (its place, its weight, its tab), and a flow's memory of it too. Changes the tree in place. */
 export function swapLeaf<I>(n: LNode<I>, from: I, to: I): boolean {
   if (n.t === "leaf") { if (n.id !== from) return false; (n as { id: I }).id = to; return true; }

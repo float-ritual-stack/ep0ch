@@ -10,8 +10,10 @@ import { boardSpec } from "./delivery";
 import { BLANK_KIND, blankSpec } from "./blank";
 import { LIBRARY_KIND, librarySpec } from "../library/library";
 import { riverSpec } from "../river/column";
-import { Desk, deskSpec } from "./desk";
-import { registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
+import { Desk, deskSpec, type DeskOpts } from "./desk";
+import { groupSpec, partSpec, registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
+import type { Pane } from "./panes";
+import { outlineState, readState } from "../state";
 import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
@@ -57,4 +59,30 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
   // What it was opened on (its target: detail's note, the board's hub), so a session brings it back on the same.
   const arg = screenTargetArg(name), target = arg ? args?.[arg] : undefined;
   return new Desk(spec, { writes: args?.persist !== false, ...(typeof target === "string" && target ? { openArgs: { target } } : {}) });
+}
+
+/**
+ * The desk inside a mount (PIE-651): screen `m.screen`'s spec (its part `m.part` alone, `partSpec`), or a group's own
+ * tree, laid out as `m.saved` (the mount's tile spec keeps it). It never writes the full screen's file: a save is the
+ * screen holding the mount saving (`onSave`). A whole screen's first mount starts as its full screen was last left
+ * (its file read, never written); a part's takes only what its models kept (the hub the board remembers).
+ */
+export function mountDesk(m: { screen: string | null; args?: Record<string, unknown>; part?: string | null; saved?: unknown; label?: string; given?: ReadonlyMap<string, Pane> },
+  opts: Pick<DeskOpts, "onSave" | "outward">): Desk {
+  if (!m.screen) {
+    const root = (m.saved as { root?: unknown } | undefined)?.root;
+    if (!root) throw new Error("a group with no tiles in it");
+    return new Desk(groupSpec(root, m.label), { saved: m.saved, ...(m.given ? { given: m.given, adopt: true } : {}), writes: false, ...opts });
+  }
+  if (m.screen === "desk") throw new Error("the desk holds mounts; it isn't mounted in itself");
+  const full = screenSpec(m.screen, m.args);
+  if (!full) throw new Error(`no screen ${m.screen}; screens: ${screenNames().join(", ")}`);
+  const spec = m.part ? partSpec(full, m.part) : full;
+  let saved = m.saved;
+  if (saved === undefined && full.saves) {
+    const s = readState<{ models?: unknown } | null>(full.saves, outlineState());
+    saved = m.part ? (s?.models ? { models: s.models } : undefined) : s ?? undefined;
+  }
+  const arg = screenTargetArg(m.screen), target = arg ? m.args?.[arg] : undefined;
+  return new Desk(spec, { writes: false, ...(saved !== undefined ? { saved } : {}), ...(typeof target === "string" && target ? { openArgs: { target } } : {}), ...opts });
 }

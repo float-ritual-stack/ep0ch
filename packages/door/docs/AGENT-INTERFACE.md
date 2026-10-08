@@ -138,6 +138,7 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
+| `tile=<mount>/<tile>` on any action (PIE-651) | a tile inside a screen mounted in a tile (`tile.open kind=screen screen=board`, a part, a group): the action runs on that screen, as `act` there would; `expected=` is its revision (`layout.get`'s `mount.layout.rev`). `tile=<mount>/` names none (the mounted screen's own default) |
 | `tile.menu tile=<tile>` | the tile's menu as data (PIE-492), `rows`: each `action` with the `args` and `tile` (its id) it would run with, its `label`, `group` (Tile, Note, Reader, Terminal, Board, an extension kind's name), `key` (a key name, the person's keycap) and, when it would be refused now, `refused` with why, checked for you as the actor. Nothing is drawn and the person's keys stay where they are; run a row with `act <action> tile=<tile> <args>`. The person's `tile.menu` opens it over their screen (`at=<col,row>`, else under the tile's `⋯`) |
 | `marks.list` | every mark, and the tiles showing it |
 | `layout.list` | the layouts that can be loaded, saved or built in |

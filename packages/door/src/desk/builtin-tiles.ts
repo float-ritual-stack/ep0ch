@@ -10,7 +10,7 @@ import { ART_ACTIONS } from "../art-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { PTY_ACTIONS } from "./pty-actions";
-import { ScreenTile, type ScreenKind } from "./screen-tile";
+import { mountKinds } from "./screen-tile";
 import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
@@ -41,18 +41,6 @@ const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take
     return { viewport: { block: m?.id ?? null, title: m ? subject(m) : null, ...(r.surface.viewport() ?? {}) }, cursor: sel ? { selection: r.surface.describeSelection(sel) } : null };
   },
 };
-/** A whole screen in a tile: its card is what it shows; a draft in it is work. */
-const screen = (kind: ScreenKind, key: string, about: string): TileKind => ({
-  kind, about, keys: [{ key, label: kind }],
-  make: s => new ScreenTile(kind, { preview: s.preview }),
-  // A whole screen keeps its own keys while it's in an edit, answers its own actions (the board's card.*) and animates.
-  takesKeys: p => (p as ScreenTile).holdsKeys(),
-  dispatcher: p => (p as ScreenTile).screen?.dispatch ?? null,
-  tick: p => (p as ScreenTile).tick(),
-  holdsWork: p => (p as ScreenTile).unsaved(),
-  shows: p => (p as ScreenTile).current(),
-  view: p => { const t = p as ScreenTile, m = t.current(); return { viewport: { screen: t.screen?.title ?? null, selected: m?.id ?? null } }; },
-});
 /** The note a tile shows or has selected, whatever its kind. */
 const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) ?? null : null);
 
@@ -162,12 +150,8 @@ const builtins = (): TileKind[] => [
   { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
   { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
-  {
-    ...screen("board", "k", "the kanban board as a tile; tile.preview gives its card to a preview tile"),
-    // The board's own preview strip gives its place to the preview tile (collapsed to a spine, as its `c` does).
-    previewSource: async (p, name, actor) => { await (p as ScreenTile).ownPreview(false, actor); return `tile:${name}`; },
-  },
-  screen("river", "v", "the river (Quay) as a tile, its columns and open rule its own"),
+  // A screen mounted in a tile (PIE-651): any screen, a part of one, a group; the board and river by their older kinds.
+  ...mountKinds(),
   {
     kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
