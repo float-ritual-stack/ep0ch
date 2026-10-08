@@ -43,7 +43,7 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, loadShowcase, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
 
@@ -175,6 +175,19 @@ export const SECTIONS: Section[] = [
         void d.press(a, NOTE_ACTIONS, "edit");
         void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));
       });
+    },
+  },
+  {
+    key: "kept", need: "see what an unsent edit changes against a note that has moved on, and add it, keep it or let it go", part: "the kept edit's three-way comparison (compareDraft: its base from the draft or the note's history, the draft, the note now): each of the edit's own changes is already in the note, still new or changed differently since; the reader's line says so in one sentence and offers [show them]/[compare] [add them] [keep as a note] [let it go] (unsent.*); an edit the note already has settles quietly, and an old one folds to a chip", files: "src/unsent-compare.ts, src/unsent.ts, src/draft-session.ts, src/surface/note.ts",
+    aside: "left: an edit with a line the note lacks (the note changed once since, in another place): [show them] marks only the edit's own change, [add them] puts it into an edit as one patch (ctrl+z takes it back) · middle: an edit the note already has: it settled by itself when this reader opened, kept as a copy, one dim line · right: an edit from five days ago folds to \"1 old edit\"; [show] opens it: the line it rewrote was rewritten differently since, and [compare] shows both versions (src/unsent-compare.ts)",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      // Edits kept on three notes, each changed once since (fictional): the outline's history has the text they began as.
+      const day = 86_400_000, put = (m: Msg | undefined, text: string, ago: number) => {
+        if (m && !unsent(`edit:${m.id}`)) keepUnsent({ key: `edit:${m.id}`, text, base: Math.max(0, (m.revision ?? 1) - 1), at: Date.now() - ago, copy: null });
+      };
+      put(n.rota, KEPT.rota.draft, day); put(n.hedge, KEPT.hedge.draft, 2 * day); put(n.compost, KEPT.compost.draft, 5 * day);
+      return deskOf({ title: "showcase · kept edits", panes: [a, b, c], names: ["rota", "hedge", "compost"], layout: ([x, y, z]) => pair("row", 0.34, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.rota], [b, n.hedge], [c, n.compost]]);
     },
   },
   {

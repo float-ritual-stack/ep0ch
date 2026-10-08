@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unsentEntries } from "../src/unsent";
-import { blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
+import { keepUnsent, blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
 import { SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -50,7 +50,7 @@ function keys(s: DraftSession, ks: (Key | string)[]): DraftCommand[] {
 const ESC: Key = { kind: "esc" };
 
 /** The reader's `■ unsent` lines for note `id` (src/unsent.ts), as text. */
-const unsentOn = (id: string, revision?: number) => unsentEntries(id, revision, () => "earlier").map(e => e.text);
+const unsentOn = (id: string, revision?: number, text = "") => unsentEntries(id, revision, revision === undefined ? {} : { text }, () => "earlier").map(e => e.text);
 
 describe("the lifecycle, on a fake target", () => {
   test("esc on nothing typed asks to close; esc, esc on typed text asks to discard, which puts it aside with a copy", () => {
@@ -58,20 +58,20 @@ describe("the lifecycle, on a fake target", () => {
     const s = DraftSession.open(t, {});
     expect(keys(s, [ESC])).toEqual(["close"]);
     expect(keys(s, ["- keep the brass ones", ESC])).toEqual([]);
-    expect(s.draft.note).toContain("esc again puts it aside");
+    expect(s.draft.note).toContain("esc again keeps it here");
     expect(keys(s, [ESC])).toEqual(["discard"]);
     const r = s.close(true);
-    expect([s.open, s.ended, r.said]).toEqual([false, "aside", expect.stringContaining("put aside as unsent · C and a passage bring it back · a copy is at")]);
+    expect([s.open, s.ended, r.said]).toEqual([false, "aside", expect.stringContaining("kept here · C and a passage bring it back · a copy is at")]);
     const u = unsent("comment:note-lantern")!;
     expect(u.text).toBe("- keep the brass ones");
     expect(readFileSync(u.copy!, "utf8")).toBe("- keep the brass ones\n");
     // Opened again at the same place: it comes back, said; esc twice on it unchanged drops it, its copy kept.
     const again = DraftSession.open(t, {});
     expect(again.draft.text).toBe("- keep the brass ones");
-    expect(again.draft.note).toContain("brought back your unsent draft");
+    expect(again.draft.note).toContain("brought back your edit");
     expect(unsent("comment:note-lantern")).toBeNull();
     expect(keys(again, [ESC, ESC])).toEqual(["discard"]);
-    expect(again.close(true).said).toContain("dropped the unsent draft · a copy stays at");
+    expect(again.close(true).said).toContain("let go of the kept draft · a copy stays at");
     expect(unsentAll().some(x => x.key === "comment:note-lantern")).toBe(false);
   });
 
@@ -134,7 +134,7 @@ describe("the lifecycle, on a fake target", () => {
     const { t } = fake({ place: "edit:note-gate", blockId: "note-gate" });
     const s = DraftSession.open(t, { text: "Gate" });
     keys(s, ["!"]); s.keep(); s.dispose();
-    expect(unsentOn("note-gate")).toEqual([expect.stringMatching(/^■ unsent edit from .* · e brings it back$/)]);
+    expect(unsentOn("note-gate")).toEqual([expect.stringMatching(/^■ (your edit .* is kept here · e brings it back|.* in the note.*)$/)]);
   });
 
   test("an edit put aside and brought back untouched isn't saved by a click away: it's put aside again", async () => {
@@ -147,7 +147,7 @@ describe("the lifecycle, on a fake target", () => {
     const b = DraftSession.open(t(), { text: "Quince jam", base: 3 }, { said: m => said.push(m) });   // e brings it back
     expect(b.dirty).toBe(true);
     expect(b.draft.note).toContain("· ctrl+s saves · esc twice drops it");
-    expect(await b.leave()).toMatchObject({ left: "kept", said: "the edit to “Quince” was kept as unsent, not saved: it came back unsent and nothing was typed since · e brings it back" });
+    expect(await b.leave()).toMatchObject({ left: "kept", said: "the edit to “Quince” is kept here, not saved: it came back and nothing was typed since · e brings it back" });
     expect(said).toHaveLength(1);
     expect(sent).toEqual([]);
     expect(unsent("edit:note-quince")?.text).toBe("Quince jam -- wrong idea");
@@ -163,11 +163,11 @@ describe("the lifecycle, on a fake target", () => {
     const a = DraftSession.open(t, { text: "Medlar", base: 2 });
     keys(a, [" bletted"]); a.close(true);
     const b = DraftSession.open(t, { text: "Medlar, picked", base: 5 });
-    expect([b.dirty, b.draft.text, b.draft.note]).toEqual([false, "Medlar, picked", expect.stringContaining("was on revision 2; the note changed since")]);
+    expect([b.dirty, b.draft.text, b.draft.note]).toEqual([false, "Medlar, picked", expect.stringContaining("the note has changed since · your edit is kept")]);
     expect(unsent("edit:note-medlar")?.text).toBe("Medlar bletted");
-    expect(unsentOn("note-medlar", 5)).toEqual([expect.stringMatching(/^■ unsent edit from .* · on revision \d+, the note is at \d+$/)]);
+    expect(unsentOn("note-medlar", 5)).toEqual([expect.stringMatching(/^■ .*(isn't|aren't) in the note$|^■ .*changed differently since$|^■ your edit .* differs from the note/)]);
     expect(unsentOn("note-medlar", 5)[0]).not.toContain("e brings it back");
-    expect(unsentOn("note-medlar", 2)).toEqual([expect.stringMatching(/^■ unsent edit from .* · e brings it back$/)]);
+    expect(unsentOn("note-medlar", 2, "Medlar")).toEqual([expect.stringMatching(/isn't in the note$/)]);
     b.dispose();
   });
 
@@ -176,9 +176,9 @@ describe("the lifecycle, on a fake target", () => {
     const lane = (view: string, name = "Doing") => cardTarget({ kind: "card", lane: name, view, create: async text => { made.push(`${view}:${text}`); return {}; } });
     const a = DraftSession.open(lane("view-plum-doing"), {});
     keys(a, ["Prune the plum"]);
-    expect(await a.leave()).toMatchObject({ left: "kept", said: "the new card in Doing was kept as unsent, not created · n in Doing brings it back" });
+    expect(await a.leave()).toMatchObject({ left: "kept", said: "the new card in Doing is kept here, not created · n in Doing brings it back" });
     expect(hasUnsent("card:view-plum-doing")).toBe(true);
-    expect(unsentOn("view-plum-doing")).toEqual([expect.stringMatching(/^■ unsent new card from .* · n in this lane brings it back$/)]);
+    expect(unsentOn("view-plum-doing")).toEqual([expect.stringMatching(/^■ your new card from .* is kept here · n in this lane brings it back$/)]);
     // Another hub's "Doing" lane opens empty, and creating there never creates the plum card.
     const b = DraftSession.open(lane("view-pear-doing"), {});
     expect(b.draft.text).toBe("");
@@ -204,7 +204,7 @@ describe("the lifecycle, on a fake target", () => {
     const parent = { id: "card-hedge", text: "Trim the hedge" } as any;
     const s = DraftSession.open(cardTarget({ kind: "child", parent, create: async () => ({}) }), {});
     keys(s, ["Borrow the shears"]); s.keep(); s.dispose();
-    expect(unsentOn("card-hedge")).toEqual([expect.stringMatching(/^■ unsent note under this from .* · N on the card brings it back$/)]);
+    expect(unsentOn("card-hedge")).toEqual([expect.stringMatching(/^■ your note under this from .* is kept here · N on the card brings it back$/)]);
   });
 
   test("leave: unchanged closes; a changed edit is written; refused, it's kept as unsent with why; a comment is never sent", async () => {
@@ -223,7 +223,7 @@ describe("the lifecycle, on a fake target", () => {
     const c = DraftSession.open(offline.t, { text: "Fern", base: 1 });
     keys(c, ["s"]);
     const kept = await c.leave();
-    expect(kept).toMatchObject({ left: "kept", said: "not saved: offline · the outline isn't answering · the edit to “Fern” was kept as unsent · e brings it back" });
+    expect(kept).toMatchObject({ left: "kept", said: "not saved: offline · the outline isn't answering · the edit to “Fern” is kept here · e brings it back" });
     expect(unsent("edit:note-off")?.text).toBe("Ferns");
 
     const stale = fake({ place: "edit:note-stale", blockId: "note-stale" }, [{ ok: false, stale: true, why: "changed elsewhere since you started · not saved" }]);
@@ -236,7 +236,7 @@ describe("the lifecycle, on a fake target", () => {
     const comment = fake({ place: "comment:note-c", blockId: undefined, verb: "send", leaveWrites: false, what: "the comment on “Fern”", back: "C and a passage bring it back" });
     const e = DraftSession.open(comment.t, {});
     keys(e, ["How deep?"]);
-    expect(await e.leave()).toMatchObject({ left: "kept", said: "the comment on “Fern” was kept as unsent, not sent · C and a passage bring it back" });
+    expect(await e.leave()).toMatchObject({ left: "kept", said: "the comment on “Fern” is kept here, not sent · C and a passage bring it back" });
     expect(comment.sent).toEqual([]);
   });
 
@@ -434,7 +434,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     keys(a, [" before frost"]); a.close(true);                      // put aside on this revision
     await board.update(id, "Lift the dahlias and dry them", m.revision!, USER);   // the note moves on elsewhere
     const n = (await board.get(id))!;
-    expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ unsent edit from .* · on revision \d+, the note is at \d+$/)]);
+    expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ .*(isn't|aren't) in the note$|^■ .*changed differently since$|^■ your edit .* differs from the note/)]);
     expect(unsentOn(id, n.revision)[0]).not.toContain("e brings it back");
     const b = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: n.props }, { board });
     expect(b.draft.text).toBe("Lift the dahlias and dry them");     // not laid over the newer note
@@ -493,7 +493,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     keys(card, ["Fix the shed door"]);
     expect(await card.submit(USER)).toEqual({ ok: false, why: "not created: Doing makes roadmap items through the allocator" });
     expect([card.open, card.draft.note]).toEqual([true, expect.stringContaining("your text is kept (and copied to")]);
-    expect(await card.leave()).toMatchObject({ left: "kept", said: "the new card in Doing was kept as unsent, not created · n in Doing brings it back" });
+    expect(await card.leave()).toMatchObject({ left: "kept", said: "the new card in Doing is kept here, not created · n in Doing brings it back" });
     expect(unsent("card:view-allotment-doing")?.text).toBe("Fix the shed door");
   }, 30_000);
 
@@ -523,7 +523,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(await theirs.act("props.edit", { key: "stage", value: "doing" }, a, AS)).toBeTruthy();
   }, 30_000);
 
-  test("in a reader: the ■ unsent line's [diff] [open copy] [dismiss] [take it back] are actions; a stale edit is taken back around newer text", async () => {
+  test("in a reader: the kept-draft line's [show them] [add them] [keep as a note] [let it go] are actions; a stale edit is added around newer text", async () => {
     const id = await create("Compost\nturn the heap\nadd the leaves");
     const flashes: string[] = [], opened: Msg[] = [];
     const h: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate: m => { opened.push(m); } };
@@ -539,19 +539,19 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     await board.update(id, "Compost\nturn the heap\nadd the leaves and straw", m0.revision!, USER);
     r.show((await board.get(id))!, h);
     const lines = r.render(140, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
-    expect(lines.some(l => /■ unsent edit from .* · on revision \d+, the note is at \d+ \[diff\] \[open copy\] \[dismiss\] \[take it back\]/.test(l))).toBe(true);
+    expect(lines.some(l => /■ 1 line from your edit today isn't in the note \[show them\] \[add them\] \[keep as a note\] \[let it go\]/.test(l))).toBe(true);
     const controls = r.describeElements().filter(e => e.kind === "control" && "unsent" in e);
-    expect(controls.map(e => e.control)).toEqual(["diff", "copy", "dismiss", "take"]);
+    expect(controls.map(e => e.control)).toEqual(["diff", "add", "keep", "dismiss"]);
     // [diff]: a read-only reader beside, the note now against the unsent edit; an agent gets the rows.
     await r.act("element.open", { n: controls[0]!.n }, h, USER);
     expect(opened.at(-1)!.id).toBe(`unsent:${id}#diff`);
-    expect(opened.at(-1)!.text).toContain("```diff\n  Compost\n- turn the heap\n- add the leaves and straw\n+ turn the heap weekly\n+ add the leaves\n```");
+    expect(opened.at(-1)!.text).toContain("```diff\n@@ line 2 · still new @@\n- turn the heap\n+ turn the heap weekly\n```");
     expect(await r.act("unsent.diff", {}, h, { kind: "agent", id: "gardener" })).toMatchObject({ diff: expect.stringContaining("+ turn the heap weekly") });
     await expect(r.act("unsent.dismiss", {}, h, { kind: "agent", id: "gardener" })).rejects.toThrow("the person's");
-    // [take it back]: an edit on the note now with the unsent change in it, the newer line kept.
-    await r.act("unsent.take", {}, h, USER);
+    // [add them]: an edit on the note now with the edit's new line in it, the newer line kept; one ctrl+z takes it back.
+    await r.act("unsent.add", {}, h, USER);
     expect(r.draft!.text).toBe("Compost\nturn the heap weekly\nadd the leaves and straw");
-    expect(r.draft!.note).toContain("took back the unsent edit");
+    expect(r.draft!.note).toContain("added 1 line from your edit today");
     expect(unsent(`edit:${id}`)).toBeNull();
     expect(await r.act("edit.save", {}, h, USER)).toMatchObject({ saved: true });
     // [dismiss]: the line goes, the copy stays.
@@ -560,6 +560,53 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     r.show(m1, h);
     expect(await r.act("unsent.dismiss", {}, h, USER)).toMatchObject({ dismissed: true });
     expect(unsent(`edit:${id}`)).toBeNull();
+  }, 30_000);
+
+  test("in a reader: an old edit the note already has resolves quietly (a copy kept, one dim line); one with new lines reads its base from the note's history, adds them as one undo, or keeps them as a note", async () => {
+    const id = await create("Pond\nclean the filter");
+    const flashes: string[] = [];
+    const h: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} };
+    const r = new NoteSurface();
+    const plain = () => r.render(140, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+    const m0 = (await board.get(id))!;
+    // Everything the edit changed is in the note now (someone wrote the same line): it settles by itself, kept as a copy.
+    keepUnsent({ key: `edit:${id}`, text: "Pond\nclean the filter\nfeed the fish", base: m0.revision!, at: Date.now() - 5 * 86_400_000, copy: null, from: m0.text });
+    await board.update(id, "Pond\nclean the filter\nfeed the fish", m0.revision!, USER);
+    r.show((await board.get(id))!, h);
+    await until(() => unsent(`edit:${id}`) === null, "the edit settled");
+    await until(() => plain().some(l => l.includes("was already in the note; kept a copy")), "the dim line");
+    expect(plain().some(l => l.includes("[add them]") || l.includes("[let it go]"))).toBe(false);   // nothing asked
+    expect(unsentAll().some(u => u.key === `edit:${id}`)).toBe(false);
+    // New lines, no stored base: the starting text comes from the note's history, the line says what's new.
+    const m1 = (await board.get(id))!;
+    await board.update(id, "Pond (back garden)\nclean the filter\nfeed the fish", m1.revision!, USER);
+    await board.update(id, "Pond (back garden)\nclean the filter\nfeed the fish\nnet the pond", (await board.get(id))!.revision!, USER);
+    const m2 = (await board.get(id))!;
+    keepUnsent({ key: `edit:${id}`, text: "Pond\nclean the filter\nfeed the fish\nadd the plants", base: m1.revision!, at: Date.now(), copy: null });
+    r.show(m2, h);
+    await until(() => plain().some(l => l.includes("1 line from your edit today isn't in the note")), "the comparison from history");
+    expect(r.describeElements().filter(e => e.kind === "control" && "unsent" in e).map(e => e.control)).toEqual(["diff", "add", "keep", "dismiss"]);
+    // [add them]: one patch, one ctrl+z; the note's newer lines stay.
+    await r.act("unsent.add", {}, h, USER);
+    expect(r.draft!.text).toBe("Pond (back garden)\nclean the filter\nfeed the fish\nadd the plants\nnet the pond");
+    expect(unsent(`edit:${id}`)).toBeNull();
+    await r.act("draft.undo", {}, h, USER);
+    expect(r.draft!.text).toBe(m2.text);
+    await r.act("edit.close", { discard: true }, h, USER);
+    // [keep as a note]: a note under this one holds the edit; its line goes.
+    keepUnsent({ key: `edit:${id}`, text: "Pond\nclean the filter\nfeed the fish\nadd the plants", base: m1.revision!, at: Date.now(), copy: null });
+    r.show((await board.get(id))!, h);
+    const kept = await r.act("unsent.keep", {}, h, USER) as { kept: string; copy: string };
+    expect((await board.get(kept.kept))!.text).toContain("add the plants");
+    expect((await board.get(kept.kept))!.parentId).toBe(id);
+    expect(unsent(`edit:${id}`)).toBeNull();
+    expect(readFileSync(kept.copy, "utf8")).toContain("add the plants");
+    // An agent only reads: the verdict and the diff, never the person's choices.
+    keepUnsent({ key: `edit:${id}`, text: "Pond\nclean the filter\nfeed the fish\nadd the plants", base: m1.revision!, at: Date.now(), copy: null });
+    const read = await r.act("unsent.diff", {}, h, { kind: "agent", id: "gardener" }) as any;
+    expect(read).toMatchObject({ basis: "three-way", verdict: "new", said: expect.stringContaining("isn't in the note") });
+    await expect(r.act("unsent.keep", {}, h, { kind: "agent", id: "gardener" })).rejects.toThrow("the person's");
+    await expect(r.act("unsent.add", {}, h, { kind: "agent", id: "gardener" })).rejects.toThrow("the person's");
   }, 30_000);
 
   test("in a reader: an edit opened by mistake closes on one esc, says so, leaves no ■ unsent line; ctrl+z brings the strays back", async () => {
@@ -574,7 +621,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     await until(() => r.draft === null, "the edit closed on one esc");
     expect(unsent(`edit:${id}`)).toBeNull();
     await until(() => flashes.some(f => f.includes("dropped 1 stray character · ctrl+z brings them back")), "said once");
-    expect(r.render(100, 20, h).lines.join("\n")).not.toContain("■ unsent");
+    expect(r.render(100, 20, h).lines.join("\n")).not.toContain("from your edit");
     r.key({ kind: "char", ch: "z", ctrl: true }, h);
     await until(() => r.draft !== null, "the edit open again");
     expect(r.draft!.text.replace("j", "")).toBe("Bird feeder\nfill on Sundays");

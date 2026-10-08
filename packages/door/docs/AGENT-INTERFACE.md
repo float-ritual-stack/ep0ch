@@ -522,20 +522,28 @@ at, and what it does while they're typing:
 | `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
-## What's put aside as unsent
+## What's kept as unsent
 
-A draft the person put aside (esc twice, a closed screen, the door quitting) shows under the reader's header as a
-`■ unsent` line. Its controls are actions in the note set, on the reader showing the note (`kind=` edit, the default,
-comment, child or card):
+A draft the person put aside (esc twice, a closed screen, the door quitting) shows under the reader's header as a calm
+`■` line that says what the comparison found (PIE-637), e.g. `■ 2 lines from your edit on Oct 1 aren't in the note`.
+Its controls are actions in the note set, on the reader showing the note (`kind=` edit, the default, comment, child or
+card). An edit is compared three ways: its own changes (its base text → the draft) against the note now, each marked
+`already` in the note, `new` (still applies) or `conflict` (changed differently since, with the note's version).
+The base is the draft's stored text, else the note at the revision it was written on, else that revision from the
+note's history; with none the comparison is two-way (`basis: "two-way"`, hunks `differs`) and nothing settles by itself.
 
 | Action | What it does | An agent |
 |---|---|---|
-| `unsent.diff` | the note as it is now against the unsent edit, in a reader beside (`unsent:<id>#diff`, read-only); says the revision it was written on | gets the diff as text, nothing drawn |
-| `unsent.copy` | the put-aside text as written, in a reader beside (`unsent:<id>#copy`) | gets the text and where its copy is |
-| `unsent.dismiss` | forgets it; its copy stays on disk | refused: it's the person's |
-| `unsent.take` | opens the note's edit with the unsent changes in it: whole when written on the revision the note is at, else replayed span by span (`takeBackSpans`, compared as a forced `draft.patch`), leaving a passage changed since as it is | refused: it opens an edit with the person's keys |
-| `unsent.show` | unfolds an old one (an older revision, more than three days) | yes |
+| `unsent.diff` | the edit's own changes against the note now, in a reader beside (`unsent:<id>#diff`, read-only): the answer first, then each change marked | gets `{ basis, verdict, said, hunks: [{ line, state, removed, added, now }], diff }`, nothing drawn |
+| `unsent.copy` | the kept text as written, in a reader beside (`unsent:<id>#copy`) | gets the text and where its copy is |
+| `unsent.dismiss` | lets it go; a copy of the text stays on disk (written first if there is none) | refused: it's the person's |
+| `unsent.add` | opens the note's edit with the edit's `new` lines in it as one `draft.patch` (one ctrl+z); a `conflict` stays kept and is said; written on the revision the note is at, it comes back whole | refused: it opens an edit with the person's keys |
+| `unsent.keep` | a note under this one holding the edit's whole text; the line goes | refused: it's the person's |
+| `unsent.show` | unfolds the `1 old edit` chip (an older revision, more than three days) | yes |
 | `edit.strays` | right after esc dropped an edit's stray characters (src/stray.ts), opens the edit again with them (`ctrl+z`, within a minute) | refused |
+
+An edit whose every change the note already has is settled when a reader shows the note: its copy is kept, its entry
+goes, one dim line says so (`settleQuietly`); nothing is asked.
 
 `elements` lists each control (`control: diff`, `unsent: edit`), so `element.open n=` presses one as a click does.
 

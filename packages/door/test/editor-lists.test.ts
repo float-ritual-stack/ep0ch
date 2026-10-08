@@ -234,12 +234,12 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
     for (const c of "- brass lanterns") s.key(char(c), h);
     s.key({ kind: "esc" }, h); s.key({ kind: "esc" }, h);
     expect(s.draft).toBeNull();
-    expect(flashes.at(-1)).toContain("put aside as unsent · e brings it back · a copy is at");
-    expect(text(s.render(60, 20, h).lines).some(l => l.includes("■ unsent edit from") && l.includes("e brings it back"))).toBe(true);
+    expect(flashes.at(-1)).toContain("kept here · e brings it back · a copy is at");
+    expect(text(s.render(100, 20, h).lines).some(l => l.includes("■ 1 line from your edit today isn't in the note") && l.includes("[add them]"))).toBe(true);
     await s.edit(h);
     expect(s.draft!.text).toBe(`${TEXT}\n- brass lanterns`);
-    expect(s.draft!.note).toContain("brought back your unsent draft");
-    expect(text(s.render(60, 20, h).lines).some(l => l.includes("■ unsent edit"))).toBe(false);
+    expect(s.draft!.note).toContain("brought back your edit");
+    expect(text(s.render(60, 20, h).lines).some(l => l.includes("from your edit"))).toBe(false);
   });
 
   test("the wheel scrolls the draft without moving the cursor; a click places it; ctrl+p shows the preview", async () => {

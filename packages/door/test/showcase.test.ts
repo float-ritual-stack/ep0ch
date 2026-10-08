@@ -1,6 +1,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service), the
 // `scripts/try-it.sh --showcase --reset` path putting it back, and the screen drawing each reuse-map
 // section with its real part, by keys, mouse and act. Scratch services only; the seed is fictional.
+import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -385,7 +386,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The desk's search overlay, opened on a query with two typos: both allotment notes found, in the service's order.
     search: ["search the board", "alotment notebok", "hit(s)", "Allotment notebook", "Allotment figures"],
     // The draft session: an edit open on the left, a comment being written on the right.
-    drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "■ unsent edit", "[diff]"],
+    drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
+    // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
+    kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
     // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
     undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
@@ -455,8 +458,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 14 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 14 * 2 });
-    expect(S().sel).toBe(14);                                      // the spine section
+    const spine = SECTIONS.findIndex(s => s.key === "spine");
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + spine * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + spine * 2 });
+    expect(S().sel).toBe(spine);
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -810,7 +814,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await board.isTrashed(saved.note)).toBe(true);
   }, 20_000);
 
-  test("drafts: the shed reader's ■ unsent line, by act: [diff] opens the note now against the unsent edit beside it, and [take it back] puts it into an edit", async () => {
+  test("drafts: the shed reader's kept-edit line, by act: [show them] opens the edit's own change against the note beside it, and [add them] puts it into an edit", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drafts" }, as: "test-agent" });
     await until(() => marks.drafts!.every(m => screen().includes(m)), "the drafts section");
@@ -826,11 +830,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !!diffView(), "the diff beside the shed");
     expect(diffView().msg.text).toContain("+ Oil the padlock before winter.");
     expect(diffView().readOnly).toBe(true);
-    // [take it back]: the shed reader opens its edit with the unsent line in it, lit as a patch.
-    await stage().dispatch.press("unsent.take", {}, name);
+    // [add them]: the shed reader opens its edit with the unsent line in it, lit as a patch.
+    await stage().dispatch.press("unsent.add", {}, name);
     await until(() => !!stage().pane(name).surface.draft, "the edit open");
     expect(stage().pane(name).surface.draft.text).toContain("Oil the padlock before winter.");
     await stage().dispatch.press("edit.close", { discard: true }, name);
+    press({ kind: "esc" });
+  }, 20_000);
+
+  test("kept edits: the three cases by act: a new line is shown and added as one patch, an edit the note has settles itself, an old conflict folds to a chip and compares both versions", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "kept" }, as: "test-agent" });
+    await until(() => marks.kept!.every(m => screen().includes(m)), `the kept section: ${marks.kept!.filter(m => !screen().includes(m)).join(" | ")}`);
+    const stage = () => S().stages.get(S().sel).top;
+    // Still new: the rota's edit adds a line the note lacks; the note's other change since isn't in the comparison.
+    const rota = await app.act({ action: "unsent.diff", tile: "rota", args: {}, as: "test-agent" }) as any;
+    expect(rota).toMatchObject({ basis: "three-way", verdict: "new", said: expect.stringContaining("1 line from your edit") });
+    expect(rota.diff).toContain("+ Check the seed trays on Fridays.");
+    expect(rota.diff).not.toContain("Wipe the shelves");
+    await stage().dispatch.press("unsent.add", {}, "rota");
+    await until(() => !!stage().pane("rota").surface.draft, "the rota's edit open");
+    expect(stage().pane("rota").surface.draft.text).toContain("Shut the vents at dusk.\nCheck the seed trays on Fridays.\nWipe the shelves on Sundays.");
+    await stage().dispatch.press("edit.close", { discard: true }, "rota");
+    // Already in the note: settled when the reader opened; a copy is kept, and nothing is asked.
+    const hedge = S().notes.hedge;
+    expect(unsent(`edit:${hedge.id}`)).toBeNull();
+    await expect(app.act({ action: "unsent.diff", tile: "hedge", args: {}, as: "test-agent" })).rejects.toThrow("nothing is kept here (edit)");
+    // An old edit with a conflict: folded to a chip; [show] opens it, and the comparison shows both versions.
+    await app.act({ action: "unsent.show", tile: "compost", args: {}, as: "test-agent" });
+    const compost = await app.act({ action: "unsent.diff", tile: "compost", args: {}, as: "test-agent" }) as any;
+    expect(compost).toMatchObject({ verdict: "conflict", hunks: [{ state: "conflict", removed: ["Turn the heap monthly."], added: ["Turn the heap weekly in summer."], now: ["Turn the heap every fortnight."] }] });
+    expect(compost.diff).toContain("the note now: Turn the heap every fortnight.");
     press({ kind: "esc" });
   }, 20_000);
 
