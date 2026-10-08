@@ -278,12 +278,14 @@ const mountsIn = (spec: ScreenSpec): string[] => savedNodes(spec.layout.root).fl
  * Why `screen` can't be mounted under `chain` (the screens held one inside the next, outermost first; "group" is a
  * group's tiles, never a screen), or null: it is in the chain already (itself, or A holding B holding A: said as the
  * chain, "daily-test → focus → daily-test"), a screen it mounts would be (its saved spec is walked), or the mounts
- * would nest past MAX_MOUNT_DEPTH. One rule for a mount opened, restored and a saved screen's spec loading.
+ * would nest past MAX_MOUNT_DEPTH (groups count for neither). `part`: only a part of it is mounted, so only the chain is checked. One rule for a mount opened, restored and a saved screen's spec loading.
  */
-export function mountProblem(chain: readonly string[], screen: string): string | null {
+export function mountProblem(chain: readonly string[], screen: string, part = false): string | null {
   const shown = (extra: string) => [...chain.filter(n => n !== "group"), extra].join(" → ");
   if (chain.includes(screen)) return `a screen can't hold itself: ${shown(screen)}`;
-  if (chain.length >= MAX_MOUNT_DEPTH) return `mounts nest at most ${MAX_MOUNT_DEPTH} deep: ${shown(screen)}`;
+  if (chain.filter(n => n !== "group").length >= MAX_MOUNT_DEPTH) return `mounts nest at most ${MAX_MOUNT_DEPTH} deep: ${shown(screen)}`;
+  // A part holds only its container: what the rest of the screen mounts is not shown, so it is not walked.
+  if (part) return null;
   let inner: ScreenSpec | null = null;
   try { inner = screenSpec(screen); } catch { /* a spec that needs its target: it mounts nothing to follow */ }
   if (!inner) return null;

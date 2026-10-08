@@ -3055,7 +3055,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (t.target !== undefined && t.screen && !arg) throw new ActionRefused(`the ${t.screen} screen takes no target`);
     if (t.screen && !screenNames().includes(t.screen)) throw new ActionRefused(`no screen ${t.screen}; screens: ${screenNames().filter(n => n !== "desk").join(", ")}`);
     if (t.screen === "desk") throw new ActionRefused("the desk holds mounts; it isn't mounted in itself");
-    const loop = t.screen ? mountProblem(this.mountChain(), t.screen) : null;
+    const loop = t.screen ? mountProblem(this.mountChain(), t.screen, !!t.part) : null;
     if (loop) throw new ActionRefused(loop);
     if (t.part && t.screen) { const full = screenSpec(t.screen, t.target && arg ? { [arg]: t.target } : t.args); if (full && !screenParts(full).includes(t.part)) throw new ActionRefused(`the ${t.screen} screen has no part ${t.part}; its parts: ${screenParts(full).join(", ")}`); }
     const args = { ...(t.args ?? {}), ...(t.target !== undefined && arg ? { [arg]: t.target } : {}) };

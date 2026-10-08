@@ -77,7 +77,7 @@ export function mountDesk(m: { screen: string | null; args?: Record<string, unkn
   }
   if (m.screen === "desk") throw new Error("the desk holds mounts; it isn't mounted in itself");
   // Refused here, so a saved screen that holds itself comes back with this mount a place holder that says why.
-  const loop = mountProblem(chain, m.screen);
+  const loop = mountProblem(chain, m.screen, !!m.part);
   if (loop) throw new Error(loop);
   const full = screenSpec(m.screen, m.args);
   if (!full) throw new Error(`no screen ${m.screen}; screens: ${screenNames().join(", ")}`);
