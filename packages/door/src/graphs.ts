@@ -140,19 +140,29 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 
   timeline: (p, w, link) => {
     const ev: Props[] = p.events ?? [];
-    const dw = Math.max(0, ...ev.map(e => String(e.date ?? "").length));
-    // Narrow (PIE-581): the side note goes under its event instead of past the edge.
+    // The date column is at most a third of the frame, so the text column always has room to wrap in.
+    const dw = Math.min(Math.max(0, ...ev.map(e => vwidth(String(e.date ?? "")))), Math.max(1, (w >> 1) - 5));
+    const ind = dw + 5, tw = Math.max(6, w - ind);
+    // Narrow (PIE-581): the side note goes under its event rather than after it.
     const narrow = tier(w) === "narrow";
     return ev.flatMap((e, i) => {
-      const now = e.state === "now", next = e.state === "next";
+      const now = e.state === "now", next = e.state === "next", last = i === ev.length - 1;
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
-      // The label gets what the date and the note leave (`pad` cuts a line past the frame).
-      const note = e.note && !narrow ? `${fg(DIM)}  — ${ellipsize(String(e.note), Math.max(6, w >> 1))}` : "";
-      const label = ellipsize(String(e.label ?? ""), Math.max(6, w - dw - 5 - (note ? vwidth(note) : 0)));
-      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, label)}${note}${RESET}`;
-      const indent = Math.min(dw + 5, w >> 1);
-      const under = e.note && narrow ? wrap(String(e.note), Math.max(6, w - indent)).map(l => " ".repeat(indent) + fg(DIM) + l + RESET) : [];
-      return [pad(line, w), ...under, ...(i < ev.length - 1 ? [fg(DIM) + "│" + RESET] : [])];
+      // The text wraps in its column: a continuation line hangs under the text, and the spine runs down beside it.
+      const lines = wrap(String(e.label ?? ""), tw);
+      const note = e.note ? String(e.note) : "";
+      const inline = !!note && !narrow && vwidth(lines.at(-1)!) + 4 + vwidth(note) <= tw;
+      const colour = fg(now ? ACCENT : next ? DIM : HI);
+      const body = rowLinks(link, e.block, lines).map((l, k) => colour + l + (inline && k === lines.length - 1 ? `${fg(DIM)}  — ${note}` : "") + RESET);
+      const under = note && !inline ? wrap(note, tw).map(l => fg(DIM) + l + RESET) : [];
+      const spine = (last ? " " : fg(DIM) + "│" + RESET) + " ".repeat(ind - 1);
+      const date = fg(next ? DIM : INK) + pad(ellipsize(String(e.date ?? ""), dw), dw);
+      return [
+        pad(`${dot}  ${date}  ${body[0]}`, w),
+        ...body.slice(1).map(l => pad(spine + l, w)),
+        ...under.map(l => pad(spine + l, w)),
+        ...(last ? [] : [fg(DIM) + "│" + RESET]),
+      ];
     });
   },
 

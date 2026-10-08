@@ -335,6 +335,21 @@ describe("one width rule for every kind (PIE-581)", () => {
     ];
     for (const w of [40, 80, 160]) for (const [kind, src] of cases) expect(within(renderGraph(kind, figureSource(src), w), w), `${kind} at ${w}`).toBe(true);
   });
+  test("a timeline wraps an event's text in its column, the spine beside every wrapped line, at 40, 60 and 100", () => {
+    const label = "dig the whole bed over, then rake it level and let it settle for a fortnight before sowing anything";
+    const rows = [`- Feb: ${label} — frost permitting`, "- **Mar: potatoes** — after the frost", `- *Apr: ${label}*`];
+    for (const w of [40, 60, 100]) {
+      const out = body(draw("timeline", rows, w));
+      expect(out.join("\n"), `at ${w}`).not.toContain("·");
+      expect(out.join("\n").replace(/[│\s]+/g, " ")).toContain(label.replace(/\s+/g, " "));
+      // The spine: a │ in the first column on every line between the first dot and the last event's start.
+      const lastDot = out.findLastIndex(l => /^[●○]/.test(l));
+      for (const l of out.slice(1, lastDot)) expect(l[0], `${w}: ${l}`).toMatch(/[│●○]/);
+      // Wrapped lines align to the text column (after "●  Feb  ").
+      const first = out.find(l => l.startsWith("●"))!, col = first.indexOf("dig");
+      for (const [i, l] of out.entries()) if (i && i < lastDot && l[0] === "│" && l.length > 1) expect(l.slice(1, col).trim(), l).toBe("");
+    }
+  });
   test("odd inputs are drawn, not thrown: a row named constructor, a zero flow, a negative meter, YAML of the wrong shape, kpi at its real width", () => {
     expect(body(draw("matrix", ["- constructor: c=1", "- __proto__: c=2"], 60))[4]).toMatch(/^\s+3\s*$/);
     const flow = body(draw("flow", ["- a → b: 0", "- a → c: 2"], 60));
