@@ -10,7 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### The MCP gateway reads and writes the laptop's live outline when the laptop answers (PIE-661)
+### The MCP gateway reads and writes the laptop's live outline when the laptop answers; stdio writes by the same grant (PIE-661)
+
+- **Changed:** the local stdio server (`ep0ch mcp`) is no longer always read-only. It honours the same access levels as
+  the gateway, through the one shared tool path: `read` reads, `propose` offers the write tools and writes become
+  proposals, `full` applies against the revision read. The actor is `mcp:<client>` from the MCP `initialize`'s client
+  name (Claude Desktop's, for example), mapped by `EP0CH_MCP_PERSONAS` as the gateway's callers are. Writes go straight
+  to the outline's host (through the ssh forward with `--machine`). `list_outlines` over stdio now also says whether
+  the write tools are offered. A connected client keeps its tool list until it reconnects.
 
 - **New:** for a mirrored outline (`float-hub@laptop`), the gateway first tries that machine's own host through the
   shared ssh forward, with a 2 second budget and a 45 second backoff after a failure. When it answers, reads, finds,

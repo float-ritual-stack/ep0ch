@@ -1,7 +1,7 @@
 // An MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it over stdio,
-// bound to the outline this process can already open, and only reads; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
+// bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
 // serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
-// (src/mcp-mirror.ts), and adds the write tools (src/mcp-writes.ts) for a caller its token names. Both answer through
+// (src/mcp-mirror.ts), and the caller its token names. Both offer the write tools (src/mcp-writes.ts) by the outline's access, to a caller: the gateway's token's, stdio's client (the MCP `initialize` clientInfo, as `mcp:<client>`). Both answer through
 // `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
@@ -21,9 +21,10 @@ import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { actorOf, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
-                                   read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
-                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_links, outline_components; resources/read with envelope,
-                                   and the outline's components as resources (resources/list)
+                                   local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
+                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
+                                   and the outline's components as resources (resources/list). At \`propose\` and \`full\` it offers the
+                                   same write tools as the gateway, as \`mcp:<client>\` (the client the MCP initialize names)
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
                                    server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
@@ -31,8 +32,8 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
-                                   propose and full let the gateway's write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a mirror's outline queues them
+                                   propose and full let the write tools (outline_create, outline_patch,
+                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a gateway's mirror of an outline queues them when its machine is away
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -130,7 +131,8 @@ export function boundOutlines(board: Board): McpOutlines {
       return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
     },
     async list() {
-      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: (await board.mcpAccessStatus()).level }];
+      const level = (await board.mcpAccessStatus()).level, writes = writesAt(level);
+      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}) }];
     },
   };
 }
@@ -660,11 +662,10 @@ function toolsFor(outlines: McpOutlines) {
   ];
 }
 
-/** Whether the write tools are offered: to a remote caller, when some outline it can reach takes writes. */
-const writesOffered = (outlines: McpOutlines, caller: McpCaller | undefined, listed: McpOutlineListing[]) =>
-  !!caller && outlines.kind === "remote" && listed.some(o => !!o.writes);
+/** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
+const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
-  return !!caller && outlines.kind === "remote" && writesOffered(outlines, caller, await outlines.list());
+  return !!caller && writesOffered(caller, await outlines.list());
 }
 
 /** Said wherever access changes: a connected client keeps the tool list it fetched. */
@@ -672,8 +673,7 @@ export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when
 
 async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined): Promise<ToolResult> {
   const listed = await outlines.list();
-  if (outlines.kind !== "remote") return toolText({ outlines: listed });
-  const writes = writesOffered(outlines, caller, listed);
+  const writes = writesOffered(caller, listed);
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
     outlines: listed,
@@ -711,7 +711,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  * Undefined for a tool this server doesn't offer (callTool says so).
  */
 function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
-  const writes = !!caller && outlines.kind === "remote";
+  const writes = !!caller;
   const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])];
   const definition = definitions.find(d => d.name === name);
   if (!definition) return undefined;
@@ -732,11 +732,11 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   if (params.name === "outline_read") return readRecord(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args);
-  if (params.name === "outline_write_status" && caller && outlines.kind === "remote") return writeStatusTool(outlines, args, caller);
+  if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
-  if (isWriteTool(params.name) && caller && outlines.kind === "remote") return writeTool(outlines, params.name, args, caller);
+  if (isWriteTool(params.name) && caller) return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
 }
 
@@ -896,6 +896,21 @@ export async function answerMcp(outlines: McpOutlines, text: string, caller?: Mc
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 
+/** The subject a stdio caller has: there is no token, so one fixed name; its client name is what tells callers apart. */
+export const STDIO_SUBJECT = "stdio";
+
+/** The `clientInfo.name` of an `initialize` request in this line, if it is one. */
+function clientNamed(line: string): string | undefined {
+  if (!line.includes("initialize")) return undefined;
+  try {
+    for (const m of [JSON.parse(line)].flat()) {
+      const name = m?.method === "initialize" ? m.params?.clientInfo?.name : undefined;
+      if (typeof name === "string" && name.trim()) return name.trim().slice(0, 64);
+    }
+  } catch { /* not JSON: answerMcp says so */ }
+  return undefined;
+}
+
 function mcpArgs(argsIn: string[]): string[] | { error: string } {
   const args = argsIn.slice(1), out: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -933,8 +948,8 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAcce
 const ACCESS_SAYS: Record<McpAccessLevel, string> = {
   none: " (denied)",
   read: " (read-only MCP allowed, stdio and the remote gateway)",
-  propose: " (reads, and the remote gateway's writes as proposals for you to apply)",
-  full: " (reads, and the remote gateway's writes applied, checked against the revision they read; a note open in your draft gets a proposal instead)",
+  propose: " (reads, and writes as proposals for you to apply, over stdio and the remote gateway alike)",
+  full: " (reads, and writes applied, checked against the revision they read; a note open in your draft gets a proposal instead; stdio and the remote gateway alike)",
 };
 
 async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
@@ -975,8 +990,12 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
   const outlines = boundOutlines(board);
   const write = io.write ?? (line => process.stdout.write(`${line}\n`));
   try {
+    // No token on stdio: the caller is the client the MCP `initialize` names, written as `mcp:<client>` (and mapped by
+    // EP0CH_MCP_PERSONAS) exactly as the gateway's callers are.
+    let clientId: string | undefined;
     for await (const line of io.input ?? stdinLines()) {
-      const answer = await answerMcp(outlines, line);
+      clientId = clientNamed(line) ?? clientId;
+      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}) });
       if (answer?.reply) write(JSON.stringify(answer.reply));
     }
     return 0;
