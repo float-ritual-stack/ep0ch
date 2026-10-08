@@ -31,11 +31,12 @@ import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, u
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { sizedPlacement } from "../text-sizing";
+import { theme, type Rgb } from "../theme";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
-import { BOLD, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
+import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -227,6 +228,9 @@ export interface HeaderInfo {
   /** How many properties the panel (`i`) lists. */
   properties: number;
 }
+
+/** How much of the theme's brightest the title keeps in a tile that doesn't have the keys: a clear step down, never brighter than the theme allows. */
+const TITLE_UNFOCUSED = 0.6;
 
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
 interface HeaderBlock {
@@ -829,19 +833,24 @@ export class NoteSurface {
     // Kitty's text sizing and the title fits that wide; then one dim line holding everything else, its links kept.
     const title = subject(m), focused = host?.focused !== false;
     const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && width(title) * 2 <= w;
-    const ink = fg(focused ? C.white : C.grey) + BOLD;
+    const ink = (focused ? fg(C.white) : fgRgb(theme().palette[C.white]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
     const lead = `${fg(C.dark)}${meta}`;
     // The summary's values follow the byline on the same line; its links shift by what comes before them.
     const before = `${meta}${count && !this.panel ? ` · i ${count} propert${count === 1 ? "y" : "ies"}` : ""}${summary ? " · " : ""}`;
-    const metaLine = summary ? `${lead}${props}${fg(C.dark)} · ${summaryLine}${said}` : `${lead}${props}${said}`;
-    const links = summary ? summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w) : [];
+    const merged = `${lead}${props}${fg(C.dark)} · ${summaryLine}${said}`;
+    // One line while it fits; in a narrow tile the summary (whose values are links) goes to a line of its own rather than
+    // being cut off the end of the byline.
+    const apart = !!summary && width(`${before}${summary}`) > w;
+    const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
+    const first = big ? 3 : 2;
     const rows = [
       fg(C.dark) + pad(this.crumbs, w) + RESET,
       ink + pad(title, w) + RESET,
       ...(big ? [pad("", w)] : []),
-      pad(metaLine, w) + RESET,
+      ...metaRows.map(r => pad(r, w) + RESET),
     ];
-    return { rows, summary, summaryRow: big ? 3 : 2, summaryLinks: links, title: { row: 1, text: title, ink, big } };
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: 1, text: title, ink, big } };
   }
 
   /**

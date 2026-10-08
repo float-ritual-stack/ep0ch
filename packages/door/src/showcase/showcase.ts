@@ -491,6 +491,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "title", need: "make a note's title the first thing the eye finds when it is open", part: "the reader's header (PIE-657, NoteSurface.headerBlock, one builder for every reader): the crumbs as a dim eyebrow, the title bold and bright (the theme's brightest in the focused tile, a step down in the others; twice the height through text sizing, OSC 66, src/text-sizing.ts, where the terminal answered the start-up query), one dim line under it for the byline, the property count and the summary values (links), one blank row; the tile's frame bar says the title only when the header is not on screen (NoteSurface.titleShown)", files: "src/surface/note.ts, src/text-sizing.ts, src/display.ts, src/desk/desk.ts",
+    aside: "the left reader has the keys, the right one doesn't: compare the titles · a click on a value in the dim line still opens what it names · `peek` and `layout.get` keep the title as data (the tile's `title`, the reader's `showing`), and the reader's rows start with the breadcrumb, then the title · EP0CH_SIZED=0 turns the double height off, =1 forces it where the start-up query isn't answered (Herdr doesn't pass it on) · a copy over the title copies its text; a selection on it draws in cells",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · a title you can find", panes: [a, b], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.title], [b, n.title]]);
+    },
+  },
+  {
     key: "figures", need: "draw a decision, a chat, a keymap, days (uptime, activity, a month) or annotated code in a note; write a figure's rows in Markdown", part: "the figure kinds (src/graphs.ts KINDS, the newer ones in src/figures/), their rows from Markdown or a figure block's child bullets read by outline-core's figure grammar (figure-markdown.ts), drawn by the reader's NoteSurface; a quote callout's byline (quoteByline); ep0ch export writes each figure as its ASCII twin (figureAscii)", files: "outline-core/src/figure-markdown.ts, src/figures/, src/graphs.ts, src/live.ts, src/export.ts, outline-core/src/callouts.ts",
     aside: "every figure in the left reader is written as Markdown rows; the live ones read the plot's decision notes and the backup runs scripts/backup-runs.ts writes · the figure block at the bottom is a note whose rows are its child bullets: [ ] steps to them, ⏎ or a click opens one · the right reader's first sheet is read from the action registry, so it says what the reader's keys do now · ep0ch export writes each figure as plain ASCII in a fence",
     stage(n, show) {

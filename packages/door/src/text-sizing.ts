@@ -4,7 +4,7 @@
 // read), and a sized placement is painted over those two rows after the rows go out, and again whenever either row
 // was rewritten (a rewrite of a cell takes the whole sized character with it).
 import type { Rgba } from "./vga";
-import { visible } from "./style";
+import { headOf, tailFrom, visible, width } from "./style";
 import type { Placement } from "./kitty";
 
 /** What a sized placement draws: `text` at `scale`, in the style `sgr`. */
@@ -29,6 +29,9 @@ export const sizedHint = (env = process.env): boolean | null => (env.EP0CH_SIZED
 
 /** `s`'s text with no escape or control in it: OSC 66 carries plain text only. */
 const plain = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, "");
+
+/** Whether the `cols` cells of `line` from `col` read `text` (padded with blanks). */
+const holds = (line: string | undefined, col: number, cols: number, text: string) => visible(headOf(tailFrom(line ?? "", col), cols)).trimEnd() === text;
 
 /** The bytes that paint a sized placement: put the cursor at its cell, draw, and give the cursor back. */
 export function sizedBytes(p: Placement & { sized: SizedText }): string {
@@ -58,9 +61,8 @@ export class SizedLayer {
     let out = "";
     for (const p of wanted) {
       if (!isSized(p)) continue;
-      const here = visible(lines[p.row] ?? ""), under = visible(lines[p.row + 1] ?? "");
-      // The cells must still hold the title (as the fallback text) and a blank row: otherwise something is over them.
-      if (!here.includes(p.sized.text) || under.trim() !== "") continue;
+      // The cells must still hold the title (as the fallback text) and a blank row under it: otherwise something is over them.
+      if (!holds(lines[p.row], p.col, width(p.sized.text), p.sized.text) || !holds(lines[p.row + 1], p.col, p.cols, "")) continue;
       const sig = `${p.col},${p.row},${p.sized.scale},${p.sized.sgr}|${p.sized.text}`;
       next.set(p.key, sig);
       if (this.drawn.get(p.key) !== sig || rewrote(p.row) || rewrote(p.row + 1)) out += sizedBytes(p as Placement & { sized: SizedText });

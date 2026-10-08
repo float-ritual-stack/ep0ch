@@ -431,6 +431,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
     // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
     hero: ["An evening on the plot", "▣ evening-beds.jpg", "hero-focus"],
+    // The reader's header (PIE-657): the title in it, the dim line, the old header written out to compare.
+    title: ["A title you can find", "Before:", "3 note detail · A title you can find"],
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
     // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
@@ -1650,6 +1652,31 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(colTitle()).toBe(2);
     expect(coloured()).toBeGreaterThan(before + 20);
   }, 30_000);
+
+  test("title (PIE-657): the header leads with the breadcrumb and the title; the frame bar doesn't repeat it; the focused tile's title is brighter", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "title" }, as: "test-agent" })).toMatchObject({ key: "title" });
+    await until(() => screen().includes("Before:") && !screen().includes("reading the note"), "the title note, read", 8000);
+    const raw = () => sc.render(app).lines as string[];
+    const readers = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes; };
+    // Each reader's rows start with the breadcrumb, then the title, the dim byline under it; the title is data too.
+    const rows = raw().map(plain);
+    const at = rows.findIndex(l => /│A title you can find/.test(l));
+    expect(at).toBeGreaterThan(0);
+    expect(rows[at - 1]).toMatch(/│(…|top level|# )/);
+    expect(rows.slice(at + 1, at + 4).join("\n")).toMatch(/i \d+ properties/);
+    expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
+    // The frame bar of a reader that shows its header says the tile, not the title again.
+    const frames = rows.filter(l => /[╔┌].*(reader|detail)/.test(l));
+    expect(frames.length).toBeGreaterThan(0);
+    for (const f of frames) expect(f).not.toContain("A title you can find");
+    // The tile with the keys has the brighter title: the same title, the same row, two shades.
+    const row = raw().find(l => (plain(l).match(/A title you can find/g) ?? []).length === 2)!;
+    expect(row).toBeDefined();
+    const shades = [...row.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m(?:\x1b\[1m)?A title you can find/g)].map(x => +x[1]! + +x[2]! + +x[3]!);
+    expect(shades.length).toBe(2);
+    expect(shades[0]).toBeGreaterThan(shades[1]! + 100);
+  });
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
     const id = seeded.notes.images.id, text = async () => (await board.get(id))!.text;
