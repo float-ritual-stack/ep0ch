@@ -28,7 +28,7 @@ export interface LiveRoute {
   command?: string;
 }
 
-type Verdict = { up: true; at: number; socket: string } | { up: false; at: number; why: string; command?: string };
+type Verdict = { up: true; at: number; board: NotesBoard } | { up: false; at: number; why: string; command?: string };
 export type LiveAnswer = { board: NotesBoard } | { away: { why: string; checkedAt: string; command?: string } };
 
 export interface LiveOptions {
@@ -41,7 +41,12 @@ export interface LiveOptions {
 }
 
 const ago = (ms: number) => ms < 1500 ? "just now" : `${Math.round(ms / 1000)}s ago`;
+const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
 
+/**
+ * Each mirrored outline has its own verdict (machine and outline together): one outline the machine's host can't open
+ * never takes the others' live route with it, and an attempt only ever writes the verdict of its own outline.
+ */
 export class LiveMachines {
   private readonly verdicts = new Map<string, Verdict>();
   private readonly tries = new Map<string, Promise<Verdict>>();
@@ -51,6 +56,7 @@ export class LiveMachines {
   private readonly budgetMs: number;
   private readonly backoffMs: number;
   private readonly log: (line: string) => void;
+  private closed = false;
 
   constructor(o: LiveOptions = {}) {
     this.forward = o.forward ?? (m => forwardTo(m));
@@ -60,9 +66,9 @@ export class LiveMachines {
     this.log = o.log ?? (() => {});
   }
 
-  /** Where `machine`'s outlines are served from now, without trying. */
-  route(machine: string): LiveRoute {
-    const v = this.verdicts.get(machine);
+  /** How `outline` on `machine` is served now, without trying. */
+  route(machine: string, outline: string): LiveRoute {
+    const v = this.verdicts.get(`${machine}/${outline}`);
     if (!v) return { via: "mirror", checkedAt: null, why: `${machine} hasn't been tried yet` };
     const checkedAt = new Date(v.at).toISOString();
     return v.up ? { via: "live", checkedAt } : { via: "mirror", checkedAt, why: this.said(machine, v), ...(v.command ? { command: v.command } : {}) };
@@ -72,59 +78,55 @@ export class LiveMachines {
     return `${machine} didn't answer over ssh (tried ${ago(this.now() - v.at)}): ${v.why}`;
   }
 
-  /** The outline's board on `machine`'s own host, or why not (and the mirror serves). */
-  async board(machine: string, outline: string): Promise<LiveAnswer> {
-    const known = this.verdicts.get(machine);
-    if (known && !known.up && this.now() - known.at < this.backoffMs) {
-      return { away: { why: this.said(machine, known), checkedAt: new Date(known.at).toISOString(), ...(known.command ? { command: known.command } : {}) } };
-    }
-    let attempt = this.tries.get(machine);
-    if (!attempt) {
-      attempt = this.reach(machine).finally(() => this.tries.delete(machine));
-      this.tries.set(machine, attempt);
-      // A try past its budget still ends: its verdict is what the next call finds.
-      void attempt.then(v => this.verdicts.set(machine, v), () => {});
-    }
-    let timer: Timer | undefined;
-    const late = new Promise<"late">(resolve => { timer = setTimeout(() => resolve("late"), this.budgetMs); });
-    const verdict = await Promise.race([attempt, late]).finally(() => clearTimeout(timer));
-    if (verdict === "late") {
-      const at = this.now();
-      const v: Verdict = { up: false, at, why: `no answer within ${this.budgetMs / 1000}s (the connection may still be coming up; the next call after it tries again)` };
-      // A later success overwrites this; a late failure is overwritten by its own verdict.
-      this.verdicts.set(machine, v);
-      return { away: { why: this.said(machine, v), checkedAt: new Date(at).toISOString() } };
-    }
-    this.verdicts.set(machine, verdict);
-    if (!verdict.up) return { away: { why: this.said(machine, verdict), checkedAt: new Date(verdict.at).toISOString(), ...(verdict.command ? { command: verdict.command } : {}) } };
-    const board = await this.boardFor(machine, outline, verdict.socket);
-    return "error" in board ? { away: { why: this.said(machine, this.fail(board.error)), checkedAt: new Date(this.now()).toISOString() } } : { board: board.board };
+  private away(machine: string, v: Extract<Verdict, { up: false }>): LiveAnswer {
+    return { away: { why: this.said(machine, v), checkedAt: new Date(v.at).toISOString(), ...(v.command ? { command: v.command } : {}) } };
   }
 
   private fail(why: string, command?: string): Extract<Verdict, { up: false }> {
     return { up: false, at: this.now(), why, ...(command ? { command } : {}) };
   }
 
-  /** The forward answers and its host speaks this PROTOCOL: the machine is up. */
-  private async reach(machine: string): Promise<Verdict> {
+  /** The outline's board on `machine`'s own host, or why not (and the mirror serves). The whole try is within the budget. */
+  async board(machine: string, outline: string): Promise<LiveAnswer> {
+    const key = `${machine}/${outline}`;
+    const known = this.verdicts.get(key);
+    if (known && !known.up && this.now() - known.at < this.backoffMs) return this.away(machine, known);
+    let attempt = this.tries.get(key);
+    if (!attempt) {
+      const started: Promise<Verdict> = this.reach(machine, outline).finally(() => { if (this.tries.get(key) === started) this.tries.delete(key); });
+      attempt = started;
+      this.tries.set(key, started);
+      // A try past its budget still ends: its verdict is what the next call finds.
+      void started.then(v => { this.verdicts.set(key, v); });
+    }
+    let timer: Timer | undefined;
+    const late = new Promise<"late">(resolve => { timer = setTimeout(() => resolve("late"), this.budgetMs); });
+    const verdict = await Promise.race([attempt, late]).finally(() => clearTimeout(timer));
+    if (verdict === "late") {
+      const v = this.fail(`no answer within ${this.budgetMs / 1000}s (the connection may still be coming up; the next try after the wait finds it if it has)`);
+      // Only while the try is still running: its own verdict, when it comes, replaces this one.
+      if (this.tries.has(key)) this.verdicts.set(key, v);
+      return this.away(machine, v);
+    }
+    return verdict.up ? { board: verdict.board } : this.away(machine, verdict);
+  }
+
+  /** The forward answers, its host speaks this PROTOCOL and opens the outline: the outline is live. */
+  private async reach(machine: string, outline: string): Promise<Verdict> {
     let socket: string;
     try { socket = (await this.forward(machine)).socket; }
-    catch (e) { this.log(`mcp live: ${machine}: ${(e as Error).message}`); return this.fail((e as Error).message.split("\n")[0]!); }
+    catch (e) { this.log(`mcp live: ${machine}: ${firstLine(e)}`); return this.fail(firstLine(e)); }
+    if (this.closed) return this.fail("the gateway is shutting down");
     const probe = new SocketBoard(socket, REQUEST_TIMEOUT_MS);
     try {
       const r = await probe.request<{ protocolVersion: number }>("ping");
       if (r.protocolVersion !== PROTOCOL) {
-        const behind = r.protocolVersion < PROTOCOL;
         const why = `its outline host speaks protocol ${r.protocolVersion} and this gateway ${PROTOCOL}`;
         this.log(`mcp live: ${machine}: ${why}`);
-        return this.fail(behind ? `${why}; on ${machine} run \`ep0ch install --apply\` to update and restart it` : `${why}; on this gateway's machine run \`ep0ch install --apply\``, "ep0ch install --apply");
+        return this.fail(r.protocolVersion < PROTOCOL ? `${why}; on ${machine} run \`ep0ch install --apply\` to update and restart it` : `${why}; on this gateway's machine run \`ep0ch install --apply\``, "ep0ch install --apply");
       }
-      return { up: true, at: this.now(), socket };
-    } catch (e) { return this.fail((e as Error).message); }
+    } catch (e) { return this.fail(firstLine(e)); }
     finally { probe.close(); }
-  }
-
-  private async boardFor(machine: string, outline: string, socket: string): Promise<{ board: NotesBoard } | { error: string }> {
     const key = `${machine}/${outline}/${socket}`;
     let board = this.boards.get(key);
     if (!board) {
@@ -132,11 +134,12 @@ export class LiveMachines {
       this.boards.set(key, board);
     }
     try { await board.info(); }
-    catch (e) { this.boards.delete(key); board.close(); this.verdicts.set(machine, this.fail((e as Error).message)); return { error: (e as Error).message.split("\n")[0]! }; }
-    return { board: board as unknown as NotesBoard };
+    catch (e) { this.boards.delete(key); board.close(); this.log(`mcp live: ${machine}: ${outline}: ${firstLine(e)}`); return this.fail(`its host can't open ${outline}: ${firstLine(e)}`); }
+    if (this.closed) { this.boards.delete(key); board.close(); return this.fail("the gateway is shutting down"); }
+    return { up: true, at: this.now(), board: board as unknown as NotesBoard };
   }
 
-  close() { for (const b of this.boards.values()) b.close(); this.boards.clear(); }
+  close() { this.closed = true; for (const b of this.boards.values()) b.close(); this.boards.clear(); }
 }
 
 /** The settings from the environment: `EP0CH_MCP_LIVE=0` turns the live route off. */

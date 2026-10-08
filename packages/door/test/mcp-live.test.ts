@@ -247,7 +247,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
       expect(answer.away.why).toContain(`speaks protocol ${PROTOCOL - 1} and this gateway ${PROTOCOL}`);
       expect(answer.away.why).toContain(`on ${FAR} run \`ep0ch install --apply\``);
       expect(answer.away.command).toBe("ep0ch install --apply");
-      expect(old.route(FAR)).toMatchObject({ via: "mirror", command: "ep0ch install --apply" });
+      expect(old.route(FAR, "attic-notes")).toMatchObject({ via: "mirror", command: "ep0ch install --apply" });
       old.close();
       // And through the gateway: the same, with the mirror's answer.
       const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
@@ -269,11 +269,23 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     const first = await slow.board(FAR, "attic-notes");
     expect("away" in first && first.away.why).toContain("no answer within 0.1s");
     release({ socket: far.sock });
-    for (let i = 0; i < 100 && slow.route(FAR).via !== "live"; i++) await Bun.sleep(20);
-    expect(slow.route(FAR).via).toBe("live");
+    for (let i = 0; i < 100 && slow.route(FAR, "attic-notes").via !== "live"; i++) await Bun.sleep(20);
+    expect(slow.route(FAR, "attic-notes").via).toBe("live");
     // The backoff is for failures only: a machine that has just answered is tried at once.
     const next = await slow.board(FAR, "attic-notes");
     expect("board" in next).toBe(true);
     slow.close();
+  }, 30_000);
+
+  test("an outline the laptop's host can't open does not take the others' live route with it", async () => {
+    const two = new LiveMachines({ forward: async () => ({ socket: far.sock }), now: () => clock, budgetMs: 10_000 });
+    const missing = await two.board(FAR, "no-such-outline");
+    expect("away" in missing && missing.away.why).toContain("can't open no-such-outline");
+    expect("board" in await two.board(FAR, "attic-notes")).toBe(true);
+    expect(two.route(FAR, "attic-notes").via).toBe("live");
+    expect(two.route(FAR, "no-such-outline").via).toBe("mirror");
+    two.close();
+    const after = await two.board(FAR, "attic-notes");
+    expect("away" in after).toBe(true);
   }, 30_000);
 });

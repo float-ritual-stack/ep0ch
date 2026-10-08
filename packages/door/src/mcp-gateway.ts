@@ -223,7 +223,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       const queues = summaries();
       for (const m of mirrors) {
         const target = await routed(m);
-        const route = live?.route(m.machine);
+        const route = live?.route(m.machine, m.outline);
         const q = queues.find(s => s.machine === m.machine);
         const queue = {
           waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null,
