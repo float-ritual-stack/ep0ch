@@ -1746,6 +1746,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(panes().map(p => p.showing?.title ?? p.title)).not.toContain("Kitchen whiteboard");
     press({ kind: "mouse", action: "down", button: 0, x: cont.x, y: cont.y }); press({ kind: "mouse", action: "up", button: 0, x: cont.x, y: cont.y });
     await until(() => panes().some(p => (p.showing?.title ?? p.title) === "Kitchen whiteboard"), "the click followed the link from its last row", 5000);
+    // The click put the person on the stage: back to the index, where the next section is chosen.
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
