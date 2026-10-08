@@ -43,8 +43,11 @@ const sha256 = (path: string) => new Bun.CryptoHasher("sha256").update(readFileS
 export async function relay(c: BackupConfig, hub: string, copy: string, o: { outline: string; seq: number | null; schema: number | null; timeoutMs?: number }): Promise<Received> {
   if (!OUTLINE_NAME.test(o.outline)) return { ok: false, error: `${o.outline} isn't an outline name` };
   if (!MACHINE_NAME.test(c.machine) || !/^\d+$/.test(String(o.seq ?? 0)) || !/^\d+$/.test(String(o.schema ?? 0))) return { ok: false, error: "the relay's arguments aren't plain names and numbers" };
-  const argv = `--machine ${c.machine} --outline ${o.outline}${o.seq !== null ? ` --seq ${o.seq}` : ""}${o.schema !== null ? ` --schema ${o.schema}` : ""} --sha256 ${sha256(copy)}`;
-  const r = await ssh(c.env, hub, `ep0ch backup receive ${argv}`, Bun.file(copy), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
+  // The bytes, not Bun.file(copy): Bun on macOS refuses a file-backed Blob as a spawn's stdin ("Non-regular files
+  // aren't supported yet"), and hashing what is sent keeps the checksum and the stream the same bytes.
+  const bytes = readFileSync(copy);
+  const argv = `--machine ${c.machine} --outline ${o.outline}${o.seq !== null ? ` --seq ${o.seq}` : ""}${o.schema !== null ? ` --schema ${o.schema}` : ""} --sha256 ${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`;
+  const r = await ssh(c.env, hub, `ep0ch backup receive ${argv}`, new Blob([bytes]), o.timeoutMs ?? 600_000).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
   try { return lastJson(r.out) as Received; } catch { /* no answer from the command itself */ }
   const why = r.code === 255 ? `${hub} doesn't answer over ssh` : r.code === 127 || /not found/.test(r.err) ? `${hub} has no ep0ch on a login shell's PATH` : `ep0ch backup receive on ${hub} failed (${r.code}): ${r.err.trim().split("\n").at(-1) ?? ""}`;
   return { ok: false, error: why };
