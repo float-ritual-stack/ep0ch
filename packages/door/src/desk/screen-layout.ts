@@ -607,11 +607,15 @@ class Step<I> {
    * is `edit` or `off` is refused, whichever caller asked. The person's own operations never come here.
    */
   private agentGate(op: Op<I>) {
-    const no = (id: I, what: string) => {
+    // `only: "off"`: the level that refuses it (resizing a split moves no limited tile; a hands-off one is not touched).
+    const no = (id: I, what: string, only?: "off") => {
       if (!this.all().includes(id)) return;
       const { level, by } = agentLevel(this.d, id, this.facts(id));
+      if (only && level !== only) return;
       refuse(agentRefusal(level, this.name(id), what, { by }));
     };
+    const each = (ids: I[], what: string, only?: "off") => { for (const id of ids) no(id, what, only); };
+    const under = (n: LNode<I> | null | undefined) => (n ? leaves(n) : []);
     switch (op.op) {
       case "close": return no(op.tile, "closing it");
       case "replace": return no(op.tile, "replacing it");
@@ -620,24 +624,44 @@ class Step<I> {
       case "swap": no(op.tile, "swapping it"); return no(op.with, "swapping it");
       case "float": return no(op.tile, "floating it");
       case "place": return op.tile !== undefined ? no(op.tile, "moving or sizing it") : undefined;
-      case "pin": return no(op.tile, "docking it");
-      case "slide": return no(op.tile, "sliding its dock");
+      case "pin": return op.container ? each(under(nodeById(this.d.tree, op.container)), "docking it") : no(op.tile, "docking it");
+      case "slide": {
+        // Sliding a dock shut hides every tile in it.
+        const nd = op.container ? nodeById(this.d.tree, op.container) : null;
+        return each(under(nd?.t === "dock" ? nd : dockOf(this.d.tree, op.tile)), "sliding its dock", undefined);
+      }
       case "collapse": return no(op.tile, "folding it");
-      case "grow": return no(op.tile, "resizing it");
+      case "grow": return no(op.tile, "resizing it", "off");
+      case "resize": { const n = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path ?? ""); return isLine(n as LNode<I>) ? each([...under((n as Line<I>).kids[op.border]), ...under((n as Line<I>).kids[op.border + 1])], "resizing it", "off") : undefined; }
+      case "shares": return each(under(nodeById(this.d.tree, op.split)), "resizing it", "off");
+      case "even": return each(this.all(), "evening out the layout (it resizes it)", "off");
       case "link": no(op.tile, "changing where its opens land"); if (op.to !== undefined) no(op.to, "linking opens into it"); return;
-      case "tab": return no(op.tile, "switching its tabs");
+      case "tab": { const ts = tabsOf(this.d.tree, op.tile); no(op.tile, "switching its tabs"); return ts ? no(ts.ids[ts.active]!, "hiding it by switching tabs") : undefined; }
       case "zoom": return no(op.tile, "zooming it");
       case "flow.widen": case "flow.travel": case "flow.hold": return no(op.tile, "widening, holding or travelling it");
-      case "load": {
-        // A layout loaded over the screen replaces its tiles, the limited ones too.
-        const held = this.all().find(id => agentLevel(this.d, id, this.facts(id)).level !== "free");
-        return held === undefined ? undefined : no(held, `laying the screen out as ${op.name} (it replaces the tiles)`);
-      }
+      case "load": return each(this.all(), `laying the screen out as ${op.name} (it replaces the tiles)`);
       case "open": if (op.at.kind === "tabs") no(op.at.target, "opening a tile into its tabs"); return;
       case "agents": {
         // An agent may tighten a tile's level (free to edit, edit to off), never loosen it: the person's command frees it.
         const was = agentLevel(this.d, op.tile, this.facts(op.tile)), want = op.level ?? policyAt(this.d, op.tile, this.facts(op.tile)).agents;
         refuse(AGENT_ORDER[want] < AGENT_ORDER[was.level] ? agentRefusal(was.level, this.name(op.tile), "loosening its own limit", { by: was.by }) : null);
+        return;
+      }
+      case "policy": {
+        // The same for a container's or the screen's default: it may be tightened, never loosened or cleared.
+        if (op.set.agents === undefined && !op.clear.includes("agents")) return;
+        const chain = op.tile !== undefined ? chainOf(this.d.tree, op.tile) : [];
+        const c = op.node === "screen" ? "screen" : op.node ? nodeById(this.d.tree, op.node) : chain.at(-1) ?? "screen";
+        if (!c) return;
+        const layersWith = (agents: AgentLevel | undefined) => {
+          const own = (pol: Policy | undefined) => { const { agents: _a, ...rest } = pol ?? {}; return agents ? { ...rest, agents } : rest; };
+          return c === "screen" ? [{ by: "screen", policy: own(this.d.policy) }]
+            : [{ by: "screen", policy: this.d.policy }, ...nodeChain(this.d.tree, c).map(x => ({ by: x.id ?? x.t, policy: x === c ? own(x.policy) : x.policy, flow: x.t === "flow" }))];
+        };
+        const was = effective(layersWith((c === "screen" ? this.d.policy : c.policy)?.agents)).agents;
+        const now = effective(layersWith(op.set.agents)).agents;
+        const by = c === "screen" ? "screen" : c.id ?? c.t;
+        refuse(AGENT_ORDER[now] < AGENT_ORDER[was] ? agentRefusal(was, by === "screen" ? "the screen" : by, "loosening its default", { by, command: `^W P, or layout.policy node=${by} agents=free` }) : null);
         return;
       }
     }

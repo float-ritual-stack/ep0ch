@@ -331,6 +331,12 @@ A refusal names the policy and the person's command:
 detail2 is edit only for agents: open is refused · patching, commenting and setting properties on its note are allowed; its own new tiles go elsewhere · the person's command: ^W g, its ⋯ menu or a click on its chip, or tile.agent policy=free tile=detail2
 ```
 
+A container operation checks every tile it reaches: sliding a dock shut hides the tiles in it, switching tabs hides the
+one shown, docking a split takes all its tiles; evening out the layout or resizing a border moves a `off` tile's edges
+(an `edit` tile may be resized). An agent cannot loosen or clear a default either: `layout.policy agents=free` on a screen
+or container that limits its tiles is refused with the same command. `tile.agent` is the one action whose own rule decides
+(`ownGate`): the layout module lets an agent tighten a limited tile and refuses it loosening one.
+
 The person's own keys, clicks and actions are never limited. The lock (`alt+k`) is a different rule: it fixes the screen's
 shape for everyone, the person included, and leaves contents live; an agent policy limits only agents, tile by tile, and
 leaves the shape alone for the person. They combine: a locked screen with an `edit` tile refuses an agent twice, and the

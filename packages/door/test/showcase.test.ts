@@ -1125,6 +1125,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // An agent may tighten a free tile, never loosen a limited one.
     await app.act({ action: "tile.agent", tile: "free", args: { policy: "edit" }, as: "test-agent" });
     await expect(app.act({ action: "tile.agent", tile: "free", args: { policy: "free" }, as: "test-agent" })).rejects.toThrow(/edit only for agents/);
+    await app.act({ action: "tile.agent", tile: "free", args: { policy: "off" }, as: "test-agent" });   // edit to off: through the dispatcher
+    expect(stage().agentNow("free").level).toBe("off");
+    await expect(app.act({ action: "tile.agent", tile: "free", args: { policy: "edit" }, as: "test-agent" })).rejects.toThrow(/hands off for agents: loosening its own limit is refused/);
+    await stage().dispatch.press("tile.agent", { policy: "inherit" }, "free");
     // The person's own keys are never limited: they open into the hands-off tile, and free it by action.
     await stage().dispatch.press("open", { id: recipe }, "off");
     await until(() => stage().pane("off").msg?.id === recipe, "the person's open in the hands-off tile");
@@ -1135,7 +1139,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     press({ kind: "char", ch: "w", ctrl: true });
     press({ kind: "char", ch: "g" });
-    expect(stage().agentNow("free")).toMatchObject({ level: "off" });
+    expect(stage().agentNow("free")).toMatchObject({ level: "edit" });
+    await stage().dispatch.press("tile.agent", { policy: "inherit" }, "free");
     // A click on the chip does the same (edit only to hands off), the keys staying where they are.
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("✎ agents: edit only"));
     expect(y).toBeGreaterThan(0);

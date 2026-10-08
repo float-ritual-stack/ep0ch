@@ -59,6 +59,11 @@ export interface ActionDef<A, H> {
   draft?: DraftUse;
   /** Whether a restarted door may run it again by itself (Replay). */
   replay: Replay;
+  /**
+   * What an agent may do to a tile the screen limits (PIE-639) is decided by the action's own rule, not the dispatcher's
+   * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
+   */
+  ownGate?: true;
   /** The person's own: an agent's is refused with this, which says why and what an agent does instead. */
   person?: string;
   /** `touches: "tile"`: what an agent does instead, said when it's refused in the person's tile. */

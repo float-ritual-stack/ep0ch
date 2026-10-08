@@ -291,7 +291,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.agent": def({
     summary: "what an agent may do to tile=<tile> (PIE-639): policy=free (open notes in it, navigate, split, close, retarget it: the default), edit (edit the note it shows: patch, comment, set properties; no navigating, closing, retargeting or moving it; its own new tiles go elsewhere) or off (read it through peek; no action on it or its note); inherit takes the tile's own away, so its container's and the screen's default (layout.policy node=screen agents=edit) say again; left out, the next level. Saved with the layout, shown as a chip on the tile's frame, reported in peek, layout.get and `ep0ch where`. Enforced for agents only: the person's own keys are never limited. An agent may tighten a tile (free to edit, edit to off), never loosen one: the refusal names the person's command",
     keys: "^W g (cycles free, edit, off); a click on the tile's agents chip, or its ⋯ menu",
-    touches: "shape", replay: "safe", confirms: true,
+    touches: "shape", ownGate: true, replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : `set ${r.tile} to ${AGENT_WORDS[r.agents as AgentLevel]}`),
     menu: { label: "what agents may do here", group: TILE, key: "ctrl+w g", now: ({ d, reader }) => { const a = d.agentNow(reader); return { label: a.level === "free" ? "agents: free · set edit only" : a.level === "edit" ? "agents: edit only · set hands off" : "agents: hands off · set free" }; } },
     args: { policy: { type: "string", optional: true, about: "free, edit, off, or inherit; left out, the next one (free, edit, off, free)" } },

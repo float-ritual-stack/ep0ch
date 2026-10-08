@@ -150,7 +150,7 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
-export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
+export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
   tile?: { name: string; label?: string } | null;
   /** The action's name and what the tile it acts on lets an agent do (PIE-639): checked before anything else of the tile. */
@@ -164,7 +164,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   if (def.person) return def.person;
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
   const g = at.gate;
-  if (g && g.agents.level !== "free") {
+  if (g && g.agents.level !== "free" && !def.ownGate) {
     const reads = def.touches === "nothing" && def.replay === "safe", edits = def.touches === "draft" || def.touches === "nothing";
     const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
     if (no) return no;

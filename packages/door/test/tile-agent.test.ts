@@ -80,6 +80,40 @@ describe("the layout refuses an agent, never the person", () => {
   });
 });
 
+describe("operations that reach a limited tile through a shared container", () => {
+  const s = fresh([[4, "off"], [3, "edit"]]);
+  test("evening out and resizing a border move a hands-off tile: refused; an edit-only tile may be resized", () => {
+    no(s, { op: "even" }, /notes is hands off for agents: evening out the layout .* is refused/);
+    no(s, { op: "shares", split: "s1", shares: [1, 1, 1, 2] }, /resizing it is refused/);
+    no(s, { op: "grow", tile: 4, axis: "row", by: 1 }, /hands off/);
+    expect(String(refusal(s, { op: "grow", tile: 3, axis: "row", by: 1 }, ctx(AGENT)))).not.toMatch(/edit only/);
+    expect(refusal(s, { op: "even" }, ctx(PERSON))).toBeNull();
+    expect(refusal(fresh([[3, "edit"]]), { op: "even" }, ctx(AGENT))).toBeNull();
+  });
+  test("a dock shut hides every tile in it, and a tab switched hides the one shown", () => {
+    const docked: LNode = splitOf("row", [leaf(1), { t: "dock", kid: splitOf("col", [leaf(2), leaf(3)], [1, 1]), edge: "right", open: true, id: "d1" } as LNode], [3, 1]);
+    const d = init({ tree: docked, names: NAMES, agents: new Map([[3, "off" as const]]) });
+    no(d, { op: "slide", tile: 2, open: false }, /detail is hands off for agents: sliding its dock is refused/);
+    expect(String(refusal(fresh([[3, "off"]]), { op: "slide", tile: 2 }, ctx(AGENT)))).not.toMatch(/hands off/);
+    const tabs: LNode = { t: "tabs", ids: [2, 3], active: 1 } as LNode;
+    const t = init({ tree: splitOf("row", [leaf(1), tabs], [1, 1]), names: NAMES, agents: new Map([[3, "edit" as const]]) });
+    no(t, { op: "tab", tile: 2, by: 1 }, /detail is edit only for agents: hiding it by switching tabs is refused/);
+  });
+  test("an agent can't clear or loosen a default: the screen's or a container's", () => {
+    const screen = fresh([], { agents: "edit" });
+    no(screen, { op: "policy", node: "screen", set: {}, clear: ["agents"] }, /the screen is edit only for agents \(the screen's default\): loosening its default is refused .*layout\.policy node=screen agents=free/);
+    no(screen, { op: "policy", node: "screen", set: { agents: "free" }, clear: [] }, /loosening its default/);
+    expect(refusal(screen, { op: "policy", node: "screen", set: { agents: "off" }, clear: [] }, ctx(AGENT))).toBeNull();
+    expect(refusal(screen, { op: "policy", node: "screen", set: {}, clear: ["agents"] }, ctx(PERSON))).toBeNull();
+    expect(refusal(fresh(), { op: "policy", node: "screen", set: { agents: "edit" }, clear: [] }, ctx(AGENT))).toBeNull();
+    // A container set free under an edit-only screen would free its tiles: the same refusal.
+    const t = splitOf("row", [leaf(1), splitOf("col", [leaf(2), leaf(3)], [1, 1])], [1, 1]);
+    const c = init({ tree: t, names: NAMES, policy: { agents: "edit" } });
+    const id = (c.tree as any).kids[1].id;
+    no(c, { op: "policy", node: id, set: { agents: "free" }, clear: [] }, /loosening its default/);
+  });
+});
+
 describe("setting it", () => {
   test("the person sets any level; null takes the tile's own away", () => {
     let s = run(fresh(), { op: "agents", tile: 3, level: "edit" });
