@@ -1,5 +1,5 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { isLinkValue } from "@ep0ch/outline-core/property-grammar";
+import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
@@ -3832,11 +3832,16 @@ export class OutlinerStore {
         );
         parameters.push(filter.key);
       } else if (isLinkValue(filter.value)) {
-        // A link filter also finds a list that holds it: `related=[[X]]` matches `[related::[[Y]], [[X]]]` (properties.ts valueMatches).
-        predicates.push(
-          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND (LOWER(property.value) = LOWER(?) OR INSTR(',' || LOWER(REPLACE(property.value, ', ', ',')) || ',', ',' || LOWER(?) || ',') > 0)${propertyScopePredicate})`,
-        );
-        parameters.push(filter.key, filter.value, filter.value);
+        // A link filter also finds a list that holds it: `related=[[X]]` matches `[related::[[Y]], [[X]]]`. The text match
+        // only narrows; the shared item test (propertyValueHolds, as matchesFilters uses) decides, so a link inside another
+        // link's label or a comma in a label never counts.
+        const candidates = this.database
+          .query(`SELECT property.block_id, property.value FROM block_properties property WHERE property.key = ? AND INSTR(LOWER(property.value), LOWER(?)) > 0${propertyScopePredicate}`)
+          .all(...[filter.key, filter.value, ...(propertyScope !== "all" ? [propertyScope] : [])]) as Array<{ block_id: string; value: string }>;
+        const ids = [...new Set(candidates.filter(row => propertyValueHolds(row.value, filter.value!)).map(row => row.block_id))];
+        predicates.push("block.id IN (SELECT value FROM json_each(?))");
+        parameters.push(JSON.stringify(ids));
+        continue;
       } else {
         predicates.push(
           `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND LOWER(property.value) = LOWER(?)${propertyScopePredicate})`,

@@ -46,6 +46,12 @@ test("related=[[X]] finds the block through filters, the expression and matchQue
   expect(ids([{ key: "related", value: `((${ID}|daytime plan step 6))` }])).toEqual([hit.id]);
   expect(ids([{ key: "related", value: "[[PC-96]]" }])).toEqual([other.id]);
 
+  const commas = store.create(`Commas [related::[[Z]], ((${ID}|a, b)), [[Y]]]`);
+  expect(ids([{ key: "related", value: `((${ID}|a, b))` }])).toEqual([commas.id]);
+  const embedded = store.create(`Embedded [related::((${ID}|x, [[Q]], y))]`);
+  expect(ids([{ key: "related", value: "[[Q]]" }])).toEqual([]);
+  expect(embedded.id).toBeTruthy();
+
   const { filters } = parseSearchExpression("related=[[PC-967]]");
   expect(filters).toEqual([{ key: "related", value: "[[PC-967]]" }]);
   const { filters: quoted } = parseSearchExpression(`related="((${ID}|daytime plan step 6))" type=task`);
