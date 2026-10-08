@@ -46,15 +46,15 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   /** A detail holding the lamp, its links tile under it and a preview following the links: what `b` makes. */
-  const setup = async () => {
+  const setup = async (kind = "detail") => {
     desk = new Desk({
       name: "test", title: "test",
       layout: { root: { t: "split", dir: "col", ratio: 0.5,
-        a: { t: "leaf", kind: "detail", name: "reader" },
+        a: { t: "leaf", kind, name: "reader" },
         b: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "backlinks", name: "links", source: "tile:reader", groups: "open" }, b: { t: "leaf", kind: "preview", name: "peek", source: "tile:links" } } } },
     });
     app.push(desk);
-    reader("reader").hold(lamp, desk as any);
+    if (kind === "detail") reader("reader").hold(lamp, desk as any); else desk.setCurrent(lamp);
     await until(() => links().target?.id === lamp.id && links().data !== null && rowOf(porch.id) >= 0 && rowOf(hall.id) >= 0, "the lamp's backlinks");
     await act("tile.focus", {}, "links");
   };
@@ -84,6 +84,20 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     expect(reader("reader").msg?.id).toBe(lamp.id);
     expect(D().layoutGet().focus).toBe("links");
     expect(links().target?.id).toBe(lamp.id);
+  }, 20_000);
+
+  test("a reader that follows the current note: ⏎ is the current note as ever, alt+⏎ is still a new detail beside it", async () => {
+    await setup("reader");
+    await until(() => reader("reader").msg?.id === lamp.id, "the reader on the lamp");
+    const before = get().tiles.length;
+    await pickRow(porch.id);
+    key({ kind: "alt-enter" });
+    await until(() => get().tiles.length === before + 1, "a new detail");
+    expect(get().tiles.find((t: any) => t.kind === "detail")?.showing.id).toBe(porch.id);
+    expect(reader("reader").msg?.id).toBe(lamp.id);
+    expect(tile("links").linkFrom).toBeUndefined();
+    key({ kind: "enter" });
+    await until(() => reader("reader").msg?.id === porch.id, "⏎: the current note, which the reader follows");
   }, 20_000);
 
   test("a tile linked to the list is a target by default: the selection moves without it, ⏎ and open from= land in it", async () => {

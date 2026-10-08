@@ -328,10 +328,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the list itself and keeps its note (a detail, a held reader; one that follows the current note already shows what
    * is opened, so for it an open stays the current note).
    */
-  private originName(id: number): string | undefined {
+  private originName(id: number, anyReader = false): string | undefined {
     const p = this.panes.get(id), name = p ? kindOf(p)?.origin?.(p) : null;
     const at = name ? this.idNamed(name) : undefined, r = at !== undefined ? this.panes.get(at) : undefined;
-    return at !== undefined && at !== id && r instanceof ReaderPane && (!r.follows || r.holding) ? name! : undefined;
+    return at !== undefined && at !== id && r instanceof ReaderPane && (anyReader || !r.follows || r.holding) ? name! : undefined;
   }
 
   private facts(id: number, actor?: Actor): TileFacts {
@@ -568,7 +568,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const link = this.layout.links.get(id);
     const k = kindOf(p), kept = this.unregistered.get(id);
     return {
-      ...(kept ? (({ link: _l, ...rest }) => rest)(kept) : {}),
+      ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...(this.linkRoleIsDefault(id, link) ? {} : { linkRole: this.layout.linkRoles.get(id)! }) } : {}),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
@@ -786,7 +786,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into = m && at !== undefined && (opts.link || opts.reveal || opts.fresh) ? landing(this.layout, at, this.facts(at)) : null;
     if (m && into && "into" in into) { this.current = m; this.openIntoContainer(into.into, m, !!opts.fresh, by, at); return this.redraw(); }
     // alt+⏎ in a list about a reader's note (the links tile, PIE-646): a new detail beside that reader holds it; the list keeps the keys.
-    const origin = m && opts.fresh && at !== undefined ? this.originId(at) : undefined;
+    const origin = m && opts.fresh && at !== undefined ? this.originId(at, true) : undefined;
     if (m && origin !== undefined && this.openReader(m, { kind: "split", target: origin, dir: "right" }, by, "detail", undefined, true)) return this.redraw();
     // alt+⏎ on a link, or a ctrl- or alt-click (PIE-441, PIE-473): a new reader beside this one holds it;
     // the others keep their notes. An agent's doesn't take the person's focus.
@@ -851,9 +851,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const to = landing(this.layout, id, facts);
     return to && "to" in to && this.panes.has(to.to) ? to.to : undefined;
   }
-  /** The reader a list's opens default to (the links tile's origin), if it has one here. */
-  private originId(id: number): number | undefined {
-    const name = this.originName(id);
+  /** The reader a list's opens default to (the links tile's origin), if it has one here; `anyReader`: a reader that follows the current note too (a new detail goes beside it). */
+  private originId(id: number, anyReader = false): number | undefined {
+    const name = this.originName(id, anyReader);
     return name !== undefined ? this.idNamed(name) : undefined;
   }
   /** Where tile `id`'s link comes from: a link of its own, its container's opens-into, or the reader it lists the links of. */
@@ -1234,7 +1234,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into = landing(this.layout, t.id, this.facts(t.id));
     if (into && "into" in into) return this.openPlace(id, fresh ? "new-detail" : "detail", actor, t.id);
     // From a list about a reader's note (the links tile): fresh is a new detail beside that reader, the list keeps the keys (PIE-646).
-    const origin = fresh ? this.originId(t.id) : undefined;
+    const origin = fresh ? this.originId(t.id, true) : undefined;
     if (origin !== undefined) {
       const m = await this.ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);

@@ -375,14 +375,14 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
 export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { into: string } | { next: true } | null {
   const own = s.links.get(id);
   if (own !== undefined && s.names.has(own)) return { to: own };
-  // A list about a tile's note (the links tile) opens in the tile it lists the links of, when none says otherwise (PIE-646).
-  const origin = facts?.origin !== undefined ? named(s, facts.origin) : undefined;
-  if (origin !== undefined && origin !== id) return { to: origin };
   const e = policyAt(s, id, facts);
   const into = e.opensInto ? named(s, e.opensInto) : undefined;
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
+  // A list about a tile's note (the links tile) opens in the tile it lists the links of, when no link or container says otherwise (PIE-646).
+  const origin = facts?.origin !== undefined ? named(s, facts.origin) : undefined;
+  if (origin !== undefined && origin !== id) return { to: origin };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }
