@@ -1,5 +1,6 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
+import { SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
 import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
@@ -116,8 +117,8 @@ function terminalGuard(): { dismiss(): void } | null {
   } catch { return null; }
 }
 
-/** `pst`: the terminal answered the Program Status Protocol's query (OSC 7501): the door reports its own status to it. */
-export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean }
+/** `sized`: the terminal has Kitty's text sizing (OSC 66, src/text-sizing.ts). `pst`: the terminal answered the Program Status Protocol's query (OSC 7501): the door reports its own status to it. */
+export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean; sized?: boolean }
 
 /** How a program is run in a terminal handed to it: its folder, its environment, a line printed first. */
 export interface HandoverOpts { cwd?: string; env?: Record<string, string>; banner?: string }
@@ -175,14 +176,20 @@ export class Rows {
     }
   }
 
+  /** The rows the last paint wrote (a sized placement over them has to be drawn again: src/text-sizing.ts). */
+  rewritten: ReadonlySet<number> = new Set();
+
   /** Paint full-screen lines; only rows that changed are rewritten. */
   paint(lines: string[]): void {
     let out = "";
+    const rewritten = new Set<number>();
     for (let r = 0; r < this.info.rows; r++) {
       const line = lines[r] ?? "";
       if (this.last[r] === line) continue;
+      rewritten.add(r);
       out += this.row(r, line);
     }
+    this.rewritten = rewritten;
     this.last = lines.slice(0, this.info.rows);
     if (out) this.frame(() => this.write(out));
   }
@@ -303,6 +310,9 @@ export class KeyDecoder {
       // An OSC the terminal answered (the Program Status Protocol's query, OSC 7501 ; ?): read whole, never typed.
       m = p.match(/^\x1b\](\d*);([^\x07\x1b]*)(?:\x07|\x1b\\)/);
       if (m) { if (this.probing && m[1] === String(PROGRAM_STATUS_OSC) && isStatusQueryReply(m[2]!)) this.info.pst = true; this.pending = p.slice(m[0].length); continue; }
+      // The cursor report that answers the text sizing probe (src/text-sizing.ts): only while probing, else it is a key.
+      m = this.probing ? p.match(/^\x1b\[(\d+);(\d+)R/) : null;
+      if (m) { this.info.sized = sizedAnswer(Number(m[2])); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
@@ -397,15 +407,16 @@ export class Term extends Rows {
     process.stdout.on("resize", this.onResized);
     this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
     this.measure();
-    const hint = kittyHint();
+    const hint = kittyHint(), sized = sizedHint();
     const decoder = this.decoder;
     await new Promise<void>(resolve => {
       const timer = setTimeout(() => { decoder.probing = null; resolve(); }, 400);
       decoder.probing = { kitty: null, done: () => { clearTimeout(timer); decoder.probing = null; resolve(); } };
       // The Program Status Protocol's query goes before the DA query that ends the probe: its answer, if any, comes first.
-      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${programStatusWanted() ? PROGRAM_STATUS_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
+      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${programStatusWanted() ? PROGRAM_STATUS_QUERY : ""}${sized === null ? SIZED_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
     });
     if (hint !== null) this.info.kitty = hint;
+    if (sized !== null) this.info.sized = sized;
     if (this.kbd) this.write(KBD_PUSH);
     if (this.ground) this.write(this.ground);
   }

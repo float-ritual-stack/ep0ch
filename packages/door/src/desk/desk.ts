@@ -2325,7 +2325,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile that says what follows its name (a lane: its count) says it; a file shown read-only (a preview of
     // one) is named by its title alone.
     const label = p.headLabel?.();
-    const what = label !== undefined ? null : p instanceof ReaderPane && p.msg && !p.msg.id.startsWith("file:") ? `${p.title()} · ${subject(p.msg)}` : p.title();
+    // The reader's own header leads with the note's title (PIE-657), so its frame bar doesn't say it again; when the
+    // tile is too short to show the header, the frame bar carries the title as it always did.
+    const frameCarries = p instanceof ReaderPane && p.msg && !p.msg.id.startsWith("file:") && !p.surface.titleShown(r.rows - 2);
+    const what = label !== undefined ? null : frameCarries ? `${p.title()} · ${subject((p as ReaderPane).msg!)}` : p.title();
     if (label) put(` ${label}`, "");
     else if (what && what !== this.nameOf(id)) put(` ${what}`, fg(focused ? C.lcyan : C.cyan));
     return this.headerEnd(id, put, xNow, max, r.row);
