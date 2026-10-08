@@ -643,6 +643,16 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       const theirs = await app.act({ action: "column.block", args: { n: 2 }, tile: (river as any).nameOfPane(col), as: "test-agent-419" });
       expect(theirs).toMatchObject({ text: "cd ~/garden\ntrim --all", clipboard: false });
       expect(copied()).toHaveLength(mine);
+      // The whole note: an agent's column.note returns its source; Y, with nothing selected, copies it for the person.
+      const whole = await app.act({ action: "column.note", tile: (river as any).nameOfPane(col), as: "test-agent-419" }) as any;
+      expect(whole.clipboard).toBe(false);
+      expect(whole.text).toContain("Hi Sam, the hedge is cut.");
+      expect(copied()).toHaveLength(mine);
+      writes.length = 0;
+      key({ kind: "char", ch: "Y" });
+      await Bun.sleep(100);
+      expect(copied()).toEqual([whole.text]);
+      expect(message()).toContain("copied the note");
       // A drag across both quote lines: no bar.
       writes.length = 0;
       const a = where(lines(), "Hi Sam", rect), z = where(lines(), "by the gate.", rect);

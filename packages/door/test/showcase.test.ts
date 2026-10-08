@@ -1339,7 +1339,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (const bad of ["│", "╭", "╰", "╮", "╯", "∙"]) expect(dragged).not.toContain(bad);
     // The whole note: an agent's note.copy gets its source back (the clipboard untouched); Y, with nothing selected, copies it for the person.
     const whole = await app.act({ action: "note.copy", tile: "reader", as: "test-agent" }) as any;
-    expect(whole).toMatchObject({ clipboard: false, text: expect.stringContaining("Here's a callout block.") });
+    expect(whole.clipboard).toBe(false);
+    expect(whole.text).toContain("Here's a callout block.");
     const n = copies().length;
     press({ kind: "esc" });
     press({ kind: "char", ch: "Y" });
