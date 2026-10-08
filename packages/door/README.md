@@ -1951,6 +1951,14 @@ Bodies render with `src/doc.ts`:
   A river column keeps the same header (the reader's title, summary, byline and crumbs) above its scroll, so it
   takes the picture too. A note may open with its picture right under the subject (`[img::…]` on line 2): a media line
   is content, never the note's block properties.
+- **The title leads the header** (PIE-657). A reader's header is the breadcrumb (a dim eyebrow), the title (the one bright,
+  bold line: the theme's brightest in the tile with the keys, a clear step down in the others), one dim line (author, day,
+  work id, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
+  line) and one blank row. The tile's frame bar says only `detail` while the header is on screen, and the title again when
+  the tile is too short for it. With Kitty's text sizing (OSC 66; asked at start-up, `EP0CH_SIZED=1|0` overrides) and a
+  title that fits twice over, the title is drawn at double height: the canvas still holds it as one bold row with a blank
+  row under it, so layout, selection, copy, clicks and `peek` are unchanged, and the sized text is painted over those two
+  rows (`src/text-sizing.ts`) only while they are as drawn. Herdr and tmux don't pass OSC 66: there it is bold on one row.
 - **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
   type's icon and tone, the title on its top edge (the type's own title when there's none; an author's title names
   the type on the right of the edge). One list of types: Obsidian's thirteen and their aliases (note, abstract

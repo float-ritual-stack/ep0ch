@@ -24,6 +24,19 @@ are its record. The outliner's entries from then are kept below, under
   `outline_comment` takes the same ref (the Claude mod's tools, `outliner agent`, and the MCP gateway on a live outline).
   The mod holds the first Edit or Write of a file with open threads once, with them in the answer.
 
+### A note's title stands out (PIE-657)
+
+- **The reader's header leads with the title.** The breadcrumb is a dim eyebrow above it, the title is the one bright,
+  bold line, and one dim line under it holds the author, the day, the work id, `i N properties`, the summary values (still
+  links) and the comment count. One blank row, then the body. In a narrow tile the summary takes a line of its own, so no
+  chip is cut off. Detail, preview, note tiles, the board's preview and a river column share it (`NoteSurface.headerBlock`).
+- **The tile's frame bar no longer repeats the title** (it reads `3 note detail`); a tile too short for the header keeps it
+  there. `peek`, `layout.get` and every agent read keep the title as data.
+- **Double height in Kitty.** Where the terminal has text sizing (OSC 66, answered at start-up; `EP0CH_SIZED=1|0` says it
+  outright) and the title fits twice over, it is drawn at scale 2. Elsewhere it is bold on one row. Herdr panes don't pass it on.
+- **The focused tile's title is the theme's brightest;** the other tiles' are a clear step down, never above the theme's cap.
+- **Run:** nothing. The kitchen sink has a `title` section.
+
 ### The status bar's +N new opens what changed (PIE-647)
 
 - **`+N new` counts notes, not events.** It is the distinct notes an agent, another client or (when asked for, with a click
