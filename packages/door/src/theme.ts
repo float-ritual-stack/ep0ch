@@ -50,6 +50,11 @@ export interface Theme {
    * keys, a warm accent apart from the typing yellow, linking magenta and the cyan text. Both dark-capped.
    */
   edge: { tile: Rgb; focus: Rgb };
+  /**
+   * A link to the web (a Markdown `[label](https://…)`, drawn with a ↗), apart from the cyan of a link inside the outline
+   * (`((id))`, `[[page]]`, a Work ID): a muted blue-violet, 4.5:1 or better on the ground, dark-capped.
+   */
+  external: Rgb;
   /** The CRT underlay (kitty+crt): its dark base and the bloom added in the middle of the tube. */
   crt: { base: Rgb; bloom: Rgb };
   /** The heatmap's lowest step (the rest climb the palette's blue, cyan, light cyan, white). */
@@ -72,6 +77,7 @@ const CLASSIC: Theme = {
     idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
   },
   edge: { tile: [112, 112, 136], focus: [232, 148, 48] },
+  external: [140, 140, 255],
   crt: { base: [4, 6, 14], bloom: [10, 16, 38] },
   heatLow: [8, 10, 24],
   legibleChips: false,
@@ -106,6 +112,7 @@ const CALM: Theme = {
     idle: [30, 38, 54], idleRow: [30, 38, 54],
   },
   edge: { tile: [98, 112, 136], focus: [236, 152, 72] },
+  external: [156, 150, 226],
   crt: { base: [12, 15, 21], bloom: [6, 8, 12] },
   heatLow: [16, 20, 28],
   legibleChips: true,
@@ -139,6 +146,7 @@ const NIGHT: Theme = {
     idle: [24, 28, 38], idleRow: [24, 28, 38],
   },
   edge: { tile: [86, 96, 114], focus: [206, 134, 66] },
+  external: [140, 134, 200],
   crt: { base: [9, 10, 13], bloom: [3, 4, 6] },
   heatLow: [14, 16, 22],
   legibleChips: true,

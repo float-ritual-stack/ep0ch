@@ -1,6 +1,7 @@
 // Text helpers shared by the BBS screens and the desk panes.
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { balanceStyles, balanceTags, C, fg, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { balanceStyles, balanceTags, C, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { theme } from "./theme";
 import { isEscapedAt, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 
 // ── what may reach the terminal (PIE-510) ──
@@ -68,7 +69,7 @@ function cut(s: string, w: number): [string, string] {
 
 /** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
 const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
-const NO_ROOM = /[\uE000-\uE008\u{100000}-\u{10FFFD}]/u;
+const NO_ROOM = /[\uE000-\uE009\u{100000}-\u{10FFFD}]/u;
 
 /**
  * One line's rows (for colourBody: wrap's `code`) with each inline code span the wrap cut closed at the row's end and opened again on the next, so
@@ -127,7 +128,7 @@ export function colourBody(line: string, literal = false): string {
     .replace(propertyTokenPattern(), (all: string, k: string, v: string, at: number, s: string) => literal || isEscapedAt(s, at) ? all : `${fg(C.dark)}[${fg(C.brown)}${k}${fg(C.dark)}::${fg(C.yellow)}${v}${fg(C.dark)}]${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
-    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))
+    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))
     // Inline Markdown (src/inline.ts): bold, italic, strikethrough, as Detail draws them.
     .replace(/[\uE003-\uE008]+/g, m => styleMarks(m)) + RESET;
 }

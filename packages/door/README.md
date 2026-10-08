@@ -2091,7 +2091,7 @@ exact VGA palette the door was drawn in (bright cyan, magenta and phosphor green
 
 | Theme | For |
 |---|---|
-| `calm` | every day: a near-black ground with a little blue in it, ink-slate bars instead of saturated blue, off-white text (never `#fff`), accents desaturated but each still its hue: cyan for links, amber for the focused tile, yellow for headings, red for errors, magenta for agents |
+| `calm` | every day: a near-black ground with a little blue in it, ink-slate bars instead of saturated blue, off-white text (never `#fff`), accents desaturated but each still its hue: cyan for links into the outline, a muted blue-violet with a ↗ for links to the web (`external`), amber for the focused tile, yellow for headings, red for errors, magenta for agents |
 | `night` | late hours and sensitive eyes: calm with the brightest text held near 10:1 and dim text still at 4.5:1 or more |
 | `classic` | the VGA palette, unchanged |
 

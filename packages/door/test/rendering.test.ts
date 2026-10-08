@@ -109,19 +109,19 @@ describe("Markdown links", () => {
   test("read as their text; an image stays as typed; a drag (and y) copies what's drawn", () => {
     const { s, h, copies, draw, at } = setup(TEXT);
     const row = plain(draw()[at("Ask").y]!).trim();
-    expect(row).toBe("Ask the society or see the shed, not ![a photo](plot.png).");
+    expect(row).toBe("Ask the society↗ or see the shed, not ![a photo](plot.png).");
     const a = at("Ask"), z = at("shed,");
     s.press(a.x, a.y, h); s.drag(z.x + 5, z.y, h); s.release(z.x + 5, z.y, h);
-    expect(copies).toEqual(["Ask the society or see the shed,"]);   // copy on select
+    expect(copies).toEqual(["Ask the society↗ or see the shed,"]);   // copy on select
     s.key(char("y"), h);
-    expect(copies).toEqual(["Ask the society or see the shed,", "Ask the society or see the shed,"]);
+    expect(copies).toEqual(["Ask the society↗ or see the shed,", "Ask the society↗ or see the shed,"]);
   });
 
   test("[ ] stops on each in reading order, and ⏎ opens a web page in the browser", () => {
     const { s, h, flashes, draw } = setup(TEXT);
     draw();
     s.key(char("]"), h); draw();
-    expect(s.describe().elements!.current).toMatchObject({ n: 1, kind: "link", label: "the society", target: "https://example.org/allotments" });
+    expect(s.describe().elements!.current).toMatchObject({ n: 1, kind: "link", label: "the society↗", target: "https://example.org/allotments" });
     expect(s.hint()).toContain("⏎ open");
     s.key({ kind: "enter" }, h);
     expect(runs).toEqual([externalOpenCommand("https://example.org/allotments")]);
@@ -188,7 +188,7 @@ describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
     const msg = await create(null, `Allotment meeting [to::the plot committee]\n[season::autumn]\n\nBring ((${kettle.id}|the kettle)) and read [the rules](https://example.org/rules).\nThe **gate code** changed.`);
     const lines = await draw((await board.get(msg.id))!);
     const text = lines.map(plain).join("\n");
-    expect(text).toContain("Bring the kettle and read the rules.");
+    expect(text).toContain("Bring the kettle and read the rules↗.");
     expect(text).not.toContain("((");
     expect(text).not.toContain("](");
     expect(text).not.toContain("**");

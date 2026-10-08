@@ -380,7 +380,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
-    note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook"],
+    note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
     detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
