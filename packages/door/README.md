@@ -637,8 +637,7 @@ A write to an outline whose home is another machine answers `queued` with a `que
   dismissed the proposal). Only the caller's own writes. The home machine's pull tells the gateway what each entry became
   (`ep0ch mcp queue settle`, over the ssh the pull already uses), with the revision it made or the proposal it became; a
   proposal's later life (applied or dismissed by its owner, which sends it to the Trash) is read from the mirror, so it
-  shows once the next copy arrives. The queue's store is version 2: on the gateway's machine, with the gateway stopped,
-  `bun packages/door/scripts/migrations/netmail-v1-to-v2.ts ~/outline-mirrors/.netmail.sqlite --write`.
+  shows once the next copy arrives. The queue's store is version 2; an older one is refused with the move-aside advice.
 - **Read your writes.** `outline_read` of a mirror's block adds `pending` for the caller's own still-queued writes about
   it: `pending.body` is the body with each queued patch laid over it, every replacement between `{{pending <id>}}` and
   `{{/pending}}` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
