@@ -49,6 +49,21 @@ export interface WriteStatus {
   settledAt?: string;
 }
 
+const spansOf = (e: NetmailReceipt): { observed: string; replacement: string }[] => strings(e.input.patches) ? e.input.patches : [];
+
+/**
+ * Whether write `l`, queued after `e`, takes `e`'s place: not refused, the same tool, and for a property the same key, for
+ * a patch a span that is over the same text (the one holds the other's passage, or its replacement). A comment or a new
+ * block is never replaced.
+ */
+function replaces(l: NetmailReceipt, e: NetmailReceipt): boolean {
+  if (l.id === e.id || l.tool !== e.tool || l.state === "refused") return false;
+  if (e.tool === "outline_set_property") return l.input.key === e.input.key;
+  if (e.tool !== "outline_patch") return false;
+  const [a, b] = [spansOf(e), spansOf(l)];
+  return a.some(x => b.some(y => [x.observed, x.replacement].some(t => t && (y.observed.includes(t) || t.includes(y.observed)))));
+}
+
 /**
  * Where one queued write stands. `proposal`: its proposal as the mirror shows it (read only for a write that became
  * one). `later`: this caller's writes about the same block, oldest first, this one among them.
@@ -64,7 +79,7 @@ export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary 
   const settled = { ...base, ...(r.settledAt ? { settledAt: r.settledAt } : {}) };
   if (r.state === "refused") return { ...settled, state: "rejected", reason: r.said ?? "refused", said: `rejected by ${target}: ${r.said ?? "refused"}` };
   if (r.state === "applied" || r.state === "unchanged") {
-    return { ...settled, state: "applied", ...(r.resultRevision !== null ? { revision: r.resultRevision } : {}), said: `${r.state === "unchanged" ? "already in place on" : "applied to"} ${target}${r.resultRevision !== null ? `, now revision ${r.resultRevision}` : ""}: ${r.said ?? ""}`.trim() };
+    return { ...settled, ...(r.state === "applied" && r.resultUri ? { uri: r.resultUri } : {}), state: "applied", ...(r.resultRevision !== null ? { revision: r.resultRevision } : {}), said: `${r.state === "unchanged" ? "already in place on" : "applied to"} ${target}${r.resultRevision !== null ? `, now revision ${r.resultRevision}` : ""}: ${r.said ?? ""}`.trim() };
   }
   // proposed: the home machine made a proposal under the note; its owner may since have applied or dismissed it.
   const proposal = r.proposalUri ?? undefined;
@@ -73,7 +88,8 @@ export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary 
     case "applied": return { ...withProposal, state: "applied", said: `proposed on ${target}, then applied by its owner (${proposal})` };
     case "dismissed": return { ...withProposal, state: "rejected", reason: "its owner dismissed the proposal", said: `proposed on ${target}, then dismissed by its owner (${proposal})` };
     default: {
-      const next = ctx.later.find(l => l.id !== r.id && l.tool === r.tool && (l.queuedAt > r.queuedAt || (l.queuedAt === r.queuedAt && l.id > r.id)));
+      // `later` is the caller's writes on the note in the order queued: the first after this one that replaces it.
+      const next = ctx.later.slice(ctx.later.findIndex(l => l.id === r.id) + 1).find(l => replaces(l, r));
       if (next) return { ...withProposal, state: "superseded", supersededBy: next.id, said: `proposed on ${target} (${proposal}), then superseded by your later ${next.tool} (${next.id}) on the same note; the proposal is still open for its owner unless they dismiss it` };
       return { ...withProposal, state: "proposed", said: `proposed on ${target}, not applied: ${r.said ?? "the note changed"}; the proposal ${proposal ?? ""} waits under the note for its owner${ctx.proposal === "missing" ? " (this gateway's mirror doesn't hold it yet)" : ""}`.replace(/\s+/g, " ").trim() };
     }
@@ -84,7 +100,7 @@ export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary 
 
 export interface PendingOverlay {
   said: string;
-  entries: { queueId: string; tool: string; queuedAt: string }[];
+  entries: { queueId: string; tool: string; queuedAt: string; state: "queued" | "applied" }[];
   /** The block's body with each waiting patch laid over it, each replacement fenced ⟦pending <id>⟧…⟦/pending⟧; absent when no patch is waiting. */
   body?: string;
   /** Per patch span: whether it was found in the body (a span in the header chips or one that no longer matches isn't laid over). */
@@ -107,7 +123,7 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
   const marks: { start: number; end: number; id: string; observed: string }[] = [];
   let patched = false;
   for (const w of waiting) {
-    out.entries.push({ queueId: w.id, tool: w.tool, queuedAt: w.queuedAt });
+    out.entries.push({ queueId: w.id, tool: w.tool, queuedAt: w.queuedAt, state: w.state === "applied" ? "applied" : "queued" });
     const input = w.input;
     if (w.tool === "outline_patch" && strings(input.patches)) {
       for (const p of input.patches) {
@@ -143,7 +159,7 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
     shown += text.slice(from);
     out.body = shown;
   }
-  out.said = `${waiting.length} of your write${waiting.length === 1 ? "" : "s"} to this note ${waiting.length === 1 ? "is" : "are"} still queued for its home machine and not in this copy yet: ` +
+  out.said = `${waiting.length} of your write${waiting.length === 1 ? "" : "s"} to this note ${waiting.length === 1 ? "is" : "are"} not in this copy yet (state queued: waiting for its home machine; applied: done there, the copy hasn't caught up): ` +
     "record.body is the mirror's text; pending.body lays them over it, each replacement between ⟦pending …⟧ and ⟦/pending⟧. A patch can quote either; they apply in the order queued. Only your own writes are shown.";
   return out;
 }

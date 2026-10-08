@@ -200,6 +200,11 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     // Once the far box pulls it and the mirror follows, the overlay is gone: the mirror has it.
     const pulled = await pull();
     expect(pulled.settled.map(s => s.state)).toEqual(["applied", "proposed"]);
+    // Applied on the far box, not in the mirror yet: the writer still reads its edit, marked as applied there.
+    const between = (await tool("outline_read", { uri: uriOf("trunk") })).json;
+    expect(between.pending.entries).toEqual([expect.objectContaining({ queueId: q.json.queueId, state: "applied" })]);
+    expect(between.pending.body).toContain("Four candles");
+    expect((await callAs(OTHER, "outline_read", { uri: uriOf("trunk") })).json.pending).toBeUndefined();
     follow("attic-notes");
     const after = (await tool("outline_read", { uri: uriOf("trunk") })).json;
     expect(after.pending).toBeUndefined();
@@ -272,6 +277,16 @@ describe("the overlay of a caller's waiting writes", () => {
     const o = pendingOverlay("text", [entry("c1", "outline_set_property", { key: "stage", value: "done" }), entry("c2", "outline_create", { text: "new", position: 0 }), entry("c3", "outline_comment", { body: "hm", quote: "text" })])!;
     expect(o.body).toBeUndefined();
     expect(o).toMatchObject({ properties: [{ key: "stage", value: "done" }], newBlocks: [{ text: "new", position: 0 }], comments: [{ body: "hm", quote: "text" }] });
+  });
+
+  test("only a write that takes the proposal's place supersedes it: a refused one, another key or another passage does not", () => {
+    const first: NetmailReceipt = { ...entry("e1", "outline_patch", { patches: [{ observed: "brass key", replacement: "brass key, tarnished" }] }), state: "proposed", proposalUri: "ep0ch://attic-notes@far-box/b/p1" };
+    const later = (e: NetmailReceipt) => receiptStatus(first, { summary: null, proposal: "open", later: [first, e] }).state;
+    expect(later(entry("e2", "outline_patch", { patches: [{ observed: "brass key", replacement: "brass key, polished" }] }))).toBe("superseded");
+    expect(later({ ...entry("e3", "outline_patch", { patches: [{ observed: "brass key", replacement: "x" }] }), state: "refused" })).toBe("proposed");
+    expect(later(entry("e4", "outline_patch", { patches: [{ observed: "Three candles", replacement: "Four" }] }))).toBe("proposed");
+    expect(later(entry("e5", "outline_set_property", { key: "room", value: "cellar" }))).toBe("proposed");
+    expect(receiptStatus({ ...first, state: "applied", resultUri: "ep0ch://attic-notes@far-box/b/new", resultRevision: 1 }, { summary: null, later: [] }).uri).toBe("ep0ch://attic-notes@far-box/b/new");
   });
 
   test("a receipt says each state in words, and a refused write carries why", () => {

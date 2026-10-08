@@ -188,8 +188,8 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
         summary(m) { return summaries().find(s => s.machine === m) ?? null; },
         // Reads open the store only if there is one; the home machine's `queue settle` is another process, and SQLite shows its commits.
         receipt(id) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.receipt(id) ?? null; },
-        pending(outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(outline, blockId, who) ?? []; },
-        history(outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(outline, blockId, who, false) ?? []; },
+        pending(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who) ?? []; },
+        history(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who, false) ?? []; },
       },
     } : {}),
     log,

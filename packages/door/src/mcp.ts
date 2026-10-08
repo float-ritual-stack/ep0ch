@@ -81,10 +81,10 @@ export interface McpQueue {
   summary(machine: string): NetmailSummary | null;
   /** A queued write and what it became so far, or none. */
   receipt(id: string): NetmailReceipt | null;
-  /** One caller's writes about a block that wait for its home machine (the read-your-writes overlay). */
-  pending(outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
+  /** One caller's writes about a block that the mirror doesn't show yet (the read-your-writes overlay). */
+  pending(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
   /** All of one caller's writes about a block, oldest first (what a receipt compares for "superseded"). */
-  history(outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
+  history(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
 }
 
 /**
@@ -269,7 +269,9 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
   // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
-  const waiting = caller && target.home && outlines.netmail ? outlines.netmail.pending(target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [];
+  // A write the home machine has applied stays until the mirror's copy has reached the revision it made.
+  const waiting = (caller && target.home && outlines.netmail ? outlines.netmail.pending(target.home.machine, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
+    .filter(w => w.state === "queued" || (w.resultRevision ?? 0) > read.record.revision);
   const pending = pendingOverlay(read.record.body, waiting);
   return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}) });
 }
@@ -328,7 +330,7 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
       catch { /* the mirror can't say; the proposal stands as proposed */ }
     }
   }
-  const later = receipt.state === "proposed" ? queue.history(receipt.outline, receipt.blockId, { actorId: mine.actorId, subject: caller.sub }) : [];
+  const later = receipt.state === "proposed" ? queue.history(receipt.machine, receipt.outline, receipt.blockId, { actorId: mine.actorId, subject: caller.sub }) : [];
   return toolText(receiptStatus(receipt, { summary: queue.summary(receipt.machine), ...(proposal ? { proposal } : {}), later }));
 }
 
