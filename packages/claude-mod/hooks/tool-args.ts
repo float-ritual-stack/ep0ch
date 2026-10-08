@@ -32,6 +32,12 @@ export interface ToolArgsSpec {
   aliases?: Readonly<Record<string, readonly string[]>>;
   /** Keys that arrive with the arguments but are not arguments (a plugin event's `tool`). */
   ignore?: readonly string[];
+  /**
+   * A name that is no argument and near none is dropped, not refused, when nothing else is wrong. For a host that hands
+   * its own metadata in with the arguments (the Claude mod's tool events carry `agentId` in a subagent): a typo of an
+   * argument, or an unknown name beside a missing one, is still answered.
+   */
+  dropUnknown?: true;
   /** Check names only (unknown, missing, conflicting): the surface coerces values itself (the door's `k=v` words are all text). */
   namesOnly?: true;
   /** A call as this surface writes it (`ep0ch act block.mark id=PIE-123`); default `name {json}`. */
@@ -197,10 +203,10 @@ export function checkToolArgs(spec: ToolArgsSpec, input: unknown): ToolArgsResul
     if (target !== undefined && args[target] === undefined) {
       problems.push(`\`${key}\` is not an argument of ${spec.name}; did you mean \`${target}\`?`);
       fixes.push([key, target]);
-    } else if (unknown.length === 1 && lacking.length === 1 && typesOf(declared[lacking[0]!] ?? {}).some(type => isType(given[key], type))) {
+    } else if (!spec.dropUnknown && unknown.length === 1 && lacking.length === 1 && typesOf(declared[lacking[0]!] ?? {}).some(type => isType(given[key], type))) {
       problems.push(`\`${key}\` is not an argument of ${spec.name}; the required \`${lacking[0]}\` is missing, so you probably meant \`${lacking[0]}\`.`);
       fixes.push([key, lacking[0]!]);
-    } else {
+    } else if (!spec.dropUnknown) {
       problems.push(`\`${key}\` is not an argument of ${spec.name}.`);
     }
   }

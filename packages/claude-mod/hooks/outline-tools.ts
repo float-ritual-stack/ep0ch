@@ -504,14 +504,14 @@ export interface ToolWithSchema {
  */
 export function checkedInput(tool: ToolWithSchema, event: Record<string, unknown>): { input: Record<string, unknown> } | string {
   const checked = checkToolArgs(
-    { name: tool.name, schema: tool.inputSchema as ToolSchema, example: tool.example ?? {}, ...(tool.aliases ? { aliases: tool.aliases } : {}), ignore: EVENT_KEYS },
+    { name: tool.name, schema: tool.inputSchema as ToolSchema, example: tool.example ?? {}, ...(tool.aliases ? { aliases: tool.aliases } : {}), ignore: EVENT_KEYS, dropUnknown: true },
     event,
   )
   return checked.ok ? { input: checked.args } : checked.error
 }
 
 /** What a plugin tool event carries besides the tool's arguments. */
-const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd'] as const
+const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd', 'agentId', 'agent_id', 'agentType', 'agent_type'] as const
 
 /** `show`: opens a note for the person (the mod's own handler, hooks/register.ts). */
 export const SHOW_TOOL: ToolWithSchema & { description: string } = {

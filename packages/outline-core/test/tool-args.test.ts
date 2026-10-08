@@ -67,3 +67,10 @@ test("the same block id in two outlines is two blocks; a corrected call is offer
   expect(odd).not.toContain("Call it as");
   expect(odd).toContain('Example: outline_read {"ref":"PIE-123","depth":1}');
 });
+
+test("dropUnknown drops a name that is near none, and still answers a typo or a missing argument", () => {
+  const lenient = { ...read, dropUnknown: true as const };
+  expect(checkToolArgs(lenient, { ref: "PIE-1", agentId: "a1" })).toMatchObject({ ok: true, args: { ref: "PIE-1" } });
+  expect(error(lenient, { refe: "PIE-1" })).toContain("did you mean `ref`?");
+  expect(error(lenient, { agentId: "a1" })).toContain("Missing required `ref`");
+});
