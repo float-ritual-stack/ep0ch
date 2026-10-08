@@ -13,6 +13,7 @@ import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { briefFor } from "./library/brief";
+import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
@@ -20,7 +21,7 @@ import { actorOf, applyWrite, assignIdRefusal, isWriteTool, MCP_WRITE_TOOLS, res
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
-                                   tools list_outlines, outline_read, outline_find, outline_links, outline_components; resources/read with envelope,
+                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_links, outline_components; resources/read with envelope,
                                    and the outline's components as resources (resources/list)
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
@@ -30,7 +31,7 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
                                    propose and full let the gateway's write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property) propose or apply (outline_assign_id applies at full only); a mirror's outline queues them
+                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a mirror's outline queues them
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -130,6 +131,8 @@ export function boundOutlines(board: Board): McpOutlines {
 const toolText = (value: unknown): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 const toolError = (message: string): ToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+/** The block a tool names: its `uri`, or `ref`; `id` is accepted as ref's alias (a model reaches for it). */
+const refArg = (args: Record<string, unknown>) => stringField(args, "uri") ?? stringField(args, "ref") ?? stringField(args, "id");
 const stringField = (value: Record<string, unknown>, key: string): string | undefined => typeof value[key] === "string" ? value[key] : undefined;
 
 /** A tool's `limit`: absent is the default; anything but a whole number from 1 to the maximum is refused, saying both. */
@@ -264,7 +267,7 @@ async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string)
 
 
 async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
-  const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
+  const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
@@ -273,7 +276,9 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   const waiting = (caller && target.home && outlines.netmail ? outlines.netmail.pending(target.home.machine, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
     .filter(w => w.state === "queued" || (w.resultRevision ?? 0) > read.record.revision);
   const pending = pendingOverlay(read.record.body, waiting);
-  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}) });
+  // The note's comment threads, compact: a reply is how an agent learns it was answered. A board that can't list them still reads.
+  const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
+  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}), ...(threads ? { threads } : {}) });
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
@@ -334,6 +339,73 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
   return toolText(receiptStatus(receipt, { summary: queue.summary(receipt.machine), ...(proposal ? { proposal } : {}), later }));
 }
 
+/** A time argument: an ISO date-time, or epoch milliseconds. */
+const timeArg = (v: unknown): number | undefined | { error: string } => {
+  if (v === undefined) return undefined;
+  const t = typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : { error: "since is an ISO date-time (2026-10-08T09:00:00Z) or epoch milliseconds." };
+};
+const INBOX_NOTES = { fallback: 20, max: 100 };
+/** Most notes with threads an inbox query reads (each is one request); a longer list says it was cut. */
+const INBOX_SCAN = 200;
+
+/**
+ * A note's comment threads, whole: who said what and when, on which quote, open or resolved. Without a note it is
+ * the outline's inbox: the open threads anywhere in it, newest activity first, narrowed by who spoke last
+ * (`lastFrom`), a mention (`mentions`) and `since`, which is what a scheduled check asks.
+ */
+async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+  const hasNote = refArg(args) !== undefined;
+  const asked = args.status === undefined ? (hasNote ? "all" : "open") : args.status;
+  if (asked !== "all" && asked !== "open" && asked !== "resolved") return toolError(`status is all${hasNote ? " (the default)" : ""}, open${hasNote ? "" : " (the default)"} or resolved.`);
+  const status: "all" | "open" | "resolved" = asked;
+  if (hasNote) {
+    const target = await addressedBlock(outlines, refArg(args), args.outline);
+    if ("error" in target) return toolError(target.error);
+    const read = await recordForMcp(outlines, target, target.id);
+    if ("error" in read) return toolError(read.error);
+    const rows = threadRows(await target.board.comments(target.id));
+    return toolText({
+      uri: target.uri, id: target.id, revision: read.record.revision, reachability: read.access,
+      counts: { open: rows.filter(r => r.status === "open").length, resolved: rows.filter(r => r.status === "resolved").length },
+      threads: inboxThreads(rows, { status, ...(typeof args.lastFrom === "string" ? { lastFrom: args.lastFrom } : {}), ...(typeof args.mentions === "string" ? { mentions: args.mentions } : {}) }),
+    });
+  }
+  const which = namedOutline(args.outline);
+  if (which && "error" in which) return toolError(which.error);
+  if (!which && !outlines.defaultOutline) return toolError("Name the outline (pass outline), or a note (uri or ref) to read its threads.");
+  const limit = limitOf(args.limit, INBOX_NOTES);
+  if (typeof limit !== "number") return toolError(limit.error);
+  const since = timeArg(args.since);
+  if (typeof since === "object") return toolError(since.error);
+  const target = await outlines.board(which);
+  if ("error" in target) return toolError(target.error);
+  const access = await requireReadAccess(outlines, target);
+  if ("error" in access) return toolError(access.error);
+  const { board } = target;
+  const query = { status, ...(typeof args.lastFrom === "string" && args.lastFrom ? { lastFrom: args.lastFrom } : {}), ...(typeof args.mentions === "string" && args.mentions ? { mentions: args.mentions } : {}), ...(since !== undefined ? { since } : {}) };
+  // The index narrows to the notes holding threads by status and time; each note's threads are then read and filtered
+  // by who spoke last and mentions. A note that read nothing after filtering isn't shown.
+  const candidates = notesWithThreads(await board.index(), { status, ...(since !== undefined ? { since } : {}) });
+  const found: { at: number; note: { uri: string; id: string; title: string; threads: ReturnType<typeof threadRows> } }[] = [];
+  let scanned = 0;
+  for (const c of candidates.slice(0, INBOX_SCAN)) {
+    scanned++;
+    const threads = inboxThreads(threadRows(await board.comments(c.noteId)), query);
+    // Ordered by the newest comment among the threads that matched, not by the note's newest activity.
+    if (threads.length) found.push({ at: Math.max(...threads.map(t => Date.parse(t.comments.at(-1)!.at ?? "") || 0)), note: { uri: blockUri(board, c.noteId), id: c.noteId, title: previewTitle(c.title), threads } });
+  }
+  found.sort((a, b) => b.at - a.at);
+  const notes = found.slice(0, limit).map(f => f.note);
+  const more = scanned < candidates.length || found.length > limit;
+  return toolText({
+    outline: board.address.outline, machine: board.address.machine, ...target.served, access: { level: access.level },
+    query, notes, threadCount: notes.reduce((n, x) => n + x.threads.length, 0),
+    completeness: { kind: more ? "truncated" : "complete", limit, more },
+    said: "Each note's threads are as outline_threads reads them for that note; outline_reply and outline_resolve_thread answer.",
+  });
+}
+
 /** Where a search found a note: its ancestors' titles, or `(root)` for a top-level note (never an empty path). */
 const ROOT_PATH = "(root)";
 const pathOf = (path: string) => path || ROOT_PATH;
@@ -381,7 +453,7 @@ const groupCompleteness = (shown: number, total: number | null) => ({ complete: 
 async function linkData(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
   const limit = limitOf(args.limit, LINKS_LIMIT);
   if (typeof limit !== "number") return toolError(limit.error);
-  const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
+  const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const board = target.board;
   const read = await recordForMcp(outlines, target, target.id);
@@ -485,10 +557,11 @@ function toolsFor(outlines: McpOutlines) {
     properties: {
       uri: { type: "string", description: "The block's ep0ch:// URI; it names its outline (an outline that names another is refused)" },
       ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123), as the outline's own links name it" },
+      id: { type: "string", description: "Alias of ref" },
       outline: outlineProperty(outlines),
     },
     additionalProperties: false,
-    oneOf: [{ required: ["uri"] }, { required: ["ref"] }],
+    oneOf: [{ required: ["uri"] }, { required: ["ref"] }, { required: ["id"] }],
   };
   return [
     {
@@ -502,6 +575,19 @@ function toolsFor(outlines: McpOutlines) {
       description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
         `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: addressSchema,
+    },
+    {
+      name: "outline_threads",
+      description: `Read comment threads in ${which}. With a note (uri or ref): that note's threads, each with its id (for outline_reply and outline_resolve_thread), open or resolved, the quote it is about and whether that passage is still in the note, and every comment and reply with its author (a person, or an agent such as mcp:daddy) and time, oldest first. ` +
+        `Without a note: the outline's inbox, the open threads anywhere in it (outline names which; newest activity first), narrowed by lastFrom (who spoke last: an actor id such as evan or daddy), mentions (an @name in any comment) and since (an ISO time, or epoch ms): what a scheduled check asks. ` +
+        `outline_read shows a note's threads compactly. The service doesn't record whether a comment asks for an answer: read the thread's last comment. Requires ${grant}.`,
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties,
+        status: { type: "string", enum: ["all", "open", "resolved"], description: "Default all for a note, open for the inbox" },
+        lastFrom: { type: "string", description: "Only threads whose last comment is from this person or agent" },
+        mentions: { type: "string", description: "Only threads where a comment mentions this @name" },
+        since: { type: ["string", "number"], description: "Only threads with activity at or after this ISO time (or epoch ms)" },
+        limit: limitSchema(INBOX_NOTES, "Notes in the inbox"),
+      }, oneOf: undefined, required: undefined },
     },
     {
       name: "outline_find",
@@ -551,7 +637,7 @@ async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined
 }
 
 /** Said wherever access changes: a connected client keeps the tool list it fetched. */
-export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when it connected (claude.ai until the connector reconnects): reconnect it to see the write tools appear or go";
+export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when it connected (claude.ai until the connector reconnects): reconnect it to see the write tools appear or go (some clients also need their tool list refreshed after the reconnect: in Claude Code, RefreshMcpTools)";
 
 async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined): Promise<ToolResult> {
   const listed = await outlines.list();
@@ -575,6 +661,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   const args = objectFields(params.arguments) ?? {};
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "outline_read") return readRecord(outlines, args, caller);
+  if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args);
   if (params.name === "outline_write_status" && caller && outlines.kind === "remote") return writeStatusTool(outlines, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
@@ -595,7 +682,7 @@ const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level:
 async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   const shape = writeInput(tool, args);
   if ("error" in shape) return toolError(shape.error);
-  const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
+  const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const { board } = target;
   const status = await target.board.mcpAccessStatus();
@@ -605,6 +692,9 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const record = (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
   const actor = actorOf(caller);
+  // How old the base a write was made against is: a mirror lags the laptop, so a revision read from it may be behind.
+  const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(target.served.asOf)) / 60_000));
+  const base = { source: target.served.source, asOf: target.served.asOf, ageMinutes: target.served.source === "mirror" ? ageMin : 0 };
   const where = { outline: board.address.outline, machine: board.address.machine };
   try {
     if (target.home) {
@@ -619,13 +709,13 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: queued ${entry.id}`);
       return toolText({
         outcome: "queued", id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
-        waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null,
-        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that`,
+        waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base,
+        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that; the base you wrote against is the mirror as of ${base.asOf} (~${base.ageMinutes} min old)`,
       });
     }
     const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}`);
-    return toolText({ outcome: done.outcome, uri: done.uri, ...where, said: done.said, detail: done.detail });
+    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, said: done.said, detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);

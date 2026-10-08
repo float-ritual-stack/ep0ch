@@ -242,14 +242,14 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
 
 /**
  * What a read-only copy of an outline answers (a mirror of an outline whose home is another machine, served by an
- * `OutlineHost` with `readOnly`): the reads the MCP server makes. Every other action is refused, so nothing a client
+ * `OutlineHost` with `readOnly`): the reads the MCP server makes (a note’s comment threads among them). Every other action is refused, so nothing a client
  * sends can change the copy or start work from it.
  */
 /** A request answered later than this is logged by a watched host (PIE-625). */
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;

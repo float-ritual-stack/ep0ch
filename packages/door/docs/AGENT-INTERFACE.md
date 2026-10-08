@@ -160,10 +160,10 @@ ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch
 export` writes notes out as Markdown or JSON (PIE-534; the door README has the flags).
 
 An MCP client reads the same outline with no door either: `ep0ch mcp` (stdio, for a local harness) and `ep0ch mcp
-serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `outline_read`, `outline_find`,
+serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `outline_read`, `outline_threads`, `outline_find`,
 `outline_links` and `resources/read` of `ep0ch://` URIs from one implementation, each outline gated by
 `ep0ch mcp access` (`none` by default). The remote gateway also writes where an outline's access is `propose` or
-`full` (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`: the Claude mod's operations, as
+`full` (`outline_create`, `outline_patch`, `outline_comment`, `outline_reply`, `outline_resolve_thread`, `outline_set_property`: the Claude mod's operations, as
 `mcp:<client>`), and queues writes to another machine's outline until that machine pulls them (PIE-615); `outline_write_status` follows a queued write, `outline_read` shows the caller's own queued edits as `pending`, and `outline_query` runs the views' grammar or a saved view (PIE-648). The door
 README's "Remote MCP gateway" has the setup.
 

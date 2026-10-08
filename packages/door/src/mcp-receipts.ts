@@ -108,6 +108,9 @@ export interface PendingOverlay {
   properties: { queueId: string; key: string; value: string }[];
   newBlocks: { queueId: string; text: string; position?: number }[];
   comments: { queueId: string; body: string; quote?: string }[];
+  /** Queued replies, and queued resolves or reopens, by thread id. */
+  replies: { queueId: string; thread: string; body: string }[];
+  resolves: { queueId: string; thread: string; resolved: boolean }[];
 }
 
 const short = (id: string) => id.slice(0, 8);
@@ -117,7 +120,7 @@ const strings = (v: unknown): v is { observed: string; replacement: string }[] =
 /** The caller's waiting writes laid over `body`, or null when none touches the block. `waiting` is oldest first. */
 export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[]): PendingOverlay | null {
   if (!waiting.length) return null;
-  const out: PendingOverlay = { said: "", entries: [], spans: [], properties: [], newBlocks: [], comments: [] };
+  const out: PendingOverlay = { said: "", entries: [], spans: [], properties: [], newBlocks: [], comments: [], replies: [], resolves: [] };
   let text = body;
   // The replaced stretches of `text`, kept as the text is edited under them.
   const marks: { start: number; end: number; id: string; observed: string }[] = [];
@@ -142,6 +145,8 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
     } else if (w.tool === "outline_set_property") out.properties.push({ queueId: w.id, key: String(input.key), value: String(input.value) });
     else if (w.tool === "outline_create") out.newBlocks.push({ queueId: w.id, text: String(input.text), ...(typeof input.position === "number" ? { position: input.position } : {}) });
     else if (w.tool === "outline_comment") out.comments.push({ queueId: w.id, body: String(input.body), ...(typeof input.quote === "string" ? { quote: input.quote } : {}) });
+    else if (w.tool === "outline_reply") out.replies.push({ queueId: w.id, thread: String(input.thread), body: String(input.body) });
+    else if (w.tool === "outline_resolve_thread") out.resolves.push({ queueId: w.id, thread: String(input.thread), resolved: input.resolved === true });
   }
   if (patched) {
     // Fences are put in at their offsets in one pass, so a replacement inside another's keeps both whole.
