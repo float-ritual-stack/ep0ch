@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The MCP gateway reads and writes the laptop's live outline when the laptop answers (PIE-661)
+
+- **New:** for a mirrored outline (`float-hub@laptop`), the gateway first tries that machine's own host through the
+  shared ssh forward, with a 2 second budget and a 45 second backoff after a failure. When it answers, reads, finds,
+  queries and threads are live (`source: "live"` and the machine) and writes are applied or proposed there at once, with
+  the usual revision check and `mcp:<persona>` attribution, instead of queuing as netmail. Claude.ai no longer shows a
+  copy that is 40 minutes old while the laptop is awake.
+- **Unchanged fallback:** when it doesn't answer, the mirror serves and writes queue exactly as before, and the answer
+  says why and when it tried. A host on another `PROTOCOL` counts as away, naming `ep0ch install --apply` to run on it.
+- **Safe:** a write queued while the laptop was away applies once when it pulls (a note changed live meanwhile becomes a
+  proposal); a live write says how many of the caller's queued writes to that note still wait; a live read still shows
+  them as `pending`. `list_outlines` gives each mirrored outline's `route`. `EP0CH_MCP_LIVE=0` turns it off. No
+  `PROTOCOL` change: restart the gateway (`ep0ch install --apply` on float-2) to get it.
+
 ### Agent tools take one `ref` argument, and wrong arguments get the right call back
 
 - **New:** `ref` names "which block or note" on every agent surface: the Claude mod's tools (`outline_*`, `work_*`,

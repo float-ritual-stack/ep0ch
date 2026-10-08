@@ -574,7 +574,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   refused, naming the default and the maximum.
   Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
 - **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
-  the work VPN) is read from a read-only copy on this machine, never from that machine, so a closed lid never stalls
+  the work VPN) is read from a read-only copy on this machine whenever that machine doesn't answer (it is tried first, [below](#remote-mcp-gateway-claudeai)), so a closed lid never stalls
   or refuses a read. The copy comes from the outline's own backups: the backup job (`ep0ch backup run`, PIE-607)
   replaces `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite` with the laptop's newest restic snapshot when there's a
   newer one (an atomic rename), and its staleness alert is what a read says. Until the Litestream follower below is
@@ -588,6 +588,23 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the mirror with its next change. A
   mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. A mirror is
   never written: its outline's writes queue ([netmail](#netmail-writes-to-another-machines-outline)).
+- **Live when the machine answers (PIE-661).** A mirror is the fallback, not the first choice. For an outline mirrored
+  from a machine, the gateway first asks that machine's own host through the shared ssh forward every client keeps
+  (`<outlines>/.remote/<ssh-name>.sock`, outline-core's `ensureForward`; the ssh config name is the mirror's machine,
+  `laptop` in `float-hub@laptop`), so it works over the tailnet whatever the machine's VPN does to the backups. A try has
+  a 2 second budget (`EP0CH_MCP_LIVE_BUDGET_MS`). A machine that answered is tried at once next time; one that didn't
+  is left alone for 45 seconds (`EP0CH_MCP_LIVE_BACKOFF_MS`), so a sleeping laptop never slows every call; a try past
+  its budget finishes in the background and the next call finds it up. When it answers, reads, finds, queries and threads
+  are the live outline's (`source: "live"`, `machine`), and a write goes to that host at once with its revision check
+  and the caller's `mcp:<persona>` attribution: `applied`, or `proposed` with its revision, never queued. When it
+  doesn't, the mirror answers exactly as before and `reachability.reason`, `liveTried` and `list_outlines`' `route` say
+  why ("laptop didn't answer over ssh (tried 2s ago): …; this is float-2's read-only copy …"), and writes queue. A host
+  on another `PROTOCOL` counts as away, with the command to run on that machine (`ep0ch install --apply`). Nothing
+  writes twice: a write queued while the machine was away applies once when it pulls, checked against the note's
+  revision then (a note changed live since becomes a proposal), a live write after it is an ordinary revision-checked
+  write that says how many of the caller's queued writes to that note still wait, and a live read still lays those over
+  the note as `pending`. `list_outlines` gives each mirrored outline's `route` (`via`: `live` or `mirror`, when it was
+  last `checkedAt`, `why`). `EP0CH_MCP_LIVE=0` turns the live route off.
 - **Revoking.** `ep0ch mcp access none --ws <name>` (or `read`) stops reads (or writes) at once; a write already queued
   for another machine is dropped when it arrives, if its outline no longer takes writes there. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
@@ -602,6 +619,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
 | `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
 | `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder), and the netmail queue, `.netmail.sqlite` |
+| `EP0CH_MCP_LIVE`, `EP0CH_MCP_LIVE_BUDGET_MS`, `EP0CH_MCP_LIVE_BACKOFF_MS` | the live route to a mirror's machine: `0` turns it off; the connect budget (default 2000) and the wait after a failed try (default 45000) |
 | `EP0CH_MCP_HUB` | on a home machine, in `~/.config/ep0ch/backup.env`: the gateway machine's ssh name, whose queued writes for this machine its backup job pulls. `ep0ch install` writes `float-2` on a Mac whose file names none; an empty `EP0CH_MCP_HUB=` line means none, and stays |
 
 ### Writes (PIE-615)

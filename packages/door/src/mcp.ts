@@ -56,7 +56,11 @@ export type McpServed = McpSource;
  * A board to read, and where it is served from. `home`: a mirror's outline lives on that machine, in the database
  * whose instance id the copy carries; a write to it queues for that machine.
  */
-export interface McpBoard { board: Board; served: McpServed; home?: { machine: string; instanceId: string | null } }
+export interface McpBoard {
+  board: Board; served: McpServed; home?: { machine: string; instanceId: string | null };
+  /** Served live from a machine whose mirror this server also keeps: writes queued for it that haven't landed yet still overlay a read. */
+  queuedFor?: string;
+}
 
 /** Served live, read now. */
 export const servedLive = (now = Date.now()): McpServed => ({ source: "live", asOf: new Date(now).toISOString() });
@@ -72,6 +76,8 @@ export interface McpOutlineListing {
   access?: McpAccessLevel;
   /** What a write to it becomes: applied or proposed here, or queued for its home machine; absent when it takes none. */
   writes?: "applied" | "proposals" | "queued";
+  /** An outline of another machine: how it is served now (its host through the shared ssh forward, or the mirror and why) and when that was last checked. */
+  route?: { via: "live" | "mirror"; checkedAt: string | null; why?: string; command?: string };
   /** A mirror's queued writes: how many wait, the oldest, and when its home machine last pulled. */
   queue?: { waiting: number; oldest: string | null; lastPull: string | null; said?: string };
   note?: string;
@@ -229,7 +235,7 @@ async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promi
 
 /** Where an answer came from, in words: nothing for a live outline, as before. */
 const servedWords = (outlines: McpOutlines, { served }: McpBoard) =>
-  served.source === "mirror" ? `, read-only mirror on ${outlines.machine} as of ${served.asOf}${served.note ? `: ${served.note}` : ""}` : "";
+  served.source === "mirror" ? `, read-only mirror on ${outlines.machine} as of ${served.asOf}${served.note ? `: ${served.note}` : ""}` : served.machine ? `, live from ${served.machine}'s own host` : "";
 
 const reachability = (outlines: McpOutlines, target: McpBoard, status: McpAccessStatus, id: string, revision: number | undefined): McpReachability => ({
   id,
@@ -297,7 +303,8 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   if ("error" in read) return toolError(read.error);
   // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
   // A write the home machine has applied stays until the mirror's copy has reached the revision it made.
-  const waiting = (caller && target.home && outlines.netmail ? outlines.netmail.pending(target.home.machine, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
+  const queuedAt = target.home?.machine ?? target.queuedFor;
+  const waiting = (caller && queuedAt && outlines.netmail ? outlines.netmail.pending(queuedAt, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
     .filter(w => w.state === "queued" || (w.resultRevision ?? 0) > read.record.revision);
   const pending = pendingOverlay(read.record.body, waiting);
   // The note's comment threads, compact: a reply is how an agent learns it was answered. A board that can't list them still reads.
@@ -787,9 +794,13 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
         said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that; the base you wrote against is the mirror as of ${base.asOf} (~${base.ageMinutes} min old)`,
       });
     }
+    // Served live from a machine this server also queues for: writes made while it was away wait for its pull, and the
+    // service checks each one's revision then, so a write made now and one made before never apply twice.
+    const earlier = target.queuedFor && outlines.netmail ? outlines.netmail.pending(target.queuedFor, where.outline, target.id, { actorId: actor.actorId, subject: caller.sub }).filter(w => w.state === "queued") : [];
     const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}`);
-    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, said: done.said, detail: done.detail });
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
+    const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
+    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);

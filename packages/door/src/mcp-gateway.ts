@@ -16,6 +16,7 @@ import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
+import { liveFromEnv, type LiveMachines } from "./mcp-live";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
 import { writesAt } from "./mcp-writes";
@@ -140,7 +141,7 @@ const localNames = async () => {
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
   const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
@@ -153,6 +154,22 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
       : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its backups${migrated}`;
     return { board: read.board, served: { source: "mirror", asOf: read.asOf, copy: read.copy, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
+  };
+  /**
+   * A mirrored outline, from its machine's own host when that answers (through the shared ssh forward: reads, finds and
+   * threads are the live outline's, and a write is applied or proposed there at once, revision-checked, never queued),
+   * else the mirror, saying why. Writes still queued for the machine overlay a live read, so a caller sees its own.
+   */
+  const routed = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+    if (!live) return mirrorRead(mirror);
+    const a = await live.board(mirror.machine, mirror.outline);
+    if ("board" in a) {
+      return { board: a.board, served: { source: "live", asOf: new Date().toISOString(), machine: mirror.machine, note: `${mirror.outline} lives on ${mirror.machine}; read from its own outline host over ssh, now` }, queuedFor: mirror.machine };
+    }
+    const { why, checkedAt, command } = a.away;
+    const copy = await mirrorRead(mirror);
+    if ("error" in copy) return { ...copy, error: `${why}. ${copy.error}` };
+    return { ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) } } };
   };
   // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
   let store: Netmail | null = null;
@@ -178,7 +195,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       if (!name) return { error: `Name the outline: an outline on ${machine}${mirrored ? ` or a mirror (${mirrored})` : ""}.` };
       if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(name)} isn't an outline name.` };
       const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine));
-      if (mirror) return mirrorRead(mirror);
+      if (mirror) return routed(mirror);
       if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrored ? ` and mirrors of ${mirrored}` : ""}.` };
       return local(name);
     },
@@ -205,7 +222,8 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       }
       const queues = summaries();
       for (const m of mirrors) {
-        const target = await mirrorRead(m);
+        const target = await routed(m);
+        const route = live?.route(m.machine);
         const q = queues.find(s => s.machine === m.machine);
         const queue = {
           waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null,
@@ -215,11 +233,13 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
           // The access setting is the outline's, read from the copy's metadata even when the copy can't be opened: writes
           // are offered by it, and the note says why none can be made yet.
           const level = "access" in target ? target.access : undefined, writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
-          rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", ...(level ? { access: level } : {}), ...(writes ? { writes } : {}), note: `${target.error}${writes ? ` Its access setting (${level}) takes writes, but one can be made only once the copy can be read.` : ""}`, ...(writes || q ? { queue } : {}) });
+          rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", ...(route ? { route } : {}), ...(level ? { access: level } : {}), ...(writes ? { writes } : {}), note: `${target.error}${writes ? ` Its access setting (${level}) takes writes, but one can be made only once the copy can be read.` : ""}`, ...(writes || q ? { queue } : {}) });
           continue;
         }
-        const level = await access(target), writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
-        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
+        const level = await access(target);
+        // Served live, a write is applied or proposed by the machine's host at once; from the mirror it queues.
+        const writes = level && writesAt(level) && (target.served.source === "live" ? writesAt(level) : netmailAt ? "queued" as const : null);
+        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(route ? { route } : {}), ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
       }
       return rows;
     },
@@ -228,6 +248,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       for (const p of boards.values()) void p.then(b => { if (!("error" in b)) b.close(); });
       boards.clear();
       for (const m of mirrors) void m.close();
+      live?.close();
     },
   };
 }
@@ -356,12 +377,13 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   const mirrorConfig = mirrorsConfig(io.env ?? process.env);
   if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
   const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
-  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined);
+  const live = mirrors.length ? liveFromEnv(io.env ?? process.env, err) : null;
+  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined, live);
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }
   err(`ep0ch mcp gateway on ${gateway.url}: resource ${config.resource.href}, issuer ${config.issuer}, outlines on ${outlines.machine}${parsed.ws ? ` (default ${parsed.ws})` : ""}` +
-    (mirrors.length ? `, mirrors ${mirrors.map(m => `${m.outline}@${m.machine} (${m.follow}${m.exists() ? "" : ", no copy yet"})`).join(", ")}` : "") +
+    (mirrors.length ? `, mirrors ${mirrors.map(m => `${m.outline}@${m.machine} (${m.follow}${m.exists() ? "" : ", no copy yet"})`).join(", ")}${live ? ", live through the ssh forward when the machine answers" : ", live route off (EP0CH_MCP_LIVE=0)"}` : "") +
     (config.allowedSubjects.length ? `, ${config.allowedSubjects.length} allowed subject(s)` : " [CAPTURE MODE: every token is refused and its subject logged; set EP0CH_MCP_ALLOWED_SUBJECTS]"));
   io.ready?.(gateway);
   const stop = new Promise<void>(resolve => {
