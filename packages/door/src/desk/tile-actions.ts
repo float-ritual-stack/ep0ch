@@ -7,7 +7,7 @@
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, def, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
-import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./screen-layout";
+import { EDGE_WORD, isDir, LINK_ROLES, type Axis, type Dir, type LinkRole, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { tileNoun, type TileKindName } from "./tile-kinds";
 
@@ -191,12 +191,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.link": def({
-    summary: "where tile=<tile>'s opens land: a link followed in it, the tree's ⏎, a list's pick opens in tile to=<tile> (a detail, a reader or a preview). No to= unlinks. Alt+⏎ or a ctrl- or alt-click still opens beside",
-    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks)",
-    touches: "shape", replay: "safe", says: (r, a) => (a.to ? `linked ${r.tile} → ${a.to}` : `unlinked ${r.tile}`),
-    args: { to: { type: "string", optional: true, tile: true, about: "the tile its opens land in; left out, the link is taken away" } },
-    run({ to }, { d, reader }, actor) {
-      return d.linkTile(reader, to, actor);
+    summary: "where tile=<tile>'s opens land: a link followed in it, the tree's ⏎, a list's pick opens in tile to=<tile> (a detail, a reader or a preview). role=preview also follows the source's selection as it moves; role=target takes only what is opened into it (⏎), so a selection can be previewed elsewhere (the links tile's default). role= alone changes the role of the link it has. No to= and no role= unlinks. Alt+⏎ or a ctrl- or alt-click still opens beside",
+    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks); a click on the link's role on the header (⏎ target, ◌ preview)",
+    touches: "shape", replay: "safe", says: (r, a) => (a.role && !a.to ? `${r.tile}'s link is a ${a.role}` : a.to ? `linked ${r.tile} → ${a.to}` : `unlinked ${r.tile}`),
+    args: {
+      to: { type: "string", optional: true, tile: true, about: "the tile its opens land in; left out, the link is taken away (or, with role=, kept)" },
+      role: { type: "string", optional: true, about: "preview (the linked tile follows the selection) or target (it takes only what is opened into it); default the source kind's: the links tile's is target" },
+    },
+    run({ to, role }, { d, reader }, actor) {
+      if (role !== undefined && !(LINK_ROLES as readonly string[]).includes(role)) throw new ActionRefused(`tile.link: role is preview or target, not ${role}`);
+      return d.linkTile(reader, to, actor, role as LinkRole | undefined);
     },
   }),
   "tile.focus": def({

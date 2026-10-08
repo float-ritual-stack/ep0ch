@@ -88,6 +88,18 @@ export interface TileKind {
    */
   readonly follower?: boolean;
   /**
+   * The role a new link from a tile of this kind has (PIE-646) unless said: `target` for a list whose selection is
+   * previewed and whose ⏎ opens (the links tile), so a reader linked to it takes only what is opened. Absent: `preview`.
+   */
+  readonly linkRole?: "preview" | "target";
+  /** Its selection drives previews (it calls `desk.showFrom`): a link from it has a role worth saying on its header. */
+  readonly previews?: true;
+  /**
+   * Its opens land in the tile it lists (`origin`: the links tile's source) when that tile keeps its note and no link or
+   * container says otherwise: ⏎ on a link opens it in the reader it came from, alt+⏎ in a new detail beside it (PIE-646).
+   */
+  origin?(p: Pane): string | null;
+  /**
    * A list about a note that `b` aims (the links tile: a reader's note's Outlinks, Resources and Backlinks): the
    * tile as the desk aims it, and the kind of tile opened beside it to follow its selection when a screen has
    * none and `b` opens one (`companion`, a preview).

@@ -25,7 +25,7 @@ import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
 import { openScreen } from "../desk/screen-specs";
 import { autoName, serializeTree } from "../desk/screen-layout";
-import type { SavedTree, TileSpec } from "../desk/tiles";
+import { DetailPane, type SavedTree, type TileSpec } from "../desk/tiles";
 import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
 import type { NewNoteHow } from "../new-note";
 import { TILE_ACTIONS } from "../desk/tile-actions";
@@ -315,6 +315,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), links = new BacklinksPane("reader", true);
       return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
+    },
+  },
+  {
+    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in the origin reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it) over one preview following its selection; a tile link's role (tile.link role=preview|target), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (setCurrent, showFrom, openFrom), src/desk/screen-layout.ts (landing, defaultLinkRole)",
+    aside: "the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (and the list now lists that note's links), alt+⏎ opens it in a new detail beside; tile.link role=target on a reader linked to the list keeps it still while the preview flips, and ⏎ lands in it · an agent's open is the same action, attributed, and never takes your keys",
+    stage(n, show) {
+      const d = new DetailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
+      return deskOf({ title: "showcase · links-open", panes: [d, links, p], layout: ([a, b, c]) => pair("col", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [], dsk => { if (n.shed) d.hold(n.shed, dsk); });
     },
   },
   {
