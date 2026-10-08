@@ -348,13 +348,20 @@ describe('tool arguments', () => {
     }
   })
 
+  test('metadata the host adds to a tool event (agentId in a subagent) is not an unknown argument', () => {
+    const complete = WORK_TOOLS.find(t => t.name === 'work_complete')!
+    expect(checkedInput(complete, { tool: 'x', agentId: 'a1b2', someHostField: 1, ref: 'PIE-1', allMerged: true, proof: 'Done' })).toEqual({ input: { ref: 'PIE-1', allMerged: true, proof: 'Done' } })
+    // A real mistake beside it is still answered.
+    expect(checkedInput(complete, { agentId: 'a1b2', item_id: 'PIE-1' })).toContain('Missing required `ref`')
+  })
+
   test('an unknown argument is named with the closest valid one, the arguments, and a call that works', () => {
     const typo = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { refe: 'PIE-12', depth: 1 }) as string
     expect(typo).toContain('`refe` is not an argument of outline_read; did you mean `ref`?')
     expect(typo).toContain('Arguments: ref (string, required)')
     expect(typo).toContain('Call it as: outline_read {"ref":"PIE-12","depth":1}')
     const wrong = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { title: 'Seed swap plan' }) as string
-    expect(wrong).toContain('the required `ref` is missing, so you probably meant `ref`')
+    expect(wrong).toContain('Missing required `ref`')
     const typed = checkedInput(OUTLINE_TOOLS.find(t => t.name === 'outline_read')!, { ref: 'PIE-12', depth: 'deep' }) as string
     expect(typed).toContain('`depth` must be integer 0-6; got string "deep"')
     expect(typed).toContain('Example: outline_read {"ref":"PIE-123","depth":1}')
