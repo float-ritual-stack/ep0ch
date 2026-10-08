@@ -1126,7 +1126,7 @@ class Step<I> {
     this.shape(id, `folding ${name}`);
     if (!p || p.parent.t === "flow" || !foldFits(fold, axis)) {
       refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)`
-        : !p ? `${name} isn't side by side or stacked with other tiles: only a tile in a row or a column folds to a spine`
+        : !p ? `${name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine`
         : fold.dir === "h" ? `${name} isn't stacked with other tiles: a horizontal spine needs a tile above or below it (dir=v folds it to a vertical one)`
         : `${name} isn't side by side with other tiles: a vertical spine needs a tile beside it (dir=h folds it to a horizontal one)`);
     }
