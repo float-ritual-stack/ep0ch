@@ -13,7 +13,7 @@ import { shortId } from "../refs";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
@@ -295,10 +295,10 @@ export class ReaderPane implements Pane {
   /** The history a saved layout brought, until the reader shows the note it was saved on (NoteSurface.restoreNav). */
   wantNav: unknown;
   /** The note the saved layout had this reader on, until it shows it (or `dropWant`: it couldn't). */
-  wantNote(): string | null { const id = (this.wantNav as { here?: { id?: unknown } } | null | undefined)?.here?.id; return typeof id === "string" ? id : null; }
+  wantNote(): string | null { return this.wantNav === undefined ? null : navNote(this.wantNav); }
   dropWant() { this.wantNav = undefined; }
   /** What a layout saves of a reader: its place and its back and forward stacks (PIE-643). */
-  spec(): Record<string, unknown> { const nav = this.surface.saveNav(); return nav ? { nav } : this.wantNav ? { nav: this.wantNav } : {}; }
+  spec(): Record<string, unknown> { const nav = this.wantNav ? this.wantNav : this.surface.saveNav(); return nav ? { nav } : {}; }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   /** The tiles whose opens land here (their link, or their container's opens-into): set by the desk as it draws. */
   landsFrom: string[] = [];

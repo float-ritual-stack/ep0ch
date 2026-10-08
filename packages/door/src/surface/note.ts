@@ -168,6 +168,8 @@ function readPlace(x: any): SavedPlace | null {
   const figures = (Array.isArray(x.figures) ? x.figures : []).filter((f: unknown): f is [string, FigureChoice] => Array.isArray(f) && typeof f[0] === "string" && !!f[1] && typeof f[1] === "object");
   return { id: x.id, title: x.title, scroll: int(x.scroll, 0), cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), seen: strings(x.seen), figures };
 }
+/** The note a saved history was taken on, if it is one this version reads. */
+export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
 /** A saved history as this version reads it: null for another version or anything that isn't one. */
 function readNav(raw: unknown): SavedNav | null {
   const x = raw as any;
@@ -3806,7 +3808,7 @@ export class NoteSurface {
     if (this.kept) return null;
     const here = this.place();
     const out: SavedNav = { v: NAV_VERSION, ...(here ? { here: savedPlace(here) } : {}), backs: this.backs.map(savedPlace), aheads: this.aheads.map(savedPlace) };
-    return out.backs.length || out.aheads.length || (here && (here.scroll > 0 || here.cur !== null || here.folded.length)) ? out : null;
+    return here || out.backs.length || out.aheads.length ? out : null;
   }
 
   /**

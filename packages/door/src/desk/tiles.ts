@@ -134,7 +134,7 @@ export class DetailPane extends ReaderPane {
   protected override emptyFor(): string {
     return this.missing ? `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it` : super.emptyFor();
   }
-  override spec(): Record<string, unknown> { return { ...(this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}), ...super.spec() }; }
+  override spec(): Record<string, unknown> { return this.page ? { page: this.page } : { ...(this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}), ...super.spec() }; }
 }
 
 export const shell = () => process.env.SHELL || "sh";
