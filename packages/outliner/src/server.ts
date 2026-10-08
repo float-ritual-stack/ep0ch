@@ -2631,6 +2631,7 @@ export class OutlinerServer {
           result = this.store.allocateWorkId(
             request.blockId,
             request.expectedRevision,
+            request.mutation,
           );
           break;
         case "properties.patch":

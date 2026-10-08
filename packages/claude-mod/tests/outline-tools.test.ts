@@ -33,6 +33,7 @@ const ANSWERS: Record<string, string> = {
   'view-order': JSON.stringify({ view: NOTE, ref: `((${NOTE}))`, order: [{ id: THREAD, title: 'Bring labels', workId: 'PIE-12' }, { id: NOTE, title: 'Seed swap plan' }] }),
   patch: JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 5 }] }),
   'set-property': JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 6 }], id: NOTE, key: 'crop', previous: null, value: 'leek' }),
+  'assign-id': JSON.stringify({ outcome: 'applied', id: NOTE, workId: 'GDN-001', page: '[[GDN-001]]', revision: 4 }),
 }
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
@@ -108,6 +109,7 @@ const CALLS: Array<{ tool: string; input: Record<string, unknown>; operation: st
     json: { policy: 'edit', ref: NOTE, revision: 3, patches: [{ observed: 'runner  beans', replacement: 'runner beans' }] } },
   { tool: 'outline_set_property', input: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }, operation: 'set-property',
     json: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 } },
+  { tool: 'outline_assign_id', input: { ref: NOTE, revision: 3 }, operation: 'assign-id', json: { ref: NOTE, revision: 3 } },
 ]
 
 describe('outline tools', () => {

@@ -31,7 +31,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 ## Tools
 
 In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
-`outline_patch`, `outline_create`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
+`outline_patch`, `outline_create`, `outline_assign_id`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
 `door_act`, `door_open`. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
@@ -105,9 +105,11 @@ When they ask you to orient them and plan a stretch of work (a morning brain boo
   comments, and the code first. Open a loop with another person only when it really can't be found.
 - **Read a ticket in full:** the description, every comment, and its parent for context.
 - **Draft messages in the outline.** A message to someone else is an outbox item the person reviews and approves.
-  Never send one yourself unless they say so. Give it a work id from the outline's own allocator (`work_create`; it
-  uses whatever prefix that outline was set up with) and a `[page::…]` name, so it can be referenced by id or
-  `[[page]]` instead of a free-form title. A team's ticket ids (Jira's `PC-…`) stay references, never allocated.
+  Never send one yourself unless they say so. Create the note, then give it a work id from the outline's own
+  allocator with `outline_assign_id` (CLI: `outliner agent assign-id`, or `outliner work-id-allocate`; it uses
+  whatever prefix that outline was set up with). The id is its page address, so `[[GDN-12]]` reaches it: add no
+  `[page::…]` name (the outliner refuses the duplicate). `work_create` is only for roadmap items on the workboard,
+  never for an outbox draft. A team's ticket ids (Jira's `PC-…`) stay references, never allocated.
 - **Introduce a work item** in a line the first time it comes up, and again after a break, so the person doesn't
   have to recall what `XYZ-123` was.
 - **Code:** work in a worktree, and review it before anything is pushed.
@@ -187,11 +189,11 @@ change it). Reach past them: ask `outline_components` (or `ep0ch library --brief
 fits. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
-A worked outbox draft (fictional). The properties are on the first line; the message is the one quote, so its ⧉
+A worked outbox draft (fictional). The note is made first, then `outline_assign_id` stamps `[work-id::…]` on its first line (no `[page::…]`: the id is the page address). The properties are on the first line; the message is the one quote, so its ⧉
 copies the message and nothing else; the sources are folded:
 
 ````markdown
-GDN-12 — Ticket: staff the seed swap table [type::outbox] [outbox::next] [status::draft] [work-id::GDN-12] [page::gdn-12-seed-swap]
+GDN-12 — Ticket: staff the seed swap table [type::outbox] [outbox::next] [status::draft] [work-id::GDN-12]
 > [!abstract] A ticket for the allotment committee asking for two volunteers on the 14th. Left: pick the channel.
 
 Before it posts

@@ -292,6 +292,20 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       return { operation: 'set-property', input: inputOf(input, ['ref', 'key', 'value', 'revision']) }
     },
   },
+  {
+    name: 'outline_assign_id',
+    description:
+      'Give an existing note the outline\'s next work id (outliner work-id-allocate), against the `revision` ' +
+      'outline_read returned: the id is stamped on the note and is its page address, so `[[HUB-002]]` reaches it ' +
+      '(no [page::…] needed; adding one duplicates it). The prefix is whatever the outline has. For notes that ' +
+      'aren\'t roadmap items, such as an outbox draft; work_create is only for roadmap items on the workboard. ' +
+      'A note that already has an id answers with it, unchanged. Returns `workId` and `page`.',
+    inputSchema: schema({ ref: REF, revision: EXPECTED }, ['ref', 'revision']),
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== 'number') return 'Give the ref and the revision you read.'
+      return { operation: 'assign-id', input: inputOf(input, ['ref', 'revision']) }
+    },
+  },
 ]
 
 // ─── Door tools ────────────────────────────────────────────────────────────

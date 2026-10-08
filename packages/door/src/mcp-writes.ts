@@ -1,5 +1,5 @@
-// The remote MCP gateway's writes (PIE-615): four tools, one write path. The tools take the Claude mod's shapes
-// (`outline_create`, `outline_patch`, `outline_comment`, and `outline_set_property`), addressed as the read tools are (a
+// The remote MCP gateway's writes (PIE-615): five tools, one write path. The tools take the Claude mod's shapes
+// (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property` and `outline_assign_id`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
 // service checks revisions, anchors comments, refuses a dropped page or anchor, and turns a patch that no longer matches
@@ -9,6 +9,7 @@
 //   read, none  no write at all;
 //   propose     a proposal: a patch or a property is a draft.patch proposal (`propose: always`), a new block is a comment
 //               on its parent carrying the text, and a comment is a comment (it changes nothing but its thread);
+//   (outline_assign_id stamps a work id, which is no text proposal: it is applied at full and refused below it.)
 //   full        applied, through the service's revision checks; a note open in someone's draft gets a proposal in that
 //               draft instead (`propose: held`), never a change under their cursor.
 // An outline whose home is another machine is never written here: its writes queue (src/mcp-netmail.ts), and that
@@ -25,7 +26,7 @@ import type { SocketBoard } from "./socket";
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -42,6 +43,10 @@ export function clientName(clientId: string | undefined): string {
   return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "client";
 }
 export const actorOf = (caller: McpCaller): WriteActor => ({ actorId: `mcp:${clientName(caller.clientId)}`, sessionId: caller.sub });
+
+/** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
+export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
+  : `outline_assign_id stamps the note and can't be proposed: it needs full access (this outline's is ${level}).`;
 
 /** Whether a level allows writes, and which kind. */
 export const writesAt = (level: McpAccessLevel): "proposals" | "applied" | null => level === "full" ? "applied" : level === "propose" ? "proposals" : null;
@@ -90,6 +95,9 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
       if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
       if (!nonEmpty(args.key) || !nonEmpty(args.value)) return { error: "Give the key and a non-empty value." };
       return { tool, revision: args.revision, input: pick(args, ["key", "value"]) };
+    case "outline_assign_id":
+      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
+      return { tool, revision: args.revision, input: {} };
   }
 }
 
@@ -99,6 +107,7 @@ interface AgentTools {
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; deduplicated?: boolean }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
+  assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
 }
 type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
@@ -144,6 +153,10 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   if (!kind) throw new Error(`MCP access is ${o.level}${board.address ? ` for ${board.address.outline}@${board.address.machine}` : ""}: no writes`);
   const tools = await loadAgentTools();
   const client = clientOf(board);
+  if (write.tool === "outline_assign_id") {
+    const why = assignIdRefusal(o.level) ?? (o.proposeOnly ? "outline_assign_id stamps the note and can't be proposed: the note changed since it was read." : null);
+    if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
+  }
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}`, detail: r }
@@ -165,6 +178,12 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       const r = await tools.setBlockProperty(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor);
       if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: `[${r.key}::${r.value}] is already set`, detail: r };
       return patched(r, `[${String(write.input.key)}::${String(write.input.value)}]`);
+    }
+    case "outline_assign_id": {
+      const r = await tools.assignWorkId(client, { ref: write.blockId, revision: o.revision ?? write.revision }, o.actor);
+      return r.outcome === "unchanged"
+        ? { outcome: "unchanged", uri: o.uri(write.blockId), said: `${r.page} was already its id`, detail: r }
+        : { outcome: "applied", uri: o.uri(write.blockId), said: `gave ${o.uri(write.blockId)} the id ${r.workId}: ${r.page} reaches it`, detail: r };
     }
     case "outline_comment": {
       try {
@@ -228,6 +247,12 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
       name: "outline_set_property",
       description: `Set one [key::value] property on a note's header line (the chips that end its first line): the value replaced where the key is, or the chip added at the line's end, against the revision outline_read returned, as one outline_patch span. A key written more than once is a list: edit it with outline_patch. ${answer}`,
       inputSchema: addressed({ key: { type: "string" }, value: { type: "string", description: "One line, without ]" }, revision: REVISION }, ["key", "value", "revision"]),
+    },
+    {
+      name: "outline_assign_id",
+      description: "Give an existing note the outline's next work id (its prefix, whatever the outline has), against the revision outline_read returned. The id is the note's page address, so [[HUB-002]] reaches it: no [page::…] needed. " +
+        "For notes that aren't roadmap items, such as an outbox draft. A note that already has an id answers with it, unchanged. It stamps the note, so it can't be a proposal: it needs full access, and a note that changed since is refused. " + answer,
+      inputSchema: addressed({ revision: REVISION }, ["revision"]),
     },
   ];
 }

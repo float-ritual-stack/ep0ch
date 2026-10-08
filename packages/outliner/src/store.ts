@@ -3341,7 +3341,9 @@ export class OutlinerStore {
   allocateWorkId(
     blockId: string,
     expectedRevision: number,
+    mutation?: MutationProvenance,
   ): WorkIdAllocation {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
     return this.database.transaction(() => {
       const block = this.getFromCurrentRead(blockId);
       if (!block) throw new Error(`Block not found: ${blockId}`);
@@ -3374,8 +3376,9 @@ export class OutlinerStore {
         : { op: "append", key: "work-id", value: workId };
       const nextText = patchPropertyText(block.text, [workIdOperation]);
       const properties = parsePropertyRecords(nextText);
-      this.writeBlockText(blockId, nextText, expectedRevision);
+      const editedAt = this.writeBlockText(blockId, nextText, expectedRevision);
       this.replaceProperties(blockId, properties);
+      if (provenance) this.recordActivity(blockId, provenance, "properties", editedAt);
       this.bumpSequence({ kind: "edit", blockId });
       return {
         workId,

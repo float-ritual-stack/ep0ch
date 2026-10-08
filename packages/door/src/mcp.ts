@@ -14,7 +14,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { briefFor } from "./library/brief";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailSummary } from "./mcp-netmail";
-import { actorOf, applyWrite, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, applyWrite, assignIdRefusal, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -28,7 +28,7 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
                                    propose and full let the gateway's write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property) propose or apply; a mirror's outline queues them
+                                   outline_comment, outline_set_property) propose or apply (outline_assign_id applies at full only); a mirror's outline queues them
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -516,6 +516,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const status = await target.board.mcpAccessStatus();
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+  if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
   const record = (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
   const actor = actorOf(caller);
