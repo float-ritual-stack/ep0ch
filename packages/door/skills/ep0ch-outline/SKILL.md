@@ -92,6 +92,29 @@ Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` f
 directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page,
 `!((id))` to show a block's text in place (it stays canonical). The same holds in chat: give the link.
 
+## Working a session with the person
+
+When they ask you to orient them and plan a stretch of work (a morning brain boot, an evening catch-up):
+
+- **Make a plan block, open it in a tile and keep it current.** Treat it like a dashboard, not prose: what you're
+  working on, open questions, and the steps to confirm one at a time before calling something done. Treat it as a
+  mini plan mode: propose, then confirm with the person before committing to anything.
+- **Use live views over copies.** Anything with a status (todos, tickets, outbox items) is a query, a view or an
+  embed, so it can't drift. Use properties so it filters.
+- **Answer the question before asking someone else.** Check meeting notes, existing blocks, the ticket and its
+  comments, and the code first. Open a loop with another person only when it really can't be found.
+- **Read a ticket in full:** the description, every comment, and its parent for context.
+- **Draft messages in the outline.** A message to someone else is an outbox item the person reviews and approves.
+  Never send one yourself unless they say so.
+- **Introduce a work item** in a line the first time it comes up, and again after a break, so the person doesn't
+  have to recall what `XYZ-123` was.
+- **Code:** work in a worktree, and review it before anything is pushed.
+- **Respect the tiles.** Use the tiles you're given as they say (see `ep0ch where` and `peek`: a tile can be
+  free, edit-only or off-limits to agents). Never move a tile they told you to leave.
+
+Their own team's rules (a comms skill for messages, a team's review steps) come from that team's skill, not this
+one.
+
 ## Views, boards and hubs
 
 - A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
