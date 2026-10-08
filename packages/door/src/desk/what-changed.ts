@@ -45,6 +45,8 @@ export interface ChangedRow {
   revision?: number;
   seen: boolean;
   title?: string;
+  /** The title shown is the one before this change: read it again (a rename). */
+  retitle?: boolean;
 }
 
 const KIND_WORDS: Record<Change["kind"], string> = { create: "created", edit: "edited", move: "moved", delete: "trashed", restore: "restored", purge: "purged", annotate: "commented", draft: "draft", reorder: "reordered", other: "changed" };
@@ -65,6 +67,8 @@ export class WhatChanged {
   includeExt = false;
   private onChange: () => void = () => {};
   private ready: Promise<void> = Promise.resolve();
+  /** Resolves once the changes since the kept position are read (looking before then would skip them). */
+  settled(): Promise<void> { return this.ready; }
 
   /** The outline it reads (its seen position is kept under this name). */
   outline = "";
@@ -78,7 +82,7 @@ export class WhatChanged {
    */
   seed(board: Pick<SocketBoard, "lastSequence" | "changesSince">): Promise<void> {
     const kept = readState<Record<string, number>>(SEEN_FILE)?.[this.outline];
-    if (kept === undefined) { this.seenTo = board.lastSequence; return (this.ready = Promise.resolve()); }
+    if (kept === undefined) { this.seenTo = board.lastSequence; this.save(); return (this.ready = Promise.resolve()); }
     this.seenTo = kept;
     this.ready = (async () => {
       try {
@@ -102,18 +106,22 @@ export class WhatChanged {
     const prev = this.rows.get(c.blockId);
     if (prev && prev.sequence >= c.sequence) return;
     const id = c.actor?.actorId ?? c.actor?.author ?? "?";
+    // An extension refreshing a note an agent changed doesn't hide that change: the unseen row stands.
+    if (prev && !prev.seen && !prev.ext && id.startsWith("ext:")) return;
     this.rows.set(c.blockId, {
       blockId: c.blockId, kind: kindWord(c), created: c.kind === "create" || !!prev?.created,
       who: id, agent: c.actor?.author === "agent", ext: id.startsWith("ext:"),
       at: Date.parse(c.recordedAt) || Date.now(), sequence: c.sequence,
       ...(c.revision !== undefined ? { revision: c.revision } : {}), seen: false,
-      ...(prev?.title !== undefined ? { title: prev.title } : {}),
+      ...(prev?.title !== undefined ? { title: prev.title, retitle: true } : {}),
     });
     // A note made here and trashed here is no news.
     if (c.kind === "delete" && prev?.created) this.rows.delete(c.blockId);
+    // Over the limit the oldest seen note goes first: an unseen one is still news (and counted), up to a far larger bound.
     if (this.rows.size > KEEP) {
-      const oldest = [...this.rows.values()].sort((a, b) => a.sequence - b.sequence)[0]!;
-      this.rows.delete(oldest.blockId);
+      const all = [...this.rows.values()].sort((a, b) => a.sequence - b.sequence);
+      const drop = all.find(r => r.seen) ?? (this.rows.size > KEEP * 10 ? all[0] : undefined);
+      if (drop) this.rows.delete(drop.blockId);
     }
   }
 
@@ -141,16 +149,20 @@ export class WhatChanged {
   /** The person looked: everything held is seen, and the position is kept. Never an agent's. */
   markSeen() {
     let top = this.seenTo;
-    for (const r of this.rows.values()) { r.seen = true; top = Math.max(top, r.sequence); }
+    // What the list shows: an extension's writes it holds back (`changes.extensions`) stay unseen until they're shown.
+    for (const r of this.rows.values()) {
+      if (r.ext && !this.includeExt) continue;
+      r.seen = true; r.created = false; top = Math.max(top, r.sequence);
+    }
     if (top !== this.seenTo) { this.seenTo = top; this.save(); }
     this.onChange();
   }
 
   /** Titles for rows that have none yet, read from the board (a trashed or purged note reads as gone). */
   async titles(board: Pick<SocketBoard, "get">) {
-    const todo = [...this.rows.values()].filter(r => r.title === undefined);
+    const todo = [...this.rows.values()].filter(r => r.title === undefined || r.retitle);
     await Promise.all(todo.map(async r => {
-      try { const m = await board.get(r.blockId); r.title = m ? subject(m) : "(gone)"; } catch { r.title = "(unreadable)"; }
+      try { const m = await board.get(r.blockId); r.title = m ? subject(m) : "(gone)"; delete r.retitle; } catch { r.title = "(unreadable)"; }
     }));
     if (todo.length) this.onChange();
   }
@@ -187,6 +199,7 @@ export class WhatChangedPane implements Pane {
   private view = new RowView();
   /** The notes whose change is shown, with its rows (or "…" while it's read). */
   private diffs = new Map<string, string[]>();
+  private keyOf(r: ChangedRow) { return `${r.blockId}@${r.revision ?? r.sequence}`; }
   private store: WhatChanged | null = null;
   /** The notes that were unseen when the person opened the list: they keep their mark while it's open, though they're seen now. */
   private fresh = new Set<string>();
@@ -208,25 +221,25 @@ export class WhatChangedPane implements Pane {
 
   /** A row's diff, read once (the first look asks the service for the revisions). */
   async diff(r: ChangedRow, desk: DeskApi): Promise<string[]> {
-    const had = this.diffs.get(r.blockId);
+    const had = this.diffs.get(this.keyOf(r));
     if (had) return had;
-    this.diffs.set(r.blockId, ["…"]);
+    this.diffs.set(this.keyOf(r), ["…"]);
     let lines: string[];
     try { lines = await changeDiff(this.board!, r); } catch (e) { lines = [`(${e instanceof Error ? e.message : String(e)})`]; }
-    this.diffs.set(r.blockId, lines.slice(0, MAX_DIFF).concat(lines.length > MAX_DIFF ? [`… ${lines.length - MAX_DIFF} more lines`] : []));
+    this.diffs.set(this.keyOf(r), lines.slice(0, MAX_DIFF).concat(lines.length > MAX_DIFF ? [`… ${lines.length - MAX_DIFF} more lines`] : []));
     desk.redraw();
-    return this.diffs.get(r.blockId)!;
+    return this.diffs.get(this.keyOf(r))!;
   }
   /** Show or fold a row's diff. */
-  fold(r: ChangedRow) { if (this.diffs.has(r.blockId)) this.diffs.delete(r.blockId); }
-  showing(r: ChangedRow) { return this.diffs.has(r.blockId); }
+  fold(r: ChangedRow) { if (this.diffs.has(this.keyOf(r))) this.diffs.delete(this.keyOf(r)); }
+  showing(r: ChangedRow) { return this.diffs.has(this.keyOf(r)); }
 
   private loadingTitles = false;
 
   render(w: number, h: number, focused: boolean): PaneView {
     const rows = this.rows();
     // A note changed since the list was opened: its title is read when it first shows.
-    if (this.store && this.board && !this.loadingTitles && rows.some(r => r.title === undefined)) {
+    if (this.store && this.board && !this.loadingTitles && rows.some(r => r.title === undefined || r.retitle)) {
       this.loadingTitles = true;
       void this.store.titles(this.board).finally(() => { this.loadingTitles = false; });
     }
@@ -242,7 +255,7 @@ export class WhatChangedPane implements Pane {
       const who = `${r.who}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
       if (n === this.at) lines.push({ row: n, text: selected(focused) + pad(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w) + RESET });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
-      for (const d of this.diffs.get(r.blockId) ?? []) {
+      for (const d of this.diffs.get(this.keyOf(r)) ?? []) {
         const sgr = d.startsWith("+") ? fg(C.lgreen) : d.startsWith("-") ? fg(C.lred) : fg(C.grey);
         lines.push({ row: n, text: pad(`    ${sgr}${d}`, w) + RESET });
       }
@@ -271,7 +284,7 @@ export class WhatChangedPane implements Pane {
     const rows = this.rows();
     let line = 0;
     for (let n = 0; n < rows.length; n++) {
-      const size = 1 + (this.diffs.get(rows[n]!.blockId)?.length ?? 0);
+      const size = 1 + (this.diffs.get(this.keyOf(rows[n]!))?.length ?? 0);
       if (y + this.view.top < line + size) return n;
       line += size;
     }
@@ -291,7 +304,7 @@ export class WhatChangedPane implements Pane {
     return true;
   }
 
-  describe() { return this.rows().map((r, i) => ({ ...rowFacts(r, i + 1), diff: this.diffs.get(r.blockId) ?? null })); }
+  describe() { return this.rows().map((r, i) => ({ ...rowFacts(r, i + 1), diff: this.diffs.get(this.keyOf(r)) ?? null })); }
 }
 
 /** The row at `n` (from 1), or the one for the note `id`; refused with what there is. */

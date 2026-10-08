@@ -115,4 +115,21 @@ describe.skipIf(!outliner)("what changed", () => {
     await other.seed(board);
     expect(other.count()).toBe(0);
   });
+
+  test("a refreshing extension doesn't hide an agent's unseen change; held-back extension writes stay unseen; unseen rows outlive the limit", () => {
+    const w = new WhatChanged();
+    const ev = (sequence: number, blockId: string, actor: { author: string; actorId: string }, kind = "edit") => ({ domain: "content", action: "block.update", sequence, change: { sequence, changeId: sequence, action: "block.update", kind, blockId, actor, recordedAt: new Date().toISOString() } }) as any;
+    w.heard(ev(900, "n1", { author: "agent", actorId: "fern-agent" }));
+    w.heard(ev(901, "n1", { author: "agent", actorId: "ext:jira" }));
+    w.heard(ev(902, "n2", { author: "agent", actorId: "ext:jira" }));
+    expect(w.list().map(r => [r.blockId, r.who])).toEqual([["n1", "fern-agent"]]);
+    expect(w.count()).toBe(1);
+    w.markSeen();
+    expect(w.count()).toBe(0);
+    expect(w.extCount()).toBe(1);
+    w.includeExt = true;
+    expect(w.count()).toBe(1);
+    for (let i = 0; i < 250; i++) w.heard(ev(1000 + i, `m${i}`, { author: "agent", actorId: "fern-agent" }));
+    expect(w.count()).toBe(251);
+  });
 });

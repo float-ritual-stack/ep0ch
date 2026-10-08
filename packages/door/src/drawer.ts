@@ -301,6 +301,8 @@ export class AgentDrawer {
     const store = this.host.ctx?.()?.whatChanged;
     if (!store) throw new ActionRefused("there is no outline here to have changed");
     const person = actor.kind !== "agent";
+    // Looking marks what is held seen: only once the changes since the kept position are in.
+    await store.settled();
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === WHAT_CHANGED_KIND_NAME)?.name ?? (await d.openTile({ kind: WHAT_CHANGED_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
     const changed = store.count();
