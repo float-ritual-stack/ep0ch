@@ -398,9 +398,10 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     expect(app.extEvents).toBe(before.ext + 1);
     const { SHELL_ACTIONS } = await import("../src/screens");
     await expect(app.act({ action: "changes.extensions", as: "helper" })).rejects.toThrow("an agent reads changes itself");
+    const held = app.whatChanged.extCount();
     await SHELL_ACTIONS.run("changes.extensions", { include: true }, { ctx: app as any }, { kind: "user" });
     expect(app.extensionChanges).toBe(true);
-    expect(app.events).toBe(before.events + app.extEvents);
+    expect(app.events).toBe(before.events + held);
     await SHELL_ACTIONS.run("changes.extensions", {}, { ctx: app as any }, { kind: "user" });
     expect(app.extensionChanges).toBe(false);
     expect(app.events).toBe(before.events);
