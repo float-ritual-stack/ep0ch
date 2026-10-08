@@ -17,10 +17,11 @@ export const NO_PICTURE: Rgba = { width: 1, height: 1, data: new Uint8Array(4) }
 export const isSized = (p: Placement): p is Placement & { sized: SizedText } => p.sized !== undefined;
 
 /**
- * Asked at start (after the cursor goes home): print two cells of sized-text width and ask where the cursor is. A
- * terminal with the protocol has moved two cells (column 3); one without ignores the sequence (column 1).
+ * Asked at start (after the cursor goes home): print one space at scale 2 and ask where the cursor is. A terminal that
+ * scales text has moved two cells (column 3); one that doesn't know the sequence ignores it (column 1), and one that
+ * knows only its width control moves less than two.
  */
-export const SIZED_QUERY = "\x1b[1;1H\x1b]66;w=2; \x1b\\\x1b[6n\x1b[1;1H";
+export const SIZED_QUERY = "\x1b[1;1H\x1b]66;s=2; \x1b\\\x1b[6n\x1b[1;1H";
 /** The cursor report that answers SIZED_QUERY: the protocol is there when it moved two cells. */
 export const sizedAnswer = (col: number) => col === 3;
 
@@ -30,7 +31,7 @@ export const sizedHint = (env = process.env): boolean | null => (env.EP0CH_SIZED
 /** `s`'s text with no escape or control in it: OSC 66 carries plain text only. */
 const plain = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, "");
 
-/** Whether the `cols` cells of `line` from `col` read `text` (padded with blanks). */
+/** Whether the `cols` cells of `line` from `col` read `text`, then blanks. */
 const holds = (line: string | undefined, col: number, cols: number, text: string) => visible(headOf(tailFrom(line ?? "", col), cols)).trimEnd() === text;
 
 /** The bytes that paint a sized placement: put the cursor at its cell, draw, and give the cursor back. */
@@ -54,24 +55,26 @@ export class SizedLayer {
 
   /**
    * Paint `wanted` (placements with `sized`) over `lines` as they were just painted; `rewrote(row)`: that row went out
-   * this frame. Returns the rows of placements no longer wanted, which the caller writes again to clear them.
+   * this frame. A placement drawn before and no longer wanted (or covered) leaves its cells until they are written
+   * again: `restore` is called with those rows first, before anything is drawn (a row can hold another title too, which
+   * is then drawn again).
    */
-  sync(wanted: Placement[], lines: readonly string[], rewrote: (row: number) => boolean): number[] {
-    const next = new Map<string, string>();
-    let out = "";
+  sync(wanted: Placement[], lines: readonly string[], rewrote: (row: number) => boolean, restore: (rows: number[]) => void): void {
+    const next = new Map<string, { sig: string; p: Placement & { sized: SizedText } }>();
     for (const p of wanted) {
       if (!isSized(p)) continue;
-      // The cells must still hold the title (as the fallback text) and a blank row under it: otherwise something is over them.
-      if (!holds(lines[p.row], p.col, width(p.sized.text), p.sized.text) || !holds(lines[p.row + 1], p.col, p.cols, "")) continue;
-      const sig = `${p.col},${p.row},${p.sized.scale},${p.sized.sgr}|${p.sized.text}`;
-      next.set(p.key, sig);
-      if (this.drawn.get(p.key) !== sig || rewrote(p.row) || rewrote(p.row + 1)) out += sizedBytes(p as Placement & { sized: SizedText });
+      // The cells must still hold the title (as the fallback text, then blanks) and a blank row under it: otherwise something is over them.
+      if (!holds(lines[p.row], p.col, p.cols, p.sized.text) || !holds(lines[p.row + 1], p.col, p.cols, "")) continue;
+      next.set(p.key, { sig: `${p.col},${p.row},${p.sized.scale},${p.sized.sgr}|${p.sized.text}`, p });
     }
-    const gone: number[] = [];
-    for (const [key, sig] of this.drawn) if (!next.has(key)) { const row = Number(sig.split(",")[1]); gone.push(row, row + 1); }
-    this.drawn = next;
+    const gone = new Set<number>();
+    for (const [key, sig] of this.drawn) if (!next.has(key)) { const row = Number(sig.split(",")[1]); gone.add(row); gone.add(row + 1); }
+    if (gone.size) restore([...gone]);
+    const again = (row: number) => gone.has(row) || rewrote(row);
+    let out = "";
+    for (const [key, { sig, p }] of next) if (this.drawn.get(key) !== sig || again(p.row) || again(p.row + 1)) out += sizedBytes(p);
+    this.drawn = new Map([...next].map(([k, v]) => [k, v.sig]));
     if (out) this.write(out);
-    return gone;
   }
 
   /** Forget what was drawn (the screen switched or the terminal was handed to a program): the next sync paints all. */

@@ -101,8 +101,8 @@ export class Painter implements Display {
       this.term.paint(mapped);
       this.kitty.sync(images);
       const re = this.term.rewritten;
-      // A sized title no longer wanted leaves its cells until they are written again.
-      for (const r of this.sizedLayer.sync(sized, mapped, row => !re || re.has(row))) if (mapped[r] !== undefined && r < this.term.info.rows) this.term.write(rowBytes(r, mapped[r]!, this.term.info.cols));
+      // A sized title no longer wanted leaves its cells until its rows are written again, before any other is drawn.
+      this.sizedLayer.sync(sized, mapped, row => !re || re.has(row), rows => { for (const r of rows) if (mapped[r] !== undefined && r < this.term.info.rows) this.term.write(rowBytes(r, mapped[r]!, this.term.info.cols)); });
     };
     if (this.term.frame) this.term.frame(draw);
     else draw();

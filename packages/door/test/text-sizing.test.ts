@@ -23,7 +23,7 @@ describe("sized text", () => {
   });
 
   test("the query asks where the cursor is after two cells of sized-width text; column 3 is yes, column 1 is no", () => {
-    expect(SIZED_QUERY).toContain("\x1b]66;w=2; \x1b\\\x1b[6n");
+    expect(SIZED_QUERY).toContain("\x1b]66;s=2; \x1b\\\x1b[6n");
     expect([sizedAnswer(3), sizedAnswer(1), sizedAnswer(2)]).toEqual([true, false, false]);
     expect([sizedHint({ EP0CH_SIZED: "1" }), sizedHint({ EP0CH_SIZED: "0" }), sizedHint({})]).toEqual([true, false, null]);
     const info: TermInfo = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false }, keys: Key[] = [];
@@ -42,7 +42,8 @@ describe("sized text", () => {
 
   test("the layer paints a title when it is new, again when either of its rows went out, never when nothing changed", () => {
     const out: string[] = [], layer = new SizedLayer(s => out.push(s));
-    const at = (re: number[]) => layer.sync([title], base(), r => re.includes(r));
+    const restored: number[][] = [];
+    const at = (re: number[]) => layer.sync([title], base(), r => re.includes(r), rows => restored.push(rows));
     at([]); expect(out.splice(0).length).toBe(1);
     at([]); expect(out.length).toBe(0);
     at([0, 3]); expect(out.length).toBe(0);                 // other rows rewritten: the title's cells untouched
@@ -50,9 +51,25 @@ describe("sized text", () => {
     at([1]); expect(out.splice(0).length).toBe(1);
     // Something over its cells (a float, a toast): not drawn over it, and its rows are named to be written again.
     const covered = base(); covered[2] = "a float";
-    expect(layer.sync([title], covered, () => true)).toEqual([1, 2]);
+    layer.sync([title], covered, () => true, rows => restored.push(rows));
+    expect(restored.at(-1)).toEqual([1, 2]);
+    expect(out.length).toBe(0);
+    // Only the right half of the enlarged title's top row covered: still not drawn over.
+    layer.forget(); at([]); out.splice(0);
+    const half = base(); half[1] = "\x1b[1mBuild the bin\x1b[0m" + " ".repeat(4) + "popup";
+    layer.sync([title], half, () => true, () => {});
     expect(out.length).toBe(0);
     layer.forget(); at([]); expect(out.splice(0).length).toBe(1);
+  });
+
+  test("two titles on the same rows: one going leaves the other drawn again, after its rows are written", () => {
+    const out: string[] = [], layer = new SizedLayer(s => out.push(s)), order: string[] = [];
+    const a = sizedPlacement("a", "Build the bin", "", 0, 1, 13), b = sizedPlacement("b", "Other note", "", 40, 1, 10);
+    const lines = rows("", "Build the bin" + " ".repeat(27) + "Other note", "", "");
+    layer.sync([a, b], lines, () => false, () => {}); out.splice(0);
+    layer.sync([b], lines, () => false, r => order.push(`restore ${r.join(",")}`));
+    expect(order).toEqual(["restore 1,2"]);
+    expect(out.join("")).toContain("Other note");
   });
 
   test("the painter draws it only on a terminal that has it, once, and writes the rows again when it goes", () => {

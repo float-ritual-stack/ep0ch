@@ -1121,7 +1121,7 @@ export class NoteSurface {
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
-    if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && !this.selection?.span(title.row) && !this.agentSelection?.sel.span(title.row)) {
+    if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && ![title.row, title.row + 1].some(r => this.selection?.span(r) || this.agentSelection?.sel.span(r))) {
       placements.push(sizedPlacement("title", title.text, title.ink, 0, title.row, width(title.text), 2));
     }
     if (foot) {
