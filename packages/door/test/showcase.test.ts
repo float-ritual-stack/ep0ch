@@ -397,6 +397,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
     undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
+    folds: ["outline", "thread", "◂", "▾"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
@@ -1812,6 +1813,49 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "mouse", action: "drag", button: 32, x, y: to });
     press({ kind: "mouse", action: "up", button: 0, x, y: to });
     await until(() => ids()[0] === moving, "the drag");
+    press({ kind: "esc" });
+  }, 30_000);
+
+  test("folds: a tile folds to a spine by the glyph's click, alt+click, alt+h and act, and a click on the spine opens it at its size", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "folds" }, as: "test-agent" })).toMatchObject({ key: "folds" });
+    await until(() => marks.folds!.every(m => screen().includes(m)), "the folds section");
+    const stage = () => S().stages.get(S().sel).top;
+    const tiles = () => stage().describe().panes as any[];
+    const tile = (name: string) => tiles().find(x => x.name === name);
+    const at = () => S().stageRect;
+    const click = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
+    const glyph = (name: string) => { sc.render(app); return (stage().foldButtons as any[]).find(b => stage().nameOf(b.id) === name); };
+    const clickGlyph = (name: string, mods?: number) => { const g = glyph(name); expect(g).toBeDefined(); click(at().col + g.from, at().row + g.row, mods); sc.render(app); };
+    // By mouse: the outline folds down the side (3 cells), the reader folds into one row with alt+click; each a click on its spine opens it.
+    const before = { tree: tile("tree").rect, reader: tile("reader").rect };
+    clickGlyph("tree");
+    expect(tile("tree").collapsed).toBe(true);
+    expect(tile("tree").rect.cols).toBe(3);
+    click(at().col + tile("tree").rect.col + 1, at().row + tile("tree").rect.row + 3); sc.render(app);
+    expect(tile("tree").collapsed).toBeUndefined();
+    expect(tile("tree").rect).toEqual(before.tree);
+    clickGlyph("reader", 8);
+    expect(tile("reader")).toMatchObject({ collapsed: true, collapsedDir: "h" });
+    expect(tile("reader").rect.rows).toBe(1);
+    expect(sc.render(app).lines.map(plain).join("\n")).toContain("▸ ");
+    click(at().col + tile("reader").rect.col + 2, at().row + tile("reader").rect.row); sc.render(app);
+    expect(tile("reader").collapsed).toBeUndefined();
+    expect(tile("reader").rect).toEqual(before.reader);
+    // By keys: alt+h on the focused tile and again.
+    const focused = tiles().find(x => x.focused).name;
+    press({ kind: "alt", ch: "h" });
+    expect(tile(focused).collapsed).toBe(true);
+    press({ kind: "alt", ch: "h" });
+    expect(tile(focused).collapsed).toBeUndefined();
+    // By act: an agent folds a tile the person doesn't have, horizontally, and opens it; the keys stay.
+    const other = tiles().find(x => x.name === "activity" && !x.focused)?.name ?? "activity";
+    const focus0 = tiles().find(x => x.focused).name;
+    expect(await app.act({ action: "tile.collapse", tile: other, args: { dir: "v" }, as: "test-agent" })).toMatchObject({ collapsed: true, dir: "v" });
+    expect(tile(other)).toMatchObject({ collapsed: true, collapsedBy: "test-agent" });
+    expect(await app.act({ action: "tile.expand", tile: other, args: {}, as: "test-agent" })).toMatchObject({ collapsed: false });
+    expect(tiles().find(x => x.focused).name).toBe(focus0);
+    await expect(app.act({ action: "tile.collapse", tile: focus0, args: { on: true }, as: "test-agent" })).rejects.toThrow(/has the person's keys/);
     press({ kind: "esc" });
   }, 30_000);
 

@@ -221,6 +221,18 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
+    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
+    stage(n, show) {
+      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      // The outline beside the rest (a vertical spine), the reader over thread and activity side by side (a horizontal spine for the reader).
+      return deskOf({
+        title: "showcase · folds", panes: [tree, r, th, act],
+        layout: ([t, rd, h, a]) => pair("row", 0.28, leaf(t!), pair("col", 0.55, leaf(rd!), pair("row", 0.5, leaf(h!), leaf(a!)))),
+      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+    },
+  },
+  {
     key: "screens", need: "make a screen (the welcome, the brief, Waiting, a pinned page, the desk itself)", part: "a screen spec on the desk, the only screen host: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land (ScreenSpec; specData and readSpec, screen.spec); what it does beyond layout is its tiles' kinds'", files: "src/desk/screen-spec.ts, src/desk/screen-specs.ts, src/brief/brief.ts",
     aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the Welcome (C on the menu) is one too: notes marked [welcome::true], in its Welcome view's hand-set order (alt+↑ alt+↓ or a drag in its list, `act welcome.move`), the first read when it opens; this outline seeds two · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine; `--machine box-a --ws fern` where box-a has no fern makes nothing there: the home base says so and offers the one here, creating it there (`home.new name=fern machine=box-a`, or `--create`), or `home.cancel`",
     stage: () => openScreen("brief"),

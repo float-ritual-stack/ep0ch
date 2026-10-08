@@ -331,11 +331,63 @@ describe("the rest of the layout's operations", () => {
   });
 
   test("spines: only side by side; a spine moved into a column opens; the person's open of a spine opens it", () => {
-    no(fresh(), { op: "collapse", tile: 3, on: true }, /thread isn't side by side with other tiles/);
+    no(fresh(), { op: "collapse", tile: 3, on: true, dir: "v" }, /thread isn't side by side with other tiles/);
     const s = ok(fresh(), { op: "collapse", tile: 1, on: true }).state;
     expect(place(s, AREA).rects.get(1)!.cols).toBe(3);
     const moved = ok(s, { op: "move", tile: 1, to: { kind: "split", target: 3, dir: "up" } }).state;
     expect(moved.collapsed.has(1)).toBe(false);
+  });
+
+  test("horizontal spines (PIE-642): a stacked tile folds to one row, its neighbour takes the height, opening gives it back its size", () => {
+    const before = place(fresh(), AREA).rects;
+    no(fresh(), { op: "collapse", tile: 1, on: true, dir: "h" }, /tree isn't stacked with other tiles/);
+    const r = ok(fresh(), { op: "collapse", tile: 3, on: true });
+    expect(r.answer).toMatchObject({ collapsed: true, dir: "h" });
+    expect(r.state.collapsed.get(3)).toEqual({ dir: "h" });
+    const folded = place(r.state, AREA).rects;
+    expect(folded.get(3)!.rows).toBe(1);
+    expect(folded.get(4)!.rows).toBe(before.get(3)!.rows + before.get(4)!.rows - 1);
+    expect(folded.get(3)!.cols).toBe(before.get(3)!.cols);
+    const back = ok(r.state, { op: "collapse", tile: 3, on: false }).state;
+    expect(place(back, AREA).rects).toEqual(before);
+    // The other way refolds, the same way asked again does nothing; a vertical one for a tile in a row stays 3 wide.
+    expect(ok(r.state, { op: "collapse", tile: 3, on: true, dir: "h" }).changed).toBe(false);
+    expect(place(ok(fresh(), { op: "collapse", tile: 1, on: true, dir: "v" }).state, AREA).rects.get(1)!.cols).toBe(3);
+    // Moved into a row it doesn't fit: opens.
+    const moved = ok(r.state, { op: "move", tile: 3, to: { kind: "split", target: 1, dir: "right" } }).state;
+    expect(moved.collapsed.has(3)).toBe(false);
+    // An agent doesn't fold the tile the person has.
+    no(fresh(), { op: "collapse", tile: 2, on: true }, /reader has the person's keys; an agent doesn't fold it/, AGENT);
+  });
+
+  test("a tab set folds as one, and opening any of its tabs opens it", () => {
+    const tree = splitOf("col", [leaf(1), { t: "tabs", ids: [2, 3], active: 0 }]);
+    const s = ok(init({ tree, names: NAMES }), { op: "collapse", tile: 2, on: true }).state;
+    expect([...s.collapsed.keys()].sort()).toEqual([2, 3]);
+    expect(place(s, AREA).rects.get(2)!.rows).toBe(1);
+    expect(ok(s, { op: "reveal", tile: 3 }).state.collapsed.size).toBe(0);
+  });
+
+  test("folds are reconciled after every operation: a swapped tab set folds as one, a split that dissolves frees its fold, a refused drop keeps the spine", () => {
+    // [2,3] folded, [1] and [4] open in the same column: swapping 2 and 4 leaves each set whole (open or folded as one).
+    const tree = splitOf("col", [{ t: "tabs", ids: [1, 2], active: 0 }, { t: "tabs", ids: [3, 4], active: 0 }]);
+    let s = ok(init({ tree, names: NAMES }), { op: "collapse", tile: 1, on: true }).state;
+    s = ok(s, { op: "swap", tile: 1, with: 3 }).state;
+    const sets = [...s.collapsed.keys()].sort();
+    expect(sets.length === 0 || sets.length === 2).toBe(true);
+    // A horizontally folded tile whose column dissolves (its sibling leaves) is open in the row it's left in.
+    const t2 = splitOf("row", [splitOf("col", [leaf(1), leaf(2)]), leaf(3)]);
+    let d = ok(init({ tree: t2, names: NAMES }), { op: "collapse", tile: 1, on: true }).state;
+    expect(d.collapsed.get(1)).toEqual({ dir: "h" });
+    d = ok(d, { op: "move", tile: 2, to: { kind: "split", target: 3, dir: "right" } }).state;
+    expect(d.collapsed.has(1)).toBe(false);
+    // A drop that is refused (a locked screen) leaves the target folded, and who folded it.
+    const f = ok(fresh(), { op: "collapse", tile: 1, on: true }, AGENT, { focus: 2 }).state;
+    const locked = ok(f, { op: "lock", on: true }).state;
+    no(locked, { op: "move", tile: 2, to: { kind: "tabs", target: 1 } }, /locked/);
+    expect(locked.collapsed.get(1)).toEqual(f.collapsed.get(1));
+    // Allowed, the spine opens in the same step.
+    expect(ok(f, { op: "move", tile: 2, to: { kind: "tabs", target: 1 } }).state.collapsed.has(1)).toBe(false);
   });
 
   test("links and opens-into: where a tile's opens land, checked against what takes notes", () => {

@@ -418,7 +418,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await expect(act("tile.collapse", {}, "lanes")).rejects.toThrow(/has the person's keys/);
     expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ tile: "detail2", collapsed: true });
     await act("tile.collapse", { on: false }, "detail2");
-    await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/isn't side by side/);
+    await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/stays open: s\d+ doesn.t fold/);
     const cid = b.containerId("lanes");
     await act("layout.policy", { node: cid, collapsible: false });
     await expect(act("lane.collapse", { lane: "Queued" })).rejects.toThrow(/turns collapsible on/);

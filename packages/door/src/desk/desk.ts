@@ -39,11 +39,11 @@ import { presentLinks } from "../refs";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
-  neighbour, node, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
+  neighbour, node, parentNode, parentOf, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  type Fold, type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
-import { drawSpine, SPINE } from "../spine";
+import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
@@ -127,7 +127,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Tiles with their own rectangle, above everything, the last on top (one float model for every screen). */
   private get floats(): readonly Float<number>[] { return this.layout.floats; }
   /** Tiles folded to a spine (`tile.collapse`), and the agent that folded one, if an agent did. */
-  private get collapsed(): ReadonlyMap<number, { by?: string }> { return this.layout.collapsed; }
+  private get collapsed(): ReadonlyMap<number, Fold> { return this.layout.collapsed; }
   private get zoom(): number | null { return this.layout.zoom; }
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   private get names(): ReadonlyMap<number, string> { return this.layout.names; }
@@ -205,6 +205,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Each closable tile's × (tile.close by mouse). */
   private closeButtons: { id: number; from: number; to: number; row: number }[] = [];
   /** Each tile's ⋯ (its menu, tile.menu), and how far its cell is from the tile's right edge (a float moves under it). */
+  /** The fold glyphs drawn (◂ ▾) on tile frames, for a click: it folds the tile to a spine (alt+click the other way). */
+  private foldButtons: { id: number; from: number; to: number; row: number }[] = [];
   private menuButtons: { id: number; from: number; to: number; row: number; right: number }[] = [];
   /** Each open dock's `[×]` as drawn: a click closes it, as Esc in it does. */
   private dockCloses: { id: number; from: number; to: number; row: number }[] = [];
@@ -382,7 +384,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const byName = new Map([...this.names].map(([id, n]) => [n, id] as const));
     const used = new Set<number>(), fresh: number[] = [], wantLinks: [number, string][] = [];
     const names = new Map<number, string>();
-    const folded = new Map<number, { by?: string }>(), agentsOf = new Map<number, AgentLevel>();
+    const folded = new Map<number, Fold>(), agentsOf = new Map<number, AgentLevel>();
     const auto = (kind: string) => autoName({ names }, kind);
     if (!reuse) this.panes.clear();
     const tileOf = (l: TileSpec) => {
@@ -412,7 +414,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A tile the host gave (an exhibit) is its own kind, never one waiting for its extension.
       if (!isTileKind(l.kind) && !((own || restore) && l.name && this.given.has(l.name))) this.unregistered.set(id, l); else this.unregistered.delete(id);
       if (l.link) wantLinks.push([id, l.link]);
-      if (l.collapsed) folded.set(id, {});
+      if (l.collapsed) folded.set(id, l.collapsed === "h" ? { dir: "h" } : {});
       if (isAgentLevel(l.agents)) agentsOf.set(id, l.agents);
       return id;
     };
@@ -547,7 +549,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(kept ? (({ link: _l, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : {}),
-      ...(this.collapsed.has(id) ? { collapsed: true as const } : {}),
+      ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
     };
   }
@@ -1809,7 +1811,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = this.showing(p);
     return {
       n, name: this.nameOf(id), id: this.tileId(id), kind: p.kind, ...(this.unregistered.has(id) ? { unregistered: this.unregistered.get(id)!.kind } : {}), title: p.title(), focused: id === this.focus, rect: r, shown: visible(this.root).includes(id) || this.isFloat(id),
-      ...(this.isFloat(id) ? { float: true } : {}), ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.by ? { collapsedBy: this.collapsed.get(id)!.by } : {}) } : {}),
+      ...(this.isFloat(id) ? { float: true } : {}), ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}), ...(this.collapsed.get(id)!.by ? { collapsedBy: this.collapsed.get(id)!.by } : {}) } : {}),
       ...(this.cover(id) ? { cover: this.cover(id) } : {}),
       ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), tabShown: this.nameOf(set.ids[set.active]!) } : {}),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : into !== undefined ? { link: this.nameOf(into), linkFrom: "opensInto" } : {}),
@@ -1876,7 +1878,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -2038,7 +2040,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A flow's column squeezed to a spine, or a tile folded to one; a peek is drawn whole in its box, its right
     // side under its neighbour (drawn after it), like a dock (PIE-513).
     const cover = this.cover(id);
-    if ((this.collapsed.has(id) || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
+    const fold = this.collapsed.get(id);
+    if (fold?.dir === "h" ? r0.rows <= 1 : (fold || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
     // or a float's on the black it slides over).
@@ -2073,8 +2076,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // An attention mark's label (who set it, why) outranks the ⋯ where both don't fit: a right-click or ^W . still opens
     // the menu, and the title runs up to the ⧉ or × as it always did.
     const menus = cover === undefined && r.cols >= 14 && !(marked.length && width(bare) + (float ? width(tail) : 0) > menuX - r.col - 4);
-    // With the ⋯, the title ends a cell before it; what follows the title (how far down, "e enters") gives way first.
-    const fits = Math.max(1, menuX - r.col - 4);
+    // The fold glyph, left of the ⋯ where the tile can fold to a spine: ◂ to a vertical one (tiles side by side), ▾ to a
+    // horizontal one (stacked); a click folds it, alt+click folds it the other way (tile.collapse, as alt+h and alt+H).
+    const foldDir = menus && !float && r.cols >= 20 ? this.foldDirOf(id) : null;
+    const foldX = menuX - 2;
+    // With the controls, the title ends a cell before them; what follows the title (how far down, "e enters") gives way first.
+    const fits = Math.max(1, (foldDir ? foldX : menuX) - r.col - 4);
     // Without it, as before: a float's long subject is cut so how far down it is still shows.
     const floatFits = Math.max(1, r.cols - 5 - width(tail));
     const title = !menus ? (float && width(head) > floatFits ? pad(head, floatFits) : head) + tail : width(head) + width(tail) <= fits ? head + tail
@@ -2104,6 +2111,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       canvas.text(floatX, r.row, `${fg(C.dark)}⧉${RESET}`, 1);
       this.floatButtons.push({ id, row: r.row, from: floatX, to: floatX + 1 });
     }
+    if (foldDir) {
+      canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? "▾" : "◂"}${RESET}`, 1);
+      this.foldButtons.push({ id, row: r.row, from: foldX, to: foldX + 1 });
+    }
     // Every tile's ⋯, left of those: a click opens its menu (tile.menu, as ^W . and a right-click in it do).
     if (menus) {
       const x = menuX;
@@ -2126,6 +2137,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
     for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
     return out;
+  }
+
+  /** Which way a click on tile `id`'s fold glyph folds it (v: ◂, h: ▾), or null where it can't fold now. */
+  private foldDirOf(id: number): "v" | "h" | null {
+    const axis = parentOf(this.root, id)?.parent.dir;
+    const dir = axis === "col" ? "h" : "v";
+    return refusal(this.layout, { op: "collapse", tile: id, on: true, dir }, this.layoutCtx(USER)) ? null : dir;
   }
 
   /**
@@ -2202,6 +2220,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!;
     canvas.clear(r);
     const sp = p.spine?.() ?? { title: this.nameOf(id) };
+    if (this.collapsed.get(id)?.dir === "h") {
+      drawHSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined });
+      this.spines.push([id, r]);
+      return [];
+    }
     const out = drawSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined }, this.ctx);
     this.spines.push([id, r]);
     return out ? [out] : [];
@@ -2539,6 +2562,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.ch === "m") return this.run("marks.next");
       if (k.ch === "x") return this.run("block.unmark", {}, this.nameOf(this.focus));
       if (k.ch === "k") return this.run("layout.lock");
+      // alt+h folds the focused tile to a spine (alt+H a horizontal one), or opens it: a screen's key map rebinds them.
+      if (k.ch === "h" || k.ch === "H") return this.run("tile.collapse", k.ch === "H" ? { dir: "h" } : {}, this.nameOf(this.focus));
     }
     // A tile whose current element is a live figure's takes tab, shift+tab and ← → first: they switch its tabs.
     const claimer = this.panes.get(this.focus);
@@ -2814,6 +2839,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const t = this.tile(to);
       place = where === "tabs" ? { kind: "tabs", target: t.id, index } : { kind: "split", target: t.id, dir: where as Dir };
     }
+    // A tile dropped onto a spine opens it first, in the layout's one step (screen-layout.ts move).
     this.apply({ op: "move", tile: src.id, to: place }, actor);
     this.save(); this.redraw();
     return { tile: src.name, where, ...(to ? { to } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
@@ -3392,7 +3418,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           ...(link !== undefined ? { link: this.nameOf(link) } : {}),
           ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), shown: set.ids[set.active] === id } : {}),
           ...("dock" in dv ? dv : this.isFloat(id) ? { float: true } : { pinned: true }),
-          ...(this.collapsed.has(id) ? { collapsed: true } : {}),
+          ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}) } : {}),
           ...(this.agentOf(id).level !== "free" ? { agents: this.agentOf(id).level } : {}),
           ...(cover ? { cover } : {}),
           ...(kindOf(p)?.describe?.(p, false) ?? {}),
@@ -3723,7 +3749,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `tile.collapse`: fold tile `sel` to a spine where it is, or open it again. It folds only side by side with
    * others (a row or columns), where its container's policy lets it; an agent never folds the tile the person has.
    */
-  collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone {
+  collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor, dir?: "v" | "h"): TileDone {
     // tile=all opens every spine (alt+c on the board): each its own step, one the layout keeps folded (and why) said.
     if (sel === "all") {
       if (on !== false) throw new ActionRefused("tile=all only reopens every spine (on=false); fold tiles one by one");
@@ -3738,7 +3764,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // No tile named while the keys are in columns (the board's lanes): the reader following them, as reader.collapse took it.
     const via = !sel || sel === "focused" ? this.readerOfFocus() : undefined;
     const t = via ? { id: this.idOf(via)!, name: this.nameOfPane(via) } : this.tile(sel);
-    const r = this.apply({ op: "collapse", tile: t.id, ...(on !== undefined ? { on } : {}) }, actor);
+    // A fold asked for the way it already is, or a toggle of one folded: opens. A fold of the other way refolds it.
+    const r = this.apply({ op: "collapse", tile: t.id, ...(on !== undefined ? { on } : dir && this.collapsed.has(t.id) && (this.collapsed.get(t.id)!.dir ?? "v") !== dir ? { on: true } : {}), ...(dir ? { dir } : {}) }, actor);
     if (r.changed) this.save();
     // The person's fold says what it kept (an agent's is said by the action's own words).
     const p = this.panes.get(t.id);
@@ -4142,6 +4169,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // × on a tile's frame: it closes (tile.close, as ^W x), without taking the keys there first.
       const xb = this.closeButtons.find(at);
       if (xb) return this.run("tile.close", {}, this.nameOf(xb.id));
+      // ◂ ▾ on a tile's frame: it folds to a spine (tile.collapse, as alt+h), alt-click the other way (alt+H), without taking the keys.
+      const ob = this.foldButtons.find(at);
+      if (ob) {
+        const alt = ((k.mods ?? 0) & 28) !== 0;
+        return this.run("tile.collapse", { on: true, ...(alt ? { dir: "h" } : {}) }, this.nameOf(ob.id));
+      }
       // ⋯ on a tile's frame: its menu opens under it (tile.menu, as ^W . does), the keys given to the tile it's for.
       const mb = this.menuButtons.find(at);
       if (mb) { if (mb.id !== this.focus) this.run("tile.focus", {}, this.nameOf(mb.id)); return this.run("tile.menu", {}, this.nameOf(mb.id)); }
