@@ -99,3 +99,10 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
 }
 /** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
 export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(t.text, " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };
+/** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
+export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
+/** A note as a list row reads it: its work id, then its title. */
+export const noteLabel = (m: Msg) => withWorkId(m.props["work-id"], subject(m));
+/** What a list filter matches a note by (outline-core's matcher, as every bar scope): its work id, its page name and its title. */
+export const identityFields = (workId: string | undefined, page: string | undefined, title: string): string[] => [withWorkId(workId, title), workId ?? "", page ?? ""].filter(Boolean);
+

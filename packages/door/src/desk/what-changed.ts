@@ -45,6 +45,9 @@ export interface ChangedRow {
   revision?: number;
   seen: boolean;
   title?: string;
+  /** The note's work id and page name, read with its title: a list matches a query by them, and shows the work id. */
+  workId?: string;
+  page?: string;
   /** The title shown is the one before this change: read it again (a rename). */
   retitle?: boolean;
 }
@@ -162,7 +165,9 @@ export class WhatChanged {
   async titles(board: Pick<SocketBoard, "get">) {
     const todo = [...this.rows.values()].filter(r => r.title === undefined || r.retitle);
     await Promise.all(todo.map(async r => {
-      try { const m = await board.get(r.blockId); r.title = m ? subject(m) : "(gone)"; delete r.retitle; } catch { r.title = "(unreadable)"; }
+      try { const m = await board.get(r.blockId); r.title = m ? subject(m) : "(gone)"; delete r.retitle;
+        if (m?.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
+        if (m?.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
     }));
     if (todo.length) this.onChange();
   }
@@ -175,7 +180,7 @@ export class WhatChanged {
 
 /** A row as `peek` and the actions give it: its place (from 1), the note, who, what and when. */
 export function rowFacts(r: ChangedRow, n: number): Record<string, unknown> {
-  return { n, id: r.blockId, title: r.title ?? null, who: r.who, agent: r.agent, kind: r.kind, created: r.created, at: new Date(r.at).toISOString(), seen: r.seen, ...(r.revision !== undefined ? { revision: r.revision } : {}) };
+  return { n, id: r.blockId, title: r.title ?? null, ...(r.workId ? { workId: r.workId } : {}), who: r.who, agent: r.agent, kind: r.kind, created: r.created, at: new Date(r.at).toISOString(), seen: r.seen, ...(r.revision !== undefined ? { revision: r.revision } : {}) };
 }
 
 /** A change as diff rows: the note's text before it and after, from the revisions the service keeps (block.revisions). */

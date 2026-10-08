@@ -4,7 +4,7 @@
 // a pause); actions are the dispatcher's (the focused tile's menu rows, then every action that needs no argument);
 // recent is the what-changed store behind the status bar's `+N new`; screens are the shell's `screen.list`. A pick goes
 // through the shared paths: the drawer's goTo, the `open` action, the dispatcher's press.
-import { subject, type Msg } from "../board";
+import { identityFields, noteLabel, withWorkId, type Msg } from "../board";
 import { Desk } from "../desk/desk";
 import { PtyPane } from "../desk/pty";
 import { ScreenTile } from "../desk/screen-tile";
@@ -14,7 +14,7 @@ import { USER } from "../socket";
 import { ago } from "../text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { Screen } from "../app";
-import type { BarRow, BarSource } from "./source";
+import type { BarHost, BarRow, BarSource } from "./source";
 import { openNote, registerBarSource } from "./source";
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
@@ -40,6 +40,8 @@ interface TileAt {
   path: string;
   /** The mounts it's inside, outermost first: each mount tile's desk and name. */
   mounts: { desk: Desk; name: string }[];
+  /** What a query matches the note it shows by: work id, page name, title. */
+  find: string[];
 }
 
 /**
@@ -50,10 +52,10 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
   return desk.tileOutline().flatMap(t => {
     const path = `${prefix}${t.name}`, p = desk.pane(t.name);
     const row: BarRow = {
-      key: `${at}:${path}`, label: t.showing ? `${path} · ${t.showing.title}` : `${path} · ${t.title}`, depth: base + t.depth, group,
+      key: `${at}:${path}`, label: t.showing ? `${path} · ${withWorkId(t.showing.workId, t.showing.title)}` : `${path} · ${t.title}`, depth: base + t.depth, group,
       mark: t.focused ? "●" : t.collapsed ? "▸" : t.float ? "⧉" : t.docked ? "⇤" : t.tab && !t.shown ? "⋯" : " ",
       detail: [t.kind, t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
-      data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts } satisfies TileAt,
+      data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [] } satisfies TileAt,
     };
     const inner = p instanceof ScreenTile ? p.inner : null;
     return [row, ...(inner ? tileRows(inner, at, group, screen, drawer, base + t.depth + 1, `${path}/`, [...mounts, { desk, name: t.name }]) : [])];
@@ -74,7 +76,7 @@ const TILES: BarSource = {
     for (const s of [...host.screens()].reverse()) if (s !== shown) add(tilesOf(s), s, `${s.title} · under this one`);
     for (const s of host.kept()) add(tilesOf(s), s, `${s.title} · kept`);
     const rows = places.flatMap(({ desk, screen, group }, at) => tileRows(desk, String(at), group, screen, desk === drawer));
-    return filtered(rows, q, r => [r.label, r.detail ?? "", r.group ?? ""]);
+    return filtered(rows, q, r => [r.label, ...(r.data as TileAt).find, r.detail ?? "", r.group ?? ""]);
   },
   preview(row) {
     const t = row.data as TileAt;
@@ -114,13 +116,32 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: `${m.props["work-id"] && !subject(m).startsWith(m.props["work-id"]) ? `${m.props["work-id"]} ` : ""}${subject(m)}` });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m) });
+
+/** How many notes `/` lists with nothing typed. */
+const RECENT_NOTES = 30;
+/**
+ * `/` with nothing typed: the notes most recently changed first. The service's own recency list (an empty `tree.search`
+ * with no note to be near: every live note by when it was last edited, the person's edits and others') merged with what
+ * others changed since the person looked (the `+` scope's store, so a change the feed holds is never missing), newest first.
+ */
+async function recentNotes(host: BarHost): Promise<BarRow[]> {
+  const found = new Map<string, { m: Msg; at: number; row: BarRow }>();
+  for (const m of await host.ctx.board.search("", RECENT_NOTES)) found.set(m.id, { m, at: m.updatedAt, row: { ...noteRow(m), detail: `${m.author ?? "?"} · ${ago(m.updatedAt)} ago` } });
+  for (const r of host.ctx.whatChanged?.list().slice(0, RECENT_NOTES) ?? []) {
+    const m = found.get(r.blockId)?.m ?? await host.note(r.blockId);
+    if (!m || m.deleted) continue;
+    found.set(r.blockId, { m, at: Math.max(r.at, m.updatedAt), row: { ...noteRow(m), mark: r.seen ? " " : "+", detail: `${r.kind} by ${r.who} · ${ago(r.at)} ago` } });
+  }
+  return [...found.values()].sort((a, b) => b.at - a.at).slice(0, RECENT_NOTES).map(x => x.row);
+}
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "the outline's notes by words: the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
+  about: "the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host) {
+    if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];
     return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined })).map(noteRow);
   },
@@ -178,15 +199,15 @@ const ACTIONS: BarSource = {
 
 const RECENT: BarSource = {
   id: "recent", title: "recent", prefix: "+", by: "door",
-  about: "what others changed since you looked, newest first: the status bar's +N new, from the service's change feed (looking here doesn't mark it seen; alt+o does); ⏎ opens the note, alt+⏎ in a new detail",
+  about: "what others changed since you looked, newest first, found by title, work id or page name: the status bar's +N new, from the service's change feed (looking here doesn't mark it seen; alt+o does); ⏎ opens the note, alt+⏎ in a new detail",
   main: { empty: true, typed: true, most: 8 },
   rows(q, host) {
     const store = host.ctx.whatChanged;
     if (!store) return [];
-    const rows = store.list().map((r): BarRow => ({ key: r.blockId, label: r.title ?? "…", mark: r.seen ? " " : "+", detail: `${r.kind} by ${r.who} · ${ago(r.at)} ago` }));
+    const rows = store.list().map((r): BarRow => ({ key: r.blockId, label: r.title === undefined ? "…" : withWorkId(r.workId, r.title), data: { find: identityFields(r.workId, r.page, r.title ?? "") }, mark: r.seen ? " " : "+", detail: `${r.kind} by ${r.who} · ${ago(r.at)} ago` }));
     // Titles not read yet come in a moment (the list's own read); the bar asks again when the store says so.
     if (store.list().some(r => r.title === undefined)) void store.titles(host.ctx.board);
-    return filtered(rows, q, r => [r.label, r.detail ?? ""]);
+    return filtered(rows, q, r => [r.label, ...((r.data as { find: string[] }).find), r.detail ?? ""]);
   },
   preview: row => ({ note: row.key }),
   pick: (row, host, how) => openNote(row.key, host, how),
