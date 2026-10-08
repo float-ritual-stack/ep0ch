@@ -415,7 +415,7 @@ test("ext add, ls and remove: a built-in or a folder in, the service told; a bro
 
     writeExtension(join(root, "my-ext"), "broken", { handlers: [{ key: "broken", kind: "output", effects: "read" }] });
     expect(await runExtCommand(["add", join(root, "my-ext", "broken")], connect)).toBe(1);
-    expect(errors.join("\n")).toContain("handlers, actions, agents and rules that decorate with code need run");
+    expect(errors.join("\n")).toContain("handlers, actions, agents, bar sources and rules that decorate with code need run");
 
     logs.length = 0;
     expect(await runExtCommand(["ls"], connect)).toBe(0);
@@ -467,4 +467,54 @@ test("ext add and remove refuse to touch the owner's folder from an environment 
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+});
+
+// ── Bar sources: a command palette's rows (PIE-656) ──────────────────────
+
+test("glyphs (a bar source): listed for the door's bar, answers a query with rows, and its row's action writes as the extension", async () => {
+  const { client, create, list, store } = await setup({ install: ["glyphs"] });
+  const listed = await list(true);
+  expect(listed.barSources).toEqual([{ id: "glyphs", extension: "glyphs", name: "ext.glyphs.glyphs", title: "glyphs", prefix: "~", description: expect.any(String), main: false }]);
+  type Bar = { extension: string; source: string; rows: { id: string; label: string; copy?: string; block?: string; action?: string; args?: Record<string, string>; preview?: string }[] };
+  const shades = await client.request<Bar>({ action: "extensions.bar", extension: "glyphs", source: "glyphs", query: "shade" });
+  expect(shades.rows.map((r) => r.copy)).toEqual(["░", "▒", "▓"]);
+  expect(shades.rows[1]!.preview).toContain("▒▒▒");
+  // With the note in front of the person as its context, a row that rules it, and that row's action writes under it.
+  const shed = await create("Bike shed");
+  const near = await client.request<Bar>({ action: "extensions.bar", extension: "glyphs", source: "glyphs", query: "medium", near: shed.id });
+  const rule = near.rows.find((r) => r.action === "rule")!;
+  expect(rule).toMatchObject({ block: shed.id, args: { glyph: "▒" }, label: "rule “Bike shed” with ▒" });
+  const acted = await client.request<{ written: string[] }>({ action: "extensions.act", extension: "glyphs", extensionAction: rule.action!, blockId: rule.block!, args: rule.args!, mutation: PERSON });
+  expect(acted.written).toHaveLength(1);
+  const written = store.get(acted.written[0]!)!;
+  expect(written.text).toBe("▒".repeat(32));
+  expect(written.parentId).toBe(shed.id);
+  expect(JSON.stringify(written)).toContain("ext:glyphs");
+});
+
+test("a bar source's refusals: an unknown source, rows that do nothing or run what isn't theirs, and a manifest without run", async () => {
+  const { extensionsFolder, client, list } = await setup();
+  writeExtension(extensionsFolder, "loose", {
+    run: ["bun", "main.ts"],
+    bar: [{ id: "odd", title: "odd" }],
+    actions: [{ id: "tidy", label: "Tidy", on: "block" }, { id: "wave", label: "Wave", on: "bar" }],
+  }, `const request = await Bun.stdin.json();
+const q = request.input.query;
+const rows = q === "idle" ? [{ id: "a", label: "does nothing" }]
+  : q === "stranger" ? [{ id: "b", label: "runs another's", action: "ward" }]
+  : q === "blockless" ? [{ id: "c", label: "needs a block", action: "tidy" }]
+  : q === "twins" ? [{ id: "e", label: "one", copy: "1" }, { id: "e", label: "two", copy: "2" }]
+  : [{ id: "d", label: "waves", action: "wave", args: { to: "you" } }];
+process.stdout.write(JSON.stringify({ ok: true, value: { rows } }));`);
+  writeExtension(extensionsFolder, "runless", { bar: [{ id: "x", title: "x" }] });
+  const listed = await list(true);
+  expect(listed.extensions.find((e) => e.id === "runless")?.error).toContain("bar sources");
+  const ask = (query: string, source = "odd") => client.request<{ rows: { id: string; label: string; action?: string; args?: Record<string, string> }[] }>({ action: "extensions.bar", extension: "loose", source, query });
+  await expect(ask("x", "nope")).rejects.toThrow("has no bar source nope");
+  await expect(ask("idle")).rejects.toThrow("does nothing when picked");
+  await expect(ask("stranger")).rejects.toThrow("isn't one of its actions");
+  await expect(ask("blockless")).rejects.toThrow("acts on a block, and names none");
+  await expect(ask("twins")).rejects.toThrow("is another row's too");
+  // An action on a bar row runs with no block, with the row's args.
+  expect((await ask("hello")).rows).toEqual([{ id: "d", label: "waves", action: "wave", args: { to: "you" } }]);
 });

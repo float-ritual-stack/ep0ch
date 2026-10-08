@@ -1,0 +1,15 @@
+{
+  "contract": 2,
+  "id": "glyphs",
+  "version": 1,
+  "name": "Glyphs",
+  "description": "A bar source: the code page 437 shades, blocks and box lines by name, to copy or to rule a note with.",
+  "run": ["bun", "glyphs.ts"],
+  "bar": [
+    { "id": "glyphs", "title": "glyphs", "prefix": "~", "description": "CP437 shades, blocks and box lines: ⏎ copies one; on a note, a rule of it under the note" }
+  ],
+  "actions": [
+    { "id": "rule", "label": "Rule the note", "on": "block", "effects": "write",
+      "description": "Writes a line of the glyph under the block, attributed to ext:glyphs" }
+  ]
+}

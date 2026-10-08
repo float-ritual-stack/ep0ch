@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the component schemas, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 112;
+export const PROTOCOL = 113;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -180,4 +180,44 @@ export interface McpAccessStatus {
   level: McpAccessLevel;
   canRead: boolean;
   sequence: number;
+}
+
+/**
+ * An extension's command-palette source (PIE-656), as `extensions.list` lists it (`barSources`, and each extension's
+ * own under `bar`): the door's power bar asks it with `extensions.bar` as the person types.
+ */
+export interface ExtensionBarSource {
+  readonly id: string;
+  readonly extension: string;
+  /** `ext.<extension>.<id>`: unique across extensions. */
+  readonly name: string;
+  readonly title: string;
+  /** The character that scopes the bar to it when typed first. */
+  readonly prefix?: string;
+  readonly description?: string;
+  /** Its rows join the bar's main list, not only its own scope. */
+  readonly main: boolean;
+}
+
+/**
+ * One row a bar source answers: its words, a Markdown preview the client draws with its own renderer, and what picking
+ * it does: open `block`, run the extension's `action` (with `args`), or put `copy` on the clipboard. `id` is unique in
+ * an answer.
+ */
+export interface ExtensionBarRow {
+  readonly id: string;
+  readonly label: string;
+  readonly detail?: string;
+  readonly preview?: string;
+  readonly block?: string;
+  readonly action?: string;
+  readonly args?: Readonly<Record<string, string>>;
+  readonly copy?: string;
+}
+
+/** `extensions.bar`'s answer. */
+export interface ExtensionBarResult {
+  readonly extension: string;
+  readonly source: string;
+  readonly rows: readonly ExtensionBarRow[];
 }

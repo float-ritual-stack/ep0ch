@@ -2,7 +2,7 @@
 // a typed line's cursor use glyphs the kitty+crt font (CP437) has; a board lane's header names its view as written
 // and its cards show the view's [summary-properties::]; a reader showing a note that goes to the Trash (a
 // proposal dismissed elsewhere) says so and drops its [apply] [dismiss]; search puts the note titled with the
-// words first and its preview reads links by their labels; the river says "1 reply". Scratch services only.
+// words first (its preview is a reader's, the power bar's note surface); the river says "1 reply". Scratch services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { CP437_HIGH } from "../src/ansi";
@@ -11,7 +11,7 @@ import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
 import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
-import { Desk, searchPreviewLines } from "../src/desk/desk";
+import { Desk } from "../src/desk/desk";
 import { renderGraph } from "../src/graphs";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
@@ -37,14 +37,6 @@ test("a component's sparkline and a ::graph-spark figure draw only CP437 glyphs,
   const fig = renderGraph("spark", "title: Rain\ndata: [2, 0, 5, 11, 3, 0, 7]", 60).join("\n");
   expect(notCp437(fig).filter(c => c !== "┊")).toEqual([]);      // the figure's frame is the mirror's to map
   expect(visible(fig)).toContain("_");
-});
-
-test("a search hit's preview reads a ((id|label)) by its label and **bold** as bold, never the id or the stars", () => {
-  const m = msg("x", "Night now\n- **Shed inventory:** counted in ((f7904621-2e6c-42c2-abd6-7abb1d05cb73|the bike shed)).");
-  const text = searchPreviewLines(m, 60).map(visible).join("\n");
-  expect(text).toContain("Shed inventory: counted in the bike shed.");
-  expect(text).not.toContain("f7904621");
-  expect(text).not.toContain("**");
 });
 
 describe.skipIf(!outliner)("on a scratch outline", () => {

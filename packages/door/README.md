@@ -238,7 +238,7 @@ the board's g m s), its elements and reading-ruler row (PIE-441) and its termina
 CP437; the key names and the terminal output are under every section) have no section yet, and its ids-not-names row
 (ADR 0001) is a rule for code, with nothing to show. The newest parts are in their rows' sections:
 the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the drawer in `drawer` (`^W a` puts its kettle in your drawer, another section keeps it, the same program; `alt+a` pulls the drawer up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, and the component library (a page per component schema, the outline's own style among its values) in `library`. It runs on an
+(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, the component library (a page per component schema, the outline's own style among its values) in `library`, and the power bar (`ctrl+k`: the stage's tiles as their tree, one folded to a spine, then what changed; a scope a prefix away) in `bar`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -931,6 +931,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
+| `ctrl+k`, `cmd+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` (tab cycles) for one; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a draft (there `ctrl+k` cuts to the line's end), a filter, a picker or a terminal tile |
 | `ctrl+n` | a new note floating over the screen, opened to be written (again for another; from an edit too, what you typed saved first): under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never in a filter, a picker or a terminal tile. On the board's lanes: a new card in that lane |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
@@ -960,7 +961,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |
 | in a terminal tile: `shift+⏎` | a newline in Claude Code and most line editors: `CSI 13;2u` to a program that asked for the Kitty keyboard protocol (Claude Code does), `ESC CR` (as `alt+⏎`) to one that didn't; plain `⏎` is always `CR`. The door reads Shift only from a terminal with that protocol: it asks for it at start (Ghostty, kitty, WezTerm, foot have it; so does Herdr 0.9 for its panes, over ssh too) and gives it back on exit, `$EDITOR` and drop to shell. `EP0CH_KEYBOARD=legacy` doesn't ask. Elsewhere `shift+⏎` is `⏎`; in a draft it's a plain line break, as `alt+⏎` |
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
-| `/` | floating search with preview |
+| `/` | the power bar in its notes scope: the service's one search, the hit read on the right |
 | `q` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
 | `Esc` | closes the innermost thing (a picker, the tile menu, a chord, link mode, a dock, a zoom, a float's keys); never leaves the desk: with nothing left it says `nothing to close · q leaves` |
 
@@ -1534,6 +1535,30 @@ The board's new-card composer is the same control too.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
+
+### The power bar (PIE-656)
+
+`ctrl+k` (or `cmd+k` where the terminal sends it, or a click on `^K` at the status bar's left) opens one palette over
+whatever screen is shown and your drawer: a list on the left, what the lit row is on the right (a note drawn as a reader
+draws it, a terminal's screen, an action's summary and keys), its scopes along the top.
+
+- **Nothing typed:** the tiles open on every screen and in your drawer, indented as each screen's layout tree (a mounted
+  screen's tiles under its mount, named `mount/tile`; picking one opens the mount and goes in) (`●` has
+  the keys, `▸` a spine, `⧉` a float, `⇤` docked, `⋯` a tab behind), then what others changed since you looked.
+- **Typed:** tiles, the outline's notes (the service's one search, nearer notes first, Jev re-ordering after a pause
+  where it's set up), the actions you can do here (the focused tile's menu first, each with its key), what changed and
+  the screens, each under its heading.
+- **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `@` screens, or an extension's own prefix
+  (`~` for the glyphs example); tab and shift+tab cycle, backspace on an empty line goes back to all. The desk's `/`
+  and a river column's `g` open it in its notes scope.
+- **Going:** ⏎ or a double click. A tile gets your keys: a spine opens, a screen under this one comes up first. A note
+  opens where opens land. An action runs as its key would. alt+⏎ (or an alt- or ctrl-click) zooms a tile, or opens a note
+  in a new detail. Esc or a click outside puts it away.
+- **Extensions** add sources: an extension's `bar[]` in its `extension.json` answers what's typed with rows that open a
+  block, run one of its actions or copy text (the outliner's `docs/extensions/README.md`, "Bar sources").
+- **Agents:** `act bar.open query=… scope=…` answers the rows and opens nothing; `act bar.pick n=… query=…` picks as the
+  agent, through the same paths and their rules; your open bar is yours (an agent can't close it, and while it's open
+  you're busy, so an agent's move of your screen waits). `peek` shows the bar when it's open.
 
 ### New notes and pages (PIE-544)
 
@@ -2243,7 +2268,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `open` | `id`, `tile=detail\|new-detail\|float` (board: where the screen's opens land), `tile=preview` or any reader, `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |
 | `screen.spec` | none: the screen shown as its spec, the data a screen note holds (PIE-515) | |
-| `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the overlay, and its `⏎` runs `open` | `/` |
+| `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the power bar in its notes scope, and its `⏎` runs `open` | `/` |
+| `bar.open`, `bar.pick`, `bar.close` | `query=`, `scope=tiles\|notes\|actions\|recent\|screens\|<an extension's>` (or its prefix); `n=` (from 1), `alt=true`. The power bar (PIE-656): yours opens it with your keys in it and picks from it; an agent's `bar.open` answers the rows and opens nothing, its `bar.pick` lists for itself (`query=`, `scope=`) and picks as itself (a tile on another screen refused; a note lands where an agent's opens land); `bar.close` is yours | `ctrl+k`, `cmd+k`, `^K`; ⏎, alt+⏎; esc |
 | `tile.enter`, `tile.leave` | `send=` (enter: a key to pass on, the second `ctrl+]`): type in a terminal tile, or leave it. The person's only: an agent uses `tile.type` | `e`, `⏎` or a click on a terminal tile; `ctrl+]` |
 | `thread.pick`, `thread.up`, `activity.pick`, `activity.reload`, `reader.hold` | `n=`, `open=true`; `on=` (hold). The thread, activity and reader tiles' own keys, registered on their tile kinds. An agent's pick answers the row and moves nothing of yours | `j k ↑↓`, a click, `⏎`, `u`; `r`; `p` |
 | `tree.fold` | `n=` or `id=`, `open=true\|false`: a tree row's children. An agent can't fold away the rows your selection is in | `l → space h ←`, a click on a row's mark |

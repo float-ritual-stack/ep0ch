@@ -12,7 +12,7 @@ import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
-import type { ExtensionActResult, ExtensionList } from "./extensions";
+import type { ExtensionActResult, ExtensionBarResult, ExtensionList } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -452,6 +452,15 @@ export class SocketBoard implements Board {
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
+  }
+
+  /**
+   * One of an extension's bar sources answers a query (`extensions.bar`, PIE-656): rows for the power bar, each
+   * opening a block, running one of the extension's actions or copying text. It writes nothing. `near` is the note
+   * in front of the person, which the call sees as its context.
+   */
+  barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number } = {}): Promise<ExtensionBarResult> {
+    return this.request<ExtensionBarResult>("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) });
   }
 
   /**

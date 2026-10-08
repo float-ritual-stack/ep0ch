@@ -36,6 +36,11 @@ import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
 import { WhatChanged } from "./desk/what-changed";
+import { overBar, PowerBar } from "./bar/bar";
+import { tilesOf } from "./bar/sources";
+import { BAR_ACTIONS, type BarOn } from "./bar/actions";
+import { onBarSources, type BarHost } from "./bar/source";
+import type { Msg } from "./board";
 import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
@@ -80,7 +85,7 @@ export interface HostLayer {
    * shown with the keys in it; on the screen shown, the drawer put away and the keys given to it. Refused for a tile on
    * a screen under this one.
    */
-  goTo(p: Pane, actor: Actor): { tile: string; in: "drawer" | "screen" };
+  goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
   /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own. */
   openOnScreen(id: string, fresh: boolean, actor: Actor): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
@@ -176,6 +181,13 @@ export interface Ctx {
   reconnects?: number;
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
   screens?(): readonly Screen[];
+  /** Screens left with programs running in them, kept in the background until opened again (the desk's terminals). */
+  kept?(): readonly Screen[];
+  /**
+   * Bring screen `s` to the top (PIE-656, the power bar going to a tile on it): one under the top moves up, the others
+   * keep their order; one kept in the background is opened again. Nothing is left or ended.
+   */
+  raise?(s: Screen): void;
   /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
   idleFor?(): number;
   /**
@@ -377,6 +389,39 @@ export class App implements Ctx {
   private waitingAt: { from: number; to: number; row: number } | null = null;
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
+
+  /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
+  bar: PowerBar | null = null;
+  /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
+  barHost(): BarHost {
+    const notes = new Map<string, Promise<Msg | null>>();
+    return {
+      ctx: this, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
+      // The note in the reader the person is in, else the note the screen shows as its current one.
+      near: () => { try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; } },
+      note: id => { let p = notes.get(id); if (!p) notes.set(id, p = this.board.get(id).catch(() => null)); return p; },
+    };
+  }
+  /** What the bar's actions run on (BAR_ACTIONS). */
+  private readonly barOn: BarOn = {
+    bar: () => this.bar,
+    open: o => {
+      this.bar?.close();
+      const b = new PowerBar(this.barHost(), (n, alt) => { void this.dispatch.press("bar.pick", { n, alt }); }, o);
+      this.bar = b;
+      this.redraw();
+      return b;
+    },
+    unseen: async o => {
+      const b = new PowerBar(this.barHost(), () => {}, { ...o, quick: true });
+      const out = await b.settled();
+      if (out.length) { b.close(); throw new ActionRefused(`${out.join(", ")} didn't answer in time; ask again`); }
+      return b;
+    },
+    close: () => { this.bar?.close(); this.bar = null; this.redraw(); },
+  };
+  /** Where the status bar's ^K sits, for a click (bar.open). */
+  private barAt: { from: number; to: number; row: number } | null = null;
   private drawerRun: DrawerRun;
 
   /** `now`: the clock the status bar reads (a test's fake one). */
@@ -402,7 +447,9 @@ export class App implements Ctx {
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
     this.reportStatus();
-    this.whatChanged.subscribe(() => this.redraw());
+    this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
+    // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
+    onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
@@ -440,6 +487,12 @@ export class App implements Ctx {
     return beside ? { ...i, rows: Math.max(2, i.rows - beside) } : i;
   }
   screens(): readonly Screen[] { return this.stack; }
+  kept(): readonly Screen[] { return this.background; }
+  raise(s: Screen) {
+    if (this.stack.at(-1) === s) return;
+    if (this.stack.includes(s)) { this.disarm(); this.stack = this.stack.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); return; }
+    this.push(s);
+  }
   idleFor(): number { return Date.now() - this.lastInput; }
   /** An action as the person, through the door's dispatcher (Ctx.press): `note.new`'s open and edit on a screen without readers. */
   press(name: string, args: Record<string, unknown> = {}): Promise<unknown> { return this.dispatch.press(name, args); }
@@ -715,7 +768,7 @@ export class App implements Ctx {
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
@@ -798,6 +851,7 @@ export class App implements Ctx {
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: BAR_ACTIONS, takes: "none", on: () => ({ on: this.barOn }) },
     // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
     { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
@@ -812,6 +866,8 @@ export class App implements Ctx {
   person(): Whereabouts {
     const s = this.stack.at(-1);
     const w = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    // The power bar holds their keys while it's open.
+    if (this.bar && !w.busy) return { ...w, busy: true, why: "the person has the power bar open (ctrl+k)" };
     // An armed edit holds the next key: the person is mid-gesture.
     const a = this.armedNow?.a;
     return a && !w.busy ? { ...w, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` } : w;
@@ -899,6 +955,12 @@ export class App implements Ctx {
       this.redraw();
       if (confirms(armed, k)) { armed.run(); return; }
     }
+    // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
+    if (this.bar) {
+      if (!this.bar.ended()) this.bar.key(k, this);
+      if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
     // A click on the status bar's `+N ext` shows (or hides) what extensions wrote, as `changes.extensions` does.
     const ext = this.extAt;
     if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
@@ -907,7 +969,7 @@ export class App implements Ctx {
     }
     // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
     // mark, says what's stale (backups.alert).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"]] as const) {
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"], [this.barAt, "bar.open"]] as const) {
       if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
         if (k.action === "down") void this.dispatch.press(action);
         return;
@@ -921,6 +983,9 @@ export class App implements Ctx {
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.
     if (k.kind === "alt" && k.ch === "o" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("changes.open"); return; }
+    // ctrl+k (cmd+k where the terminal sends super): the power bar, on every screen, never while typing or in a terminal tile.
+    const kTop = this.stack.at(-1);
+    if (((k.kind === "char" && k.ctrl && k.ch === "k") || (k.kind === "super" && k.ch === "k")) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     const nTop = this.stack.at(-1);
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
@@ -1069,6 +1134,12 @@ export class App implements Ctx {
       // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
       placements = [...placements.filter(p => p.row + p.rows <= d.rect.row), ...(this.graphics ? d.placements : [])];
     } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
+    // The power bar over the screen and the drawer; images under it would show through it.
+    if (this.bar) {
+      const b = this.bar.draw(cols, rows - 1), r = b.rect;
+      lines = overBar(lines, b);
+      placements = placements.filter(p => p.row >= r.row + r.rows || p.row + p.rows <= r.row || p.col >= r.col + r.cols || p.col + p.cols <= r.col);
+    }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
@@ -1085,7 +1156,9 @@ export class App implements Ctx {
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
-    const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
+    const left = ` ${fg(C.white)}ep0ch ${fg(C.yellow)}^K${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
+    // ^K: a click opens the power bar (bar.open), as ctrl+k does; not on the logon.
+    this.barAt = s.noDrawer ? null : { from: 7, to: 9, row: this.term.info.rows - 1 };
     // The drawer's chip starts the right part, so it's always whole and always in the same place from the right.
     const chip = this.drawer.active ? this.drawer.chip() : "";
     // Extension writes hidden from the count read `+N ext` (a click shows them); shown, `ext on`.

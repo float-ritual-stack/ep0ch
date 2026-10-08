@@ -168,12 +168,12 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the desk's / (and the river's g), (( in a draft and ep0ch find; [[ on pages.complete; from the note you're in, Jev after a pause", files: "src/socket.ts, src/desk/desk.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts, src/export.ts",
-    aside: "the overlay opens with \"alotment notebok\" typed: two typos, the notebook still first, and notes holding all but one word below it · type to search again, ⏎ opens the hit in the reader · the note under it says what to try; esc puts the overlay away, then e in the note and (( with the same typos finds it the same way · `ep0ch find` answers the same from a shell · from a shell the outline also evaluates queries, views and subtrees (`ep0ch find --query … --ids`, `ep0ch export … --out <dir>`: the Seed order note's header line becomes front matter)",
+    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the power bar's notes scope (the desk's /, the river's g, ctrl+k then /), (( in a draft and ep0ch find; [[ on pages.complete; from the note you're in, Jev after a pause", files: "src/socket.ts, src/bar/sources.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts, src/export.ts",
+    aside: "go in (⏎) and press /: the power bar opens in its notes scope; type \"alotment notebok\": two typos, the notebook still first, and notes holding all but one word below it, the one lit read on the right · ⏎ opens it in the reader, alt+⏎ in a new detail · the note says what to try; e in the note and (( with the same typos finds it the same way · `ep0ch find` answers the same from a shell · from a shell the outline also evaluates queries, views and subtrees (`ep0ch find --query … --ids`, `ep0ch export … --out <dir>`: the Seed order note's header line becomes front matter)",
     stage(n, show) {
       const r = new ReaderPane();
-      // The overlay asks from the desk's current note, as the person's / does: nearer notes first, and Jev told it.
-      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { if (n.finding) d.setCurrent(n.finding); void d.searchNotes("alotment notebok", undefined, USER); });
+      // The bar's notes scope asks from the desk's current note, as the person's / does: nearer notes first, and Jev told it.
+      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { if (n.finding) d.setCurrent(n.finding); });
     },
   },
   {
@@ -549,6 +549,18 @@ export const SECTIONS: Section[] = [
     aside: "the library on this outline: [heading::] lists the plot style its note declares · , . the component, 1-4 the part, ← → the property or grid, [ ] ← → space to pick in every combination (x clears, n p page), j k a variation, y copies its source, w its width; every one a click too · e in a reader, then [head or [heading-pattern:: completes from the same schema · ep0ch library --out <dir> writes the pages as Markdown for the publisher",
     stage() {
       return openScreen("library", { persist: false });
+    },
+  },
+  {
+    key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, @ screens, an extension's own prefix; tab cycles), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action needing no argument), the what-changed store, screen.list, and an extension's bar[] through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
+    aside: "ctrl+k (or a click on ^K at the status bar's left), anywhere: with nothing typed, the tiles open on every screen and in your drawer, indented as each screen's layout tree (● has the keys, ▸ a spine, ⧉ a float, ⇤ docked), then what others changed · type to look through everything at once, or start with % / > + @ (tab cycles) for one source · ⏎ or a double click goes: a tile gets the keys (the folded detail here opens from its spine; one on a screen under this one brings it up), a note opens where opens land, an action runs; alt+⏎ zooms a tile or opens a note in a new detail · esc puts it away · with the outliner's glyphs example installed, ~shade lists its rows, and on a note it offers to rule it · `act bar.open query=… scope=…` answers the rows to an agent and opens nothing; `act bar.pick n=… query=…` picks as the agent, never your keys",
+    stage(n, show) {
+      const tree = new TreePane(), r = new ReaderPane(true), a = new DetailPane(), b = new DetailPane();
+      // The outline beside a reader over two details side by side: the tree's shape in the bar; the second detail folded to a spine.
+      return deskOf({
+        title: "showcase · power bar", panes: [tree, r, a, b], names: ["outline", "reader", "shed", "pears"],
+        layout: ([t, rd, x, y]) => pair("row", 0.28, leaf(t!), pair("col", 0.5, leaf(rd!), pair("row", 0.5, leaf(x!), leaf(y!)))),
+      }, show, [[a, n.shed], [b, n.notebook]], d => { if (n.whiteboard) d.setCurrent(n.whiteboard, { reveal: true }); void d.collapseTile("pears", true, USER); });
     },
   },
 ];
