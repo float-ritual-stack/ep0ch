@@ -34,7 +34,7 @@ export function drawCompare(p: Props, w: number, link?: RowLink): string[] {
     const cl = Math.min(Math.max(...columns.map(vwidth)), Math.max(4, w >> 1));
     return entries.flatMap((e, i) => [
       ...(i ? [""] : []),
-      ink(e) + rowLink(link, e.block, ellipsize(e.label, w)) + UNBOLD + RESET,
+      ...wrap(e.label, w).map((l, j) => ink(e) + (j ? l : rowLink(link, e.block, l)) + UNBOLD + RESET),
       ...columns.flatMap((c, k) => wrap(e.cells[k] || " ", Math.max(4, w - cl - 4)).map((l, j) => "  " + fg(HI) + pad(j ? "" : ellipsize(c, cl), cl) + "  " + fg(INK) + l + RESET)),
     ]);
   }
