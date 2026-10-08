@@ -93,11 +93,12 @@ export function compareDraft(base: string | null, draft: string, now: string): V
   if (base === null) return { basis: "two-way", kind: "differs", hunks: draftHunks(now, draft).map(h => ({ ...h, state: "differs" as const, now: null })) };
   const nowLines = now.split("\n"), baseLines = base.split("\n");
   const hunks = draftHunks(base, draft).map((h): Hunk => {
-    if (h.added.length && !blank(h.added) && blockIn(nowLines, h.added)) return { ...h, state: "already", now: null };
-    // What the note has between the unchanged lines either side of the passage, when both are still there.
+    // What the note has between the unchanged lines either side of the passage, when both are still there: where this
+    // change would be. A line elsewhere in the note that reads the same is not the change being in the note.
     const before = h.start > 0 ? baseLines[h.start - 1]! : null, after = h.end < baseLines.length ? baseLines[h.end]! : null;
     const i = before === null ? -1 : nowLines.indexOf(before), j = after === null ? nowLines.length : nowLines.indexOf(after, i + 1);
     const region = (before === null || i >= 0) && j >= 0 ? nowLines.slice(i + 1, j) : null;
+    if (h.added.length && !blank(h.added) && region && blockIn(region, h.added)) return { ...h, state: "already", now: null };
     // Lines it took out are gone from the note when the lines either side meet.
     if (!h.added.length && h.removed.length && !blank(h.removed) && !blockIn(nowLines, h.removed) && region?.length === 0) return { ...h, state: "already", now: null };
     // New: the lines it changed (or, for lines it added, the lines either side) are still there whole, so it applies.
@@ -134,7 +135,7 @@ export const onDay = (day: string) => (day === "today" || day === "yesterday" ? 
  */
 export function verdictWords(v: Verdict, day: string): string {
   const fresh = linesOf(v, "new"), clash = linesOf(v, "conflict"), mine = onDay(day);
-  if (v.kind === "nothing-new") return `your edit ${mine} was already in the note; kept a copy`;
+  if (v.kind === "nothing-new") return `your edit ${mine} was already in the note`;
   if (v.kind === "differs") {
     const n = v.hunks.reduce((s, h) => s + hunkLines(h), 0);
     return n ? `your edit ${mine} differs from the note in ${lines(n)} · its starting text isn't kept, so what's new can't be told from what changed since` : `your edit ${mine} reads the same as the note now`;

@@ -337,7 +337,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.session.draft.text).toBe("Paint the railings too");
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().composer).toBeNull();
-    expect(message()).toContain("dropped the unsent draft · a copy stays at");
+    expect(message()).toContain("let go of the kept draft · a copy stays at");
     await expect(act("card.create", { lane: "Doing", text: "Mow the lawn [work-stage::queued] [project::ep0ch-door] [priority::low] [arc::a] [track::t]" })).rejects.toThrow("the text sets work-stage::queued, but Doing needs work-stage=doing");
   });
 

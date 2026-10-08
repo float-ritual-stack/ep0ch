@@ -893,6 +893,14 @@ export function unsent(key: string): Unsent | null {
   try { const p = unsentPath(key); return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) as Unsent : null; } catch { return null; }
 }
 
+/** Forget `u` if it is still the entry kept at its key: one written there since (a newer edit, put aside while this was being read) stays. */
+export function unshelveIf(u: Unsent): boolean {
+  const now = unsent(u.key);
+  if (!now || now.at !== u.at || now.text !== u.text) return false;
+  unshelve(u.key);
+  return true;
+}
+
 /** Forget the draft put aside at `key` (it was brought back or dropped; its copy on disk stays). */
 export function unshelve(key: string): void { try { rmSync(unsentPath(key), { force: true }); } catch { /* best effort */ } }
 

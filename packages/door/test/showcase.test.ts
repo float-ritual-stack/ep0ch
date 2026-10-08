@@ -855,7 +855,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Already in the note: settled when the reader opened; a copy is kept, and nothing is asked.
     const hedge = S().notes.hedge;
     expect(unsent(`edit:${hedge.id}`)).toBeNull();
-    await expect(app.act({ action: "unsent.diff", tile: "hedge", args: {}, as: "test-agent" })).rejects.toThrow("nothing is put aside as unsent here");
+    await expect(app.act({ action: "unsent.diff", tile: "hedge", args: {}, as: "test-agent" })).rejects.toThrow("nothing is kept here (edit)");
     // An old edit with a conflict: folded to a chip; [show] opens it, and the comparison shows both versions.
     await app.act({ action: "unsent.show", tile: "compost", args: {}, as: "test-agent" });
     const compost = await app.act({ action: "unsent.diff", tile: "compost", args: {}, as: "test-agent" }) as any;

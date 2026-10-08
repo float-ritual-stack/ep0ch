@@ -7,7 +7,7 @@ import { diffLines } from "diff";
 import { UNSENT_NOTE } from "./authored";
 import { subject, type Msg } from "./board";
 import { keepCopy } from "./edit";
-import { unsent, unshelve, type Unsent } from "./draft-session";
+import { unsent, unshelveIf, type Unsent } from "./draft-session";
 import { compareDraft, dayOf, onDay, startedWords, takeBackSpans, verdictWords, type Hunk, type Verdict } from "./unsent-compare";
 
 export { takeBackSpans };
@@ -88,7 +88,7 @@ export const oldUnsentLine = (n: number) => `■ ${n} old edit${n === 1 ? "" : "
 // ── the starting text, and letting one go without losing it ──────────────────
 
 /** The board calls this needs (the service client has them). */
-export interface HistoryBoard { revisionText(blockId: string, revision: number): Promise<{ text: string }> }
+export interface HistoryBoard { revisionText(blockId: string, revision: number): Promise<{ text: string }>; get(blockId: string): Promise<Pick<Msg, "text" | "revision"> | null> }
 
 /**
  * The text an unsent edit started from: its own (drafts keep it), else the note's text when the note is still at the
@@ -111,15 +111,15 @@ export function copyOf(u: Unsent, label: string): string {
  * no base text to compare with, or something in it the note doesn't have).
  */
 export async function settleQuietly(note: Msg, board: HistoryBoard): Promise<{ copy: string; day: string } | null> {
-  const key = `edit:${note.id}`, u = unsent(key);
+  const u = unsent(`edit:${note.id}`);
   if (!u || note.partial) return null;
   const base = await baseTextOf(u, note.id, note, board);
   if (base === null || compareDraft(base, u.text, note.text).kind !== "nothing-new") return null;
-  const now = unsent(key);
-  if (!now || now.at !== u.at) return null;                                    // put aside again meanwhile: not ours to resolve
+  // The note as it is now: it may have moved while the history was read, and what was in it may be gone.
+  const current = await board.get(note.id);
+  if (!current || current.text !== note.text || current.revision !== note.revision) return null;
   const copy = copyOf(u, note.id.slice(0, 8));
-  unshelve(key);
-  return { copy, day: dayOf(u.at) };
+  return unshelveIf(u) ? { copy, day: dayOf(u.at) } : null;                    // put aside again meanwhile: not ours to resolve
 }
 
 // ── the views beside a note: its comparison, its copy ────────────────────────

@@ -77,7 +77,7 @@ describe("unsent drafts against the note now", () => {
   test("the kept-draft line: an edit's words are the comparison's answer; one on an older revision says what's new; an old one folds", () => {
     shelve("edit:note-hoe", Object.assign(new Draft("note-hoe", 3, "Oil the hoe"), {}), null);
     // On the revision the note is at: nothing changed since, the whole edit is new, so its line offers to add it.
-    expect(unsentEntries("note-hoe", 3, { text: "Oil the hoe" }, () => "today")).toEqual([expect.objectContaining({ stale: false, old: false, text: "■ your edit today was already in the note; kept a copy", ops: ["copy", "dismiss"] })]);
+    expect(unsentEntries("note-hoe", 3, { text: "Oil the hoe" }, () => "today")).toEqual([expect.objectContaining({ stale: false, old: false, text: "■ your edit today was already in the note", ops: ["copy", "dismiss"] })]);
     // An older revision with its starting text kept: a changed line the note doesn't have is new.
     shelve("edit:note-rake", Object.assign(new Draft("note-rake", 3, "Rake"), { }), null);
     keepUnsent({ key: "edit:note-rake", text: "Rake the leaves\nstack the bags", base: 3, at: Date.now(), copy: null, from: "Rake the leaves" });
@@ -166,6 +166,16 @@ describe("the three-way comparison: the draft's own changes, each against the no
     expect(states("Greenhouse\nwater the beans\nshut the vents\nsweep the floor", "Greenhouse\nwater the tomatoes slowly\nshut the vents\nsweep the floor")).toEqual(["conflict"]);
   });
 
+  test("a line elsewhere that reads the same is not the change being in the note", () => {
+    // Replacing `old` with `new`, while the note has another `new` further down: the passage still reads `old`, so it is new.
+    const b = "A\nold\nB\nnew";
+    expect(compareDraft(b, "A\nnew\nB\nnew", b).hunks.map(h => h.state)).toEqual(["new"]);
+    // The note has the replacement where the change goes: already.
+    expect(compareDraft(b, "A\nnew\nB\nnew", "A\nnew\nB\nnew").kind).toBe("nothing-new");
+    // The lines either side were edited, so where it goes can't be found: not claimed as in the note.
+    expect(compareDraft(b, "A\nnew\nB\nnew", "A (x)\nnew\nB (x)\nnew").kind).not.toBe("nothing-new");
+  });
+
   test("lines the draft took out: gone from the note already, still there (new), or rewritten (a conflict)", () => {
     const draft = "Greenhouse\nwater the tomatoes\nsweep the floor";
     expect(states(draft, base)).toEqual(["new"]);
@@ -186,7 +196,7 @@ describe("the three-way comparison: the draft's own changes, each against the no
     const draft = "Greenhouse\nwater the tomatoes twice\nshut the vents\nsweep the floor\nlock the door";
     expect(verdictWords(compareDraft(base, draft, base), "Oct 1")).toBe("2 lines from your edit on Oct 1 aren't in the note");
     expect(verdictWords(compareDraft(base, draft, "Greenhouse\nwater the peppers\nshut the vents\nsweep the floor"), "Oct 1")).toBe("1 line from your edit on Oct 1 isn't in the note · 1 was changed differently since");
-    expect(verdictWords(compareDraft(base, draft, draft), "today")).toBe("your edit today was already in the note; kept a copy");
+    expect(verdictWords(compareDraft(base, draft, draft), "today")).toBe("your edit today was already in the note");
     expect(startedWords("Oct 1", 12)).toBe("You started editing this on Oct 1 and didn't save. The note has changed 12 times since. Your edit is kept here.");
     expect(dayOf(new Date(2026, 9, 1, 12).getTime(), new Date(2026, 9, 7, 9).getTime())).toBe("Oct 1");
     expect(dayOf(new Date(2026, 9, 6, 12).getTime(), new Date(2026, 9, 7, 9).getTime())).toBe("yesterday");
@@ -201,16 +211,24 @@ describe("the three-way comparison: the draft's own changes, each against the no
     // Quietly: the note has all of it; the entry goes, a copy exists.
     keepUnsent({ key: "edit:note-glass", text: draft, base: 3, at: Date.now(), copy: null, from: base });
     const note = { id: "note-glass", text: draft, revision: 9, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: {} };
-    const done = await settleQuietly(note, { revisionText: async () => { throw new Error("not asked"); } });
+    const here = async () => note;
+    const done = await settleQuietly(note, { revisionText: async () => { throw new Error("not asked"); }, get: here });
     expect(done?.copy && readFileSync(done.copy, "utf8")).toBe(draft + "\n");
     expect(unsent("edit:note-glass")).toBeNull();
     // Something new in it, or no starting text anywhere: left alone.
     keepUnsent({ key: "edit:note-glass", text: draft, base: 3, at: Date.now(), copy: null, from: base });
-    expect(await settleQuietly({ ...note, text: now }, { revisionText: async () => ({ text: base }) })).toBeNull();
+    expect(await settleQuietly({ ...note, text: now }, { revisionText: async () => ({ text: base }), get: async () => ({ ...note, text: now }) })).toBeNull();
     keepUnsent({ key: "edit:note-glass", text: draft, base: 3, at: Date.now(), copy: null });
-    expect(await settleQuietly(note, { revisionText: async () => { throw new Error("history doesn't reach it"); } })).toBeNull();
+    expect(await settleQuietly(note, { revisionText: async () => { throw new Error("history doesn't reach it"); }, get: here })).toBeNull();
     expect(unsent("edit:note-glass")).not.toBeNull();
     // The base from the note's history when the draft didn't keep it.
-    expect((await settleQuietly(note, { revisionText: async () => ({ text: base }) }))?.day).toBe("today");
+    expect((await settleQuietly(note, { revisionText: async () => ({ text: base }), get: here }))?.day).toBe("today");
+    // The note moved on while its history was read (the line is gone, or a newer revision): nothing is resolved on the old snapshot.
+    keepUnsent({ key: "edit:note-glass", text: draft, base: 3, at: Date.now(), copy: null });
+    expect(await settleQuietly(note, { revisionText: async () => ({ text: base }), get: async () => ({ text: now, revision: 10 }) })).toBeNull();
+    expect(unsent("edit:note-glass")).not.toBeNull();
+    // A newer edit kept at the same place while the history was read stays.
+    expect(await settleQuietly(note, { revisionText: async () => { keepUnsent({ key: "edit:note-glass", text: "newer words", base: 9, at: Date.now() + 1, copy: null }); return { text: base }; }, get: here })).toBeNull();
+    expect(unsent("edit:note-glass")?.text).toBe("newer words");
   });
 });

@@ -26,7 +26,7 @@ import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget, UNSENT_NOTE
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
-import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, takeStrays, unsent, unshelve, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
@@ -4110,7 +4110,7 @@ export class NoteSurface {
         return [...rows.map(r => pad(fg(C.grey) + r, w) + RESET), ...(fits ? [pad(fg(C.grey) + last + controls(e), w) + RESET] : [pad(fg(C.grey) + last, w) + RESET, ...controlRows(e)])];
       }),
       ...(folded.length ? [pad(fg(C.dark) + oldUnsentLine(folded.length) + " ·" + controls(chip), w) + RESET] : []),
-      ...(this.settled && this.settled.id === of ? wrap(`■ ${verdictWords({ basis: "three-way", kind: "nothing-new", hunks: [] }, this.settled.day)} (${tidy(this.settled.copy)})`, w).map(r => pad(fg(C.dark) + r, w) + RESET) : []),
+      ...(this.settled && this.settled.id === of ? wrap(`■ ${verdictWords({ basis: "three-way", kind: "nothing-new", hunks: [] }, this.settled.day)}; kept a copy (${tidy(this.settled.copy)})`, w).map(r => pad(fg(C.dark) + r, w) + RESET) : []),
     ];
     const { lines, ranges } = extractLinks(raw);
     const elems: Element[] = ranges.map(r => {
@@ -4467,7 +4467,7 @@ const firstUnsent = (surface: NoteSurface): UnsentKind | undefined => { const m 
 async function unsentHere(surface: NoteSurface, host: SurfaceHost, kind: string, fetch: boolean): Promise<{ of: string; u: Unsent; now: Msg | null }> {
   if (!["edit", "comment", "child", "card"].includes(kind)) throw new ActionRefused(`kind is edit, comment, child or card, not ${kind}`);
   const of = unsentOf(surface), u = unsent(`${kind}:${of}`);
-  if (!u) throw new ActionRefused(`nothing is put aside as unsent here (${kind})`);
+  if (!u) throw new ActionRefused(`nothing is kept here (${kind})`);
   const now = fetch || kind === "edit" ? await host.ctx.board.get(of) : null;
   if (fetch && !now) throw new ActionRefused("the note is gone from the outline; [open copy] still has the unsent text");
   return { of, u, now };
@@ -5899,7 +5899,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const k = kind ?? firstUnsent(surface) ?? "edit";
       const { of, u } = await unsentHere(surface, host, k, false);
       const copy = copyOf(u, of.slice(0, 8));
-      unshelve(`${k}:${of}`);
+      unshelveIf(u);
       host.ctx.flash(`let go of the ${k === "child" ? "note" : k} · its copy stays at ${tidy(copy)}`);
       host.redraw();
       return { of, kind: k, dismissed: true, copy };
@@ -5932,7 +5932,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const a = s.draft.applyPatch({ patchId: `unsent-${u.at}`, patches: fresh.map(h => h.span!), revision: s.draft.base, force: true }, USER);
       if (!a.applied) throw new ActionRefused(`couldn't add them: ${a.reason}`);
       const lines = linesOf(verdict, "new"), left = linesOf(verdict, "conflict");
-      if (!left) { copyOf(u, of.slice(0, 8)); unshelve(`edit:${of}`); }
+      if (!left) { copyOf(u, of.slice(0, 8)); unshelveIf(u); }
       s.draft.note = `added ${lines} line${lines === 1 ? "" : "s"} from your edit ${dayOf(u.at) === "today" ? "today" : `of ${dayOf(u.at)}`}, lit · ctrl+s saves · ctrl+z takes them back${left ? ` · ${left} line${left === 1 ? " was" : "s were"} changed differently since and stay${left === 1 ? "s" : ""} kept ([compare] shows both)` : ""}`;
       host.redraw();
       return { of, added: left ? "partly" : "all", lines, left, base: u.base, revision: s.draft.base };
@@ -5949,7 +5949,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { of, u, now } = await unsentHere(surface, host, "edit", true);
       const copy = copyOf(u, of.slice(0, 8));
       const made = await host.ctx.board.createBlock(of, `Edit from ${dayOf(u.at)} on “${subject(now!)}”, kept\n\n${u.text}`, USER);
-      unshelve(`edit:${of}`);
+      unshelveIf(u);
       host.ctx.flash(`kept as a note under this one · its copy stays at ${tidy(copy)}`);
       host.redraw();
       return { of, kept: made.id, copy };
