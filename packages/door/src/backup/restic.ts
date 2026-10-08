@@ -72,9 +72,9 @@ export function summaryId(out: string): string | null {
   return null;
 }
 
-/** A consistent copy, uploaded as `/<name>.sqlite`. */
-export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null): Promise<{ id: string } | { error: string; code: number }> {
-  const r = await runRestic(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", c.machine,
+/** A consistent copy, uploaded as `/<name>.sqlite` (`host`: the machine it belongs to, when another uploads it: a relay). */
+export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null, host: string = c.machine): Promise<{ id: string } | { error: string; code: number }> {
+  const r = await runRestic(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", host,
     "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])], { stdin: copy });
   if (r.code !== 0) return { error: complaint(r), code: r.code };
   return { id: summaryId(r.out) ?? "?" };
@@ -90,6 +90,6 @@ export async function dumpTo(c: BackupConfig, repo: string, s: Pick<OutlineSnaps
 /** The retention PIE-607 set: every snapshot of two days, then hourly for three, daily for a month, weekly for 12. */
 export const KEEP = ["--keep-within", "48h", "--keep-hourly", "72", "--keep-daily", "30", "--keep-weekly", "12"];
 
-export async function forget(c: BackupConfig, repo: string, prune: boolean): Promise<Ran> {
-  return runRestic(c, repo, ["forget", "--host", c.machine, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])], { timeoutMs: 900_000 });
+export async function forget(c: BackupConfig, repo: string, prune: boolean, host: string = c.machine): Promise<Ran> {
+  return runRestic(c, repo, ["forget", "--host", host, "--tag", OUTLINE_TAG, "--group-by", "host,paths", ...KEEP, ...(prune ? ["--prune"] : [])], { timeoutMs: 900_000 });
 }

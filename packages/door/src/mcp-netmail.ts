@@ -221,18 +221,21 @@ export async function queueCommand(args: readonly string[], io: Io, env: Env = p
 // ─── The home machine's side: the pull ───────────────────────────────────────
 
 /** What the home machine asks of the hub over ssh: its login shell's `ep0ch`, without this side's routing. */
-const remoteEp0ch = (command: string) => `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE -u EP0CH_WS "\${SHELL:-/bin/sh}" -lc '${command}'`;
+export const remoteEp0ch = (command: string) => `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE -u EP0CH_WS "\${SHELL:-/bin/sh}" -lc '${command}'`;
 
-async function ssh(env: Env, hub: string, command: string, stdin?: string): Promise<{ code: number; out: string; err: string }> {
+export async function ssh(env: Env, hub: string, command: string, stdin?: string | Blob, timeoutMs?: number): Promise<{ code: number; out: string; err: string }> {
   const p = Bun.spawn([env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "--", hub, remoteEp0ch(command)], {
-    stdin: stdin === undefined ? "ignore" : new Blob([stdin]), stdout: "pipe", stderr: "pipe", env: env as Record<string, string>,
+    stdin: stdin === undefined ? "ignore" : typeof stdin === "string" ? new Blob([stdin]) : stdin, stdout: "pipe", stderr: "pipe", env: env as Record<string, string>,
   });
-  const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-  return { code, out, err };
+  const timer = timeoutMs ? setTimeout(() => p.kill(), timeoutMs) : null;
+  try {
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { code, out, err };
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 /** The JSON object a remote command printed, past whatever a login shell printed around it (a motd). */
-function lastJson(text: string): unknown {
+export function lastJson(text: string): unknown {
   for (const line of text.split("\n").reverse()) {
     const t = line.trim();
     if (t.startsWith("{")) { try { return JSON.parse(t); } catch { /* not this line */ } }

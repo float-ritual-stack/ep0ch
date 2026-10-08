@@ -14,7 +14,8 @@
 //   EP0CH_RESTIC           the restic binary (default: restic on PATH)
 //   EP0CH_OUTLINES, EP0CH_MCP_MIRROR_DIR   the outlines and the mirrors, where they aren't the defaults
 //   EP0CH_MCP_HUB          the ssh name of the machine whose remote MCP gateway queues writes for this one's outlines
-//                          (netmail, PIE-615): each run pulls them and applies them here. Unset: nothing is pulled
+//                          (netmail, PIE-615): each run pulls them and applies them here. Unset: nothing is pulled.
+//                          It is also where a snapshot goes when the repository is out of reach (backup/relay.ts)
 //
 // Secrets never pass through here: restic gets them from `with-secrets <groups> --`, so they reach only restic.
 import { existsSync, readFileSync } from "node:fs";
