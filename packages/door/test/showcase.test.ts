@@ -138,10 +138,10 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     // On a connection of its own, as `ep0ch show` beside the door would be (drawNote lends the one it is given).
     const reader = new SocketBoard(scratch.sock);
     await reader.info();
-    const narrow = (await drawNote(reader, seeded.notes.markdownFigures.id, 40))!.map(plain);
+    const narrow = (await drawNote(reader, seeded.notes.markdownFigures.id, 40, { quiet: 600, max: 8000 }))!.map(plain);
     reader.close();
     const tlAt = narrow.findIndex(l => l.includes("plant out"));
-    expect(narrow.slice(tlAt, tlAt + 3).join("\n")).toMatch(/plant out[\s\S]*│\s+when the nights are warm/);
+    expect(narrow.slice(tlAt, tlAt + 3).join("\n"), narrow.join("\n")).toMatch(/plant out[\s\S]*│\s+when the nights are warm/);
     // The chore queue figure sorts by a property: ranks as numbers, the chore without one last.
     const drawn = (await drawNote(board, seeded.notes.figures.id, 120))!.join("\n");
     const queue = drawn.slice(drawn.indexOf("CHORE QUEUE"));
