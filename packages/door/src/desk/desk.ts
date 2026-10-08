@@ -38,10 +38,10 @@ import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
-  agentLevel, allTiles, apply as applyOp, autoName, chainOf, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, apply as applyOp, autoName, chainOf, defaultLinkRole, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
   neighbour, node, parentNode, parentOf, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  type Fold, type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  type Fold, type Grab, type HostMode, type LayoutState, type LinkRole, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
@@ -200,6 +200,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dockLabels: { id: number; from: number; to: number; row: number }[] = [];
   /** Each header's agents chip as drawn (PIE-639): a click cycles the tile's level (tile.agent). */
   private agentChips: { id: number; from: number; to: number; row: number }[] = [];
+  /** The role of each link as its header drew it, for a click (PIE-646). */
+  private linkChips: { id: number; from: number; to: number; row: number }[] = [];
   /** Each ⧉ as drawn (a float's, and the focused pinned tile's): a click runs tile.float, putting back or floating it. */
   private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
   /** Each closable tile's × (tile.close by mouse). */
@@ -321,16 +323,30 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── the layout's one way to change (PIE-513) ──
 
   /** What a tile is, as the layout's rules need it (its kind, its kind's policy, what keeps it, what it holds). */
+  /**
+   * The tile a list's opens land in when nothing else says (PIE-646): the one it lists the links of, if it is here, isn't
+   * the list itself and keeps its note (a detail, a held reader; one that follows the current note already shows what
+   * is opened, so for it an open stays the current note).
+   */
+  private originName(id: number, anyReader = false): string | undefined {
+    const p = this.panes.get(id), name = p ? kindOf(p)?.origin?.(p) : null;
+    const at = name ? this.idNamed(name) : undefined, r = at !== undefined ? this.panes.get(at) : undefined;
+    return at !== undefined && at !== id && r instanceof ReaderPane && (anyReader || !r.follows || r.holding) ? name! : undefined;
+  }
+
   private facts(id: number, actor?: Actor): TileFacts {
     const p = this.panes.get(id), k = kindOf(p), src = this.sourced.get(id);
     // A new note's tile (PIE-591) closes with its edit for the person: closeTile leaves the edit first (never lost).
     const closesWithEdit = !!actor && actor.kind !== "agent" && !!madeFor(p);
     const how = src ? tileSource(src.source)?.source.drop : undefined;
+    const origin = this.originName(id);
     return {
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
+      ...(k?.follower ? { follower: true } : {}), ...(k?.linkRole ? { linkRole: k.linkRole } : {}),
+      ...(origin !== undefined ? { origin } : {}),
       ...(p instanceof ReaderPane && p.editing && !(closesWithEdit && p.surface.drafting) ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
       ...(p && this.holdsWork(p) ? { holds: true } : {}),
@@ -382,7 +398,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const old = new Map(this.panes);
     const oldNames = new Map(this.names);
     const byName = new Map([...this.names].map(([id, n]) => [n, id] as const));
-    const used = new Set<number>(), fresh: number[] = [], wantLinks: [number, string][] = [];
+    const used = new Set<number>(), fresh: number[] = [], wantLinks: [number, string][] = [], wantRoles = new Map<number, LinkRole>();
     const names = new Map<number, string>();
     const folded = new Map<number, Fold>(), agentsOf = new Map<number, AgentLevel>();
     const auto = (kind: string) => autoName({ names }, kind);
@@ -413,7 +429,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A kind nobody has registered (an extension not loaded yet) says so in its place; its spec is kept as saved.
       // A tile the host gave (an exhibit) is its own kind, never one waiting for its extension.
       if (!isTileKind(l.kind) && !((own || restore) && l.name && this.given.has(l.name))) this.unregistered.set(id, l); else this.unregistered.delete(id);
-      if (l.link) wantLinks.push([id, l.link]);
+      if (l.link) { wantLinks.push([id, l.link]); if (l.linkRole === "preview" || l.linkRole === "target") wantRoles.set(id, l.linkRole); }
       if (l.collapsed) folded.set(id, l.collapsed === "h" ? { dir: "h" } : {});
       if (isAgentLevel(l.agents)) agentsOf.set(id, l.agents);
       return id;
@@ -440,10 +456,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const links = new Map<number, number>();
     // A spec may link a tile to itself (the welcome's preview: its own links open in it); a saved layout never does.
-    for (const [id, to] of wantLinks) { const t = [...names].find(([, n]) => n === to)?.[0]; if (t !== undefined && (t !== id || own)) links.set(id, t); }
+    const linkRoles = new Map<number, LinkRole>();
+    for (const [id, to] of wantLinks) {
+      const t = [...names].find(([, n]) => n === to)?.[0];
+      if (t === undefined || (t === id && !own)) continue;
+      links.set(id, t);
+      linkRoles.set(id, wantRoles.get(id) ?? defaultLinkRole(kindOf(this.panes.get(id)) ?? {}, kindOf(this.panes.get(t)) ?? {}));
+    }
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
     const policy = { ...policyOf(spec.policy), ...(spec.rule === "next" ? { opens: "next" as const } : {}) };
-    const next = init({ tree, names, floats, collapsed: folded, links, agents: agentsOf, policy }, this.layout, { freshIds: !restore });
+    const next = init({ tree, names, floats, collapsed: folded, links, linkRoles, agents: agentsOf, policy }, this.layout, { freshIds: !restore });
     // Nothing left to show (a saved layout of empty tab sets): the layout named desk.
     if (!leaves(next.tree).length) return this.build(layoutNamed("desk")!.spec, reuse);
     this.state = next;
@@ -546,9 +568,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const link = this.layout.links.get(id);
     const k = kindOf(p), kept = this.unregistered.get(id);
     return {
-      ...(kept ? (({ link: _l, ...rest }) => rest)(kept) : {}),
+      ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
-      ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : {}),
+      ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...(this.linkRoleIsDefault(id, link) ? {} : { linkRole: this.layout.linkRoles.get(id)! }) } : {}),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
     };
@@ -763,6 +785,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // one (alt+⏎) opens another there.
     const into = m && at !== undefined && (opts.link || opts.reveal || opts.fresh) ? landing(this.layout, at, this.facts(at)) : null;
     if (m && into && "into" in into) { this.current = m; this.openIntoContainer(into.into, m, !!opts.fresh, by, at); return this.redraw(); }
+    // alt+⏎ in a list about a reader's note (the links tile, PIE-646): a new detail beside that reader holds it; the list keeps the keys.
+    const origin = m && opts.fresh && at !== undefined ? this.originId(at, true) : undefined;
+    if (m && origin !== undefined && this.openReader(m, { kind: "split", target: origin, dir: "right" }, by, "detail", undefined, true)) return this.redraw();
     // alt+⏎ on a link, or a ctrl- or alt-click (PIE-441, PIE-473): a new reader beside this one holds it;
     // the others keep their notes. An agent's doesn't take the person's focus.
     // On a locked screen nothing new opens (its shape is fixed): the open lands as the current one instead.
@@ -810,9 +835,48 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.idOf(from);
     if (id === undefined) return;
     for (const p of this.followers(id)) p.follow?.(m, this.homeOf(p));
-    const to = this.linkOf(id);
+    const to = this.previewOf(id);
     if (to !== undefined) this.openInto(to, m);
     this.redraw();
+  }
+
+  /**
+   * The tile that follows `id`'s selection by a link (PIE-646): its link when that is a preview, else its container's
+   * opens-into. A target link takes only what is opened into it, and the origin reader (a list's default) only that too.
+   */
+  private previewOf(id: number): number | undefined {
+    const own = this.layout.links.get(id);
+    if (own !== undefined && this.panes.has(own)) return this.layout.linkRoles.get(id) === "target" ? undefined : own;
+    const { origin: _origin, ...facts } = this.facts(id);
+    const to = landing(this.layout, id, facts);
+    return to && "to" in to && this.panes.has(to.to) ? to.to : undefined;
+  }
+  /** The reader a list's opens default to (the links tile's origin), if it has one here; `anyReader`: a reader that follows the current note too (a new detail goes beside it). */
+  private originId(id: number, anyReader = false): number | undefined {
+    const name = this.originName(id, anyReader);
+    return name !== undefined ? this.idNamed(name) : undefined;
+  }
+  /** Where tile `id`'s link comes from: a link of its own, its container's opens-into, or the reader it lists the links of. */
+  private linkVia(id: number): "link" | "opensInto" | "origin" | undefined {
+    const own = this.layout.links.get(id);
+    if (own !== undefined && this.panes.has(own)) return "link";
+    const to = this.linkOf(id);
+    if (to === undefined) return undefined;
+    return this.originId(id) === to ? "origin" : "opensInto";
+  }
+  /** What layout.get says of tile `id`'s link beyond where it goes (PIE-646): its role, and where it comes from when it isn't a link of its own. */
+  private linkView(id: number): Record<string, string> {
+    const via = this.linkVia(id);
+    return via === "link" ? { linkRole: this.layout.linkRoles.get(id) ?? "preview" } : via ? { linkFrom: via } : {};
+  }
+  /** A link's role is worth saying: its source previews a selection (a list that shows rows), or it is not the kind's default anyway. */
+  private linkChoice(id: number): boolean {
+    const p = this.panes.get(id);
+    return !!p && (!!kindOf(p)?.previews || this.layout.linkRoles.get(id) === "target");
+  }
+  /** Tile `id`'s link is the role its kind gives (so a saved layout needn't say). */
+  private linkRoleIsDefault(id: number, to: number): boolean {
+    return this.layout.linkRoles.get(id) === defaultLinkRole(kindOf(this.panes.get(id)) ?? {}, kindOf(this.panes.get(to)) ?? {});
   }
 
   /** Opens from `pane` land somewhere else (a link, a flow's next column): a held reader doesn't follow them in place. */
@@ -835,12 +899,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `tile.open`'s operation. False, said, when the layout refuses it (a locked screen): the open lands as the
    * current note instead.
    */
-  private openReader(m: Msg, at: At<number>, actor: Actor, kind: "reader" | "detail" = "reader", spec?: TileSpec): boolean {
+  private openReader(m: Msg, at: At<number>, actor: Actor, kind: "reader" | "detail" = "reader", spec?: TileSpec, keepKeys = false): boolean {
     const as: TileSpec = { ...(spec ?? { t: "leaf", kind }) };
     // Named for what it is (its kind's word: a river column is a column), numbered after the first.
     if (!as.name) as.name = this.autoName(kindOf({ kind: as.kind } as Pane)?.word ?? as.kind);
     // Asked before the tile is made: a refused open makes nothing.
-    const r = this.ask({ op: "open", tile: this.nextId, kind: as.kind, name: as.name, loose: true, at }, actor);
+    const r = this.ask({ op: "open", tile: this.nextId, kind: as.kind, name: as.name, loose: true, at, ...(keepKeys ? { keys: false as const } : {}) }, actor);
     if (!r.ok) { this.ctx.flash(`${r.refused} · opened here instead`); return false; }
     const id = this.put(makeTile(as));
     this.commit(r);
@@ -1169,6 +1233,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Its opens land in a container (the board's readers row): a tile there holds it (`fresh`: a new one).
     const into = landing(this.layout, t.id, this.facts(t.id));
     if (into && "into" in into) return this.openPlace(id, fresh ? "new-detail" : "detail", actor, t.id);
+    // From a list about a reader's note (the links tile): fresh is a new detail beside that reader, the list keeps the keys (PIE-646).
+    const origin = fresh ? this.originId(t.id, true) : undefined;
+    if (origin !== undefined) {
+      const m = await this.ctx.board.get(id);
+      if (!m) throw new ActionRefused(`no block ${id}`);
+      const made = this.nextId;
+      if (this.openReader(m, { kind: "split", target: origin, dir: "right" }, actor, "detail", undefined, true)) { this.redraw(); return { reader: this.nameOf(made), id: m.id }; }
+    }
     const to = this.linkOf(t.id);
     // A column of a flow (the river's): the column after it (`fresh`: a new one even when a column has the note).
     if (to === undefined && this.inFlow(t.id)) {
@@ -1814,7 +1886,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.isFloat(id) ? { float: true } : {}), ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}), ...(this.collapsed.get(id)!.by ? { collapsedBy: this.collapsed.get(id)!.by } : {}) } : {}),
       ...(this.cover(id) ? { cover: this.cover(id) } : {}),
       ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), tabShown: this.nameOf(set.ids[set.active]!) } : {}),
-      ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link) } : into !== undefined ? { link: this.nameOf(into), linkFrom: "opensInto" } : {}),
+      ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...this.linkView(id) } : into !== undefined ? { link: this.nameOf(into), ...this.linkView(id) } : {}),
       ...this.dockView(id),
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, true) ?? {}),
@@ -1878,7 +1950,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -2239,7 +2311,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number): string {
     // A tile whose opens land in itself (the welcome's preview) says nothing about where they go.
     const link = this.layout.links.get(id);
-    if (link !== undefined && link !== id && this.panes.has(link)) put(` → ${this.nameOf(link)}`, fg(C.lmagenta));
+    if (link !== undefined && link !== id && this.panes.has(link)) {
+      // What the link does (PIE-646), when there is a choice: a click on it changes it (tile.link role=), as the tile menu does.
+      // In a narrow header the role's glyph leads, so the name being cut short never hides it.
+      const to = this.nameOf(link), role = this.linkChoice(id) ? this.layout.linkRoles.get(id) ?? "preview" : null;
+      const word = role === "target" ? "⏎ target" : "◌ preview";
+      if (role && ` → ${to} ${word}`.length <= max - xNow() - 10) {
+        put(` → ${to}`, fg(C.lmagenta));
+        const from = xNow(); put(` ${word}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
+      } else if (role) {
+        const from = xNow(); put(` ${word[0]}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
+        put(`→ ${to}`, fg(C.lmagenta));
+      } else put(` → ${to}`, fg(C.lmagenta));
+    } else if (this.linkVia(id) === "origin") put(` ⏎ ${this.nameOf(this.originId(id)!)}`, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     const ag = this.agentOf(id).level;
     if (ag !== "free") {
@@ -3005,11 +3089,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k !== undefined && !this.isFloat(this.focus)) this.openedIn(k).active = this.focus;
   }
 
-  linkTile(sel: string | undefined, to: string | undefined, actor: Actor): TileDone {
+  linkTile(sel: string | undefined, to: string | undefined, actor: Actor, role?: LinkRole): TileDone {
     const src = this.tile(sel);
-    const r = this.apply({ op: "link", tile: src.id, ...(to ? { to: this.tile(to).id } : {}) }, actor);
+    const r = this.apply({ op: "link", tile: src.id, ...(to ? { to: this.tile(to).id } : {}), ...(role ? { role } : {}) }, actor);
     this.save(); this.redraw();
-    return { tile: src.name, link: r.answer.link ?? null };
+    return { tile: src.name, link: r.answer.link ?? null, ...(r.answer.role ? { role: r.answer.role } : {}) };
   }
 
   selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone {
@@ -3415,7 +3499,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const dv = this.dockView(id);
         return {
           tile: this.nameOf(id), id: this.tileId(id), kind: p.kind, rect: this.hits.find(([x]) => x === id)?.[1] ?? null,
-          ...(link !== undefined ? { link: this.nameOf(link) } : {}),
+          ...(link !== undefined ? { link: this.nameOf(link), ...this.linkView(id) } : {}),
           ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), shown: set.ids[set.active] === id } : {}),
           ...("dock" in dv ? dv : this.isFloat(id) ? { float: true } : { pinned: true }),
           ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}) } : {}),
@@ -4161,6 +4245,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (dl) return this.run("tile.dock", { on: false }, this.nameOf(dl.id));
       const ac = this.agentChips.find(at);
       if (ac) return this.run("tile.agent", {}, this.nameOf(ac.id));
+      const lc = this.linkChips.find(at);
+      if (lc) return this.run("tile.link", { role: this.layout.linkRoles.get(lc.id) === "target" ? "preview" : "target" }, this.nameOf(lc.id));
       const hp = this.headPresses.find(at);
       if (hp) { hp.press(); return this.redraw(); }
       // ⧉ on a tile's header: on a float it puts it back, on a pinned tile it floats it (tile.float either way, as ^W f).

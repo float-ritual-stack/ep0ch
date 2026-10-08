@@ -410,6 +410,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
+    "links-open": ["Bike shed", "links · Bike shed", "preview"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
@@ -680,6 +681,31 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(JSON.stringify(await app.act({ action: "link.select", tile: "reader", args: { n: 1 }, as: "test-agent" }))).toContain("the kitchen whiteboard");
     const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
     expect(f.opened).toBe(seeded.notes.whiteboard.id);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "links-open" }, as: "test-agent" })).toMatchObject({ key: "links-open" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "links-open")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    await until(() => shows("detail") === seeded.notes.shed.id && tiles().find(t => t.name === "backlinks")?.backlinks?.rows?.some((r: any) => r.id), "the shed and its links", 8000);
+    const rows = tiles().find(t => t.name === "backlinks").backlinks.rows as { n: number; id?: string }[];
+    const first = rows.find(r => r.id && r.id !== seeded.notes.shed.id)!;
+    // A pick previews; the detail keeps the shed.
+    await app.act({ action: "backlinks.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
+    await until(() => shows("preview") === first.id, "the preview following the pick", 5000);
+    expect(shows("detail")).toBe(seeded.notes.shed.id);
+    // alt+⏎ is a new detail beside the first, which keeps its note.
+    const before = tiles().length;
+    await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
+    await until(() => tiles().length === before + 1, "a new detail", 5000);
+    expect(tiles().find(t => t.kind === "detail" && t.name !== "detail")?.showing?.id).toBe(first.id);
+    expect(shows("detail")).toBe(seeded.notes.shed.id);
+    // ⏎ opens it in the detail the links came from, and the links tile lists that note's links now.
+    await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
+    await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
     expect(S().focus).toBe("index");
   }, 20_000);
 

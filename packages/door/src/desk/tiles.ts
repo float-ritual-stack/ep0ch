@@ -46,6 +46,8 @@ export interface TileSpec {
   preview?: boolean;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   link?: string;
+  /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */
+  linkRole?: "preview" | "target";
   /** A service-drawn tile's saved state (an extension's kind): what its service needs to draw it again. */
   state?: Record<string, unknown>;
   /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */

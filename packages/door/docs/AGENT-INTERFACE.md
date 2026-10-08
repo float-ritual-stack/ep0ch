@@ -455,7 +455,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` | `tile` | never the person's tile, never a running program |
 | `tile.focus` | `tile`, `dir` (left, right, up, down: the tile that way; in a flow, the column before or after) | refused while the person is typing, and within 2s of their last key |
-| `tile.link` | `tile`, `to` | |
+| `tile.link` | `tile`, `to`, `role` (`preview` follows the source's selection; `target` takes only opens) | |
 | `tile.dock` | `tile`, `on` (true: docked to an edge, in a dock that stays on this screen; false: undocked, back in the layout; a float goes straight into a dock, one step), `edge` (left, right, up, down: the dock slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new dock starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
 | `tile.collapse` | `tile`, `on` (default toggles), `dir` (`v` a vertical spine, `h` a horizontal one: one row; default the way its split runs) | folds a tile in a row or column of others to a spine, keeping what it holds and its size for when it opens; a tab set folds as one; never the tile that has the person's keys |
 | `tile.expand` | `tile` | opens a spine at the size the tile had (`tile.collapse on=false`) |

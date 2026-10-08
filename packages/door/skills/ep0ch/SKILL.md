@@ -198,8 +198,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
   screen's links tile at that reader's note (or opens one below it), leaving the person's keys where they are;
-  `backlinks.pick n=<row> [open=true]` shows or opens a row (a note, a ticket's block, a Resource's stored
-  content; `open` registers a Resource first if it must), `backlinks.view filter=…` filters. In the outline tree,
+  `backlinks.pick n=<row>` shows a row (a note, a ticket's block, a Resource's stored content) and
+  `backlinks.open n=<row> [where=origin|new]` opens it for real (a Resource is registered first if it must be):
+  `origin` in the tile the list's opens land in (a tile linked to it as a target, else the reader it lists the
+  links of), `new` in a new detail beside that reader; `backlinks.view filter=…` filters. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). Folding a group (`backlinks.fold`) is the person's view.
 - **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the

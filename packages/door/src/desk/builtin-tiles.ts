@@ -58,7 +58,7 @@ const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) 
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
 const builtins = (): TileKind[] => [
   {
-    kind: "tree", about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
+    kind: "tree", previews: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
     make: () => new TreePane(), actions: TREE_ACTIONS,
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
@@ -185,7 +185,9 @@ const builtins = (): TileKind[] => [
   },
   {
     kind: "backlinks", about: "the links of what another tile shows (source=tile:<name>): its outlinks, resources and backlinks",
-    aim: p => p as BacklinksPane, companion: "preview",
+    aim: p => p as BacklinksPane, companion: "preview", previews: true,
+    // A selection previews (a preview tile follows it), ⏎ opens: in the reader it lists the links of, or the tile linked to it as a target (PIE-646).
+    linkRole: "target", origin: p => (p as BacklinksPane).source,
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader", s.groups === "open"); },
     actions: BACKLINKS_ACTIONS,

@@ -950,7 +950,7 @@ const FLOW_KEYS: Record<string, { action: string; args?: Record<string, unknown>
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {
   return {
-    kind: "river.column", word: "column", noun: "a river column",
+    kind: "river.column", previews: true, word: "column", noun: "a river column",
     about: "a river column (Quay): the Library (source=roots), a note with its replies (source=block:<id>), or every note with a property (source=tag:<key>=<value>); filter=<clauses>",
     make: s => new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? "")),
     save: p => (p as RiverColumn).spec(),

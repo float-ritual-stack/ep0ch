@@ -3,9 +3,11 @@
 // backlinks grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection, or giving
 // the tile the keys, shows the selected row where this tile's selection goes (a preview following it, or its
 // link) without moving the current note (so the tile it lists the links of stays put): a note, a ticket's block,
-// a Resource's stored content (read only: nothing is registered or fetched by showing it). ⏎ opens it, alt+⏎
-// opens it "fresh", as a link's alt+⏎ does; the mouse escalates the same way (RowView.press): a click selects, a
-// double click is ⏎, an alt-, ctrl- or middle-click is alt+⏎, and the click that gives the tile the keys only selects.
+// a Resource's stored content (read only: nothing is registered or fetched by showing it). ⏎ opens it for real
+// (`backlinks.open`, PIE-646): in the tile its opens land in, the tile linked to this one as a target, else the
+// reader it lists the links of (the layout's `landing`, its origin); alt+⏎ in a new detail beside that reader. The
+// mouse escalates the same way (RowView.press): a click selects and previews, a double click is ⏎, an alt-, ctrl- or
+// middle-click is alt+⏎, and the click that gives the tile the keys only selects.
 //
 // The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
 // line by `layoutBacklinkStatus`. One model and one drawing, not three.
@@ -99,7 +101,7 @@ export class BacklinksPane implements Pane {
     const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
     return `links · ${subject(this.target).slice(0, 50)}${n}`;
   }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k pick · ⏎ open · alt+⏎ fresh · . fold · s K w h n view"; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k preview · ⏎ open in the reader · alt+⏎ new detail · . fold · s K w h n view"; }
   spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}) }; }
 
   init(desk: DeskApi) { this.sync(desk); }
@@ -329,7 +331,7 @@ export class BacklinksPane implements Pane {
     return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], typing: this.draft?.text ?? null };
   }
 
-  run(desk: DeskApi, name: "backlinks.pick" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
   private filterKey(k: Key, desk: DeskApi): boolean {
@@ -353,7 +355,7 @@ export class BacklinksPane implements Pane {
     if (isUp(k)) return by(-1);
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
-    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.pick", { n: this.sel + 1, open: true, ...(k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "origin" }); return true; }
     if (c === "." || c === " ") { this.run(desk, "backlinks.fold", {}); return true; }
     const control: Record<string, BacklinkControl> = { s: "sort", K: "kind", w: "stage", h: "resolved", n: "related" };
     if (control[c]) { this.run(desk, "backlinks.view", { step: control[c]! }); return true; }
@@ -376,8 +378,8 @@ export class BacklinksPane implements Pane {
     if (y < this.head || !row) return true;
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
     const header = row.kind === "group" || row.kind === "kind";
-    if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.pick", { n: i + 1, open: true }); return true; }
-    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.pick", { n: i + 1, open: true, ...(gesture === "fresh" && !header ? { fresh: true } : {}) });
+    if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
+    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "origin" });
     else if (i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
     return true;
   }
@@ -472,6 +474,25 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
       if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
       return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
+    },
+  }),
+  "backlinks.open": def({
+    summary: "open a row of a links tile for real, not as a preview (n= its row from 1, as peek lists them; id= a block's or a resource's; default the selected one): where=origin (default) in the tile its opens land in: the tile linked to it as a target, else the reader it lists the links of (a detail keeps it in its history); where=new in a new detail beside that reader (the person's keys stay in the list). A group opens or folds. The same open as `open from=<this tile>` (fresh for new)",
+    keys: "⏎ double click (origin) · alt+⏎ alt-click ctrl-click middle-click (new); the click that gives the tile the keys only selects",
+    touches: "nothing", replay: "safe", says: r => `opened a link (row ${r.row})`,
+    args: {
+      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them; default the selected one" },
+      id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
+      where: { type: "string", optional: true, about: "origin (default): the tile its opens land in; new: a new detail beside the reader it lists the links of" },
+    },
+    async run({ n, id, where }, { pane, desk }, actor) {
+      if (where !== undefined && where !== "origin" && where !== "new") throw new ActionRefused(`backlinks.open: where is origin or new, not ${where}`);
+      if (n !== undefined && id !== undefined) throw new ActionRefused("backlinks.open takes one of n or id");
+      const rows = pane.rows();
+      const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
+      const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : (n ?? pane.sel + 1) - 1;
+      if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
+      return pane.pick(i, where === "new" ? "fresh" : "open", desk, actor);
     },
   }),
   "backlinks.view": def({
