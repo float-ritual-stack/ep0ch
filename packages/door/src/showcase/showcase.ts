@@ -46,6 +46,7 @@ import { servingSession } from "../session/session-term";
 import { findShowcase, KEPT, loadShowcase, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
+import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
 
@@ -84,7 +85,7 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[] }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
@@ -94,7 +95,7 @@ function stageDesk(st: Stage): Desk {
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
-  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)! })) as SavedTree;
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
@@ -264,6 +265,15 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "agents", need: "say what an agent may do to each tile (free, edit only, hands off), the screen's default and its exceptions", part: "the tile's agent level (PIE-639): Policy.agents for the screen and its containers, LayoutState.agents for a tile's own, saved with the layout; tile.agent (^W g, a click on the chip on the tile's frame, its ⋯ menu), layout.policy agents= for the default; enforced in the layout module's operations and the dispatcher's actor rule (agentRefusal), for agents only; reported in peek (agentLimits), layout.get and `ep0ch where`", files: "src/surface/agent-level.ts, src/desk/screen-layout.ts, src/desk/layout.ts, src/surface/dispatch.ts, src/desk/tile-actions.ts, src/desk/desk.ts",
+    aside: "free (top), edit only (middle: ✎) and hands off (bottom: ⊘), each holding a note · an agent's open into the middle or right tile is refused, naming the policy and the person's command; its edit of the middle tile's note goes through; the left is free to navigate · ^W g cycles the focused tile, a click on a chip does too, and the person's own keys are never limited · try: ep0ch act open id=<a note> tile=<edit tile>",
+    stage(n, show) {
+      const free = new ReaderPane(true), edit = new ReaderPane(true), off = new ReaderPane(true);
+      return deskOf({ title: "showcase · agent policy", panes: [free, edit, off], names: ["free", "edit", "off"], agents: [undefined, "edit", "off"], layout: ([a, b, c]) => splitOf("col", [leaf(a!), leaf(b!), leaf(c!)], [1, 1, 1]) }, show,
+        [[free, n.notebook], [edit, n.errand], [off, n.shed]]);
     },
   },
   {

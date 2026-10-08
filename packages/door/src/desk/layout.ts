@@ -16,6 +16,7 @@
 // splits by weight: a move beside a tile inside a split along the same axis joins that split instead of
 // nesting a new pair.
 import type { Rect } from "../canvas";
+import { isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { columnOf, placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
 
 export type Dir = "left" | "right" | "up" | "down";
@@ -75,12 +76,17 @@ export interface Policy {
    * or `none` (a full-screen screen: the host layer stays put away while it's shown).
    */
   host?: HostMode;
+  /**
+   * What an agent may do to the tiles under it (PIE-639): the screen's default, or a container's. A tile has its own
+   * (`LayoutState.agents`), which wins. Left out, `free`. The person's own keys are never limited by it.
+   */
+  agents?: AgentLevel;
 }
 /** Where the host layer may appear over a screen. */
 export type HostMode = "beside" | "over" | "none";
 /** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
 export type OpenRule = "current" | "next" | "beside";
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "keep", "shuts"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "keep", "shuts", "agents"] as const;
 
 export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[]; policy?: Policy;
@@ -787,6 +793,8 @@ export function unwrapDock<I>(root: LNode<I>, d: Dock<I>): LNode<I> {
 export interface Effective {
   locked: boolean; draggable: boolean; droppable: boolean; closable: boolean; resizable: boolean; collapsible: boolean;
   accepts: string[] | null; opensInto: string | null;
+  /** What an agent may do to a tile under it (PIE-639): the nearest layer that says wins; `free` when none does. */
+  agents: AgentLevel;
   /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
   opens: OpenRule;
   /** Which layer said each: "screen", a container's id, or "kind". */
@@ -797,7 +805,7 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, opens: "current", by: {} };
+  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", by: {} };
   for (const { by, policy: p, flow } of layers) {
     // A flow's own rule, when it says none: its tiles open into the next column.
     if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
@@ -807,6 +815,7 @@ export function effective(layers: { by: string; policy?: Policy; flow?: boolean 
     for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible"] as const) if (p[k] !== undefined) { out[k] = p[k]!; out.by[k] = by; }
     if (p.accepts) { out.accepts = p.accepts; out.by.accepts = by; }
     if (p.opensInto) { out.opensInto = p.opensInto; out.by.opensInto = by; }
+    if (p.agents) { out.agents = p.agents; out.by.agents = by; }
   }
   return out;
 }
@@ -927,6 +936,7 @@ export function policyOf(x: unknown): Policy {
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
+  if (isAgentLevel(o.agents)) out.agents = o.agents;
   return out;
 }
 const savedPolicy = (x: unknown) => { const p = policyOf(x); return Object.keys(p).length ? { policy: p } : {}; };

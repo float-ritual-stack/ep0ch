@@ -13,10 +13,13 @@ import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
 import { HOST_AGENT } from "./whereabouts";
 import { reachControl } from "./control";
+import type { AgentLevel } from "./surface/agent-level";
 import type { DoorReach } from "@ep0ch/outline-core/door-reach";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
+/** A limit on what an agent may do to a tile (PIE-639) and the layer that said so ("tile", "screen" or a container's id). */
+export interface AgentLimit { level: AgentLevel; by: string }
 export interface WhereKeys { mine: boolean | null; typing: boolean | null; tile: string | null; text: string }
 export interface Where {
   inDoor: boolean;
@@ -34,7 +37,9 @@ export interface Where {
     /** The machine the door's outline host runs on (its hostname), and the ssh name the door reached it by (null: this machine's host). */
     host: string | null; machine: string | null;
     /** `drawer`: the tile is the door's drawer (PIE-498), not a desk tile. */
-    tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; drawer?: boolean } | null;
+    tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; drawer?: boolean; agents?: AgentLimit } | null;
+    /** What the screen lets an agent do (PIE-639): its default and each tile it limits, so an agent reads its limits before acting. Absent: nothing is limited. */
+    agents?: { default: AgentLevel | null; tiles: (AgentLimit & { tile: string; id: string | null })[] };
     /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
     moved: boolean;
     /**
@@ -188,7 +193,9 @@ export async function where(d: WhereDeps): Promise<Where> {
       shown: tile ? tile.shown !== false : null, focused: tile ? !!tile.focused : null,
       descends: tpid !== null && ancestors.length ? ancestors.includes(tpid) || d.pid === tpid : null,
       ...(tile?.drawer ? { drawer: true } : {}),
+      ...(tile?.agents && tile.agents !== "free" ? { agents: { level: tile.agents as AgentLevel, by: String(tile.agentsBy ?? "tile") } } : {}),
     } : null,
+    ...(desk && (Array.isArray(desk.agentLimits) || desk.agentsDefault) ? { agents: { default: desk.agentsDefault ?? null, tiles: (desk.agentLimits ?? []).map((l: any) => ({ tile: String(l.tile), id: l.id ?? null, level: l.level, by: String(l.by) })) } } : {}),
   } : null;
 
   // ── each layer, checked ──
@@ -299,6 +306,11 @@ export function formatWhere(w: Where): string {
   for (const l of w.layers) out.push(`  ${MARK(l.live)} ${l.kind.padEnd(5)} ${l.label.padEnd(width)}  ${l.why}`);
   if (w.door?.stale) out.push(w.door.stale);
   out.push(`keys: ${w.keys.text}`);
+  const ag = w.door?.agents;
+  if (ag && (ag.default || ag.tiles.length)) {
+    const words = { free: "free", edit: "edit only", off: "hands off" } as const;
+    out.push(`agents may: ${[ag.default ? `the screen is ${words[ag.default]}` : null, ...ag.tiles.map(t => `${t.tile} is ${words[t.level]}${t.by !== "tile" ? ` (from ${t.by})` : ""}`)].filter(Boolean).join("; ")} · tile.agent policy=free tile=<tile> frees one (the person's command)`);
+  }
   if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
   return out.join("\n");
 }

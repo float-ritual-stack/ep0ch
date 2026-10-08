@@ -157,6 +157,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 - An agent never takes the person's focus, keys, selection or the reader they're typing in; such actions
   are refused with the reason. Your selection, focus marks and backlinks views are your own.
+- The person can limit what you do to a tile: `free`, `edit` (edit its note, never navigate, close, move or
+  retarget it) or `off` (read it through `peek` only), per tile with a screen default. Read them first: `ep0ch where`
+  says `agents may: …`, `peek` has `agentLimits` and each limited tile's `agents`. A refusal names the policy and the
+  person's command (`tile.agent policy=free tile=<tile>`); it is theirs to change: you can only tighten a tile, never
+  loosen one. An `open` that names no tile skips limited tiles. Their own keys are never limited.
 - Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
   clipboard. Their mouse selection is copied when they let go (copy on select; `EP0CH_COPY_ON_SELECT=0`
   turns it off), and their `y` or cmd+c copies too.

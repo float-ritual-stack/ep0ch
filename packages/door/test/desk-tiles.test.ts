@@ -330,6 +330,29 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await expect(mine("layout.load", { name: "nope" })).rejects.toThrow(/no layout nope/);
   });
 
+  test("what an agent may do is saved with the screen and comes back (PIE-639): a tile's own level and the screen's default", async () => {
+    await mine("tile.agent", { policy: "edit" }, "now");
+    await mine("layout.policy", { node: "screen", agents: "off" });
+    await mine("tile.agent", { policy: "free" }, "tree");                         // an exception under the screen's default
+    await mine("screen.save", { name: "guarded" });
+    const saved = JSON.stringify(screenNote("guarded")!.spec.layout);
+    expect(saved).toContain(`"agents":"edit"`);
+    expect(saved).toContain(`"policy":{"agents":"off"}`);
+    // Cleared, then loaded back: the limits come back with the screen.
+    await mine("layout.policy", { node: "screen", clear: "agents" });
+    await mine("tile.agent", { policy: "inherit" }, "now");
+    await mine("tile.agent", { policy: "inherit" }, "tree");
+    await mine("layout.load", { name: "guarded" });
+    expect(tile("now")).toMatchObject({ agents: "edit", agentsBy: "tile" });
+    expect(tile("claude")).toMatchObject({ agents: "off", agentsBy: "screen" });
+    expect(tile("tree").agents).toBeUndefined();
+    expect((get() as any).policy).toEqual({ agents: "off" });
+    await expect(act("tile.close", {}, "now")).rejects.toThrow(/now is edit only for agents: tile\.close is refused/);
+    await expect(act("tile.focus", {}, "claude")).rejects.toThrow(/hands off for agents \(the screen's default\)/);
+    await mine("layout.policy", { node: "screen", clear: "agents" });
+    await mine("tile.agent", { policy: "inherit" }, "now");
+  });
+
   test("the river layout is the river's columns on the desk (a flow, the Library first), a card preview following them", async () => {
     await mine("layout.load", { name: "river" });
     expect(shape()).toBe("row(flow(library),card,dock(tabs(*claude,draft)))");  // the running programs, kept in a shut dock

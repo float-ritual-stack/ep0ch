@@ -28,6 +28,7 @@ import {
   POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
+import { agentRefusal, type AgentLevel } from "../surface/agent-level";
 
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
@@ -58,6 +59,8 @@ export interface LayoutState<I = number> {
   readonly links: ReadonlyMap<I, I>;
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   readonly names: ReadonlyMap<I, string>;
+  /** What an agent may do to a tile of its own (PIE-639): wins over the containers' and the screen's default; absent, they say. */
+  readonly agents: ReadonlyMap<I, AgentLevel>;
   /** The screen's own policy (the outermost container's): `locked` there locks the whole screen. */
   readonly policy: Policy;
   /** The locks an agent set ("screen", or a container's id): an agent undoes only these; the person's are theirs. */
@@ -152,6 +155,8 @@ export type Op<I = number> =
   | { op: "grow"; tile: I; axis: Axis; by: number }
   | { op: "even" }
   | { op: "lock"; on?: boolean }
+  /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
+  | { op: "agents"; tile: I; level: AgentLevel | null }
   | { op: "policy"; tile?: I; node?: string; set: Policy; clear: string[] }
   | { op: "link"; tile: I; to?: I }
   | { op: "focus"; tile: I; quiet?: boolean }
@@ -181,12 +186,12 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, { by?: string }>; zoom: I | null; links: Map<I, I>; names: Map<I, string>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, { by?: string }>; zoom: I | null; links: Map<I, I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
-  links: new Map(s.links), names: new Map(s.names), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
+  links: new Map(s.links), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
 /** The tests run with the state frozen: a caller that changes it in place, past `apply`, throws there. */
@@ -222,7 +227,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, links: d.links, names: d.names, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, links: d.links, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -232,14 +237,14 @@ function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: s
  * blank, its containers given ids. `prev` goes on from an earlier state (its revision and ids, its agents' locks
  * and the docks' remembered policy), or from a saved revision and next id.
  */
-export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, { by?: string }>; links?: ReadonlyMap<I, I>; policy?: Policy },
+export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, { by?: string }>; links?: ReadonlyMap<I, I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
   prev?: LayoutState<I> | { rev: number; nextNode: number }, opts: { freshIds?: boolean } = {}): LayoutState<I> {
   const given = clone(parts.tree);
   // A layout loaded from elsewhere (not this screen's own save coming back) never hands out an id given here before.
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, links: new Map(parts.links ?? []), names: new Map(parts.names),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, links: new Map(parts.links ?? []), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -311,6 +316,16 @@ function nodeChain<I>(root: LNode<I>, c: LNode<I>): Container<I>[] {
     return null;
   };
   return go(root) ?? (c.t === "leaf" ? [] : [c as Container<I>]);
+}
+/**
+ * What an agent may do to tile `id` (PIE-639): the tile's own level, else the nearest container's or the screen's
+ * default, else `free`; `by` says which ("tile", "screen" or a container's id).
+ */
+export function agentLevel<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "agents">, id: I, facts?: TileFacts): { level: AgentLevel; by: string } {
+  const own = s.agents.get(id);
+  if (own) return { level: own, by: "tile" };
+  const e = policyAt(s, id, facts);
+  return { level: e.agents, by: e.by.agents ?? "screen" };
 }
 export const isFloat = <I>(s: Pick<LayoutState<I>, "floats">, id: I) => s.floats.some(f => f.id === id);
 /** Every tile: the tree's (a tab set's hidden ones too), then the floats. */
@@ -435,6 +450,8 @@ export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: 
 /** The fewest cells a float has (unless the screen itself is smaller). */
 export const FLOAT_MIN = { cols: 20, rows: 5 };
 
+const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
+
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
   private get agent() { return this.ctx.actor.kind === "agent"; }
@@ -546,6 +563,7 @@ class Step<I> {
   }
 
   run(op: Op<I>) {
+    if (this.agent) this.agentGate(op);
     switch (op.op) {
       case "open": return this.open(op);
       case "close": return this.close(op.tile, !!op.gone);
@@ -567,6 +585,7 @@ class Step<I> {
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
       case "even": return this.keepsSize(() => this.even());
       case "lock": return this.lock(op.on);
+      case "agents": return this.setAgents(op.tile, op.level);
       case "policy": return this.setPolicy(op);
       case "link": return this.link(op.tile, op.to);
       case "focus": return this.focus(op.tile, !!op.quiet);
@@ -581,6 +600,79 @@ class Step<I> {
       case "flow.hold": return this.holdColumn(op.tile, op.on);
       case "remember": return this.rememberPolicy(op.key, op.policy);
     }
+  }
+
+  /**
+   * What an agent may do to a tile (PIE-639): an operation that navigates, moves, closes or retargets a tile whose level
+   * is `edit` or `off` is refused, whichever caller asked. The person's own operations never come here.
+   */
+  private agentGate(op: Op<I>) {
+    // `only: "off"`: the level that refuses it (resizing a split moves no limited tile; a hands-off one is not touched).
+    const no = (id: I, what: string, only?: "off") => {
+      if (!this.all().includes(id)) return;
+      const { level, by } = agentLevel(this.d, id, this.facts(id));
+      if (only && level !== only) return;
+      refuse(agentRefusal(level, this.name(id), what, { by }));
+    };
+    const each = (ids: I[], what: string, only?: "off") => { for (const id of ids) no(id, what, only); };
+    const under = (n: LNode<I> | null | undefined) => (n ? leaves(n) : []);
+    switch (op.op) {
+      case "close": return no(op.tile, "closing it");
+      case "replace": return no(op.tile, "replacing it");
+      case "take": return no(op.tile, "taking it away");
+      case "move": no(op.tile, "moving it"); if (op.to.kind === "tabs") no(op.to.target, "putting another tile in its tabs"); return;
+      case "swap": no(op.tile, "swapping it"); return no(op.with, "swapping it");
+      case "float": return no(op.tile, "floating it");
+      case "place": return op.tile !== undefined ? no(op.tile, "moving or sizing it") : undefined;
+      case "pin": return op.container ? each(under(nodeById(this.d.tree, op.container)), "docking it") : no(op.tile, "docking it");
+      case "slide": {
+        // Sliding a dock shut hides every tile in it.
+        const nd = op.container ? nodeById(this.d.tree, op.container) : null;
+        return each(under(nd?.t === "dock" ? nd : dockOf(this.d.tree, op.tile)), "sliding its dock", undefined);
+      }
+      case "collapse": return no(op.tile, "folding it");
+      case "grow": return no(op.tile, "resizing it", "off");
+      case "resize": { const n = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path ?? ""); return isLine(n as LNode<I>) ? each([...under((n as Line<I>).kids[op.border]), ...under((n as Line<I>).kids[op.border + 1])], "resizing it", "off") : undefined; }
+      case "shares": return each(under(nodeById(this.d.tree, op.split)), "resizing it", "off");
+      case "even": return each(this.all(), "evening out the layout (it resizes it)", "off");
+      case "link": no(op.tile, "changing where its opens land"); if (op.to !== undefined) no(op.to, "linking opens into it"); return;
+      case "tab": { const ts = tabsOf(this.d.tree, op.tile); no(op.tile, "switching its tabs"); return ts ? no(ts.ids[ts.active]!, "hiding it by switching tabs") : undefined; }
+      case "zoom": return no(op.tile, "zooming it");
+      case "flow.widen": case "flow.travel": case "flow.hold": return no(op.tile, "widening, holding or travelling it");
+      case "load": return each(this.all(), `laying the screen out as ${op.name} (it replaces the tiles)`);
+      case "open": if (op.at.kind === "tabs") no(op.at.target, "opening a tile into its tabs"); return;
+      case "agents": {
+        // An agent may tighten a tile's level (free to edit, edit to off), never loosen it: the person's command frees it.
+        const was = agentLevel(this.d, op.tile, this.facts(op.tile)), want = op.level ?? policyAt(this.d, op.tile, this.facts(op.tile)).agents;
+        refuse(AGENT_ORDER[want] < AGENT_ORDER[was.level] ? agentRefusal(was.level, this.name(op.tile), "loosening its own limit", { by: was.by }) : null);
+        return;
+      }
+      case "policy": {
+        // The same for a container's or the screen's default: it may be tightened, never loosened or cleared.
+        if (op.set.agents === undefined && !op.clear.includes("agents")) return;
+        const chain = op.tile !== undefined ? chainOf(this.d.tree, op.tile) : [];
+        const c = op.node === "screen" ? "screen" : op.node ? nodeById(this.d.tree, op.node) : chain.at(-1) ?? "screen";
+        if (!c) return;
+        const layersWith = (agents: AgentLevel | undefined) => {
+          const own = (pol: Policy | undefined) => { const { agents: _a, ...rest } = pol ?? {}; return agents ? { ...rest, agents } : rest; };
+          return c === "screen" ? [{ by: "screen", policy: own(this.d.policy) }]
+            : [{ by: "screen", policy: this.d.policy }, ...nodeChain(this.d.tree, c).map(x => ({ by: x.id ?? x.t, policy: x === c ? own(x.policy) : x.policy, flow: x.t === "flow" }))];
+        };
+        const was = effective(layersWith((c === "screen" ? this.d.policy : c.policy)?.agents)).agents;
+        const now = effective(layersWith(op.set.agents)).agents;
+        const by = c === "screen" ? "screen" : c.id ?? c.t;
+        refuse(AGENT_ORDER[now] < AGENT_ORDER[was] ? agentRefusal(was, by === "screen" ? "the screen" : by, "loosening its default", { by, command: `^W P, or layout.policy node=${by} agents=free` }) : null);
+        return;
+      }
+    }
+  }
+  /** Tile `id`'s own level (PIE-639); `null` takes it away, so the container's and the screen's say again. */
+  private setAgents(id: I, level: AgentLevel | null) {
+    this.present(id);
+    const before = this.d.agents.get(id) ?? null;
+    if (before === level) { this.d.changed = false; this.d.answer = { tile: this.name(id), agents: agentLevel(this.d, id, this.facts(id)).level, changed: false }; return; }
+    if (level === null) this.d.agents.delete(id); else this.d.agents.set(id, level);
+    this.d.answer = { tile: this.name(id), agents: agentLevel(this.d, id, this.facts(id)).level, own: level !== null, changed: true };
   }
 
   private present(id: I) { refuse(this.all().includes(id) ? null : `no tile ${this.name(id)} in the layout`); }
@@ -753,7 +845,7 @@ class Step<I> {
   /** A tile gone: its float, its spine, its name, its links and those to it. */
   private forget(id: I) {
     this.d.floats = this.d.floats.filter(f => f.id !== id);
-    this.d.collapsed.delete(id);
+    this.d.collapsed.delete(id); this.d.agents.delete(id);
     this.d.names.delete(id); this.d.links.delete(id);
     for (const [from, to] of this.d.links) if (to === id) this.d.links.delete(from);
     if (this.d.zoom === id) this.d.zoom = null;

@@ -50,6 +50,8 @@ export interface TileSpec {
   view?: string;
   /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
   collapsed?: true;
+  /** What an agent may do to this tile (PIE-639): `edit` or `off`; left out, the container's or the screen's `agents` says, else `free`. */
+  agents?: "free" | "edit" | "off";
   /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
   label?: string;
   /** A river column's filter (its clauses, as `/` takes them). */
