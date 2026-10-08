@@ -261,7 +261,7 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
  * The title section's note (PIE-657): the reader's header as it is now, with the old one written out to compare. Its
  * properties give the byline's meta line something to hold (the summary values are links).
  */
-export const titleText = () => [
+export const titleText = (whiteboardId = "00000000-0000-4000-8000-000000000000") => [
   `${SEED.title} [type::roadmap-item] [work-stage::doing] [priority::high] [track::allotment]`,
   "",
   "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bright, bold line (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and one dim line under it holds the author, the day, the work id, the property count and the summary values, which are still links. The tile's frame bar says only `detail`: the title is not written twice.",
@@ -279,6 +279,12 @@ export const titleText = () => [
   "Now (this reader, the tile with the keys, and the same note in the tile beside it): the focused tile's title is the theme's brightest and bold; the other tile's is a clear step down.",
   "",
   "A tile too short for the header (two rows) keeps the title in its frame bar, as before; so does a narrow terminal without text sizing, where the title is bold on one row.",
+  "",
+  "A link that wraps keeps its colour and its click on every row (the narrow tile shows it):",
+  "",
+  `- ((${whiteboardId}|The kitchen whiteboard, with the pump's spare valves · Oct 8 done, Oct 9 plan))`,
+  "- [Tyre pressures from the maker, the long page about winter and summer, with the valve notes](https://example.org/bike-care/tyres)",
+  "- [status::waiting on the supplier] and [[Allotment notebook and the long page name that runs on]]",
 ].join("\n");
 
 /**
@@ -838,7 +844,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.callouts = await make(notes.root.id, CALLOUTS);
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
-  notes.title = await make(notes.root.id, titleText());
+  notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));
   // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);
   for (const d of DECISIONS) await make(notes.markdownFigures.id, `${d.title} [type::decision] [decision-state::${d.state}] [reason::${d.reason}] [date::${d.date}]`);

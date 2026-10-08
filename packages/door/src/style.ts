@@ -81,15 +81,18 @@ export function styleMarks(s: string, { bold = true } = {}): string {
 }
 /**
  * Rows cut from one marked text, each standing alone: a style still on at the end of a row is switched on
- * again at the start of the next (each row is drawn, and reset, by itself). Link colours are redone by
- * balanceTags' tags and by colourBody per row, so only the style marks are carried.
+ * again at the start of the next (each row is drawn, and reset, by itself). So is a link's colour (a mark from
+ * LINK_ON, MISSING_ON or EXTERNAL_ON, until LINK_OFF): the continuation of a link that wrapped keeps its colour.
+ * The link's tag (its click) is carried by balanceTags.
  */
 export function balanceStyles(lines: string[]): string[] {
   const on = new Set<string>();
   const OFF: Record<string, string> = { "\uE004": "\uE003", "\uE006": "\uE005", "\uE008": "\uE007" };
+  const COLOUR = /[\uE000\uE002\uE009]/;
+  let colour = "";
   return lines.map(l => {
-    const head = [...on].join("");
-    for (const ch of l) { if (ch === "\uE003" || ch === "\uE005" || ch === "\uE007") on.add(ch); else if (OFF[ch]) on.delete(OFF[ch]!); }
+    const head = (colour ? colour : "") + [...on].join("");
+    for (const ch of l) { if (ch === "\uE003" || ch === "\uE005" || ch === "\uE007") on.add(ch); else if (OFF[ch]) on.delete(OFF[ch]!); else if (COLOUR.test(ch)) colour = ch; else if (ch === "\uE001") colour = ""; }
     return head + l;
   });
 }

@@ -22,22 +22,46 @@ describe("sized text", () => {
     expect(sizedBytes(sizedPlacement("t", "a\x1b]0;x\x07b", "", 0, 0, 2) as never)).toBe("\x1b7\x1b[1;1H\x1b]66;s=2;a]0;xb\x1b\\\x1b[0m\x1b8");
   });
 
-  test("the query asks where the cursor is after two cells of sized-width text; column 3 is yes, column 1 is no", () => {
+  test("the query asks where the cursor is after a space at scale 2 and at scale 3; only columns 3 then 4 prove scale", () => {
     expect(SIZED_QUERY).toContain("\x1b]66;s=2; \x1b\\\x1b[6n");
-    expect([sizedAnswer(3), sizedAnswer(1), sizedAnswer(2)]).toEqual([true, false, false]);
-    expect([sizedHint({ EP0CH_SIZED: "1" }), sizedHint({ EP0CH_SIZED: "0" }), sizedHint({})]).toEqual([true, false, null]);
-    const info: TermInfo = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false }, keys: Key[] = [];
-    const d = new KeyDecoder(info); d.keyHandler = k => keys.push(k);
-    d.probing = { kitty: null, done() {} };
-    d.feed("\x1b[1;3R");
-    expect(info.sized).toBe(true);
-    d.feed("\x1b[1;1R");
-    expect(info.sized).toBe(false);
-    expect(keys).toEqual([]);
-    // Not probing, the same bytes are a key (shift+F3), not an answer.
-    d.probing = null; info.sized = undefined;
+    expect(SIZED_QUERY).toContain("\x1b]66;s=3; \x1b\\\x1b[6n");
+    expect([sizedAnswer([3, 4]), sizedAnswer([1, 1]), sizedAnswer([3, 3]), sizedAnswer([3]), sizedAnswer([2, 2])]).toEqual([true, false, false, false, false]);
+  });
+
+  test("the cursor reports answer the probe only while probing; a key otherwise", () => {
+    const run = (...cols: number[]) => {
+      const info: TermInfo = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false }, keys: Key[] = [];
+      const d = new KeyDecoder(info); d.keyHandler = k => keys.push(k);
+      d.probing = { kitty: null, done() {} };
+      for (const c of cols) d.feed(`\x1b[1;${c}R`);
+      return { sized: info.sized, keys };
+    };
+    // Real scale support: two cells, then three.
+    expect(run(3, 4).sized).toBe(true);
+    // A terminal that answers width only (both probes move two cells, or one): not sized.
+    expect(run(3, 3).sized).toBe(false);
+    expect(run(2, 2).sized).toBe(false);
+    // A terminal that ignores the sequence.
+    expect(run(1, 1).sized).toBe(false);
+    expect(run(3, 4).keys).toEqual([]);
+    const info: TermInfo = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false };
+    const d = new KeyDecoder(info); d.keyHandler = () => {};
     d.feed("\x1b[1;2R");
     expect(info.sized).toBeUndefined();
+  });
+
+  test("the hint: EP0CH_SIZED says outright; in Herdr, tmux or screen it is off without asking; elsewhere the terminal is asked", () => {
+    expect([sizedHint({ EP0CH_SIZED: "1" }), sizedHint({ EP0CH_SIZED: "0" }), sizedHint({})]).toEqual([true, false, null]);
+    expect(sizedHint({ HERDR_PANE_ID: "p_1" })).toBe(false);
+    expect(sizedHint({ HERDR_ENV: "1" })).toBe(false);
+    expect(sizedHint({ EP0CH_NEST: "ssh:pts/3 › herdr:w1:p_2" })).toBe(false);
+    expect(sizedHint({ TMUX: "/tmp/tmux-1000/default,1,0" })).toBe(false);
+    expect(sizedHint({ STY: "123.pts-0.host" })).toBe(false);
+    expect(sizedHint({ TERM: "screen-256color" })).toBe(false);
+    expect(sizedHint({ TERM: "tmux-256color" })).toBe(false);
+    expect(sizedHint({ TERM: "xterm-kitty", SSH_TTY: "/dev/pts/1" })).toBeNull();
+    // The override still forces it in a multiplexer.
+    expect(sizedHint({ HERDR_PANE_ID: "p_1", EP0CH_SIZED: "1" })).toBe(true);
   });
 
   test("the layer paints a title when it is new, again when either of its rows went out, never when nothing changed", () => {
@@ -94,5 +118,28 @@ describe("sized text", () => {
     expect(gone).toContain("\x1b[2;1H");                                  // row 2 and row 3 written again, which clears the sized cells
     expect(gone).toContain("\x1b[3;1H");
     expect(gone).not.toContain("\x1b]66");
+  });
+});
+
+describe("wrapped links and chips (text.wrap)", () => {
+  test("a link that wraps is coloured and tagged on every row; a property token that fits a row is not split", async () => {
+    const { wrap, colourBody } = await import("../src/text");
+    const { extractLinks, linkTag, LINK_END, visible } = await import("../src/style");
+    const { LINK_ON, LINK_OFF, EXTERNAL_ON } = await import("../src/refs");
+    for (const on of [LINK_ON, EXTERNAL_ON]) {
+      const text = `see ${on}${linkTag(0)}End-of-day update for #rexall_internal · Oct 8 done, Oct 9 plan${LINK_END}${LINK_OFF} ok`;
+      const rows = wrap(text, 24);
+      expect(rows.length).toBeGreaterThan(2);
+      const { ranges } = extractLinks(rows.map(r => colourBody(r)));
+      // Every row that holds link text is one range of the link, and starts the colour mark of its kind.
+      const withLink = new Set(ranges.map(r => r.line));
+      for (let i = 0; i < rows.length - 1; i++) expect(withLink.has(i)).toBe(true);   // the last row may be only " ok"
+      for (let i = 1; i < rows.length - 1; i++) expect(rows[i]!.includes(on)).toBe(true);   // the colour is opened again on each continuation row
+      for (let i = 1; i < rows.length - 1; i++) expect(colourBody(rows[i]!)).not.toBe(colourBody(visible(rows[i]!)));
+    }
+    // A chip that fits moves to the next row whole; one longer than the width is cut (and loses its colour there).
+    const rows = wrap("a long run of words before [status::in review] and after", 28);
+    expect(rows.some(r => r.includes("[status::in review]"))).toBe(true);
+    expect(colourBody(rows.find(r => r.includes("[status::"))!)).toContain("\x1b[38;");
   });
 });
