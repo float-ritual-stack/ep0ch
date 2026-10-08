@@ -694,6 +694,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => shows("detail") === seeded.notes.shed.id && tiles().find(t => t.name === "backlinks")?.backlinks?.rows?.some((r: any) => r.id), "the shed and its links", 8000);
     const rows = tiles().find(t => t.name === "backlinks").backlinks.rows as { n: number; id?: string }[];
     const first = rows.find(r => r.id && r.id !== seeded.notes.shed.id)!;
+    // The header's controls narrow all three groups, and the counters say which; the controls keep their cells.
+    const links = () => tiles().find(t => t.name === "backlinks").backlinks;
+    const cellOf = (what: string) => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes(what)); return [y, y < 0 ? -1 : ls[y]!.indexOf(what)]; };
+    const sortAt = cellOf("Sort: ");
+    expect(links().status).toMatch(/^\d+ of \d+ match · →\d+\/\d+ ♦\d+\/\d+ ←\d+\/\d+/);
+    await app.act({ action: "backlinks.view", tile: "backlinks", args: { stage: "open", sort: "title" }, as: "test-agent" });
+    expect(links().status).toContain("Stage: open · Sort: Title");
+    expect(cellOf("Sort: ")).toEqual(sortAt);
+    await app.act({ action: "backlinks.view", tile: "backlinks", args: { stage: "all", sort: "updated-desc" }, as: "test-agent" });
     // A pick previews; the detail keeps the shed.
     await app.act({ action: "backlinks.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("preview") === first.id, "the preview following the pick", 5000);

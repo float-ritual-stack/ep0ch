@@ -324,3 +324,25 @@ test("a note naming itself (its own Work ID, a bare ((own id))) isn't one of its
       .toEqual([[note.id, "jars"], [other.id, null]]);
   });
 });
+
+test("a ready Outlink carries what its target is (kind, stage, dates), and the protocol decoder keeps it", () => {
+  withStore((store) => {
+    const draft = store.create("Offer spare onion sets [type::outbox-item] [outbox::draft]");
+    const plain = store.create("Seed shelf");
+    const owner = store.create(`((${draft.id}))\n((${plain.id}))`);
+
+    const decoded = decodeAuthoredLinksSnapshot(JSON.parse(JSON.stringify(readAuthoredLinks(store, owner.id))));
+
+    if (decoded.kind !== "ready") throw new Error(`Expected ready result, got ${decoded.kind}`);
+    const facets = decoded.outlinks.entries.map((entry) => entry.resolution.kind === "ready" ? entry.resolution.facets : undefined);
+    expect(facets[0]).toMatchObject({
+      kind: "outbox-item",
+      kindLabel: "Outbox item",
+      stage: { property: "outbox", value: "draft", bucket: "draft" },
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+    });
+    expect(facets[1]).toMatchObject({ kind: "note", kindLabel: "Note" });
+    expect(facets[1]?.stage).toBeUndefined();
+  });
+});

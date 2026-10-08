@@ -1547,6 +1547,15 @@ export type BacklinkStageBucket = (typeof BACKLINK_STAGE_BUCKETS)[number];
  * filters and orders the same way. Present when the service advertises
  * `references.backlinks.facets`.
  */
+/** What an Outlink's or Resource's target block is (PIE-646): a backlink source's kind and stage, and its dates. */
+export interface LinkTargetFacets {
+  kind: string;
+  kindLabel: string;
+  stage?: { property: string; value: string; bucket?: BacklinkStageBucket };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BacklinkSourceFacets {
   /** Stable kind key, e.g. `comment`, `day-page`, `note` or a normalized `type::` value. */
   kind: string;

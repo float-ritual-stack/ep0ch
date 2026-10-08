@@ -286,33 +286,52 @@ export function backlinkRowSuffix(source: BacklinkSource): string {
 
 /** A control in the status line: clicking it (or its key) does what `control` names. */
 export type BacklinkControl = "filter" | "kind" | "stage" | "resolved" | "related" | "sort";
-export interface BacklinkStatusPart { text: string; control?: BacklinkControl }
+/** `slot`: where the links tile places it (src/desk/backlinks-pane.ts): counts, the groups' counts, the filter, a control, or a note. */
+export interface BacklinkStatusPart { text: string; control?: BacklinkControl; slot?: "count" | "by" | "filter" | "kind" | "stage" | "sort" | "note" }
+
+/**
+ * How the filters narrowed all three groups of the links tile (src/links.ts `linkAcross`): the counts the status
+ * line reports, group by group (null: that group isn't there or isn't read), and the kinds present in any.
+ */
+export interface BacklinkAcross {
+  matching: number; total: number; filtered: number;
+  by: Record<"outlinks" | "resources" | "backlinks", { matching: number; total: number; filtered: number } | null>;
+  kinds: Array<{ kind: string; label: string }>;
+}
+/** "→2/21 ♦0/2 ←3/8": matching of all, per group (… while a group isn't read). */
+export function acrossWords(a: BacklinkAcross): string {
+  const g = (mark: string, x: BacklinkAcross["by"]["outlinks"]) => `${mark}${x ? `${x.matching}/${x.total}` : "…"}`;
+  return `${g("→", a.by.outlinks)} ${g("♦", a.by.resources)} ${g("←", a.by.backlinks)}`;
+}
 
 /**
  * The status line, part by part, in Detail's order (`backlinkStatusLine`): the filter, "N of M match",
  * "N filtered", this note and resolved (hidden or shown), kind, stage, sort. `filter` is the text being
  * typed while the filter is open. Against a service without facets it says nothing is grouped.
  */
-export function backlinkStatusParts(view: BacklinkView, options: Readonly<BacklinkViewOptions>, filter = options.filter): BacklinkStatusPart[] {
+export function backlinkStatusParts(view: BacklinkView, options: Readonly<BacklinkViewOptions>, filter = options.filter, across?: BacklinkAcross): BacklinkStatusPart[] {
   const direction = options.sortDirection === "asc" ? "↑" : "↓";
   const sort = options.sortField === "created" ? "Created" : options.sortField === "title" ? "Title" : "Updated";
   // Sources that match, not rows shown: a collapsed group folds its done rows.
-  const parts: BacklinkStatusPart[] = [{ text: `${view.matching.length} of ${view.total} match` }];
-  if (filter) parts.unshift({ text: `Filter: ${filter}`, control: "filter" });
-  if (view.filtered) parts.push({ text: `${view.filtered} filtered` });
-  if (view.faceted) {
-    if (view.hiddenRelated) parts.push({ text: `${view.hiddenRelated} this note hidden`, control: "related" });
-    else if (options.showRelated) parts.push({ text: "this note shown", control: "related" });
-    if (view.hiddenResolved) parts.push({ text: `${view.hiddenResolved} resolved hidden`, control: "resolved" });
-    else if (options.showResolved) parts.push({ text: "resolved shown", control: "resolved" });
-    const kind = view.kinds.find(candidate => candidate.kind === options.kind)?.label ?? options.kind;
-    parts.push({ text: `Kind: ${kind ?? "all"}`, control: "kind" });
-    parts.push({ text: `Stage: ${options.stage}`, control: "stage" });
+  // Across all three groups of the links tile when it says so; the backlinks alone otherwise (Detail's).
+  const matching = across?.matching ?? view.matching.length, total = across?.total ?? view.total, filtered = across?.filtered ?? view.filtered;
+  const parts: BacklinkStatusPart[] = [{ text: `${matching} of ${total} match`, slot: "count" }];
+  if (across) parts.push({ text: acrossWords(across), slot: "by" });
+  if (filter) parts.unshift({ text: `Filter: ${filter}`, control: "filter", slot: "filter" });
+  if (filtered) parts.push({ text: `${filtered} filtered`, slot: "note" });
+  if (view.faceted || (across && across.kinds.length > 0)) {
+    if (view.hiddenRelated) parts.push({ text: `${view.hiddenRelated} this note hidden`, control: "related", slot: "note" });
+    else if (options.showRelated) parts.push({ text: "this note shown", control: "related", slot: "note" });
+    if (view.hiddenResolved) parts.push({ text: `${view.hiddenResolved} resolved hidden`, control: "resolved", slot: "note" });
+    else if (options.showResolved) parts.push({ text: "resolved shown", control: "resolved", slot: "note" });
+    const kind = (across?.kinds ?? view.kinds).find(candidate => candidate.kind === options.kind)?.label ?? options.kind;
+    parts.push({ text: `Kind: ${kind ?? "all"}`, control: "kind", slot: "kind" });
+    parts.push({ text: `Stage: ${options.stage}`, control: "stage", slot: "stage" });
   } else if (view.total > 0) {
     // The door's own words: Detail's panel shows nothing here.
-    parts.push({ text: "not grouped: this service sends no facets" });
+    parts.push({ text: "not grouped: this service sends no facets", slot: "note" });
   }
-  parts.push({ text: `Sort: ${sort} ${direction}`, control: "sort" });
+  parts.push({ text: `Sort: ${sort} ${direction}`, control: "sort", slot: "sort" });
   return parts;
 }
 
@@ -350,14 +369,15 @@ export function backlinkRows(view: BacklinkView, options: Readonly<BacklinkViewO
 // ── what `peek` and the `backlinks` action report ───────────────────────────────────────────────────
 
 /** The view in words and ids, for `peek` and agents: the status line, the groups, and each row as drawn. */
-export function describeBacklinkView(view: BacklinkView, options: Readonly<BacklinkViewOptions>, expandedKinds: ReadonlySet<string>, selected?: number) {
+export function describeBacklinkView(view: BacklinkView, options: Readonly<BacklinkViewOptions>, expandedKinds: ReadonlySet<string>, selected?: number, across?: BacklinkAcross) {
   const rows = backlinkRows(view, options, expandedKinds);
   return {
     faceted: view.faceted,
-    status: backlinkStatusParts(view, options).map(p => p.text).join(" · "),
-    total: view.total, matching: view.matching.length, hiddenRelated: view.hiddenRelated, hiddenResolved: view.hiddenResolved, filtered: view.filtered,
+    status: backlinkStatusParts(view, options, options.filter, across).map(p => p.text).join(" · "),
+    total: across?.total ?? view.total, matching: across?.matching ?? view.matching.length, hiddenRelated: view.hiddenRelated, hiddenResolved: view.hiddenResolved, filtered: across?.filtered ?? view.filtered,
+    ...(across ? { across: across.by } : {}),
     options: { ...options },
-    kinds: view.kinds.map(k => k.kind),
+    kinds: (across?.kinds ?? view.kinds).map(k => k.kind),
     groups: view.groups.map(g => ({ kind: g.kind, label: g.label, count: g.sources.length, open: g.openCount, stages: { ...g.stageCounts }, expanded: backlinkGroupExpanded(options, expandedKinds, g.kind) })),
     rows: rows.map((r, i) => ({
       ...(r.kind === "group"

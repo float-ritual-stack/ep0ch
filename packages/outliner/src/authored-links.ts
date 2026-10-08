@@ -22,9 +22,12 @@ import {
   type ResourceProvider,
   type ResourceSource,
 } from "./resources";
+import { linkTargetFacets } from "./backlink-facets";
 import type {
   Block,
+  BacklinkStageBucket,
   BlockTarget,
+  LinkTargetFacets,
   PageAddressResolution,
   ResourceTarget,
   WorkIdAllocatorStatus,
@@ -67,6 +70,8 @@ export type AuthoredOutlinkResolution =
       readonly kind: "ready";
       readonly target: BlockTarget;
       readonly title: string;
+      /** What the target is (its kind, stage and dates), for the links tile's filters and sort. */
+      readonly facets?: LinkTargetFacets;
     }
   | {
       readonly kind: "deleted";
@@ -114,6 +119,8 @@ export interface AuthoredResourceLink extends AuthoredLinkEntryBase {
   readonly resourceId?: string;
   /** The extension record block that holds this Resource (a Jira ticket kept as a block; one per key, wherever it sits). */
   readonly recordBlockId?: string;
+  /** What the record block is, when there is one (a ticket kept as a block). */
+  readonly facets?: LinkTargetFacets;
   readonly resolution: AuthoredResourceResolution;
 }
 
@@ -341,7 +348,7 @@ function resolveOutlink(
       label: presentation(candidate.label ?? title),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title },
+      resolution: { kind: "ready", target, title, facets: linkTargetFacets(block, (id) => source.get(id)) },
     };
   }
 
@@ -374,7 +381,7 @@ function resolveOutlink(
       label: presentation(authoredLabel ?? candidate.address),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title },
+      resolution: { kind: "ready", target, title, facets: linkTargetFacets(resolution.block, (id) => source.get(id)) },
     };
   }
 
@@ -604,7 +611,9 @@ function withRecords(source: AuthoredLinksDataSource, resources: readonly Author
   if (!source.extensionRecords) return [...resources];
   return resources.map((entry) => {
     const found = entry.resourceId ? source.extensionRecords!({ resourceId: entry.resourceId, role: "record" })[0] : undefined;
-    return found ? { ...entry, recordBlockId: found.blockId } : entry;
+    if (!found) return entry;
+    const block = source.get(found.blockId);
+    return { ...entry, recordBlockId: found.blockId, ...(block ? { facets: linkTargetFacets(block, (id) => source.get(id)) } : {}) };
   });
 }
 
@@ -634,6 +643,25 @@ function decodeSpan(value: unknown, label: string): AuthoredLinkSpan {
   const start = integer(input.start, `${label} start`, 0, AUTHORED_LINKS_MAX_TEXT_UNITS);
   const end = integer(input.end, `${label} end`, start, AUTHORED_LINKS_MAX_TEXT_UNITS);
   return { start, end };
+}
+
+function decodeFacets(value: unknown, label: string): LinkTargetFacets | undefined {
+  if (value === undefined) return undefined;
+  const input = record(value, `${label} facets`);
+  const stage = input.stage === undefined ? undefined : record(input.stage, `${label} stage`);
+  const bucket = stage?.bucket;
+  if (bucket !== undefined && !["waiting", "draft", "active", "done"].includes(String(bucket))) throw new Error(`${label} stage bucket is invalid`);
+  return {
+    kind: string(input.kind, `${label} kind`, 128),
+    kindLabel: string(input.kindLabel, `${label} kind label`, AUTHORED_LINKS_MAX_PRESENTATION_UNITS),
+    ...(stage ? { stage: {
+      property: string(stage.property, `${label} stage property`, 128),
+      value: string(stage.value, `${label} stage value`, AUTHORED_LINKS_MAX_PRESENTATION_UNITS),
+      ...(bucket !== undefined ? { bucket: bucket as BacklinkStageBucket } : {}),
+    } } : {}),
+    createdAt: string(input.createdAt, `${label} created`, 64),
+    updatedAt: string(input.updatedAt, `${label} updated`, 64),
+  };
 }
 
 function decodeBlockTarget(value: unknown, label: string): BlockTarget {
@@ -707,10 +735,12 @@ function decodeOutlink(value: unknown, index: number): AuthoredOutlink {
   const resolutionInput = record(input.resolution, `${label} resolution`);
   let resolution: AuthoredOutlinkResolution;
   if (resolutionInput.kind === "ready") {
+    const facets = decodeFacets(resolutionInput.facets, label);
     resolution = {
       kind: "ready",
       target: decodeBlockTarget(resolutionInput.target, `${label} target`),
       title: string(resolutionInput.title, `${label} title`, AUTHORED_LINKS_MAX_PRESENTATION_UNITS),
+      ...(facets ? { facets } : {}),
     };
   } else if (resolutionInput.kind === "deleted") {
     const fragmentId = resolutionInput.fragmentId === undefined
@@ -799,6 +829,7 @@ function decodeResource(value: unknown, index: number): AuthoredResourceLink {
   } else {
     throw new Error(`${label} resolution kind is invalid`);
   }
+  const facets = decodeFacets(input.facets, label);
   const recordBlockId = input.recordBlockId === undefined ? undefined
     : string(input.recordBlockId, `${label} record block`, 64);
   return {
@@ -806,6 +837,7 @@ function decodeResource(value: unknown, index: number): AuthoredResourceLink {
     kind: "resource",
     ...(resourceId ? { resourceId } : {}),
     ...(recordBlockId ? { recordBlockId } : {}),
+    ...(facets ? { facets } : {}),
     resolution,
   };
 }

@@ -37,6 +37,17 @@ are its record. The outliner's entries from then are kept below, under
   `bun packages/door/scripts/migrations/netmail-v1-to-v2.ts ~/outline-mirrors/.netmail.sqlite --write` (the queue store
   is version 2). Then update the home machines (the laptop) so their pull reports revisions and proposals back.
 
+### The links tile filters and sorts all three groups, and its header stays put
+
+- **Fixed:** in the links tile (`b`), Kind, Stage and Sort now apply to Outlinks and Resources as well as Backlinks,
+  by the target's kind, stage and dates (the service sends them with each link). A link with no target block
+  (unregistered, missing) stays until Kind or Stage narrows, then drops out, and sorts last. The counter reads
+  `N of M match · →a/b ♦c/d ←e/f` across the groups. Outlinks and Resources keep the note's order in the tree and the
+  inline components; the tile sorts them.
+- **Fixed:** the header's controls no longer jump: counters on line 1, Kind, Stage and Sort each in a fixed-width slot
+  on line 2 (a long value is cut with …), the filter and notes below. Clicks follow.
+- **Run:** protocol 111. Restart the outline host and the doors on this code (`ep0ch install --apply`). No schema change.
+
 ### A handover keeps where each reader has been (PIE-643)
 
 - **Fixed:** `ep0ch install --apply` (and `ep0ch session upgrade`, a restart, a quit and come back) no longer empties a

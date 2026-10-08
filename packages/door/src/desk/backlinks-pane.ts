@@ -10,9 +10,9 @@
 // middle-click is alt+⏎, and the click that gives the tile the keys only selects.
 //
 // The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
-// line by `layoutBacklinkStatus`. One model and one drawing, not three.
+// line by `layoutLinksStatus`. One model and one drawing, not three.
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { describeLinkRow, isLinkEntry, isLinkGroup, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { describeLinkRow, isLinkEntry, isLinkGroup, linkAcross, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -21,7 +21,7 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
-import { C, fg, pad, RESET, width } from "../style";
+import { C, ellipsize, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { RowView, type RowPress } from "../scroll";
@@ -32,24 +32,49 @@ import { LineInput } from "../surface/line";
 export interface StatusSeg { x: number; y: number; text: string; cols: number; sgr: string; control?: BacklinkControl }
 
 /**
- * The status line's parts laid out in `cols`, wrapping between parts (the " ·" stays at the end of the line)
- * onto at most `maxRows` lines, so every control stays on screen. `sgrOf` colours a part.
+ * The status line's parts placed in `cols`, each in a slot of its own so changing one value never moves another:
+ * line 1 the counts (all and per group), line 2 Kind, Stage and Sort. A value too long for its slot is cut with …
+ * rather than pushing the next along. What comes and goes follows on the lines after, wrapping between parts onto at
+ * most `maxRows` lines in all: the filter first (whole, so what is typed shows), then the notes (what is hidden or
+ * filtered, a truncated read). Nothing above it moves. `sgrOf` colours a part.
  */
-export function layoutBacklinkStatus(parts: readonly BacklinkStatusPart[], cols: number, maxRows: number, sgrOf: (p: BacklinkStatusPart) => string): { segs: StatusSeg[]; rows: number } {
+export function layoutLinksStatus(parts: readonly BacklinkStatusPart[], cols: number, maxRows: number, sgrOf: (p: BacklinkStatusPart) => string): { segs: StatusSeg[]; rows: number } {
   const segs: StatusSeg[] = [];
-  let x = 0, y = 0;
-  const put = (text: string, sgr: string, control?: BacklinkControl) => {
-    const room = cols - x;
-    if (room <= 0) return;
-    segs.push({ x, y, text, cols: Math.min(room, width(text)), sgr, ...(control ? { control } : {}) });
-    x += width(text);
+  const sep = fg(C.dark);
+  const slot = (p: BacklinkStatusPart | undefined, x: number, y: number, room: number) => {
+    const w = Math.min(room, cols - x);
+    if (!p || w <= 0) return;
+    const text = ellipsize(p.text, w);
+    segs.push({ x, y, text, cols: width(text), sgr: sgrOf(p), ...(p.control ? { control: p.control } : {}) });
   };
-  parts.forEach((p, i) => {
-    if (i && x + 3 + width(p.text) > cols && y + 1 < maxRows) { if (x + 2 <= cols) put(" ·", fg(C.dark)); x = 0; y += 1; }
-    else if (i) put(" · ", fg(C.dark));
-    put(p.text, sgrOf(p), p.control);
-  });
-  return { segs, rows: y + 1 };
+  const dot = (x: number, y: number) => { if (x + 3 <= cols) segs.push({ x, y, text: " · ", cols: 3, sgr: sep }); };
+  const part = (s: NonNullable<BacklinkStatusPart["slot"]>) => parts.find(p => p.slot === s);
+  const COUNT = 17, BY = 22, STAGE = 16, SORT = 17;
+  const KIND = Math.max(14, Math.min(28, cols - (STAGE + SORT + 6)));
+  slot(part("count"), 0, 0, COUNT); dot(COUNT, 0);
+  slot(part("by"), COUNT + 3, 0, BY);
+  // Kind, Stage and Sort in slots of fixed widths, packed onto lines by those widths alone (a narrow tile uses more
+  // lines, but the same ones whatever the values are).
+  let cx = 0, cy = 1;
+  for (const [name, w] of [["kind", KIND], ["stage", STAGE], ["sort", SORT]] as const) {
+    if (cx && cx + w > cols) { cx = 0; cy += 1; }
+    slot(part(name), cx, cy, w);
+    if (name !== "sort" && cx + w + 3 < cols) dot(cx + w, cy);
+    cx += w + 3;
+  }
+  let x = 0, y = cy + 1;
+  const base = y;
+  for (const p of [...parts.filter(p => p.slot === "filter"), ...parts.filter(p => p.slot === "note" || p.slot === undefined)]) {
+    if (x && x + 3 + width(p.text) > cols && y + 1 < maxRows) { y += 1; x = 0; }
+    else if (x) { dot(x, y); x += 3; }
+    const room = cols - x;
+    if (room <= 0) continue;
+    segs.push({ x, y, text: ellipsize(p.text, room), cols: Math.min(room, width(p.text)), sgr: sgrOf(p), ...(p.control ? { control: p.control } : {}) });
+    x += width(p.text);
+  }
+  // The filter's line is kept whatever the budget: what is typed in it shows.
+  const rows = Math.max(base + (part("filter") ? 1 : 0), Math.min(maxRows, x || y > base ? y + 1 : base));
+  return { segs: segs.filter(s => s.y < rows), rows };
 }
 
 const rowKey = (r: LinkRow | undefined) => r?.key;
@@ -192,7 +217,7 @@ export class BacklinksPane implements Pane {
   /** What the service sent, as the shared model reads it. */
   private linkData(): LinkData { return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" } }; }
   /** The rows as shown: Outlinks, Resources and Backlinks (the shared links model), each folding, the filter on all three. */
-  rows(): LinkRow[] { return this.target ? linkRows(this.linkData(), { shut: this.shut, kinds: this.expanded, backlinks: this.opts() }) : []; }
+  rows(): LinkRow[] { return this.target ? linkRows(this.linkData(), { shut: this.shut, kinds: this.expanded, backlinks: this.opts(), sortAll: true }) : []; }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.sync(desk);
@@ -201,11 +226,8 @@ export class BacklinksPane implements Pane {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
     const rows = this.rows();
-    // The status on the header when it fitted there (headControls), else its own lines at the top.
-    // Drawn without its header asking (a host that draws no headers): the status is its own.
-    if (!this.headAsked) this.inHead = false;
-    this.headAsked = false;
-    const st = this.inHead ? { segs: [], rows: 0 } : layoutBacklinkStatus(this.statusParts(), w, Math.max(1, Math.floor(h / 2)), p => this.sgrOf(p));
+    // The status is the first lines of the list, in slots that stay where they are (layoutLinksStatus).
+    const st = layoutLinksStatus(this.statusParts(), w, Math.max(2, Math.floor(h / 2)), p => this.sgrOf(p));
     const lines: string[] = Array.from({ length: st.rows }, () => "");
     const xs: number[] = Array.from({ length: st.rows }, () => 0);
     for (const s of st.segs) { lines[s.y] += " ".repeat(Math.max(0, s.x - xs[s.y]!)) + s.sgr + pad(s.text, s.cols) + RESET; xs[s.y] = s.x + s.cols; }
@@ -222,27 +244,14 @@ export class BacklinksPane implements Pane {
   /** The status line's parts: the filter (as it's typed), the view's controls, and how much the service sent. */
   private statusParts(): BacklinkStatusPart[] {
     const o = this.opts(), typing = this.draft;
-    const parts = backlinkStatusParts(backlinkView(this.data, o), o).filter(p => typing === null || p.control !== "filter");
-    if (typing !== null) parts.unshift({ text: `Filter: ${typing.plain()}`, control: "filter" });
+    const parts = backlinkStatusParts(backlinkView(this.data, o), o, o.filter, this.across(o)).filter(p => typing === null || p.control !== "filter");
+    if (typing !== null) parts.unshift({ text: `Filter: ${typing.plain()}`, control: "filter", slot: "filter" });
     if (this.data?.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
     return parts;
   }
+  /** How the view narrowed all three groups, and the kinds in any of them. */
+  across(o: BacklinkViewOptions = this.opts()) { return linkAcross(this.linkData(), o); }
   private sgrOf(p: BacklinkStatusPart) { return this.draft !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey); }
-  /** The status went on the header this frame (its controls clicked there), and whether the header asked this frame. */
-  private inHead = false;
-  private headAsked = false;
-  /** The status on the header, when it fits there: each control a click, as its key. */
-  headControls(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void }[] | null {
-    this.inHead = false;
-    this.headAsked = true;
-    this.sync(desk);
-    if (!this.target || this.problem || !this.data) return null;
-    const parts = this.statusParts();
-    if (parts.reduce((n, p) => n + width(p.text) + 3, 0) > room) return null;
-    this.inHead = true;
-    return parts.map(p => ({ text: p.text, sgr: this.sgrOf(p), ...(p.control ? { press: () => this.run(desk, "backlinks.view", { step: p.control! }) } : {}) }));
-  }
-
   /**
    * Pick row `i`: a group opens or folds (on open); a link is shown where this tile's selection goes (read only),
    * or opened (a Resource registered if it must be, as the Tree's ⏎). As `actor`: an agent's never moves the
@@ -311,11 +320,11 @@ export class BacklinksPane implements Pane {
     this.keepSel(() => {
       if (c === "sort") { [o.sortField, o.sortDirection] = nextBacklinkSort(o.sortField, o.sortDirection); said = `backlinks sorted by ${o.sortField} ${o.sortDirection === "asc" ? "↑" : "↓"}`; }
       else if (c === "kind") {
-        const v = backlinkView(this.data, { ...o, kind: null });
-        if (!v.faceted) { said = "nothing to pick: this service sends no backlink kinds"; return; }
-        o.kind = nextBacklinkKindFilter(o.kind, v.kinds);
-        said = o.kind ? `backlinks: only ${v.kinds.find(k => k.kind === o.kind)?.label ?? o.kind}` : "backlinks: every kind";
-      } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); said = o.stage === "all" ? "backlinks: every stage" : `backlinks: only ${o.stage}`; }
+        const kinds = this.across({ ...o, kind: null }).kinds;
+        if (!kinds.length) { said = "nothing to pick: no link has a kind (this service sends no facets)"; return; }
+        o.kind = nextBacklinkKindFilter(o.kind, kinds);
+        said = o.kind ? `links: only ${kinds.find(k => k.kind === o.kind)?.label ?? o.kind}` : "links: every kind";
+      } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); said = o.stage === "all" ? "links: every stage" : `links: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
       else if (c === "filter") { this.draft ??= new LineInput(o.filter, false, { complete: false }); said = ""; }   // plain words over rows already listed
@@ -328,7 +337,7 @@ export class BacklinksPane implements Pane {
     if (!this.data) return { source: this.source, target: brief, loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
     // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them.
-    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], typing: this.draft?.text ?? null };
+    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], typing: this.draft?.text ?? null };
   }
 
   run(desk: DeskApi, name: "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
@@ -406,8 +415,8 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       const open = (desk.shownNow?.(L) ?? true) && !!L.target;
       const same = !id || (open && (L.target!.id === id || (id.length >= 8 && L.target!.id.startsWith(id))));
       const viewing = Object.values(want).some(v => v !== undefined);
-      const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions) => backlinkView(data, { ...o, kind: null }).kinds;
-      const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base)); } catch (e) { throw new ActionRefused((e as Error).message); } };
+      const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions, links: Load<AuthoredLinksSnapshot>) => linkAcross({ links, backlinks: data ? { kind: "ready", value: data } : { kind: "loading" } }, { ...o, kind: null }).kinds;
+      const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null, links: Load<AuthoredLinksSnapshot> = L.authored) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base, links)); } catch (e) { throw new ActionRefused((e as Error).message); } };
       if (actor.kind !== "agent") {
         // The person's b (or one naming a note): the list aims at it; their view options alone keep the list where it is.
         if (id || !viewing || !open) {
@@ -429,9 +438,13 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       const data = same && L.data ? L.data : await desk.ctx.board.backlinks(target.id);
       // The person's options carry over only for the note they're looking at; another note starts as Detail's.
       const base = same ? { ...L.options } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: L.options.sortField, sortDirection: L.options.sortDirection };
-      const o = parse(base, data);
+      // Its authored links too: the counts and kinds are across all three groups, as the person's.
+      const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await desk.ctx.board.authoredLinks(target.id).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
+      const o = parse(base, data, links);
       desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
-      return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? L.expanded : new Set()) } };
+      const all: LinkData = { links, backlinks: { kind: "ready", value: data } };
+      const listed = linkRows(all, { shut: new Set(), kinds: same ? L.expanded : new Set(), backlinks: o, sortAll: true }).map((r, i) => describeLinkRow(r, i + 1, false));
+      return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? L.expanded : new Set(), undefined, linkAcross(all, o)), rows: listed } };
     },
   }),
   "backlinks.fold": def({
@@ -517,7 +530,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
         desk.redraw();
         return { backlinks: pane.describe(), ...(said ? { said } : {}) };
       }
-      const kinds = backlinkView(pane.data, { ...pane.options, kind: null }).kinds;
+      const kinds = pane.across({ ...pane.options, kind: null }).kinds;
       let next: BacklinkViewOptions;
       try { next = backlinkOptionsFrom(pane.options, args, kinds); } catch (e) { throw new ActionRefused((e as Error).message); }
       pane.options = next;
