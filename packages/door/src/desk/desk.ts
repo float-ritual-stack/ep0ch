@@ -2839,17 +2839,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const t = this.tile(to);
       place = where === "tabs" ? { kind: "tabs", target: t.id, index } : { kind: "split", target: t.id, dir: where as Dir };
     }
-    // A tile dropped onto a spine opens it (at the size it had), then lands beside it or in its tabs; a move refused puts the fold back.
-    const target = "target" in place ? place.target : undefined, fold = target === undefined ? undefined : this.collapsed.get(target);
-    if (target !== undefined && fold && target !== src.id) {
-      const open = this.ask({ op: "collapse", tile: target, on: false }, actor);
-      if (open.ok) this.commit(open);
-    }
-    try { this.apply({ op: "move", tile: src.id, to: place }, actor); }
-    catch (e) {
-      if (target !== undefined && fold && !this.collapsed.has(target)) { const back = this.ask({ op: "collapse", tile: target, on: true, dir: fold.dir === "h" ? "h" : "v" }, actor); if (back.ok) this.commit(back); }
-      throw e;
-    }
+    // A tile dropped onto a spine opens it first, in the layout's one step (screen-layout.ts move).
+    this.apply({ op: "move", tile: src.id, to: place }, actor);
     this.save(); this.redraw();
     return { tile: src.name, where, ...(to ? { to } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
   }

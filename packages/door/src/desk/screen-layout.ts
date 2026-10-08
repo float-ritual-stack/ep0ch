@@ -572,6 +572,27 @@ class Step<I> {
   }
 
   run(op: Op<I>) {
+    const out = this.dispatch(op);
+    this.reconcileFolds();
+    return out;
+  }
+  /**
+   * After any operation: a fold that doesn't fit where its tile is now (not side by side, not stacked, or gone with the
+   * split around it) opens, and a tab set is folded or open as one, by the tab it shows.
+   */
+  private reconcileFolds() {
+    const seen = new Set<I>();
+    for (const id of [...this.d.collapsed.keys()]) {
+      if (seen.has(id)) continue;
+      const set = has(this.d.tree, id) ? this.foldSet(id) : [id];
+      for (const t of set) seen.add(t);
+      const tabs = tabsOf(this.d.tree, id);
+      const f = this.d.collapsed.get(tabs ? tabs.ids[tabs.active]! : id);
+      if (!f || !has(this.d.tree, id) || !foldFits(f, parentOf(this.d.tree, id)?.parent.dir)) for (const t of set) this.d.collapsed.delete(t);
+      else for (const t of set) this.d.collapsed.set(t, { ...f });
+    }
+  }
+  private dispatch(op: Op<I>) {
     if (this.agent) this.agentGate(op);
     switch (op.op) {
       case "open": return this.open(op);
@@ -862,6 +883,8 @@ class Step<I> {
 
   private move(src: I, to: Place<I>) {
     this.present(src);
+    // A tile dropped onto a spine opens it first, in the same step: a refused move leaves the fold as it was.
+    if ("target" in to && to.target !== src) for (const t of this.foldSet(to.target)) this.d.collapsed.delete(t);
     this.guard(src, "move");
     this.drag(src);
     this.into(this.facts(src).kind, this.name(src), to);

@@ -368,6 +368,28 @@ describe("the rest of the layout's operations", () => {
     expect(ok(s, { op: "reveal", tile: 3 }).state.collapsed.size).toBe(0);
   });
 
+  test("folds are reconciled after every operation: a swapped tab set folds as one, a split that dissolves frees its fold, a refused drop keeps the spine", () => {
+    // [2,3] folded, [1] and [4] open in the same column: swapping 2 and 4 leaves each set whole (open or folded as one).
+    const tree = splitOf("col", [{ t: "tabs", ids: [1, 2], active: 0 }, { t: "tabs", ids: [3, 4], active: 0 }]);
+    let s = ok(init({ tree, names: NAMES }), { op: "collapse", tile: 1, on: true }).state;
+    s = ok(s, { op: "swap", tile: 1, with: 3 }).state;
+    const sets = [...s.collapsed.keys()].sort();
+    expect(sets.length === 0 || sets.length === 2).toBe(true);
+    // A horizontally folded tile whose column dissolves (its sibling leaves) is open in the row it's left in.
+    const t2 = splitOf("row", [splitOf("col", [leaf(1), leaf(2)]), leaf(3)]);
+    let d = ok(init({ tree: t2, names: NAMES }), { op: "collapse", tile: 1, on: true }).state;
+    expect(d.collapsed.get(1)).toEqual({ dir: "h" });
+    d = ok(d, { op: "move", tile: 2, to: { kind: "split", target: 3, dir: "right" } }).state;
+    expect(d.collapsed.has(1)).toBe(false);
+    // A drop that is refused (a locked screen) leaves the target folded, and who folded it.
+    const f = ok(fresh(), { op: "collapse", tile: 1, on: true }, AGENT, { focus: 2 }).state;
+    const locked = ok(f, { op: "lock", on: true }).state;
+    no(locked, { op: "move", tile: 2, to: { kind: "tabs", target: 1 } }, /locked/);
+    expect(locked.collapsed.get(1)).toEqual(f.collapsed.get(1));
+    // Allowed, the spine opens in the same step.
+    expect(ok(f, { op: "move", tile: 2, to: { kind: "tabs", target: 1 } }).state.collapsed.has(1)).toBe(false);
+  });
+
   test("links and opens-into: where a tile's opens land, checked against what takes notes", () => {
     no(fresh(), { op: "link", tile: 1, to: 3 }, /thread is a thread tile: opens land in a tile that takes notes \(reader\)/);
     no(fresh(), { op: "link", tile: 2, to: 2 }, /reader can't open into itself/);
