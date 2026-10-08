@@ -1663,7 +1663,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const rows = raw().map(plain);
     const at = rows.findIndex(l => /│A title you can find/.test(l));
     expect(at).toBeGreaterThan(0);
-    expect(rows[at - 1]).toMatch(/│(…|top level|# )/);
+    expect(rows[at - 1]).toMatch(/│(…|top level|Kitchen sink|# )/);   // the breadcrumb, once its ancestors are read
     expect(rows.slice(at + 1, at + 4).join("\n")).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
     // The frame bar of a reader that shows its header says the tile, not the title again.
