@@ -1,5 +1,5 @@
 import { parsePropertyRecords } from "./properties";
-import { isPropertyKey, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
+import { isPropertyKey, replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { sanitizedTextParts } from "./terminal";
 
 /**
@@ -96,8 +96,7 @@ function propertyValue(value: string): string {
 
 /** Text that must stay text: a `[key::value]` in a title or body is escaped, not a property. */
 function escapeTokens(text: string): string {
-  return text.replace(propertyTokenPattern(), (token, _key, _value, offset: number, whole: string) =>
-    offset > 0 && whole[offset - 1] === "\\" ? token : `\\${token}`);
+  return replacePropertyTokens(text, token => `\\${token.raw}`);
 }
 
 /**

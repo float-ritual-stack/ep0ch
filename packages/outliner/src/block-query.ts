@@ -1,5 +1,5 @@
 import { matchesFilters, normalizePropertyKey } from "./properties";
-import { isPropertyKey, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
   Block,
   BlockProperty,
@@ -72,9 +72,9 @@ function normalizeFilterValue(value: string, key: string): string {
   const normalized = value.trim();
   if (!normalized)
     throw new Error(`Property filter value cannot be empty: ${key}`);
-  if (/[\]\r\n]/.test(normalized)) {
+  if (!isWritablePropertyValue(normalized)) {
     throw new Error(
-      `Property filter value cannot contain ], CR, or LF: ${key}`,
+      `Property filter value must be one line with balanced brackets: ${key}`,
     );
   }
   return normalized;

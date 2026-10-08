@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { bodyLinesOf, titleLine } from "../src/board";
 import { metadataLines } from "../src/props";
 import { C, fg, RESET } from "../src/style";
+import { checkValue } from "../src/surface/props-panel";
 import { colourBody } from "../src/text";
 import { outliner } from "./scratch";
 
@@ -36,6 +37,21 @@ describe("paint-time helpers use it", () => {
     expect(strip(colourBody("Beans [plot.row::3] and [2nd-pass::yes]"))).toBe("Beans [plot.row::3] and [2nd-pass::yes]");
     expect(colourBody("Beans [2nd-pass::3]")).toBe(`${fg(C.grey)}Beans [2nd-pass::3]${RESET}`);           // text: not coloured
     expect(colourBody("Beans [plot.row::3]")).toContain(`${fg(C.brown)}plot.row`);                        // a property: its key coloured
+  });
+});
+
+describe("a value holding links is one value (PIE-663)", () => {
+  const ID = "0f3c8a21-5b7d-4e69-8a10-2c4d6e8f0a1b";
+  const line = `Plan the plot [related::[[PC-967]], ((${ID}|daytime plan step 6))] [type::task]`;
+  test("titles, metadata lines, painting and the editor's check read the whole value", () => {
+    expect(titleLine(line).text).toBe("Plan the plot");
+    expect([...metadataLines(`Title\n[related::[[PC-967]], ((${ID}|a, b))] [kind::herb]\nBody`, null)]).toEqual([1]);
+    const painted = colourBody(`Beans [related::[[PC-967]], [[Shed|the shed]]] tail`);
+    expect(strip(painted)).toBe("Beans [related::[[PC-967]], [[Shed|the shed]]] tail");
+    expect(painted).toContain(`${fg(C.brown)}related`);
+    expect(painted).not.toContain("[[PC-967]]] tail"); // the value is painted inside its brackets, not left as prose
+    expect(checkValue({ syntax: "bracket" } as never, "[[PC-967]], [[Shed]]")).toBeNull();
+    expect(checkValue({ syntax: "bracket" } as never, "a]b")).toContain("balanced");
   });
 });
 

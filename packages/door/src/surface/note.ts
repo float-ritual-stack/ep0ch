@@ -12,6 +12,7 @@ import { subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
+import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
@@ -1409,7 +1410,7 @@ export class NoteSurface {
     segs.forEach((s, i) => {
       if (i) { line += " · "; col += 3; }
       line += s.label + " "; col += [...s.label].length + 1;
-      s.value.split(", ").forEach((v, j) => {
+      splitPropertyValue(s.value).forEach((v, j) => {
         if (j) { line += ", "; col += 2; }
         const t = valueTarget(s.key, v, prefix), n = [...v].length;
         if (t) { links.push({ from: col, to: col + n, link: t, key: s.key }); line += fg(C.lcyan) + v + fg(rest); }
