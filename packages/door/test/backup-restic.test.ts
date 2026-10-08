@@ -182,14 +182,14 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     outline(join(laptop.outlines, "pantry.sqlite"), ["Flour"]);
     writeFileSync(join(laptop.outlines, "garden.sqlite.owner.sqlite"), "");   // the host's side file isn't an outline
     const s = readBackupState(laptop.state);
-    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden", "pantry"], failed: [] });
+    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden", "pantry"], failed: [], relayed: [] });
     expect(s.outlines.garden).toMatchObject({ seq: 2 });
-    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [] });
+    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [], relayed: [] });
     // Another repository starts every outline over: nothing counts as backed up there.
     const elsewhere = { ...laptop, repoOf: (m: string) => join(root, "repos-other", m) };
     expect((await snapshot(elsewhere, { ...s, outlines: { ...s.outlines } }, { say })).uploaded).toEqual(["garden", "pantry"]);
     outline(join(laptop.outlines, "garden.sqlite"), ["Stake the peas"]);
-    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden"], failed: [] });
+    expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden"], failed: [], relayed: [] });
     expect(s.outlines.garden).toMatchObject({ seq: 3 });
     expect(changeSeq(join(laptop.outlines, "garden.sqlite"))).toBe(3);
   }, 120_000);
@@ -319,7 +319,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     const copy = join(far.mirrorsDir, "harbor", "orchard.sqlite");
     expect(schemaVersion(copy)).toBe(3);
     // Nothing changed: not snapshotted again.
-    expect(await snapshot(home, s, { say })).toEqual({ uploaded: [], failed: [] });
+    expect(await snapshot(home, s, { say })).toEqual({ uploaded: [], failed: [], relayed: [] });
     // The host migrates it (user_version moves, the change feed doesn't): that is a change.
     const moved = new Database(path); moved.run("PRAGMA user_version = 4"); moved.close();
     expect((await snapshot(home, s, { say })).uploaded).toEqual(["orchard"]);
@@ -431,6 +431,17 @@ describe("install and doctor", () => {
     }, alert: { machine: "garden-shed", checkedAt: iso(now), announced: [], incidents: [{ key: "outline:garden-shed/pantry", title: "t", detail: "pantry changed", fix: "ep0ch backup run", since: iso(now) }] } }), now);
     expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
     expect(checks.find(c => c.name === "restic pantry")!.fix).toBe("ep0ch backup run");
+  });
+
+  test("doctor: a relayed backup says where it went and why, and is not a stale one", () => {
+    const units = facts().units.map(u => ({ ...u, have: u.want }));
+    const now = Date.now();
+    const relayed = { via: "tool-shed", at: iso(now - 600_000), why: "Fatal: unable to open config file: context canceled", uploaded: true };
+    const state = { outlines: { garden: { seq: 4, at: iso(now - 600_000), relayed } }, mirrors: {}, lastRun: { at: iso(now - 300_000), ok: true, detail: "relayed garden via tool-shed" } };
+    const check = (st: typeof state) => resticChecks(facts({ units, loaded: true, state: st }), now).find(c => c.name === "restic garden");
+    expect(check(state)).toMatchObject({ status: "ok", detail: expect.stringContaining("relayed via tool-shed: the repository Fatal: unable to open config file: context canceled") });
+    const stuck = { ...state, outlines: { garden: { ...state.outlines.garden, relayed: { ...relayed, uploaded: false, uploadError: "no route" } } } };
+    expect(check(stuck)?.detail).toContain("tool-shed couldn't upload it either (no route)");
   });
 
   test("doctor: a machine that names a gateway hub says so before its first pull, and says the pull once there is one", () => {

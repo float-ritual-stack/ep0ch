@@ -28,6 +28,17 @@ line.
    answers; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
    is active or enabled, the copy goes to `~/outline-mirrors/.restic/<machine>/` instead, so the two never write one
    file; once it's disabled and stopped, a copy Litestream left there is read first and only a newer snapshot replaces it.
+3b. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
+   answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), step 1
+   hands the same checked copy to the hub instead. It travels on the stdin of an ssh command, the path the netmail pull
+   uses, to `ep0ch backup receive` in the hub's login shell, which checks its sha256, `integrity_check`, `user_version` and
+   change feed, installs it as `~/outline-mirrors/<machine>/<name>.sqlite` (an older schema or an earlier change never
+   replaces a newer copy) and uploads it to `<machine>`'s repository with that machine's host name, using the hub's own
+   keys. The hub must list the machine in `EP0CH_BACKUP_MIRRORS`. A relayed outline counts as backed up: it is off the
+   machine and checked, so it raises no stale alert. `ep0ch backup status` and doctor say `relayed via <hub>` with the
+   repository's failure; when the hub couldn't upload it either, the next run tries the repository again. With the
+   repository reachable again, the next change goes straight to it and the mark clears. No hub named: a repository failure
+   fails the outline as before.
 4. **Drill**, monthly: every outline's newest snapshot restored into a temp folder and checked (`integrity_check`,
    its blocks counted). `ep0ch backup drill` runs it now.
 5. **Watch.** Changes waiting more than 2 hours for a snapshot (here, or on a mirrored machine that answers over ssh),

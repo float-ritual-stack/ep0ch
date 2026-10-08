@@ -32,6 +32,13 @@ export interface OutlineState {
   pendingSince?: string;
   /** The last try's failure, when it failed. */
   error?: string;
+  /**
+   * The newest snapshot didn't go to the repository from here: it went to another machine (`via`), which installed it as
+   * its mirror and uploaded it for this one, because `why` (the repository's refusal or silence). `uploaded: false`: the
+   * other machine couldn't upload it either (`uploadError`), so the next run tries the repository again. A relayed backup
+   * counts as fresh: it is off this machine and checked.
+   */
+  relayed?: { via: string; at: string; why: string; uploaded: boolean; uploadError?: string };
 }
 
 /** One mirrored outline (`<machine>/<outline>`): the copy here, and what the machine itself last said. */
@@ -42,7 +49,7 @@ export interface MirrorState {
   /** The snapshot's time (or, from sqlite3_rsync, when it was copied; a copy found there, its file's time). */
   at?: string;
   /** Where the copy came from: a snapshot, sqlite3_rsync, or found in the folder (Litestream's, a lost state file). */
-  source?: "restic" | "rsync" | "found";
+  source?: "restic" | "rsync" | "found" | "relay";
   refreshed?: string;
   /** The outline's change on its machine when last asked over ssh, and when. */
   remoteSeq?: number | null;

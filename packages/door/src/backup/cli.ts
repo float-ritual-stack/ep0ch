@@ -39,7 +39,8 @@ export function statusLines(c: BackupConfig, now = Date.now()): string[] {
   else lines.push("  the job hasn't run here yet (ep0ch backup run)");
   for (const [name, o] of Object.entries(s.outlines).sort()) {
     const newest = o.at ? `newest ${hhmm(o.at)} (${age(now - Date.parse(o.at))} ago, change ${o.seq ?? "?"})` : "never backed up";
-    lines.push(`  ${name}: ${newest}${o.pendingSince ? `; changes waiting since ${hhmm(o.pendingSince)}` : ""}${o.error ? `; ${o.error}` : ""}`);
+    const via = o.relayed ? `; relayed via ${o.relayed.via} at ${hhmm(o.relayed.at)} (the repository: ${o.relayed.why})${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either: ${o.relayed.uploadError ?? "?"}`}` : "";
+    lines.push(`  ${name}: ${newest}${via}${o.pendingSince ? `; changes waiting since ${hhmm(o.pendingSince)}` : ""}${o.error ? `; ${o.error}` : ""}`);
   }
   for (const [key, m] of Object.entries(s.mirrors).sort()) {
     lines.push(`  mirror ${key}: ${m.at ? `${m.source} copy of ${hhmm(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${m.folder}${m.pendingSince ? `; its machine has changes since ${hhmm(m.pendingSince)} no backup holds` : ""}${m.error ? `; ${m.error}` : ""}`);
@@ -94,6 +95,11 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     try { return await stateful(sub, args, c, io); } finally { release(); }
   }
   switch (sub) {
+    case "receive": {
+      // The relay's receiving side, run over ssh by a machine that can't reach the repository (relay.ts): the file on stdin.
+      const { receiveCommand } = await import("./relay");
+      return receiveCommand(args, c, io);
+    }
     case "run": {
       // What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501); the timer's has none.
       const status = await programStatusEmitter("ep0ch-backup", { env });
@@ -161,7 +167,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       return 0;
     }
     default:
-      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, mirror, drill, status, list, restore\n${BACKUP_USAGE}`);
+      io.err(`ep0ch backup: ${sub ? `${sub}? ` : ""}one of run, snapshot, mirror, drill, status, list, restore, receive\n${BACKUP_USAGE}`);
       return 2;
   }
 }

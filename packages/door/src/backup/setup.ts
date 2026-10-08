@@ -211,7 +211,7 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   const machine = f.config.machine;
   for (const [name, o] of Object.entries(s.outlines).sort()) {
     const inc = incidents.get(`outline:${machine}/${name}`);
-    const newest = o.at ? `newest snapshot ${ago(o.at)} (change ${o.seq ?? "?"})` : "never snapshotted";
+    const newest = o.at ? `newest ${o.relayed ? "backup" : "snapshot"} ${ago(o.at)} (change ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via}: the repository ${o.relayed.why}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${o.relayed.uploadError ?? "?"})`}` : ""}` : "never snapshotted";
     out.push(inc ? { name: `restic ${name}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `restic ${name}`, status: "ok", detail: `${newest}${o.pendingSince ? `; changes since ${ago(o.pendingSince)} upload with the next run${o.error ? ` (the last try: ${o.error})` : ""}` : ", as the outline"}` });
   }
