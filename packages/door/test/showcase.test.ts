@@ -398,6 +398,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
     status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],
+    // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
+    agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
@@ -1090,6 +1092,57 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => deploy()?.status.records.size === 0, "seen once the person is in it", 5000);
     expect(bar()).not.toContain("on you");
     press({ kind: "char", ch: "]", ctrl: true });
+    press({ kind: "esc" });
+  }, 30_000);
+
+  test("the agent policy section (PIE-639): free, edit only and hands off tiles; an agent's open is refused or lands, its edit of the middle note goes through, peek says the limits, the person's keys are never limited", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "agents" }, as: "test-agent" });
+    await until(() => marks.agents!.every(m => screen().includes(m)), `the agents section: ${marks.agents!.filter(m => !screen().includes(m)).join(" | ")}`, 8000);
+    const stage = () => S().stages.get(S().sel).top;
+    const recipe = seeded.notes.recipe.id;
+    // Peek says the limits before an agent acts.
+    const seen = JSON.stringify(stage().describe());
+    expect(seen).toContain('"agentLimits":[{"tile":"edit"');
+    expect(seen).toContain('"level":"off"');
+    // Saved with the layout: the edit tile's own level in its spec.
+    expect(JSON.stringify(stage().layoutSpec())).toContain('"agents":"edit"');
+    // Refused, naming the policy and the person's command; nothing moved.
+    await expect(app.act({ action: "open", tile: "edit", args: { id: recipe }, as: "test-agent" })).rejects.toThrow(/edit is edit only for agents: open is refused .*tile\.agent policy=free tile=edit/);
+    await expect(app.act({ action: "open", tile: "off", args: { id: recipe }, as: "test-agent" })).rejects.toThrow(/off is hands off for agents: open is refused · peek reads it/);
+    await expect(app.act({ action: "tile.close", tile: "edit", as: "test-agent" })).rejects.toThrow(/tile\.close is refused/);
+    expect(stage().pane("edit").msg.title ?? stage().pane("edit").title()).not.toContain("Lentil");
+    // An open that names no tile lands in a free tile, never the limited ones.
+    const landed = await app.act({ action: "open", args: { id: recipe }, as: "test-agent" }) as any;
+    expect(landed.reader).toBe("free");
+    expect(stage().pane("edit").msg.id).toBe(seeded.notes.errand.id);
+    expect(stage().pane("off").msg.id).toBe(seeded.notes.shed.id);
+    // The edit tile's note can be edited by an agent (its draft closed again at once); the hands-off tile's cannot.
+    await app.act({ action: "edit.text", tile: "edit", args: { text: "Seed order for the plot\n\nTea, and two packets of beans." }, as: "test-agent" });
+    expect(stage().pane("edit").surface.draft.text).toContain("two packets of beans");
+    await stage().dispatch.press("edit.close", { discard: true }, "edit");
+    await expect(app.act({ action: "edit.text", tile: "off", args: { text: "x" }, as: "test-agent" })).rejects.toThrow(/off is hands off for agents/);
+    // An agent may tighten a free tile, never loosen a limited one.
+    await app.act({ action: "tile.agent", tile: "free", args: { policy: "edit" }, as: "test-agent" });
+    await expect(app.act({ action: "tile.agent", tile: "free", args: { policy: "free" }, as: "test-agent" })).rejects.toThrow(/edit only for agents/);
+    // The person's own keys are never limited: they open into the hands-off tile, and free it by action.
+    await stage().dispatch.press("open", { id: recipe }, "off");
+    await until(() => stage().pane("off").msg?.id === recipe, "the person's open in the hands-off tile");
+    await stage().dispatch.press("tile.agent", { policy: "free" }, "off");
+    await app.act({ action: "open", tile: "off", args: { id: seeded.notes.shed.id }, as: "test-agent" });
+    // ^W g cycles the focused tile; a click on its chip does too.
+    await stage().dispatch.press("tile.focus", {}, "free");
+    press({ kind: "enter" });
+    press({ kind: "char", ch: "w", ctrl: true });
+    press({ kind: "char", ch: "g" });
+    expect(stage().agentNow("free")).toMatchObject({ level: "off" });
+    // A click on the chip does the same (edit only to hands off), the keys staying where they are.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("✎ agents: edit only"));
+    expect(y).toBeGreaterThan(0);
+    const x = rows[y]!.indexOf("agents: edit only") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => stage().agentNow("edit").level === "off", "the chip's click");
     press({ kind: "esc" });
   }, 30_000);
 

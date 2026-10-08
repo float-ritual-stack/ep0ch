@@ -878,6 +878,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | drag a drawer tab's title out over the screen | take it out there, by the same drop zones as any tile (`tile.drawer on=false to= where=`) |
 | while dragging a tile: `a`, `f`, `p` | put it in your drawer, float it, dock it to an edge (`tile.drawer`, `tile.float`, `tile.dock`: what `^W a`, `^W f`, `^W p` run) |
 | drag a tile's header onto a dock's handle | the tile is docked there (`layout.move where=tabs`; the drag says `docked here: stays on this screen`); dropped beside a tile inside an open dock, it lives in the dock too |
+| click the chip on a tile's frame (`✎ agents: edit only`, `⊘ agents: hands off`) | cycle what an agent may do to that tile: free, edit only, hands off (`tile.agent`, as `^W g`; PIE-639) |
 | click `□ lock` / `▣ locked` (hint row) | lock or unlock the screen (`layout.lock`) |
 | a refused drop or border (locked, a container that takes no drops or other kinds, a fixed size) | the ghost turns red and says why; the release does nothing and the status bar says the same words |
 
@@ -890,6 +891,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
 | `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, docks in or out, links, layout loads), its contents stay live (reading, editing, terminals, docks sliding, tabs, zoom) |
+| `Ctrl+W` then `g` | what an agent may do to this tile: free, edit only (its note, not navigating, closing or retargeting it), hands off (peek only); cycles (`tile.agent`) |
 | `Ctrl+W` then `h j k l` | focus by direction |
 | `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |
 | `Ctrl+W` then `t` + `h j k l` | move into the tabs of the tile that way |

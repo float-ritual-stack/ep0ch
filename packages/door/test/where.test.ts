@@ -94,13 +94,14 @@ describe("EP0CH_NEST", () => {
 });
 
 /** A desk's `peek`, as a door answers it: `focus` has the keys, `typing` the terminal typed in. */
-const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tiles: { id?: string; name: string; herdr?: string; pid?: number }[]; screen?: string }) => ({
+const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tiles: { id?: string; name: string; herdr?: string; pid?: number; agents?: string }[]; screen?: string; limits?: object }) => ({
   screen: {
     screen: o.screen ?? "Desk", stack: ["Main menu", "Desk"], ...(o.pid ? { pid: o.pid } : {}), outline: "garden", workspace: "/ws",
     state: o.screen && o.screen !== "Desk" ? { kind: "menu" } : {
       kind: "desk", focusName: o.focus, inTerminal: o.typing ?? null,
       panes: o.tiles.map((t, i) => ({ n: i + 1, name: t.name, ...(t.id ? { id: t.id } : {}), kind: "pty", focused: t.name === o.focus, shown: true,
-        terminal: { pid: t.pid ?? 5000 + i }, ...(t.herdr ? { herdr: { pane: t.herdr } } : {}) })),
+        terminal: { pid: t.pid ?? 5000 + i }, ...(t.herdr ? { herdr: { pane: t.herdr } } : {}), ...(t.agents ? { agents: t.agents, agentsBy: "tile" } : {}) })),
+      ...(o.limits ?? {}),
     },
   },
   text: [],
@@ -176,6 +177,20 @@ describe("ep0ch where", () => {
     expect(w.door).toMatchObject({ pid: 1388380, answers: true, moved: false, outline: "garden", tile: { id: "t1", name: "claude", found: true, focused: true, descends: true } });
     expect(w.keys).toEqual({ mine: true, typing: true, tile: "t1 claude", text: "the person is typing in this tile (t1 claude)" });
     expect(formatWhere(w)).toMatch(/✓ tile\s+tile t1 claude/);
+  });
+
+  test("what an agent may do (PIE-639): the screen's default and each limited tile, and this tile's own", async () => {
+    const env = { EP0CH_NEST: "ssh:pts/5 › door:1388380/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t1" };
+    const limits = { agentsDefault: "edit", agentLimits: [{ tile: "claude", id: "t1", level: "off", by: "tile" }, { tile: "middle", id: "t2", level: "edit", by: "screen" }] };
+    const w = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380],
+      peek: deskPeek({ pid: 1388380, focus: "middle", tiles: [{ id: "t1", name: "claude", agents: "off" }, { id: "t2", name: "middle" }], limits }) }));
+    expect(w.door?.tile?.agents).toEqual({ level: "off", by: "tile" });
+    expect(w.door?.agents).toEqual({ default: "edit", tiles: [{ tile: "claude", id: "t1", level: "off", by: "tile" }, { tile: "middle", id: "t2", level: "edit", by: "screen" }] });
+    expect(formatWhere(w)).toContain("agents may: the screen is edit only; claude is hands off; middle is edit only (from screen) · tile.agent policy=free tile=<tile> frees one (the person's command)");
+    // Nothing limited: nothing said.
+    const free = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380], peek: deskPeek({ pid: 1388380, focus: "claude", tiles: [{ id: "t1", name: "claude" }] }) }));
+    expect(free.door?.agents).toBeUndefined();
+    expect(formatWhere(free)).not.toContain("agents may");
   });
 
   test("the person is elsewhere: on another tile, focused but not typing, or on another screen", async () => {

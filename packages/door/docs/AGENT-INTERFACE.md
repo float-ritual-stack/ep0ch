@@ -295,6 +295,48 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
 | `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |
 
+## What an agent may do to each tile (PIE-639)
+
+The person sets, tile by tile, what an agent may do. Three levels, one word each:
+
+| Level | An agent may | It may not |
+|---|---|---|
+| `free` (the default) | open notes in the tile, navigate it, split it, close it, retarget it | |
+| `edit` (`✎ agents: edit only`) | edit the note the tile shows: patch, comment, set properties (the `draft` actions), read it, mark it | navigate the tile to another note, close it, retarget it (`tile.link`), move, swap, float, dock, fold or zoom it, put another tile into its tabs, or have its opens land in it; its own new tiles go elsewhere |
+| `off` (`⊘ agents: hands off`) | read the tile through `peek` and the read actions | take any action on it or its note |
+
+A screen has a default (`layout.policy node=screen agents=edit`; a container has one too, `node=s2 agents=off`) and a
+tile has its own, which wins: "yolo the screen, except this one thing" is the screen `free` and one tile `edit`.
+`tile.agent policy=edit tile=detail2` sets a tile's own (`inherit` takes it away, so its container's and the screen's say
+again). By key `^W g` cycles the focused tile (free, edit, off); by mouse a click on the chip on the tile's frame does the
+same, and the tile's `⋯` menu has the row ("what agents may do here"); the screen's default is a row in `^W P`. It is
+saved with the layout (a tile's `agents` in its saved spec, the default in the screen's policy).
+
+Read the limits before acting:
+
+- `peek`: each tile's `agents` and `agentsBy` (`tile`, `screen` or a container's id) when it is limited, `agentLimits` and
+  `agentsDefault` at the top;
+- `layout.get`: the screen's `policy.agents`, and `agents` on each limited tile; `view.get` and `view.subscribe` carry the same;
+- `ep0ch where`: `door.agents` (the default and each limited tile) and `door.tile.agents` for the tile you run in, and a
+  line `agents may: …` in its text.
+
+It is enforced for agents only, in the places that already hold the person's rules: the layout module (every shape
+operation that would move, close, swap, float, dock, fold, zoom, retarget or tab-into a limited tile, and a layout load
+over a screen that has one) and the dispatcher's actor rule (any action that runs in a limited tile: `edit` lets the
+`draft` and `nothing` touches through, `off` only the safe reads). An open that names no tile skips limited tiles:
+the current note changes, but a limited reader keeps its note, and an open into a container picks or makes another tile.
+A refusal names the policy and the person's command:
+
+```
+detail2 is edit only for agents: open is refused · patching, commenting and setting properties on its note are allowed; its own new tiles go elsewhere · the person's command: ^W g, its ⋯ menu or a click on its chip, or tile.agent policy=free tile=detail2
+```
+
+The person's own keys, clicks and actions are never limited. The lock (`alt+k`) is a different rule: it fixes the screen's
+shape for everyone, the person included, and leaves contents live; an agent policy limits only agents, tile by tile, and
+leaves the shape alone for the person. They combine: a locked screen with an `edit` tile refuses an agent twice, and the
+person's own changes to the shape only by the lock. The limit is the door's: an agent that writes the note through the
+outline service (not a door action) is not held by it.
+
 ## Naming tiles and splits (PIE-491)
 
 Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same
@@ -417,6 +459,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
 | `tile.slide` | `tile`, `open`, `container` (a dock's id: an outer one holding another) | see below |
 | `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
+| `tile.agent` | `tile`, `policy` (`free`, `edit`, `off`, `inherit`; left out, the next level) | what an agent may do to the tile (PIE-639, see below). The person sets any level; an agent only tightens (free to edit, edit to off), never loosens one: its refusal names the person's command. Saved with the layout; `layout.policy node=screen agents=edit` is the screen's default |
 | `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `tile`), `draggable`, `droppable`, `closable` (off: its tiles stay; `tile.close` is refused with the reason), `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open dock stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
 | `tile.preview` | `tile`, `where` (right, down, left, up; default beside a wide tile, else below) | a reader beside the tile where its opens land, opened and linked as one layout step (a reader's is a detail; a terminal's follows its file; anything else's follows its selection), so `link.follow` there lands in it and the tile keeps its note. Its opens already landing in a tile: that one is shown (a fold opened, its dock slid open, its tab shown unless that hides the person's), `existing: true`; an agent's never takes the person's keys, the person's goes to it. Said on screen |
 | `tile.type`, `tile.restart` (both `touches: tile`, `while: typing`) | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the drawer) |

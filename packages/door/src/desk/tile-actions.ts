@@ -6,6 +6,7 @@
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, def, type ArgsOf } from "../surface/actions";
+import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { tileNoun, type TileKindName } from "./tile-kinds";
@@ -59,7 +60,7 @@ const loadLayout = {
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
-function policyChange({ clear, accepts, opensInto, opens, host, min, max, fixed, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+function policyChange({ clear, accepts, opensInto, opens, host, agents, min, max, fixed, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
   const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
   for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
   for (const [k, v] of Object.entries({ min, max, fixed })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
@@ -67,6 +68,7 @@ function policyChange({ clear, accepts, opensInto, opens, host, min, max, fixed,
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
   if (opens !== undefined) { if (opens !== "current" && opens !== "next" && opens !== "beside") throw new ActionRefused(`layout.policy: opens is current, next or beside, not ${opens}`); set.opens = opens; }
   if (host !== undefined) { if (host !== "over" && host !== "beside" && host !== "none") throw new ActionRefused(`layout.policy: host is over, beside or none, not ${host}`); set.host = host; }
+  if (agents !== undefined) { if (!isAgentLevel(agents)) throw new ActionRefused(`layout.policy: agents is free, edit or off, not ${agents}`); if (agents === "free") gone.push("agents"); else set.agents = agents; }
   return { set, gone };
 }
 /** What `layout.policy` sets: the schema `act` checks, and so its arguments' type. */
@@ -86,6 +88,7 @@ const POLICY_ARGS = {
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
   opensInto: { type: "string", optional: true, about: "the tile its tiles' opens land in (empty clears)" },
   opens: { type: "string", optional: true, about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
+  agents: { type: "string", optional: true, about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
   host: { type: "string", optional: true, about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
 } as const;
@@ -283,6 +286,18 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
     run(args, { d, reader }, actor) {
       return d.placeFloat(reader, args, actor);
+    },
+  }),
+  "tile.agent": def({
+    summary: "what an agent may do to tile=<tile> (PIE-639): policy=free (open notes in it, navigate, split, close, retarget it: the default), edit (edit the note it shows: patch, comment, set properties; no navigating, closing, retargeting or moving it; its own new tiles go elsewhere) or off (read it through peek; no action on it or its note); inherit takes the tile's own away, so its container's and the screen's default (layout.policy node=screen agents=edit) say again; left out, the next level. Saved with the layout, shown as a chip on the tile's frame, reported in peek, layout.get and `ep0ch where`. Enforced for agents only: the person's own keys are never limited. An agent may tighten a tile (free to edit, edit to off), never loosen one: the refusal names the person's command",
+    keys: "^W g (cycles free, edit, off); a click on the tile's agents chip, or its ⋯ menu",
+    touches: "shape", replay: "safe", confirms: true,
+    says: r => (r.changed === false ? null : `set ${r.tile} to ${AGENT_WORDS[r.agents as AgentLevel]}`),
+    menu: { label: "what agents may do here", group: TILE, key: "ctrl+w g", now: ({ d, reader }) => { const a = d.agentNow(reader); return { label: a.level === "free" ? "agents: free · set edit only" : a.level === "edit" ? "agents: edit only · set hands off" : "agents: hands off · set free" }; } },
+    args: { policy: { type: "string", optional: true, about: "free, edit, off, or inherit; left out, the next one (free, edit, off, free)" } },
+    run({ policy }, { d, reader }, actor) {
+      if (policy !== undefined && policy !== "inherit" && !isAgentLevel(policy)) throw new ActionRefused(`tile.agent: policy is free, edit, off or inherit, not ${policy}`);
+      return d.agentTile(reader, policy as AgentLevel | "inherit" | undefined, actor);
     },
   }),
   "layout.lock": def({

@@ -14,6 +14,7 @@
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts } from "../whereabouts";
+import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, agentLabel, asActor, declaredKeys, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
@@ -40,6 +41,8 @@ export interface TileRef {
   editing?: boolean;
   /** It holds an edit or a comment of this actor's own (an agent's, or the person's). */
   holds?(actor: Actor): boolean;
+  /** What an agent may do to it when the screen limits it (PIE-639), and which layer said so; absent: free. */
+  agents?: { level: AgentLevel; by: string };
   /** Why a note action can't run in it now (folded to a spine, a peek, off screen), when one can't. */
   readOnly?: string | null;
 }
@@ -147,9 +150,11 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
-export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way">, actor: Actor, where: Whereabouts, at: {
+export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
   tile?: { name: string; label?: string } | null;
+  /** The action's name and what the tile it acts on lets an agent do (PIE-639): checked before anything else of the tile. */
+  gate?: { action: string; agents: { level: AgentLevel; by: string } };
   /** The draft rule's answer for that tile (asked only for `touches: "draft"`). */
   draft?: () => string | null;
   /** The agent says it was invited into the draft (`invitation=`, for an action that takes one): the draft rule checks it. */
@@ -157,6 +162,13 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
 }): string | null {
   if (actor.kind !== "agent") return null;
   if (def.person) return def.person;
+  // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
+  const g = at.gate;
+  if (g && g.agents.level !== "free") {
+    const reads = def.touches === "nothing" && def.replay === "safe", edits = def.touches === "draft" || def.touches === "nothing";
+    const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
+    if (no) return no;
+  }
   switch (def.touches) {
     case "nothing": case "shape": return null;
     case "draft": {
@@ -370,7 +382,9 @@ export class Dispatcher {
     const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
     // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
     const invitation = reg.set.argsOf(name)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
-    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
+    // A tile the action acts on (its kind's, or one named) limits an agent; the screen's own action, given none, only reads the focus.
+    const agents = at.tile?.agents && (reg.takes === "tile" || at.name !== undefined) ? at.tile.agents : undefined;
+    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, ...(agents ? { gate: { action: name, agents } } : {}), invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
   }
 
   /**

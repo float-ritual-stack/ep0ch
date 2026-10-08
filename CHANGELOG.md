@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### What an agent may do to each tile (PIE-639)
+
+- **New:** each tile has a level for agents. `free` (the default) is as before; `edit` lets an agent edit the note the tile
+  shows (patch, comment, set properties) but not navigate, close, move or retarget the tile; `off` lets it read the tile
+  through `peek` and do nothing else. A screen has a default and each tile its own exception ("the screen is free, except
+  this one"). Set it with `^W g` (cycles), a click on the chip on the tile's frame (`✎ agents: edit only`, `⊘ agents: hands
+  off`), the tile's `⋯` menu, `tile.agent policy=free|edit|off|inherit tile=…`, or `layout.policy node=screen agents=edit`
+  (a row in `^W P`). Saved with the layout.
+- **Reported:** `peek` (`agentLimits`, each limited tile's `agents`), `layout.get`, and `ep0ch where` (`agents may: …`), so
+  an agent reads its limits before acting. A refusal names the policy and the command that frees the tile.
+- **Enforced for agents only:** your own keys and clicks are never limited. An agent's `open` naming no tile skips limited
+  tiles (a limited reader keeps its note); an agent can tighten a tile but never loosen one. The lock (`alt+k`) still fixes
+  the shape for everyone; this limits only agents.
+- **Run:** nothing; `ep0ch install --apply` and restart the door to get it. No protocol or schema change.
+
 ### Copy a block's text cleanly: a ⧉ on code blocks, quotes and callouts (PIE-638)
 
 - **New:** every fenced code block, quote and callout in a reader (detail, preview, desk, the BBS reader) and a river column
