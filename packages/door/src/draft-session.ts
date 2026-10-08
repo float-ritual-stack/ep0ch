@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from "node:path";
 import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
+import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
@@ -235,7 +236,7 @@ export class DraftSession {
     if (t.leaveWrites && d.restored !== null && d.restored === d.text) {
       const keptAt = this.keep();
       this.end("aside");
-      const said = `${t.what} was kept as unsent, not saved: it came back unsent and nothing was typed since · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
+      const said = `${keptNot(t.what, "saved")}: it came back and nothing was typed since · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
       this.env.said?.(said);
       return { left: "kept", keptAt, said };
     }
@@ -248,13 +249,13 @@ export class DraftSession {
       const reason = r.stale ? "it changed elsewhere since you started" : r.why || "refused";
       const keptAt = this.keep();
       this.end("aside");
-      const said = `not saved: ${reason} · ${t.what} was kept as unsent · ${r.stale || !this.persons ? `a copy is at ${tidy(keptAt)}` : t.back}`;
+      const said = `not saved: ${reason} · ${t.what} is kept here · ${r.stale || !this.persons ? `a copy is at ${tidy(keptAt)}` : t.back}`;
       this.env.said?.(said);
       return { left: "kept", why: reason, keptAt, said };
     }
     const keptAt = this.keep();
     this.end("aside");
-    const said = `${t.what} was kept as unsent, not ${t.verb === "send" ? "sent" : t.verb === "create" ? "created" : "saved"} · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
+    const said = `${keptNot(t.what, t.verb === "send" ? "sent" : t.verb === "create" ? "created" : "saved")} · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
     this.env.said?.(said);
     return { left: "kept", keptAt, said };
   }
@@ -342,10 +343,10 @@ export class DraftSession {
     if (d.restored !== null && d.restored === d.text) {
       unshelve(t.place);
       const copy = d.copyOut(t.label);
-      return this.closedWith = `dropped the unsent draft · a copy stays at ${tidy(copy)}`;
+      return this.closedWith = `let go of the kept draft · a copy stays at ${tidy(copy)}`;
     }
     const copy = this.keep();
-    return this.closedWith = this.persons ? `put aside as unsent · ${t.back} · a copy is at ${tidy(copy)}` : `closed · your text is at ${tidy(copy)}`;
+    return this.closedWith = this.persons ? `kept here · ${t.back} · a copy is at ${tidy(copy)}` : `closed · your text is at ${tidy(copy)}`;
   }
 
   /**
@@ -357,14 +358,14 @@ export class DraftSession {
     const d = this.draft, u = unsent(this.target.place);
     if (!u) return false;
     if (u.text === d.text) { unshelve(this.target.place); return false; }
-    if (u.base !== d.base) { d.note = `your unsent draft from ${whenPut(u.at)} was on revision ${u.base}; the note changed since · it's at ${tidy(u.copy ?? "")}`; return false; }
+    if (u.base !== d.base) { d.note = `you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`; return false; }
     unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");
-    d.note = `brought back your unsent draft from ${whenPut(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
+    d.note = `brought back your edit from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
 
@@ -818,7 +819,7 @@ export function cardTarget(o:
 /** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */
 /**
  * A draft put aside: its text, the revision it was written on, when, its copy on disk and who wrote it. `from`: the text
- * it started from ("take it back" replays the changes from there against the note now; absent on older ones).
+ * it started from ("add them" and the comparison read the edit's own changes from there; absent on older ones, then the note's history stands in).
  */
 export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[]; from?: string }
 

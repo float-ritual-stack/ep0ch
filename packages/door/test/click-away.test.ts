@@ -95,7 +95,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     await other.update(id, "Net the brassicas\nbefore the pigeons land", m.revision!, { kind: "agent", id: "gardener" });
     clickElsewhere();
     await until(() => !rd.draft, "the edit put aside");
-    expect(message()).toMatch(/^not saved: it changed elsewhere since you started · the edit to “Net the brassicas” was kept as unsent · a copy is at /);
+    expect(message()).toMatch(/^not saved: it changed elsewhere since you started · the edit to “Net the brassicas” is kept here · a copy is at /);
     expect((await current(id)).text).toBe("Net the brassicas\nbefore the pigeons land");   // theirs stands: nothing overwritten
     expect(unsent(`edit:${id}`)?.text).toBe("Net the brassicas soon\nbefore the pigeons");  // and ours is kept
     expect(board.heldDraft(id)).toBeNull();
@@ -103,7 +103,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     desk.focusOn(name);
     key(char("e"));
     await until(() => !!rd.draft, "the draft again");
-    expect(rd.draft!.note).toContain("the note changed since · it's at");
+    expect(rd.draft!.note).toContain("the note has changed since · your edit is kept");
     key({ kind: "esc" });
   }, 30_000);
 
@@ -116,7 +116,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
       clickElsewhere();
       await until(() => !rd.draft, "the edit put aside");
     } finally { (board as any).update = was; }
-    expect(message()).toContain("not saved: offline · the outline isn't answering · the edit to “Sharpen the shears” was kept as unsent · e brings it back");
+    expect(message()).toContain("not saved: offline · the outline isn't answering · the edit to “Sharpen the shears” is kept here · e brings it back");
     expect(unsent(`edit:${id}`)?.text).toBe("Sharpen the shears!\nbefore spring");
     // e brings it back, as typed.
     desk.focusOn(name);
@@ -140,7 +140,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     clickElsewhere();
     expect(rd.surface.session).toBeNull();
     await Bun.sleep(0);                                                 // said after the click's own flash, so it stays on screen
-    expect(message()).toBe("the comment on “Mulch the roses” was kept as unsent, not sent · C and a passage bring it back");
+    expect(message()).toBe("the comment on “Mulch the roses” is kept here, not sent · C and a passage bring it back");
     expect(unsent(`comment:${id}`)?.text).toBe("How much bark?");
     await Bun.sleep(150);
     expect(await board.comments(id)).toEqual([]);

@@ -24,6 +24,20 @@ are its record. The outliner's entries from then are kept below, under
   the later change; a stale follower loses a tie. `ep0ch doctor` gives an erroring follower
   (`error applying updates`) its fresh-restore command.
 - **Run:** on the machine behind (the laptop): `ep0ch backup run --force` once, so the mirror gets a current snapshot.
+### A kept edit says what it changes, and asks for nothing (PIE-637)
+
+- **Changed:** the notice under a note for an edit you started and didn't save no longer compares the draft with the note
+  as it is now (twelve later revisions buried the draft's own changes). It compares the draft's own changes with the
+  note through the text the draft started from (the draft's own copy, else the note's history, `block.revisions`), and answers in one calm sentence, in grey, never amber:
+  - every change already in the note: it settles when you open the note, a copy is kept, one dim line says so;
+  - lines the note lacks: `2 lines from your edit on Oct 1 aren't in the note` with `[show them]`, `[add them]` (one
+    undoable patch, nothing saved until ctrl+s), `[keep as a note]` and `[let it go]`;
+  - lines changed differently since: `[compare]` shows both versions;
+  - no starting text: a two-way comparison, labelled, that never settles by itself.
+  Edits on an older revision more than three days old fold to a `1 old edit` chip. `[take it back]` is now `[add them]`
+  (`unsent.take` → `unsent.add`), `[diff]` is `[show them]` or `[compare]`, `[dismiss]` is `[let it go]`; `[keep as a
+  note]` (`unsent.keep`) is new. The exit message and the lane title say it the same way (`is kept here`, `■ card kept`).
+  A letting go always keeps a copy. Demo: the showcase's `kept` section. No protocol or schema change.
 
 ### A rule's text pattern can no longer hang the host (PIE-630)
 

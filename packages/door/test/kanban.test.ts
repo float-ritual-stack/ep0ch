@@ -155,7 +155,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.session.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
     // Esc, esc puts it aside (never lost), and n in the same lane brings it back to finish (PIE-496).
     press({ kind: "esc" }); press({ kind: "esc" });
-    expect(message()).toContain("put aside as unsent · n in Queued brings it back");
+    expect(message()).toContain("kept here · n in Queued brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     expect(B().composer.session.draft.text).toBe("Oil the hinges\nThe back door squeaks.");
@@ -314,7 +314,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "mouse", action: "down", button: 0, ...at });
     press({ kind: "mouse", action: "up", button: 0, ...at });
     expect(B().composer).toBeNull();
-    expect(message()).toBe("the new card in Doing was kept as unsent, not created · n in Doing brings it back");
+    expect(message()).toBe("the new card in Doing is kept here, not created · n in Doing brings it back");
     expect((await board.children(queue.id)).length).toBe(before);
     BV.at(b, "lanes"); B().lane = laneIndex("Doing");
     press({ kind: "char", ch: "n" });
@@ -331,7 +331,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "esc" });
     expect(B().composer).toBeNull();
     // Nothing is lost (PIE-496): it's put aside, n in the lane brings it back, and esc, esc on it unchanged drops it.
-    expect(message()).toContain("put aside as unsent · n in Doing brings it back");
+    expect(message()).toContain("kept here · n in Doing brings it back");
     press({ kind: "char", ch: "n" });
     await until(() => !!B().composer, "the composer");
     expect(B().composer.session.draft.text).toBe("Paint the railings too");

@@ -49,6 +49,9 @@ export const SEED = {
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
   labels: "Jar labels",
+  rota: "Greenhouse watering rota",
+  hedge: "Hedge trimming plan",
+  compost: "Compost bay rules",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -341,6 +344,31 @@ export const REMOTE_LINE = "Bought two bags of compost for the beds.";
 export const LABELS_BEFORE = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid."].join("\n");
 export const LABELS = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid.", "Rota: whoever fills a jar labels it.",
   "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
+
+/**
+ * The kept-edits section's three notes (PIE-637): each was written, then changed once by someone else (`after`), and the
+ * person has an unsent edit from the text it began as (`before`, which the outline's history keeps): `draft`. The rota's
+ * edit adds a line the note lacks (still new); the hedge's edit is a line the note has since gained (already in it);
+ * the compost's edit rewrites a line the note rewrote differently (a conflict).
+ */
+const keptNote = (title: string, ...lines: string[]) => [`${title} [page::${title}]`, "", ...lines].join("\n");
+export const KEPT = {
+  rota: {
+    before: keptNote(SEED.rota, "Water the tomatoes at dawn.", "Shut the vents at dusk."),
+    after: keptNote(SEED.rota, "Water the tomatoes at dawn.", "Shut the vents at dusk.", "Wipe the shelves on Sundays."),
+    draft: keptNote(SEED.rota, "Water the tomatoes at dawn.", "Shut the vents at dusk.", "Check the seed trays on Fridays."),
+  },
+  hedge: {
+    before: keptNote(SEED.hedge, "Trim in late summer.", "Leave the nesting corner alone."),
+    after: keptNote(SEED.hedge, "Trim in late summer.", "Leave the nesting corner alone.", "Bag the clippings by the gate."),
+    draft: keptNote(SEED.hedge, "Trim in late summer.", "Leave the nesting corner alone.", "Bag the clippings by the gate."),
+  },
+  compost: {
+    before: keptNote(SEED.compost, "Cover the bays with carpet.", "Turn the heap monthly."),
+    after: keptNote(SEED.compost, "Cover the bays with carpet.", "Turn the heap every fortnight."),
+    draft: keptNote(SEED.compost, "Cover the bays with carpet.", "Turn the heap weekly in summer."),
+  },
+} as const;
 
 /**
  * The remote writes note (PIE-615): what the gateway's writes become, and where the queue for another machine's outline
@@ -803,6 +831,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     const at = notes.remoteWrites.text.indexOf(REMOTE_LINE);
     await applyWrite(board, { tool: "outline_patch", blockId: notes.remoteWrites.id, revision: notes.remoteWrites.revision!, input: { policy: "edit", patches: [{ observed: "two bags", replacement: "three bags", range: { start: at + 7, end: at + 15 } }] } }, o);
     await applyWrite(board, { tool: "outline_comment", blockId: notes.remoteWrites.id, input: { quote: "two bags of compost", body: "Was that the peat-free kind?", requestId: "showcase-remote-comment" } }, o);
+  }
+  for (const [name, k] of [["rota", KEPT.rota], ["hedge", KEPT.hedge], ["compost", KEPT.compost]] as const) {
+    const first = await make(notes.root.id, k.before);
+    notes[name] = await board.update(first.id, k.after, first.revision!);
   }
   notes.headings = await make(notes.root.id, HEADINGS);
   notes.overscroll = await make(notes.root.id, OVERSCROLL);

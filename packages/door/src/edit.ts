@@ -120,7 +120,7 @@ export class Draft {
 
   get text() { return this.lines.join("\n"); }
   get dirty() { return this.text !== this.original; }
-  /** The text the draft started from (an unsent edit keeps it: "take it back" replays its changes against the note now). */
+  /** The text the draft started from (a kept edit keeps it: "add them" and the comparison read its own changes from it). */
   get started() { return this.original; }
   /** When the draft opened. */
   readonly openedAt = Date.now();
@@ -360,8 +360,8 @@ export class Draft {
       if (!was) {
         this.discardArmed = true;
         this.note = this.restored === this.text
-          ? "esc again drops this unsent draft (a copy stays on disk) · ctrl+s saves"
-          : "unsaved · esc again puts it aside as unsent (nothing is lost) · ctrl+s saves";
+          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves"
+          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves";
         return "keep";
       }
       return "discard";

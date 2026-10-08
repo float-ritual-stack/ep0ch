@@ -171,9 +171,9 @@ export type LinkTarget = {
   proposal?: { id: string; op?: "apply" | "dismiss" };
   /**
    * A control on an `■ unsent` line (role "control", src/unsent.ts): what's put aside on note `of` (its edit, a comment,
-   * a note under it, a card), and which of its actions it runs (`unsent.diff`, `.copy`, `.dismiss`, `.take`, `.show`).
+   * a note under it, a card), and which of its actions it runs (`unsent.diff`, `.copy`, `.dismiss`, `.add`, `.keep`, `.show`).
    */
-  unsent?: { of: string; kind: "edit" | "comment" | "child" | "card"; op: "diff" | "copy" | "dismiss" | "take" | "show" };
+  unsent?: { of: string; kind: "edit" | "comment" | "child" | "card"; op: "diff" | "copy" | "dismiss" | "add" | "keep" | "show" };
   /**
    * An extension's line (PIE-512): its head and its controls (role "control") run `action` on it, an
    * `ext.<id>.<action>` or `projection.refresh` (r: run it again, ask the agent again). `extension` and

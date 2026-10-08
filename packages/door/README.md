@@ -1389,39 +1389,41 @@ The board's new-card composer is the same control too.
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
   typed. Pasted text goes in as it came: a pasted line break or tab never continues a list or indents.
-- **Nothing you type is lost.** `Esc` twice on unsaved text doesn't drop it: it's **put aside as unsent**
-  where you wrote it (an edit on its note, a comment on its note, a reply on its thread, a new card in its
-  lane) and copied to `~/.local/state/ep0ch-door/drafts/`. The status bar says where. The reader shows
-  `■ unsent edit from 10:42 · e brings it back` (or the comment's; a lane's header says `■ unsent card`), and
-  opening the same draft again (`e`;
-  `C` and a passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that
-  came back unchanged drops it, and says where its copy stays. Closing a screen, quitting and a dropped
-  connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
-  over a newer note: the reader's line says which revision it was written on, until a newer edit of the note is
-  saved or you dismiss it. A new card is put aside in its
-  lane on its own board: another board's lane of the same name doesn't bring it back. An agent's edit or
-  comment never picks up your put-aside text.
-- **The `■ unsent` line's controls** (src/unsent.ts), by a click, `[ ]` then `⏎`, the tile's `⋯` menu or `act`:
-  `[diff]` opens a reader beside it with the note as it is now against the unsent edit (`- the note now`,
-  `+ the unsent edit`, coloured; it says which revision the edit was written on); `[open copy]` shows the put-aside
-  text as written; `[dismiss]` lets it go (its copy stays on disk); `[take it back]` opens the note's edit with the
-  unsent changes in it: one written on the revision the note is at comes back whole, one on an older revision is
-  replayed change by change from the text it started from, each compared like an agent's `draft.patch`, so a
-  passage changed since is left as it is now and said, never overwritten (ctrl+z takes back the last change). The
-  diff view has `[open copy]`, `[dismiss]` and `[take it back]` too. An edit put aside on an older revision more than
-  three days ago folds into one dim line, `■ 1 old unsent edit · [show]`.
+- **Nothing you type is lost.** `Esc` twice on unsaved text doesn't drop it: it's **kept where you wrote it**
+  (an edit on its note, a comment on its note, a reply on its thread, a new card in its lane) and copied to
+  `~/.local/state/ep0ch-door/drafts/`. The status bar says where. Opening the same draft again (`e`; `C` and a
+  passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that came back unchanged
+  lets it go, and says where its copy stays. Closing a screen, quitting and a dropped connection (`SIGHUP`) keep
+  drafts the same way. A new card is kept in its lane on its own board: another board's lane of the same name doesn't
+  bring it back (a lane's header says `■ card kept`). An agent's edit or comment never picks up your text.
+- **A kept edit says what it changes, and asks for nothing (PIE-637).** Under the reader's header, a calm grey line
+  answers from a three-way comparison: the edit's own changes (the text it started from → the draft) against the note
+  now (src/unsent-compare.ts). The text it started from is the draft's own, else the note at the revision it was written
+  on, else that revision from the note's history, so twelve later revisions of other changes bury nothing. Each change
+  is **already in the note**, **still new** or **changed differently since**:
+  - nothing new: it settles by itself when you open the note. A copy is kept (`drafts/`) and one dim line says
+    `your edit on Oct 1 was already in the note; kept a copy`. Nothing to answer.
+  - something new: `2 lines from your edit on Oct 1 aren't in the note` with `[show them]` (a reader beside with only
+    the edit's own changes, each marked, the answer first), `[add them]` (the new lines into an edit as one patch:
+    ctrl+z takes it back, ctrl+s saves; newer text is never overwritten), `[keep as a note]` (a note under this one
+    with the whole text) and `[let it go]` (the copy stays on disk).
+  - changed differently since: `1 line … was changed differently since` with `[compare]`, which shows both versions.
+  - no starting text anywhere: the comparison is two-way and says so (`differs from the note in 3 lines · its starting
+    text isn't kept`), and nothing settles quietly. An edit on an older revision more than three days old folds to
+    one dim `■ 1 old edit · [show]` chip. All by a click, `[ ]` then `⏎`, the tile's `⋯` menu or `act unsent.*`; the
+    exit message says it the same way (`the edit to “…” is kept here, not saved`).
 - **An edit opened by mistake isn't put aside.** `e`, then a `j` or `q` meant for the reader, becomes text; so an
   edit open under ten seconds with at most three characters typed into it and nothing taken out closes on the
-  first `Esc`, says `dropped 2 stray characters · ctrl+z brings them back` and leaves no `■ unsent` line (its copy
+  first `Esc`, says `dropped 2 stray characters · ctrl+z brings them back` and leaves no kept line (its copy
   still goes to `drafts/`). `ctrl+z` within a minute opens the edit again with them. Anything more is a real edit
   and keeps the `Esc` twice (src/stray.ts).
 - **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
   leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a dock).
   An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's
-  refused (it changed elsewhere, offline, refused) keeps the text as **unsent**, and the status bar says
-  `not saved: … · the edit to “…” was kept as unsent · e brings it back`. An edit brought back unsent and not
-  typed in since isn't saved by a click away: it's put aside again, and said. A comment, a reply or a new card
-  is kept as unsent, never sent or created: sending is `Ctrl+S`. On the desk `^W` does the same by keys:
+  refused (it changed elsewhere, offline, refused) keeps the text, and the status bar says
+  `not saved: … · the edit to “…” is kept here · e brings it back`. An edit brought back and not
+  typed in since isn't saved by a click away: it's kept again, and said. A comment, a reply or a new card
+  is kept, never sent or created: sending is `Ctrl+S`. On the desk `^W` does the same by keys:
   the window key after it leaves the edit and runs (`Esc` after it stays in; `Tab` indents). An agent never
   saves or closes your draft this way (`session.leave`, `composer.leave` are yours).
 - **One draft session behind every draft** (PIE-516). The edit, the comment and reply, and the board's

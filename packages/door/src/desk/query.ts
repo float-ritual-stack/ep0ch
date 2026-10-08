@@ -98,10 +98,10 @@ export class QueryPane implements Pane {
     return changed;
   }
 
-  /** The count and status as the header shows them after its name: `3`, `200 of 200+`, `failed`; `■ unsent card` while a new card is put aside here (n brings it back). */
+  /** The count and status as the header shows them after its name: `3`, `200 of 200+`, `failed`; `■ card kept` while a new card is put aside here (n brings it back). */
   headLabel(): string {
     const r = this.read;
-    return `${fg(C.dark)}${this.items ? this.items.length : "…"}${r?.truncated ? fg(C.yellow) + ` of ${r.limit}+` : ""}${r && r.status !== "ready" ? fg(C.lred) + " " + r.status : ""}${hasUnsent(`card:${this.view}`) ? fg(C.yellow) + " ■ unsent card" : ""}`;
+    return `${fg(C.dark)}${this.items ? this.items.length : "…"}${r?.truncated ? fg(C.yellow) + ` of ${r.limit}+` : ""}${r && r.status !== "ready" ? fg(C.lred) + " " + r.status : ""}${hasUnsent(`card:${this.view}`) ? fg(C.dark) + " ■ card kept" : ""}`;
   }
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
