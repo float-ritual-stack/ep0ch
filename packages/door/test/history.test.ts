@@ -51,6 +51,10 @@ describe("a reader's history, without a service", () => {
     note(1, `Allotment diary\n${filler}\nSee ((${id(2)})) for the beans.\n## Water\nThe hose.`, id(3)),
     note(2, "Stake the beans\nCanes along the fence."),
     note(3, "Garden"),
+    // A trail of three: the shed, to its tools, to the rake.
+    note(4, `Shed\n${filler}\nThe tools are in ((${id(5)})).`),
+    note(5, `Tools\nSharp ones first. The rake: ((${id(6)})).`),
+    note(6, "Rake\nTines up."),
   ];
   const flashes: string[] = [];
   /** A host where links open in place, as a board detail's do. */
@@ -160,6 +164,48 @@ describe("a reader's history, without a service", () => {
         expect(s.agent?.did).toBe("went back here");
       }
     }
+  });
+
+  test("the history is saved and taken up by another reader (PIE-643): three notes, then back in order with the scroll kept; another version's is dropped", async () => {
+    const s = new NoteSurface(), h = host(s);
+    s.show(notes[3] as any, h);
+    s.render(60, 12, h);
+    s.key(char("]"), h);
+    s.render(60, 12, h);
+    const scrolled = s.scroll;
+    expect(scrolled).toBeGreaterThan(0);
+    s.key({ kind: "enter" }, h);
+    await until(() => s.msg?.id === id(5), "the tools");
+    s.render(60, 12, h);
+    s.key(char("]"), h);
+    s.render(60, 12, h);
+    s.key({ kind: "enter" }, h);
+    await until(() => s.msg?.id === id(6), "the rake");
+    const saved = JSON.parse(JSON.stringify(s.saveNav()));                  // through the JSON a layout file is
+    expect(saved.v).toBe(1);
+
+    const t = new NoteSurface(), th = host(t);
+    t.show(notes[5] as any, th);
+    expect(t.restoreNav(saved)).toBe(true);
+    expect(t.describe().history.back.map((b: any) => b.title)).toEqual(["Tools", "Shed"]);
+    t.key({ kind: "alt-left" }, th);
+    await until(() => t.msg?.id === id(5), "back on the tools");
+    t.key({ kind: "alt-left" }, th);
+    await until(() => t.msg?.id === id(4), "back on the shed");
+    t.render(60, 12, th);
+    expect(Math.abs(t.scroll - scrolled)).toBeLessThanOrEqual(1);
+    t.key({ kind: "alt-right" }, th);
+    await until(() => t.msg?.id === id(5), "forward again");
+
+    // Another version's, or garbage: read as having none, never half-read.
+    const u = new NoteSurface(), uh = host(u);
+    u.show(notes[5] as any, uh);
+    for (const bad of [{ ...saved, v: 2 }, { ...saved, v: undefined }, null, "x"]) expect(u.restoreNav(bad)).toBe(false);
+    expect(u.restoreNav({ v: 1, backs: "no" })).toBe(true);                // this version's, with nothing in it
+    expect(u.describe().history).toEqual({ back: [], forward: [] });
+    const v = new NoteSurface();
+    expect(v.restoreNav({ ...saved, v: 0 })).toBe(false);
+    expect(v.describe().history).toEqual({ back: [], forward: [] });
   });
 });
 

@@ -66,10 +66,17 @@ const builtins = (): TileKind[] => [
     // The outline as a screen shows it: open (on screen), pinned (in the layout, not in a dock), its side, and its rows when shown.
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
-  { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading, actions: READER_ACTIONS },
+  { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: s => { const r = new ReaderPane(true); if (s.nav) r.wantNav = s.nav; return r; }, ...reading, actions: READER_ACTIONS,
+    // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
+    start: (p, env) => {
+      const r = p as ReaderPane, want = r.wantNote();
+      // The outline's first selection may be shown first: the saved note replaces it, once, while the reader still wants it.
+      if (want) env.desk.ctx.board.get(want).then(m => { if (m && r.wantNote() === want) { r.show(m, env.desk); env.desk.redraw(); } r.dropWant(); }, () => r.dropWant());
+    },
+  },
   {
     kind: "detail", about: "a reader that keeps its note (note=<id>, or page=<name> to pin [[name]])", keys: [{ key: "d", label: "detail" }],
-    make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; if (s.label) r.label = s.label; return r; },
+    make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; if (s.label) r.label = s.label; if (s.nav) r.wantNav = s.nav; return r; },
     ...reading,
     start: (p, env) => {
       const d = p as DetailPane;

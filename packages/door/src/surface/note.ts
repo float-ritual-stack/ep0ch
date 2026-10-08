@@ -94,6 +94,8 @@ export interface SurfaceHost {
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
    */
   history?: ReaderHistory;
+  /** This reader's back or forward stacks changed (PIE-643): the host saves them with its layout. */
+  navChanged?(): void;
   /**
    * The note shown went to the trash (an empty new note, PIE-544) and this reader had nowhere back to go: a screen
    * that was opened for it alone closes. Without it the reader stays on it.
@@ -144,6 +146,38 @@ interface Place { msg: Msg; scroll: number; cur: string | null; link: number; fo
 type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
 const HISTORY = 50;
+
+/**
+ * A reader's place and history as a layout file keeps them (PIE-643). `v` is this shape's version: a file of another
+ * version (an older daemon's, a newer one's) is read as having no history, never half-read.
+ */
+export const NAV_VERSION = 1;
+export interface SavedPlace { id: string; title: string; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
+
+const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), scroll: p.scroll, cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, seen: p.seen, figures: p.figures });
+/** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
+const placeOf = (s: SavedPlace): Place => ({
+  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, props: {}, partial: true },
+  scroll: s.scroll, cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, seen: s.seen, figures: s.figures,
+});
+const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+function readPlace(x: any): SavedPlace | null {
+  if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
+  const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
+  const figures = (Array.isArray(x.figures) ? x.figures : []).filter((f: unknown): f is [string, FigureChoice] => Array.isArray(f) && typeof f[0] === "string" && !!f[1] && typeof f[1] === "object");
+  return { id: x.id, title: x.title, scroll: int(x.scroll, 0), cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), seen: strings(x.seen), figures };
+}
+/** The note a saved history was taken on, if it is one this version reads. */
+export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
+/** A saved history as this version reads it: null for another version or anything that isn't one. */
+function readNav(raw: unknown): SavedNav | null {
+  const x = raw as any;
+  if (!x || typeof x !== "object" || x.v !== NAV_VERSION) return null;
+  const list = (l: unknown) => (Array.isArray(l) ? l.map(readPlace).filter((p): p is SavedPlace => !!p).slice(-HISTORY) : []);
+  const here = readPlace(x.here);
+  return { v: NAV_VERSION, ...(here ? { here } : {}), backs: list(x.backs), aheads: list(x.aheads) };
+}
 
 /**
  * A fragment link just followed (PIE-425), kept on the note object that follow handed its host: whichever
@@ -512,6 +546,8 @@ export class NoteSurface {
   /** The view's own history, from the last host seen (SurfaceHost.history), for `peek` and the hint. */
   private kept: ReaderHistory | null = null;
   private tracking = 0;
+  /** The last host's note of a change to the stacks (SurfaceHost.navChanged). */
+  private navChanged: (() => void) | null = null;
   /**
    * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are
    * on, and what the last choice said. The person's alone (an agent sets a status by `task.status`); it
@@ -538,7 +574,7 @@ export class NoteSurface {
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
   private hostKeys = "";
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.hostKeys = host.ownKeys ?? ""; }
+    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.navChanged = host.navChanged ?? null; this.hostKeys = host.ownKeys ?? ""; }
     return this.src;
   }
 
@@ -3723,6 +3759,7 @@ export class NoteSurface {
       this.backs.push(from);
       if (this.backs.length > HISTORY) this.backs.shift();
       this.aheads = [];
+      this.navChanged?.();
     }
     return out;
   }
@@ -3758,7 +3795,37 @@ export class NoteSurface {
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
+    this.navChanged?.();
     return null;
+  }
+
+  /**
+   * The reader's place and its back and forward stacks, as a layout saves them (PIE-643): a handover or a restart
+   * gives the reader back where it was. Null when the view keeps the history (a river column's trail is the flow's,
+   * saved with the layout), or there is nothing to keep.
+   */
+  saveNav(): SavedNav | null {
+    if (this.kept) return null;
+    const here = this.place();
+    const out: SavedNav = { v: NAV_VERSION, ...(here ? { here: savedPlace(here) } : {}), backs: this.backs.map(savedPlace), aheads: this.aheads.map(savedPlace) };
+    return here || out.backs.length || out.aheads.length ? out : null;
+  }
+
+  /**
+   * Take a saved place back (the layout's, validated here): the stacks always, and where this reader was when it is
+   * showing that same note now. Whatever isn't this version's shape is dropped, never guessed at. True when anything was taken.
+   */
+  restoreNav(raw: unknown): boolean {
+    const nav = readNav(raw);
+    if (!nav) return false;
+    this.backs = nav.backs.map(placeOf); this.aheads = nav.aheads.map(placeOf);
+    const here = nav.here;
+    if (here && this.msg?.id === here.id) {
+      this.scroll = here.scroll; this.cur = here.cur; this.link = here.link;
+      this.folded = new Set(here.folded); this.expanded = new Set(here.expanded); this.foldSeen = new Set(here.seen); this.figureUI = new Map(here.figures);
+      this.reveal = here.cur !== null;
+    }
+    return true;
   }
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */

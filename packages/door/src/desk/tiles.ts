@@ -27,6 +27,8 @@ export interface TileSpec {
   id?: string;
   /** A detail's note (block id). */
   note?: string;
+  /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
+  nav?: unknown;
   /** A detail pinned to a page: the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
   page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
@@ -132,7 +134,7 @@ export class DetailPane extends ReaderPane {
   protected override emptyFor(): string {
     return this.missing ? `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it` : super.emptyFor();
   }
-  spec(): Record<string, unknown> { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
+  override spec(): Record<string, unknown> { return this.page ? { page: this.page } : { ...(this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}), ...super.spec() }; }
 }
 
 export const shell = () => process.env.SHELL || "sh";

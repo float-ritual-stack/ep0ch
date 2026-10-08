@@ -13,7 +13,7 @@ import { shortId } from "../refs";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
@@ -32,6 +32,8 @@ export interface DeskApi {
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;
   focusKind(kind: TileKindName): void;
   redraw(): void;
+  /** Save the screen's layout now (a reader's history changed, PIE-643). */
+  keepLayout?(): void;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
@@ -264,6 +266,7 @@ export class ReaderPane implements Pane {
       // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
       redraw: () => desk.redraw(),
+      ...(desk.keepLayout ? { navChanged: () => desk.keepLayout!() } : {}),
       // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
       navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
@@ -283,7 +286,19 @@ export class ReaderPane implements Pane {
   refresh(m: Msg) { this.surface.refresh(m); }
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
-  show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
+  show(m: Msg | null, desk: DeskApi) {
+    const shown = this.surface.show(m, this.host(desk));
+    // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
+    if (shown && m && this.wantNav !== undefined && this.wantNote() === m.id) { const nav = this.wantNav; this.wantNav = undefined; this.surface.restoreNav(nav); }
+    return shown;
+  }
+  /** The history a saved layout brought, until the reader shows the note it was saved on (NoteSurface.restoreNav). */
+  wantNav: unknown;
+  /** The note the saved layout had this reader on, until it shows it (or `dropWant`: it couldn't). */
+  wantNote(): string | null { return this.wantNav === undefined ? null : navNote(this.wantNav); }
+  dropWant() { this.wantNav = undefined; }
+  /** What a layout saves of a reader: its place and its back and forward stacks (PIE-643). */
+  spec(): Record<string, unknown> { const nav = this.wantNav ? this.wantNav : this.surface.saveNav(); return nav ? { nav } : {}; }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   /** The tiles whose opens land here (their link, or their container's opens-into): set by the desk as it draws. */
   landsFrom: string[] = [];

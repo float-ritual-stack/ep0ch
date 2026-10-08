@@ -216,6 +216,8 @@ export interface Screen {
   unsaved?(): boolean;
   /** The screen is being closed with unsaved drafts: copy them to disk, return where they went. */
   keepDrafts?(): string[];
+  /** The door is ending or handing over (PIE-643): save what a restart would bring back that isn't saved as it changes (readers' places). */
+  keepPlace?(): void;
   /** The door is ending (any way): copy what an editor still has open for a draft (ctrl+e) to disk, return where. */
   keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
@@ -837,12 +839,15 @@ export class App implements Ctx {
     this.quit();
     return this.keptOnExit;
   }
+  /** Every screen saves the places a restart brings back (PIE-643): readers' history and scroll. */
+  keepPlaces() { for (const s of this.holders()) { try { s.keepPlace?.(); } catch { /* the rest still save */ } } }
   /** Where `terminate` (and any quit, for ctrl+e editors) copied unsaved text, for the exit message. */
   keptOnExit: string[] = [];
 
   quit() {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
     for (const s of this.holders()) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
+    this.keepPlaces();
     this.closed = true;
     this.offResize();
     if (this.timer) clearInterval(this.timer);
