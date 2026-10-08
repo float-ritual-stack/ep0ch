@@ -46,7 +46,7 @@ are its record. The outliner's entries from then are kept below, under
   inline components; the tile sorts them.
 - **Fixed:** the header's controls no longer jump: counters on line 1, Kind, Stage and Sort each in a fixed-width slot
   on line 2 (a long value is cut with …), the filter and notes below. Clicks follow.
-- **Run:** protocol 110. Restart the outline host and the doors on this code (`ep0ch install --apply`). No schema change.
+- **Run:** protocol 111. Restart the outline host and the doors on this code (`ep0ch install --apply`). No schema change.
 
 ### A handover keeps where each reader has been (PIE-643)
 
