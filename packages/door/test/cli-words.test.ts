@@ -148,9 +148,9 @@ test("ep0ch view order is a command, its ids data; help names its usage", () => 
 describe("--screen with a name nobody knows", () => {
   // A name a screen could have may be a screen note in the outline (PIE-565): the door, once it has read them, refuses it.
   test("one no screen can have is refused before the door starts, with the names there are and the command to try", () => {
-    const r = ep0ch("--screen", "no-such!");
+    const r = ep0ch("--screen", "!?");
     expect(r.code).toBe(2);
-    expect(r.err).toContain('ep0ch: no screen "no-such!", built in or made (a screen note) · screens: ');
+    expect(r.err).toContain('ep0ch: no screen "!?", built in or made (a screen note) · screens: ');
     for (const name of ["board", "desk", "detail", "brief", "welcome", "river"]) expect(r.err).toContain(name);
     expect(r.err).toContain("try ep0ch --screen ");
     expect(r.out).toBe("");
