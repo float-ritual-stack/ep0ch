@@ -436,6 +436,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect((app as any).message).toContain("gardener");
     const other: any = await b.dispatch.act({ action: "backlinks", args: { id: ids.rota } }, agent);
     expect(other.backlinks.total).toBe(1);                                              // the rota links out to the note: an outlink, no backlinks
+    expect(other.backlinks.rows.filter((x: any) => x.kind === "outlink").map((x: any) => x.id)).toEqual([target.id]);   // the rows are the ones the counts count
     expect(other.backlinks.across).toMatchObject({ outlinks: { matching: 1, total: 1 }, backlinks: { total: 0 } });
     expect(JSON.stringify(peek())).toBe(before);
     await expect(b.dispatch.act({ action: "backlinks", args: { stage: "someday" } }, agent)).rejects.toThrow("stage is one of");
