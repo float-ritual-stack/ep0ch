@@ -11,7 +11,7 @@ import { Mirror } from "../src/mirror";
 import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
 import { readFileSync } from "node:fs";
-import { chip, CHIP_MAX_LUMINANCE, fgRgb } from "../src/style";
+import { chip, CHIP_MAX_LUMINANCE, fgRgb, stripMarks } from "../src/style";
 import { colourBody } from "../src/text";
 import { presentLinks } from "../src/refs";
 import { MainMenu, MENU_SCREENS } from "../src/screens";
@@ -199,10 +199,11 @@ describe("the palettes themselves (every background, not only the ones these scr
   }
   test("external links are drawn in the theme's external colour with a ↗; internal links keep the cyan; pi-outliner:// links are internal", () => {
     const line = colourBody(presentLinks("See [the society](https://example.org/a), [[Bike shed]] and [the page](pi-outliner://page/Bike%20shed).", false, null));
-    const ext = fgRgb(THEMES.calm.external), plainText = line.replace(/\x1b\[[\d;]*m/g, "");
+    const ext = fgRgb(THEMES.calm.external), plainText = stripMarks(line.replace(/\x1b\[[\d;]*m/g, ""));
     setTheme("calm");
     const drawn = colourBody(presentLinks("See [the society](https://example.org/a) and [the page](pi-outliner://page/Bike%20shed).", false, null));
-    expect(drawn).toContain(ext + "the society↗");
+    expect(drawn).toContain(ext + "the society");
+    expect(stripMarks(drawn).replace(/\x1b\[[\d;]*m/g, "")).toContain("the society↗");
     expect(drawn).not.toContain(ext + "the page");
     expect(plainText).toContain("the society↗");
     expect(plainText).not.toContain("the page↗");

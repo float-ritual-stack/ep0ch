@@ -69,7 +69,7 @@ function cut(s: string, w: number): [string, string] {
 
 /** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
 const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
-const NO_ROOM = /[\uE000-\uE009\u{100000}-\u{10FFFD}]/u;
+const NO_ROOM = /[\uE000-\uE00A\u{100000}-\u{10FFFD}]/u;
 
 /**
  * One line's rows (for colourBody: wrap's `code`) with each inline code span the wrap cut closed at the row's end and opened again on the next, so

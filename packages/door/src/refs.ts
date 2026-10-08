@@ -4,7 +4,7 @@
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import type { Source } from "./props";
 import { emphasis } from "./inline";
-import { LINK_END, linkTag, stripMarks } from "./style";
+import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
@@ -249,7 +249,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-    return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + v.text + (external ? "↗" : "") + off + LINK_OFF;
+    return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + v.text + off + (external ? ADORN + "↗" : "") + LINK_OFF;
   };
   return lines.map((line, i) => {
     if (typed[i]! >= 0) return line;
