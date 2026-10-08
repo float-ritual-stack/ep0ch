@@ -155,6 +155,9 @@ describe.skipIf(!outliner)("the text is Detail's panel: status line, group heade
   }
 });
 
+/** A status line's parts, whatever order the tile places them in. */
+const parts = (s: string) => s.split("·").map(x => x.trim()).filter(Boolean).sort();
+
 describe("the door's own parts of the view", () => {
   test("the status line counts add up: matching + filtered + hidden = total, and says nothing is grouped without facets", () => {
     const v = backlinkView(fixture(), DEFAULT_BACKLINK_VIEW_OPTIONS);
@@ -264,7 +267,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     await openDock();
     const p = peek();
     expect(p.faceted).toBe(true);
-    expect(p.status).toBe("7 of 9 match · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(p.status).toBe("7 of 9 match · →0/0 ♦0/0 ←7/9 · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
     // The links model's groups: no outlinks or resources here, so Backlinks alone, Detail's kind groups under it.
     expect(p.rows.map((r: any) => r.text)).toEqual([
       "← backlinks (7)", "Outbox item 4", "Offer spare onion sets", "Ask Ana about bean seed",   // open first, then updated ↓
@@ -274,7 +277,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect(p.rows.slice(4).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);   // the other kinds, folded (nothing open in them)
     expect(p.rows.find((r: any) => r.selected).id).toBe(ids.draft);               // the first source, not a header
     const lines = dock();
-    expect(lines[0]).toBe(p.status);
+    expect(parts(lines[0]!)).toEqual(parts(p.status));
     // One line per row, the breadcrumb and reference suffix on the same line.
     expect(lines[1]).toContain("▾ ← backlinks (7)");
     expect(lines[2]).toContain("  + Outbox item 4 (1 waiting · 1 draft · 2 done)");
@@ -294,7 +297,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
           const lines = dock(), r = rect("backlinks"), head = B().linksTile.head as number;
           const raw = frame().slice(r.row + 1, r.row + 1 + head).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trim());
           expect(raw.every(l => l.length > 0)).toBe(true);
-          expect(lines[0]).toBe(typing ? peek().status.replace("Filter: poster", "Filter: poster▌") : peek().status);
+          expect(parts(lines[0]!)).toEqual(parts(typing ? peek().status.replace("Filter: poster", "Filter: poster▌") : peek().status));
           for (const c of ["kind", "stage", "sort", "resolved", "related"]) {
             const seg = B().linksTile.controls.find((x: any) => x.control === c);
             const at = seg && { col: r.col + 1 + seg.x, row: r.row + 1 + seg.y, cols: seg.cols, rows: 1 };
@@ -309,13 +312,13 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
   test("the toggles by key: h resolved, n this note, K kind, w stage, s sort; . folds a group; each keeps the counts adding up", async () => {
     await openDock();
     ch("h");
-    expect(peek().status).toBe("8 of 9 match · 1 this note hidden · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("8 of 9 match · →0/0 ♦0/0 ←8/9 · 1 this note hidden · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
     ch("n");
-    expect(peek().status).toBe("9 of 9 match · this note shown · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("9 of 9 match · →0/0 ♦0/0 ←9/9 · this note shown · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
     ch("h"); ch("n");
     ch("K");
     expect(peek().options.kind).toBe("outbox-item");
-    expect(peek().status).toBe("4 of 9 match · 3 filtered · 1 this note hidden · 1 resolved hidden · Kind: Outbox item · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("4 of 9 match · →0/0 ♦0/0 ←4/9 · 3 filtered · 1 this note hidden · 1 resolved hidden · Kind: Outbox item · Stage: all · Sort: Updated ↓");
     expect(peek().rows.filter((r: any) => r.id).length).toBe(4);                     // narrowing opens the group
     ch("w"); ch("w");
     expect(peek().options.stage).toBe("waiting");
@@ -339,7 +342,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect(B().treeOpen).toBe(false);
     expect(peek().typing).toBe("rota");
     expect(peek().rows.map((r: any) => r.id).filter(Boolean)).toEqual([ids.rota]);
-    expect(dock()[0]).toStartWith("Filter: rota▌ · 1 of 9 match · 6 filtered");
+    expect(parts(dock()[0]!)).toEqual(expect.arrayContaining(["Filter: rota▌", "1 of 9 match", "→0/0 ♦0/0 ←1/9", "6 filtered"]));
     key({ kind: "esc" });
     expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the dock
     expect(peek().options.filter).toBe("");
@@ -427,17 +430,18 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     const before = JSON.stringify(peek());
     const agent = { kind: "agent" as const, id: "gardener" };
     const r: any = await b.dispatch.act({ action: "backlinks", args: { resolved: true, kind: "comment" } }, agent);
-    expect(r.backlinks.status).toBe("2 of 9 match · 6 filtered · 1 this note hidden · resolved shown · Kind: Comment · Stage: all · Sort: Updated ↑");
+    expect(r.backlinks.status).toBe("2 of 9 match · →0/0 ♦0/0 ←2/9 · 6 filtered · 1 this note hidden · resolved shown · Kind: Comment · Stage: all · Sort: Updated ↑");
     expect(r.backlinks.rows.filter((x: any) => x.id).length).toBe(2);
     expect(JSON.stringify(peek())).toBe(before);                                      // nothing of the person's moved
     expect((app as any).message).toContain("gardener");
     const other: any = await b.dispatch.act({ action: "backlinks", args: { id: ids.rota } }, agent);
-    expect(other.backlinks.total).toBe(0);
+    expect(other.backlinks.total).toBe(1);                                              // the rota links out to the note: an outlink, no backlinks
+    expect(other.backlinks.across).toMatchObject({ outlinks: { matching: 1, total: 1 }, backlinks: { total: 0 } });
     expect(JSON.stringify(peek())).toBe(before);
     await expect(b.dispatch.act({ action: "backlinks", args: { stage: "someday" } }, agent)).rejects.toThrow("stage is one of");
     const mine: any = await b.dispatch.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
     expect(mine.backlinks.options).toMatchObject({ stage: "done", sortField: "title", sortDirection: "asc" });
     expect(peek().options).toMatchObject({ stage: "done", sortField: "title" });
-    expect(dock()[0]).toBe(peek().status);
+    expect(parts(dock()[0]!)).toEqual(parts(peek().status));
   }, 20_000);
 });

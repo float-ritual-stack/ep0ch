@@ -16,11 +16,11 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import {
   groupHasSomething, groupNote, openResource, outlinkWords, resourceNote, resourceTarget, resourceWords, snapshotProblem,
-  RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink,
+  RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink, type AuthoredTargetFacets,
 } from "./authored";
 import {
-  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow,
-  type BacklinkCollection, type BacklinkSource, type BacklinkViewGroup, type BacklinkViewOptions,
+  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, isOpenBacklinkStage,
+  type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import type { Msg } from "./board";
 import { COMPONENT_OPEN, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
@@ -61,6 +61,8 @@ export interface LinkView {
   backlinks: Readonly<BacklinkViewOptions>;
   /** Only these groups (the inline `::resources`); every group otherwise. */
   only?: ReadonlySet<LinkGroupName>;
+  /** The sort (`backlinks.sortField`) orders Outlinks and Resources too, as it does Backlinks (the links tile); else they stay in the note's order. */
+  sortAll?: boolean;
 }
 
 /** Separates a row's key from its group's (the tree nests a row's own links under its key). */
@@ -107,13 +109,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
           const g = l.value[group];
           if (!groupHasSomething(g)) continue;
           note = groupNote(g);
-          for (const e of g.entries) {
-            const row: LinkRow = e.kind === "outlink"
-              ? { kind: "outlink", key: key + SEP + e.key, depth: depth + 1, link: e }
-              : { kind: "resource", key: key + SEP + e.key, depth: depth + 1, link: e as AuthoredResourceLink };
-            const w = linkWords(row);
-            if (matchesSearchText(filter, [w.text, w.context])) entries.push(row);
-          }
+          for (const row of authoredRows(g.entries, group, key, depth + 1, view.backlinks, filter, !!view.sortAll).rows) entries.push(row);
           count = entries.length;
         }
       }
@@ -123,6 +119,81 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
     if (open) out.push(...entries);
   }
   return out;
+}
+
+
+// ── Kind, Stage and Sort on every group ──────────────────────────────────────────────────────────────
+
+/**
+ * What a row's target is, for Kind, Stage and Sort: a backlink's own facets, an Outlink's or a Resource's
+ * (a ticket kept as a block) as the service sent them with its links. Null for a link with no target block:
+ * unregistered, missing, in the Trash. Such a row stays while nothing narrows by kind or stage, and drops out
+ * when something does; sorted by date it goes last.
+ */
+export function rowFacets(r: LinkRow): { kind: string; kindLabel: string; bucket?: string; createdAt: string; updatedAt: string; title: string } | null {
+  if (r.kind === "backlink") {
+    const f = r.source.facets;
+    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: r.source.createdAt, updatedAt: r.source.updatedAt, title: r.source.title } : null;
+  }
+  const f: AuthoredTargetFacets | undefined = r.kind === "outlink" ? (r.link.resolution.kind === "ready" ? r.link.resolution.facets : undefined) : r.kind === "resource" ? r.link.facets : undefined;
+  return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
+}
+
+const stageMatches = (bucket: string | undefined, stage: BacklinkStageFilter) =>
+  stage === "all" || (stage === "open" ? isOpenBacklinkStage(bucket as never) : bucket === stage);
+
+/** An Outlink's or Resource's rows after the text, kind and stage filters and the sort the Backlinks group answers to; `total` is how many there were. */
+function authoredRows(entries: readonly (AuthoredOutlink | AuthoredResourceLink)[], group: "outlinks" | "resources", key: string, depth: number, o: Readonly<BacklinkViewOptions>, filter: ReturnType<typeof prepareSearchQuery>, sort: boolean): { rows: LinkRow[]; total: number } {
+  const rows: LinkRow[] = [];
+  for (const e of entries) {
+    const row: LinkRow = group === "outlinks"
+      ? { kind: "outlink", key: key + SEP + e.key, depth, link: e as AuthoredOutlink }
+      : { kind: "resource", key: key + SEP + e.key, depth, link: e as AuthoredResourceLink };
+    const w = linkWords(row), f = rowFacets(row);
+    if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.bucket ? [f.bucket] : [])])) continue;
+    if (o.kind !== null && f?.kind !== o.kind) continue;
+    if (o.stage !== "all" && !(f && stageMatches(f.bucket, o.stage))) continue;
+    rows.push(row);
+  }
+  const dir = o.sortDirection === "asc" ? 1 : -1, field = o.sortField;
+  const cmp = (a: LinkRow, b: LinkRow): number => {
+    const fa = rowFacets(a), fb = rowFacets(b);
+    // As the backlinks: open items first; a link with no target block after the rest, whatever the sort.
+    const open = Number(isOpenBacklinkStage(fb?.bucket as never)) - Number(isOpenBacklinkStage(fa?.bucket as never));
+    if (open) return open;
+    if (!fa || !fb) return Number(!fa) - Number(!fb) || linkWords(a).text.localeCompare(linkWords(b).text);
+    const primary = field === "title" ? fa.title.localeCompare(fb.title, undefined, { sensitivity: "base" })
+      : (field === "created" ? fa.createdAt : fa.updatedAt).localeCompare(field === "created" ? fb.createdAt : fb.updatedAt);
+    return dir * primary || fa.title.localeCompare(fb.title) || a.key.localeCompare(b.key);
+  };
+  if (sort) rows.sort(cmp);
+  return { rows, total: entries.length };
+}
+
+/**
+ * How many links match in each group, and the kinds present anywhere, across all three: the links tile's
+ * counters and Kind control. A group still being read, or with nothing, counts as unknown (null).
+ */
+export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>): BacklinkAcross {
+  const filter = prepareSearchQuery(o.filter ?? "");
+  const by: BacklinkAcross["by"] = { outlinks: null, resources: null, backlinks: null };
+  const kinds = new Map<string, string>();
+  const note = (f: { kind: string; kindLabel: string } | undefined) => { if (f && !kinds.has(f.kind)) kinds.set(f.kind, f.kindLabel); };
+  if (data.backlinks.kind === "ready") {
+    const bv = backlinkView(data.backlinks.value, o), all = backlinkView(data.backlinks.value, { ...o, kind: null, stage: "all", filter: "" });
+    by.backlinks = { matching: bv.matching.length, total: bv.total, filtered: bv.filtered };
+    for (const k of all.kinds) kinds.set(k.kind, k.label);
+  }
+  if (data.links.kind === "ready" && data.links.value.kind === "ready") {
+    for (const group of ["outlinks", "resources"] as const) {
+      const g = data.links.value[group];
+      const { rows, total } = authoredRows(g.entries, group, group, 1, o, filter, true);
+      by[group] = { matching: rows.length, total, filtered: total - rows.length };
+      for (const e of g.entries) note(group === "outlinks" ? (e as AuthoredOutlink).resolution.kind === "ready" ? ((e as AuthoredOutlink).resolution as { facets?: AuthoredTargetFacets }).facets : undefined : (e as AuthoredResourceLink).facets);
+    }
+  }
+  const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce((n, x) => n + (x ? f(x) : 0), 0);
+  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })) };
 }
 
 /** The block a row stands for: a resolved outlink's target, a backlink's source (a ticket's block is `linkOpens`'). */

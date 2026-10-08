@@ -22,10 +22,17 @@ export type AuthoredResourceReference =
 export interface AuthoredLinkDiagnostic { span: { start: number; end: number }; message: string }
 export type AuthoredLinkCompleteness = { kind: "complete" } | { kind: "limited"; reason: string; shown: number };
 
+/** What an Outlink's or Resource's target block is (the service's `linkTargetFacets`): for Kind, Stage and Sort. */
+export interface AuthoredTargetFacets {
+  kind: string; kindLabel: string;
+  stage?: { property: string; value: string; bucket?: "waiting" | "draft" | "active" | "done" };
+  createdAt: string; updatedAt: string;
+}
+
 interface EntryBase { key: string; label: string; firstSpan: { start: number; end: number }; occurrenceCount: number }
 
 export type AuthoredOutlinkResolution =
-  | { kind: "ready"; target: { kind: "block"; blockId: string; fragmentId?: string }; title: string }
+  | { kind: "ready"; target: { kind: "block"; blockId: string; fragmentId?: string }; title: string; facets?: AuthoredTargetFacets }
   | { kind: "deleted"; blockId: string; fragmentId?: string; title: string; reason: string }
   | { kind: "unregistered-page"; address: string; reason: string }
   | { kind: "missing"; reason: string };
@@ -39,6 +46,8 @@ export interface AuthoredResourceLink extends EntryBase {
   kind: "resource"; resourceId?: string;
   /** The block the Resource is kept as (a Jira ticket the extension owns, PIE-445): ⏎ opens it. */
   recordBlockId?: string;
+  /** What the record block is (a ticket kept as a block). */
+  facets?: AuthoredTargetFacets;
   resolution: AuthoredResourceResolution;
 }
 

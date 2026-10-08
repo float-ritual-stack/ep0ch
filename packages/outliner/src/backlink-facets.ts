@@ -1,6 +1,6 @@
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, parseAnnotationBlockContent } from "./annotations";
 import { getProperty } from "./properties";
-import type { BacklinkSourceFacets, BacklinkStageBucket, Block } from "./types";
+import type { BacklinkSourceFacets, BacklinkStageBucket, Block, LinkTargetFacets } from "./types";
 
 /**
  * Data that turns a source block's properties into backlink facets. The
@@ -100,7 +100,7 @@ function blockStage(block: Block, rules: BacklinkFacetRules): BacklinkSourceFace
  */
 function sourceKindAndStage(
   source: Block,
-  blocksById: ReadonlyMap<string, Block>,
+  blocksById: Pick<ReadonlyMap<string, Block>, "get">,
   rules: BacklinkFacetRules,
 ): { kind: string; stage: BacklinkSourceFacets["stage"] } {
   const own = blockStage(source, rules);
@@ -172,5 +172,25 @@ export function backlinkSourceFacets(
     placement: sourcePlacement(source, target, blocksById),
     ...(stage ? { stage } : {}),
     ...(comment ? { comment } : {}),
+  };
+}
+
+/**
+ * What a link's target block is, for the links tile's Kind, Stage and Sort on Outlinks and Resources as on
+ * Backlinks: the same kind and stage rules as a backlink source (`backlinkSourceFacets`), with the dates
+ * the sort reads. `lookup` finds a block by id (the ancestors the kind is read from).
+ */
+export function linkTargetFacets(
+  block: Block,
+  lookup: (id: string) => Block | null | undefined,
+  rules: BacklinkFacetRules = DEFAULT_BACKLINK_FACET_RULES,
+): LinkTargetFacets {
+  const { kind, stage } = sourceKindAndStage(block, { get: (id) => lookup(id) ?? undefined }, rules);
+  return {
+    kind,
+    kindLabel: rules.kindLabels[kind] ?? humanizeBacklinkKind(kind),
+    ...(stage ? { stage } : {}),
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
   };
 }
