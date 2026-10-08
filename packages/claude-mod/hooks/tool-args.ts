@@ -165,9 +165,9 @@ export function checkToolArgs(spec: ToolArgsSpec, input: unknown): ToolArgsResul
   }
   for (const [canonical, keys] of from) {
     const values = keys.map(key => given[key]);
-    if (keys.length > 1 && values.some(value => sameValue(value) !== sameValue(values[0]))) {
+    if (keys.length > 1 && !values.every(value => sameReference(value, values[0]))) {
       conflicted.add(canonical);
-      problems.push(`Ambiguous: ${keys.map((key, i) => `\`${key}\` is ${JSON.stringify(shorten(values[i]))}`).join(" but ")}. They name different things and none was used: pass one \`${aliases.has("ref") || "ref" in declared ? "ref" : canonical}\`.`);
+      problems.push(ambiguous(keys.map((key, i) => [key, values[i]] as const)));
       continue;
     }
     args[canonical] = values[0];
@@ -178,9 +178,9 @@ export function checkToolArgs(spec: ToolArgsSpec, input: unknown): ToolArgsResul
   if ("ref" in declared && !conflicted.has("ref")) {
     const named = ["ref", ...REF_ALIASES.filter(name => name in declared)].filter(name => (name === "ref" ? args.ref : given[name]) !== undefined);
     const values = named.map(name => (name === "ref" ? args.ref : given[name]));
-    if (named.length > 1 && values.some(value => sameValue(value) !== sameValue(values[0]))) {
+    if (named.length > 1 && !values.every(value => sameReference(value, values[0]))) {
       conflicted.add("ref");
-      problems.push(`Ambiguous: ${named.map((key, i) => `\`${key}\` is ${JSON.stringify(shorten(values[i]))}`).join(" but ")}. They name different things and none was used: pass one \`ref\`.`);
+      problems.push(ambiguous(named.map((key, i) => [key, values[i]] as const)));
     }
   }
 
@@ -228,16 +228,34 @@ export function checkToolArgs(spec: ToolArgsSpec, input: unknown): ToolArgsResul
   return problems.length ? fail() : { ok: true, args, renamed };
 }
 
-/** A value as compared for conflicts: `((id))`, `((id|label))` and the bare id are one reference; case of a UUID does not matter. */
-function sameValue(value: unknown): string {
-  if (typeof value !== "string") return JSON.stringify(value);
+/** A reference as compared for conflicts: the block it names, and the outline an `ep0ch://` URI names it in. */
+function refKey(value: unknown): { id: string; where?: string } {
+  if (typeof value !== "string") return { id: JSON.stringify(value) };
   let text = value.trim();
   const block = /^\(\(([^|)^]+)(?:[|^][^)]*)?\)\)$/.exec(text);
   if (block) text = block[1]!.trim();
-  const uri = /^ep0ch:\/\/[^/]+\/b\/([0-9a-f-]{36})$/i.exec(text);
-  if (uri) text = uri[1]!;
-  return /^[0-9a-f-]{36}$/i.test(text) ? text.toLowerCase() : text;
+  const uri = /^ep0ch:\/\/([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(text);
+  if (uri) return { id: uri[2]!.toLowerCase(), where: uri[1]!.toLowerCase() };
+  return { id: /^[0-9a-f-]{36}$/i.test(text) ? text.toLowerCase() : text };
 }
+
+/**
+ * Whether two spellings name the same block: `((id))`, `((id|label))` and the bare id are one; an `ep0ch://` URI is the
+ * same block only in the same outline (UUIDs can repeat across a fork), and a bare id agrees with a URI of that id.
+ */
+export function sameReference(a: unknown, b: unknown): boolean {
+  const [x, y] = [refKey(a), refKey(b)];
+  return x.id === y.id && (x.where === undefined || y.where === undefined || x.where === y.where);
+}
+
+/** The refusal for references that disagree (`ref` and `id` naming different blocks), or null when they all agree. */
+export function referenceConflict(spec: ToolArgsSpec, pairs: readonly (readonly [string, unknown])[]): string | null {
+  if (pairs.length < 2 || pairs.every(([, value]) => sameReference(value, pairs[0]![1]))) return null;
+  return message(spec, [ambiguous(pairs)], [], {}, []);
+}
+
+const ambiguous = (pairs: readonly (readonly [string, unknown])[]) =>
+  `Ambiguous: ${pairs.map(([key, value]) => `\`${key}\` is ${JSON.stringify(shorten(value))}`).join(" but ")}. They name different things and none was used: pass one \`ref\`.`;
 
 function describe(value: unknown): string {
   if (value === null) return "null";
@@ -252,9 +270,10 @@ function message(spec: ToolArgsSpec, problems: string[], fixes: [string, string]
   const ignore = new Set(spec.ignore ?? []);
   const kept = Object.entries(given).filter(([key, value]) => value !== undefined && !ignore.has(key));
   const exact = kept.every(([, value]) => JSON.stringify(value).length <= 160);
-  if (fixes.length && unknown.length === fixes.length && problems.length === fixes.length && exact) {
-    const fixedArgs: Record<string, unknown> = {};
-    for (const [key, value] of kept) fixedArgs[fixes.find(([from]) => from === key)?.[1] ?? key] = value;
+  const fixedArgs: Record<string, unknown> = {};
+  for (const [key, value] of kept) fixedArgs[fixes.find(([from]) => from === key)?.[1] ?? key] = value;
+  // The corrected call is offered only when it would itself pass.
+  if (fixes.length && unknown.length === fixes.length && problems.length === fixes.length && exact && checkToolArgs(spec, fixedArgs).ok) {
     lines.push(`Call it as: ${(spec.callText ?? toolCallText)(spec.name, fixedArgs)}`);
   } else {
     lines.push(`Example: ${(spec.callText ?? toolCallText)(spec.name, spec.example)}`);

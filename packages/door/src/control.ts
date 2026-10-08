@@ -9,6 +9,7 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
+import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
 import { canonicalLocalMachineName } from "./machine-name";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
@@ -229,15 +230,33 @@ function openRef(arg: string): { blockId: string; fragment?: string; address?: {
   return "outline" in parsed ? { ...parsed, address: { outline: parsed.outline, machine: parsed.machine } } : parsed;
 }
 
+/** `open`'s ref, as the shared tool-argument check words a refusal. */
+const OPEN_SPEC: ToolArgsSpec = { name: "ep0ch open", schema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"] }, example: { ref: "PIE-123" }, callText: (name, args) => `${name} ${args.ref}` };
+
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
   let commandArgs = args.filter(a => a !== "--json");
   const wantsJson = args.includes("--json");
   const [cmd] = commandArgs;
   let arg = commandArgs[1];
-  // `open ref=PIE-123` (or id=, reference=, block=, blockId=, uri=, note=) is `open PIE-123`: the ref by the name a model gives it.
-  const named = cmd === "open" && arg ? /^(?:ref|id|reference|block|blockId|uri|note)=(.+)$/s.exec(arg) : null;
-  if (named) { commandArgs = [cmd!, named[1]!, ...commandArgs.slice(2)]; arg = named[1]; }
+  // `open ref=PIE-123` (or id=, reference=, block=, blockId=, uri=, note=) is `open PIE-123`: the ref by the name a model
+  // gives it. Every name given is checked together with the positional ref: two that name different blocks refuse the
+  // open (outline-core's tool-args), and none is left in the words the open is built from.
+  if (cmd === "open" && arg && !arg.startsWith("file:")) {
+    const named = commandArgs.slice(1).flatMap((word, i) => {
+      const m = /^(ref|id|reference|block|blockId|uri|note)=(.*)$/s.exec(word);
+      return m ? [{ i: i + 1, key: m[1]!, value: m[2]! }] : [];
+    });
+    const positional = arg.includes("=") ? [] : [{ i: 1, key: "ref", value: arg }];
+    const refs = [...positional, ...named.filter(n => n.i !== 1 || positional.length === 0 || arg!.includes("="))];
+    const conflict = referenceConflict(OPEN_SPEC, refs.map(r => [r.key, r.value] as const));
+    if (conflict) { console.error(conflict); return 1; }
+    if (refs.length) {
+      const taken = new Set(named.map(n => n.i));
+      commandArgs = [cmd, refs[0]!.value, ...commandArgs.slice(2).filter((_, j) => !taken.has(j + 2))];
+      arg = refs[0]!.value;
+    }
+  }
   let req: Record<string, unknown>;
   // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
   if (cmd === "subscribe") {

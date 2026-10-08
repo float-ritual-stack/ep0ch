@@ -474,7 +474,7 @@ test("agent operations take ref and its aliases; two aliases for different notes
   expect(edits.exitCode).toBe(1);
   expect(edits.stderr).toContain("Ambiguous");
   expect(edits.stderr).toContain("pass one `ref`");
-  expect(edits.stderr).toContain("Example: outliner agent edit");
+  expect(edits.stderr).toContain("Example: outliner agent edit --json '{");
   expect(store.require(note.id).text).toBe("Seed swap plan\n\nBorlotti.");
   expect(store.require(other.id).text).toBe("Pond notes\n\nFrogs.");
   const same = await agent("edit", { ref: `((${note.id}))`, id: note.id, expectedRevision: note.revision, append: "Yes." });
@@ -484,7 +484,7 @@ test("agent operations take ref and its aliases; two aliases for different notes
   expect(typo.exitCode).toBe(1);
   expect(typo.stderr).toContain("`refe` is not an argument of outliner agent read; did you mean `ref`?");
   expect(typo.stderr).toContain("Arguments: ref (string, required)");
-  expect(typo.stderr).toContain(`Call it as: outliner agent read {"ref":"${note.id}"}`);
+  expect(typo.stderr).toContain(`Call it as: outliner agent read --json '{"ref":"${note.id}"}'`);
   // view-order keeps its old name for the view.
   expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
 });

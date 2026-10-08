@@ -6,6 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ActionRefused, actionSet, def } from "../src/surface/actions";
 import type { Actor } from "../src/socket";
+import { tmpdir } from "node:os";
+import { controlClient } from "../src/control";
 
 const AGENT: Actor = { kind: "agent", id: "claude-7" };
 const BLOCK = "0f3c2a1b-1111-4222-8333-444455556666";
@@ -55,5 +57,34 @@ describe("the door's act: id, and ref under every name a model gives it", () => 
     expect(missing).toContain("Example: ep0ch act note.pin id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34");
     expect(await message({ id: BLOCK, n: "two" })).toContain("n is a number");
     await expect((async () => set.runUntyped("note.bare", { id: BLOCK }, {}, AGENT))()).rejects.toThrow(/`id` is not an argument of note\.bare[\s\S]*Arguments: no arguments/);
+  });
+});
+
+describe("ep0ch open: the ref positionally or by any of its names", () => {
+  const open = async (...argv: string[]) => {
+    const said: string[] = [];
+    const was = console.error, wasEnv = process.env.EP0CH_CONTROL;
+    console.error = (...a: unknown[]) => { said.push(a.join(" ")); };
+    process.env.EP0CH_CONTROL = join(tmpdir(), "ep0ch-no-door-here.sock");
+    try { return { code: await controlClient(["open", ...argv]), said: said.join("\n") }; }
+    finally { console.error = was; if (wasEnv === undefined) delete process.env.EP0CH_CONTROL; else process.env.EP0CH_CONTROL = wasEnv; }
+  };
+  test("two names for different blocks are refused before anything is sent, whichever order and spelling", async () => {
+    for (const argv of [[`ref=${BLOCK}`, `id=${OTHER}`], [BLOCK, `id=${OTHER}`], [`ref=${BLOCK}`, "from=main", `block=((${OTHER}))`], [`((${BLOCK}))`, `uri=${OTHER}`]]) {
+      const r = await open(...argv);
+      expect(r.code, argv.join(" ")).toBe(1);
+      expect(r.said).toContain("Ambiguous");
+      expect(r.said).toContain("pass one `ref`");
+      expect(r.said).toContain("Example: ep0ch open PIE-123");
+    }
+    // The same block in two outlines is two blocks.
+    expect((await open(`ref=ep0ch://garden@laptop/b/${BLOCK}`, `uri=ep0ch://archive@server/b/${BLOCK}`)).said).toContain("Ambiguous");
+  });
+  test("one block spelt two ways goes on to the door (here: none answers)", async () => {
+    for (const argv of [[`ref=${BLOCK}`], [BLOCK, `id=((${BLOCK}))`], [`reference=${BLOCK}`, "from=main"], [`ref=${BLOCK}`, `id=${BLOCK}`]]) {
+      const r = await open(...argv);
+      expect(r.said, argv.join(" ")).toContain("no door answered");
+      expect(r.said).not.toContain("Ambiguous");
+    }
   });
 });

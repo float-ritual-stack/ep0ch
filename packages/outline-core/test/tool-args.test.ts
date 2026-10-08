@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkToolArgs, REF_ALIASES, toolSchemaLine, type ToolArgsSpec } from "../src/tool-args";
+import { checkToolArgs, REF_ALIASES, sameReference, toolSchemaLine, type ToolArgsSpec } from "../src/tool-args";
 
 const read: ToolArgsSpec = {
   name: "outline_read",
@@ -57,4 +57,13 @@ test("missing, mistyped and out-of-range values say the expected type; null sati
   const move: ToolArgsSpec = { name: "move", schema: { properties: { ref: { type: "string" }, parentId: { type: ["string", "null"] } }, required: ["ref", "parentId"] }, example: { ref: "a", parentId: null } };
   expect(checkToolArgs(move, { ref: "a", parentId: null }).ok).toBe(true);
   expect(toolSchemaLine(move)).toBe("ref (string, required) · parentId (string|null, required)");
+});
+
+test("the same block id in two outlines is two blocks; a corrected call is offered only when it would pass", () => {
+  const id = "0f3c2a1b-1111-4222-8333-444455556666";
+  expect(sameReference(`ep0ch://garden@laptop/b/${id}`, `ep0ch://archive@server/b/${id}`)).toBe(false);
+  expect(sameReference(`ep0ch://garden@laptop/b/${id}`, `((${id}))`)).toBe(true);
+  const odd = error(read, { refe: 42 });
+  expect(odd).not.toContain("Call it as");
+  expect(odd).toContain('Example: outline_read {"ref":"PIE-123","depth":1}');
 });

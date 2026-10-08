@@ -15,8 +15,11 @@ const revision = { type: "integer", minimum: 1, description: "The revision outli
 const NOTE = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
 const THREAD = "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11";
 
+/** A call as the CLI takes it: the input as JSON on `--json` (shell-quoted). */
+const cliCall = (name: string, args: Record<string, unknown>) => `${name} --json '${JSON.stringify(args).replace(/'/g, "'\\''")}'`;
+
 function spec(name: string, properties: Record<string, ToolSchema>, required: string[], example: Record<string, unknown>, aliases?: ToolArgsSpec["aliases"]): ToolArgsSpec {
-  return { name: `outliner agent ${name}`, schema: { type: "object", properties, required }, example, ...(aliases ? { aliases } : {}) };
+  return { name: `outliner agent ${name}`, schema: { type: "object", properties, required }, example, callText: cliCall, ...(aliases ? { aliases } : {}) };
 }
 
 /** The checked operations, keyed as the CLI names them. */
