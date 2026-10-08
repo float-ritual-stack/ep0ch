@@ -11,7 +11,7 @@
 // token's subject and client. A mirror is never written: a write to its outline queues in the netmail store beside the
 // mirrors (src/mcp-netmail.ts) until its home machine pulls it.
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
@@ -186,6 +186,10 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       netmail: {
         queue(entry) { store ??= new Netmail(netmailAt); return store.enqueue(entry); },
         summary(m) { return summaries().find(s => s.machine === m) ?? null; },
+        // Reads open the store only if there is one; the home machine's `queue settle` is another process, and SQLite shows its commits.
+        receipt(id) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.receipt(id) ?? null; },
+        pending(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who) ?? []; },
+        history(machine, outline, blockId, who) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.forBlock(machine, outline, blockId, who, false) ?? []; },
       },
     } : {}),
     log,

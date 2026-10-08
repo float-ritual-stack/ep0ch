@@ -25,6 +25,17 @@ are its record. The outliner's entries from then are kept below, under
   `changes.seen` is yours. Rows come from the service's change feed (`changes.since`): no second log.
 - **Run:** nothing beyond the usual `ep0ch install --apply`. The kitchen sink has a `changes` section.
 
+### MCP: write receipts, read-your-writes and outline_query (PIE-648)
+
+- **New:** `outline_write_status(queueId)` follows a write queued for another machine's outline: queued (with that machine's
+  last pull), applied (with the revision), proposed (with the proposal's URI), superseded or rejected (with why).
+- **New:** `outline_read` on a mirror's block shows the caller's own still-queued edits as `pending`, laid over the mirror's
+  text and marked per span. Nobody else's waiting writes are shown.
+- **New:** `outline_query` runs the views' grammar (or a saved view by id) read-only over MCP, on live outlines and mirrors,
+  with `limit`, `more` and `total`. A read-only copy now answers `blocks.query`, `views.read` and `query.matches`.
+- **You must run:** on the gateway's machine, with the gateway stopped:
+  `bun packages/door/scripts/migrations/netmail-v1-to-v2.ts ~/outline-mirrors/.netmail.sqlite --write` (the queue store
+  is version 2). Then update the home machines (the laptop) so their pull reports revisions and proposals back.
 
 ### A handover keeps where each reader has been (PIE-643)
 

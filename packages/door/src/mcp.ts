@@ -13,7 +13,9 @@ import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { briefFor } from "./library/brief";
-import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailSummary } from "./mcp-netmail";
+import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
+import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { actorOf, applyWrite, assignIdRefusal, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
@@ -77,6 +79,12 @@ export interface McpOutlineListing {
 export interface McpQueue {
   queue(entry: Omit<NetmailEntry, "id" | "queuedAt">): NetmailEntry;
   summary(machine: string): NetmailSummary | null;
+  /** A queued write and what it became so far, or none. */
+  receipt(id: string): NetmailReceipt | null;
+  /** One caller's writes about a block that the mirror doesn't show yet (the read-your-writes overlay). */
+  pending(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
+  /** All of one caller's writes about a block, oldest first (what a receipt compares for "superseded"). */
+  history(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }): NetmailReceipt[];
 }
 
 /**
@@ -255,12 +263,75 @@ async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string)
 }
 
 
-async function readRecord(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
   const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
   if ("error" in target) return toolError(target.error);
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
-  return toolText(envelope(target.board, target.uri, read.access, read.record, read.record.revision));
+  // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
+  // A write the home machine has applied stays until the mirror's copy has reached the revision it made.
+  const waiting = (caller && target.home && outlines.netmail ? outlines.netmail.pending(target.home.machine, target.board.address.outline, target.id, { actorId: actorOf(caller).actorId, subject: caller.sub }) : [])
+    .filter(w => w.state === "queued" || (w.resultRevision ?? 0) > read.record.revision);
+  const pending = pendingOverlay(read.record.body, waiting);
+  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}) });
+}
+
+const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
+
+/** outline_query: the views' grammar, or a saved view, over one outline; the service answers, records come back. */
+async function queryTool(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+  const query = stringField(args, "query")?.trim(), view = stringField(args, "view")?.trim();
+  if (!query === !view) return toolError("Give query (the views' grammar: type=ticket NOT work-stage=done) or view (a saved view's block id), one of them.");
+  const limit = limitOf(args.limit, QUERY_LIMIT_RULE);
+  if (typeof limit !== "number") return toolError(limit.error);
+  const offset = args.offset === undefined ? 0 : args.offset;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0) return toolError(`offset is a whole number from 0 (a previous answer's nextOffset); got ${JSON.stringify(offset)}.`);
+  const named = namedOutline(args.outline);
+  if (named && "error" in named) return toolError(named.error);
+  if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
+  const target = await outlines.board(named);
+  if ("error" in target) return toolError(target.error);
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return toolError(status.error);
+  const { board, served } = target;
+  const answer = await queryPage(board, { ...(query ? { query } : {}), ...(view ? { view } : {}), limit, offset });
+  if ("error" in answer) return toolError(answer.error);
+  const { records, ...page } = answer;
+  return toolText({
+    outline: board.address.outline, machine: board.address.machine, ...served, access: { level: status.level }, ...page,
+    completeness: { kind: page.more || page.truncated ? "truncated" : "complete", limit, more: page.more, total: page.total },
+    matches: records.map(r => ({ uri: blockUri(board, r.id), revision: r.revision, record: mcpRecord(r) })),
+  });
+}
+
+/** A proposal as the (mirror's) outline shows it: open, or applied or dismissed (which goes to the Trash, so its text is read there); missing when the copy doesn't hold it yet. */
+async function proposalIn(board: Board, id: string): Promise<ProposalSeen> {
+  const r = await board.records([id]);
+  if (r.records[0]) return proposalSeen(r.records[0].properties);
+  if (r.unavailable[0]?.status === "trashed") return proposalSeenInText((await board.request<{ text: string }>("get", { blockId: id })).text);
+  return "missing";
+}
+
+/** outline_write_status: one of this caller's queued writes, and what it became. */
+async function writeStatusTool(outlines: McpOutlines, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
+  const id = stringField(args, "queueId")?.trim();
+  if (!id) return toolError("Give the queueId a queued write answered.");
+  const queue = outlines.netmail;
+  const mine = actorOf(caller);
+  const receipt = queue?.receipt(id);
+  // Not found and not yours read the same: another caller's writes are not for this one to list.
+  if (!queue || !receipt || receipt.subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`);
+  let proposal: ProposalSeen | undefined;
+  if (receipt.state === "proposed" && receipt.proposalUri) {
+    const served = await outlines.board({ outline: receipt.outline, machine: receipt.machine });
+    proposal = "missing";
+    if (!("error" in served)) {
+      try { proposal = await proposalIn(served.board, (parseAddressedBlock(receipt.proposalUri) as { blockId: string }).blockId); }
+      catch { /* the mirror can't say; the proposal stands as proposed */ }
+    }
+  }
+  const later = receipt.state === "proposed" ? queue.history(receipt.machine, receipt.outline, receipt.blockId, { actorId: mine.actorId, subject: caller.sub }) : [];
+  return toolText(receiptStatus(receipt, { summary: queue.summary(receipt.machine), ...(proposal ? { proposal } : {}), later }));
 }
 
 /** Where a search found a note: its ancestors' titles, or `(root)` for a top-level note (never an empty path). */
@@ -444,6 +515,18 @@ function toolsFor(outlines: McpOutlines) {
       }, additionalProperties: false },
     },
     {
+      name: "outline_query",
+      description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, or a saved view by its block id. ` +
+        `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view.`,
+      inputSchema: { type: "object", properties: {
+        query: { type: "string", description: "A query in the views' grammar: type=ticket NOT work-stage=done" },
+        view: { type: "string", description: "A saved view's block id (or ((id)))" },
+        limit: limitSchema(QUERY_LIMIT_RULE, "Records per page"),
+        offset: { type: "integer", minimum: 0, default: 0, description: "Where this page starts: a previous answer's nextOffset" },
+        outline: outlineProperty(outlines),
+      }, additionalProperties: false },
+    },
+    {
       name: "outline_links",
       description: `Read a block's authored outlinks, resources and backlinks in ${which}, each group cut at limit; completeness says per group whether it is whole, how many it shows and the total. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, limit: limitSchema(LINKS_LIMIT, "Entries per group (links, resources, backlinks)") } },
@@ -491,7 +574,9 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const args = objectFields(params.arguments) ?? {};
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
-  if (params.name === "outline_read") return readRecord(outlines, args);
+  if (params.name === "outline_read") return readRecord(outlines, args, caller);
+  if (params.name === "outline_query") return queryTool(outlines, args);
+  if (params.name === "outline_write_status" && caller && outlines.kind === "remote") return writeStatusTool(outlines, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
@@ -533,9 +618,9 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
       outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: queued ${entry.id}`);
       return toolText({
-        outcome: "queued", id: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
+        outcome: "queued", id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
         waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null,
-        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it, ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that`,
+        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that`,
       });
     }
     const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
@@ -554,7 +639,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller): 
     case "ping":
       return {};
     case "tools/list":
-      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? writeToolDefinitions(outlineProperty(outlines)) : [])] }));
+      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])] }));
     case "tools/call":
       return callTool(outlines, req.params, caller);
     case "resources/list":

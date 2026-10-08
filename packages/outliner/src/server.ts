@@ -249,7 +249,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
