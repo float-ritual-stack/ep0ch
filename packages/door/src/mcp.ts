@@ -367,7 +367,7 @@ async function componentsTool(outlines: McpOutlines, args: Record<string, unknow
 
 /** Every component of the outlines this server reads, as resources (an outline this caller can't read adds none). */
 async function componentResources(outlines: McpOutlines): Promise<unknown[]> {
-  const named = outlines.defaultOutline ? [{ outline: outlines.defaultOutline }] : (await outlines.list()).filter(o => o.source !== "unreachable" && o.access && o.access !== "none").map(o => ({ outline: o.outline, machine: o.machine }));
+  const named = outlines.kind === "local" ? [{ outline: outlines.defaultOutline! }] : (await outlines.list()).filter(o => o.source !== "unreachable" && o.access && o.access !== "none").map(o => ({ outline: o.outline, machine: o.machine }));
   const out: unknown[] = [];
   for (const n of named) {
     const served = await outlines.board(n);
