@@ -129,8 +129,9 @@ async function recentNotes(host: BarHost): Promise<BarRow[]> {
   const found = new Map<string, { m: Msg; at: number; row: BarRow }>();
   for (const m of await host.ctx.board.search("", RECENT_NOTES)) found.set(m.id, { m, at: m.updatedAt, row: { ...noteRow(m), detail: `${m.author ?? "?"} · ${ago(m.updatedAt)} ago` } });
   for (const r of host.ctx.whatChanged?.list().slice(0, RECENT_NOTES) ?? []) {
-    const m = found.get(r.blockId)?.m ?? await host.note(r.blockId);
-    if (!m || m.deleted) continue;
+    // A change newer than the search's snapshot of the note: read it again (a rename, a trash), never the old words.
+    const seen = found.get(r.blockId)?.m, m = seen && seen.updatedAt >= r.at ? seen : await host.ctx.board.get(r.blockId).catch(() => null);
+    if (!m || m.deleted) { found.delete(r.blockId); continue; }
     found.set(r.blockId, { m, at: Math.max(r.at, m.updatedAt), row: { ...noteRow(m), mark: r.seen ? " " : "+", detail: `${r.kind} by ${r.who} · ${ago(r.at)} ago` } });
   }
   return [...found.values()].sort((a, b) => b.at - a.at).slice(0, RECENT_NOTES).map(x => x.row);
@@ -206,7 +207,7 @@ const RECENT: BarSource = {
     if (!store) return [];
     const rows = store.list().map((r): BarRow => ({ key: r.blockId, label: r.title === undefined ? "…" : withWorkId(r.workId, r.title), data: { find: identityFields(r.workId, r.page, r.title ?? "") }, mark: r.seen ? " " : "+", detail: `${r.kind} by ${r.who} · ${ago(r.at)} ago` }));
     // Titles not read yet come in a moment (the list's own read); the bar asks again when the store says so.
-    if (store.list().some(r => r.title === undefined)) void store.titles(host.ctx.board);
+    if (store.list().some(r => r.title === undefined || r.retitle)) void store.titles(host.ctx.board);
     return filtered(rows, q, r => [r.label, ...((r.data as { find: string[] }).find), r.detail ?? ""]);
   },
   preview: row => ({ note: row.key }),

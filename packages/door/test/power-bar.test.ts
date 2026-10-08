@@ -295,6 +295,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     // The agent's own bar, scope and no query: the same rows.
     const r = await app.act({ action: "bar.open", args: { scope: "notes" }, as: "test-agent" }) as any;
     expect(r.rows[0].key).toBe(notes.beans!.id);
+    // ⏎ lands on the latest.
+    key({ kind: "enter" });
+    await until(() => (desk.describe() as any).current?.id === notes.beans!.id, "the latest opened", 5000);
+    key(ctrlK); key(ch("/"));
+    await until(() => peek().bar?.scope === "notes" && peek().bar.rows.length > 1, "the recent notes again", 5000);
     // Typing runs the one search, not the recents.
     type("shed");
     await until(() => peek().bar.query === "shed" && peek().bar.rows[0]?.label === "Bike shed", "the search", 5000);
