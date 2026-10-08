@@ -456,7 +456,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.group": def({
     summary: "gather tiles into a group (PIE-651): one tile holding them laid out as a screen of their own, so a tab set's tab can hold a split. tile=<tile> alone, or node=<a container's id or key> whole, takes the group's place; with=<another tile> joins it beside it (where=right, left, up, down). On a group (or on=false) its tiles spill back where it was. ^W e goes into a group; tile=<group>/<tile> names one of its tiles for act. A container filled from data (the board's lanes) isn't gathered: mount its screen's part instead (tile.open kind=screen part=)",
-    keys: "^W G (a group: spills it); a click on ⊟ spill on a group's header; the tile menu",
+    keys: "^W G (a group: spills it); a click on ■ spill on a group's header; the tile menu",
     touches: "shape", replay: "ask", confirms: true,
     says: r => (r.spilled ? `spilled ${r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.tile}`),
     menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", now: ({ d, reader }) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : null) },

@@ -191,8 +191,8 @@ export class ScreenTile implements Pane {
     if (this.follows || this.problem || !this.framed) return null;
     const run = (name: string, args: Record<string, unknown> = {}) => () => void desk.perform?.(name, args, USER, this);
     return [
-      ...(this.screen ? [{ text: "⤢ full", sgr: fg(C.grey), press: run("mount.out") }] : [{ text: "⊟ spill", sgr: fg(C.grey), press: run("tile.group", { on: false }) }]),
-      { text: this.inside ? "⏏ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), press: run("mount.enter", { on: !this.inside }) },
+      ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), press: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), press: run("tile.group", { on: false }) }]),
+      { text: this.inside ? "◄ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), press: run("mount.enter", { on: !this.inside }) },
     ];
   }
 
@@ -263,7 +263,7 @@ export class ScreenTile implements Pane {
 export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   "mount.out": def({
     summary: "pop a mounted screen out to the full screen (the screen switch, over this one: q comes back to the mount where it was). The full screen is its own instance (its own layout, selection and scroll; the outline's cards are the same). A group has no screen of its own: refused",
-    keys: "^W u on a mount; a click on ⤢ full on its header; its tile menu",
+    keys: "^W u on a mount; a click on ▲ full on its header; its tile menu",
     touches: "screen", replay: "ask", says: r => `popped out to the ${r.screen}`,
     menu: { label: "pop out to the full screen", group: "Mount", key: "ctrl+w u", now: ({ pane }) => ((pane as ScreenTile).group ? { hide: true } : null) },
     args: {},
@@ -271,7 +271,7 @@ export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   }),
   "mount.enter": def({
     summary: "go into a mounted screen (on=true): every key is its own, its ^W and Tab too, until ctrl+], an Esc with nothing left to close in it, or on=false. The person's only: an agent acts in a mount with tile=<mount>/<its tile>",
-    keys: "^W e on a mount; ctrl+] or esc comes out; a click on ⏎ in or ⏏ out on its header",
+    keys: "^W e on a mount; ctrl+] or esc comes out; a click on ⏎ in or ◄ out on its header",
     touches: "screen", replay: "safe", person: "going into a mount moves the person's keys; an agent names a tile in it instead: tile=<mount>/<tile>",
     menu: { label: "go in (its keys)", group: "Mount", key: "ctrl+w e", now: ({ pane }) => ((pane as ScreenTile).inside ? { label: "come out", args: { on: false } } : null) },
     args: { on: { type: "boolean", optional: true, about: "true goes in, false comes out; default toggles" } },

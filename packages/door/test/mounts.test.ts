@@ -61,7 +61,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
   afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("tile.open kind=screen mounts the board on its hub, live: its own tiles, its title, layout.get under the mount's id; nothing written to the full board's file", async () => {
-    const r = await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "kanban" }, "reader");
+    const r = await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "kanban" }, get().focus);
     expect(r).toMatchObject({ tile: "kanban", kind: "screen" });
     render();
     await until(() => { render(); return (tile("kanban")?.mount?.layout?.tiles ?? []).filter((t: any) => t.kind === "query").length === 4; }, "the mounted board's lanes", 8000);
@@ -70,9 +70,9 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(get().focus).not.toBe("kanban");                    // an agent's mount never takes the person's keys
     expect(existsSync(join(state(), "delivery.json"))).toBe(false);
     // Refusals say what to do: no such screen, no such part, the desk in itself.
-    await expect(act("tile.open", { kind: "screen", screen: "nope" }, "reader")).rejects.toThrow(/no screen nope; screens:/);
-    await expect(act("tile.open", { kind: "screen", screen: "board", part: "nope" }, "reader")).rejects.toThrow(/has no part nope; its parts:/);
-    await expect(act("tile.open", { kind: "screen", screen: "desk" }, "reader")).rejects.toThrow(/isn't mounted in itself/);
+    await expect(act("tile.open", { kind: "screen", screen: "nope" }, get().focus)).rejects.toThrow(/no screen nope; screens:/);
+    await expect(act("tile.open", { kind: "screen", screen: "board", part: "nope" }, get().focus)).rejects.toThrow(/has no part nope; its parts:/);
+    await expect(act("tile.open", { kind: "screen", screen: "desk" }, get().focus)).rejects.toThrow(/isn't mounted in itself/);
   }, 20_000);
 
   test("its layout is its own, saved with the desk's: a fold inside it comes back after a restart, under the same mount id", async () => {
@@ -141,7 +141,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
   }, 30_000);
 
   test("a group: a terminal and a reader gathered into one tile come back out whole, the program still running; an agent never gathers the person's tile", async () => {
-    const t = await act("tile.open", { kind: "pty", cmd: "sh", name: "shell" }, "reader");
+    const t = await act("tile.open", { kind: "pty", cmd: "sh", name: "shell" }, get().focus);
     await until(() => { render(); return !!tile("shell")?.terminal?.running; }, "the shell");
     const pty = D().pane("shell");
     const focus = get().focus;
