@@ -169,7 +169,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const notified = await call({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(notified.status).toBe(202);
     const listed = await rpc("tools/list");
-    expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links"]);
+    expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links", "outline_components"]);
     expect((await call(null, { method: "GET" })).status).toBe(405);
     const malformed = await fetch(gateway.url, { method: "POST", headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
     expect(malformed.status).toBe(400);
@@ -188,6 +188,29 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect(JSON.parse(byRef.text)).toMatchObject({ uri: note.uri });
     const resource = await rpc("resources/read", { uri: note.uri });
     expect(resource.body.result.contents[0]).toMatchObject({ uri: note.uri, mimeType: "text/markdown", text: expect.stringContaining("brass lanterns") });
+  });
+
+  test("outline_components: the brief for all or named components, and each as a resource; an unknown one is refused with the list", async () => {
+    const all = await tool("outline_components", { outline: scratch.name });
+    expect(all.isError).toBe(false);
+    expect(all.text).toContain("## heading-style\n");
+    expect(all.text).toContain("## callout\n");
+    const one = await tool("outline_components", { outline: scratch.name, components: ["rule"] });
+    expect(one.text.startsWith("## rule\n")).toBe(true);
+    expect(one.text).not.toContain("## callout");
+    const bad = await tool("outline_components", { outline: scratch.name, components: ["nope"] });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toContain("no component nope; components: heading-style");
+    const listed = await rpc("resources/list");
+    const uri = `ep0ch://${scratch.name}@${machine}/components/rule`;
+    expect((listed.body.result.resources as { uri: string }[]).map(r => r.uri)).toContain(uri);
+    const read = await rpc("resources/read", { uri });
+    expect(read.body.result.contents[0]).toMatchObject({ uri, mimeType: "text/markdown", text: one.text });
+    await board.configureMcpAccess("none");
+    try {
+      expect((await tool("outline_components", { outline: scratch.name })).isError).toBe(true);
+      expect(((await rpc("resources/list")).body.result.resources as { uri: string }[]).some(r => r.uri === uri)).toBe(false);
+    } finally { await board.configureMcpAccess("read"); }
   });
 
   test("a record is sent once: body and properties, no text or header; a note naming itself isn't its own link or backlink", async () => {

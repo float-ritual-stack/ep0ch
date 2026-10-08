@@ -204,6 +204,37 @@ describe('outline tools', () => {
   })
 })
 
+describe('outline_components', () => {
+  const BRIEF = '## callout\nA quote with a tone.\nWhere: a block quote.\nProperties:\n- callout: note, tip — the type\nExample:\n```markdown\n> [!note]\n```\n'
+  test('runs ep0ch library --brief in the bound folder, for all or the components named, and returns its text', async ($, on) => {
+    const session = sessionIn(on, run => run.argv[0] === 'ep0ch' && run.argv[1] === 'library'
+      ? (run.argv.includes('nope') ? result(1, '', 'ep0ch: no component nope; components: callout\n') : result(0, BRIEF))
+      : undefined)
+    await session.begin(() => $.session.start(START))
+    expect(session.registered).toContain('outline_components')
+    const all = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components' })
+    expect((all as { result: unknown }).result).toBe(BRIEF.trim())
+    const named = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['callout'] })
+    expect((named as { result: unknown }).result).toBe(BRIEF.trim())
+    const ran = session.runs.filter(run => run.argv[1] === 'library')
+    expect(ran.map(run => run.argv)).toEqual([['ep0ch', 'library', '--brief'], ['ep0ch', 'library', '--brief', 'callout']])
+    expect(ran[0]!.init!.cwd).toBe(WORKSPACE)
+    expect(ran[0]!.init!.env).toMatchObject({ EP0CH_WS: 'garden' })
+    const bad = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['nope'] })
+    expect(bad.deny).toContain('no component nope')
+    const shape = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['--json'] })
+    expect(shape.deny).toContain('components is a list')
+  })
+
+  test('in a folder bound to no outline it runs nothing', async ($, on) => {
+    const session = sessionIn(on, () => undefined, {}, '/elsewhere')
+    await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
+    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components' })
+    expect(denied.deny).toContain('not bound to an Outliner outline')
+    expect(session.runs.filter(run => run.argv[1] === 'library')).toEqual([])
+  })
+})
+
 describe('door tools', () => {
   test('without EP0CH_CONTROL they are not offered, and a call is refused without running ep0ch', async ($, on) => {
     const session = sessionIn(on, () => undefined)

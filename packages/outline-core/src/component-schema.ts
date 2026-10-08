@@ -630,3 +630,27 @@ export function componentPageMarkdown(schema: ComponentSchema, draw?: DrawVariat
   }
   return out.join("\n\n") + "\n";
 }
+
+// ── the brief: what an agent reads ────────────────────────────────────────────
+
+/** A component's first sentence, on one line: its purpose. */
+function purposeOf(schema: ComponentSchema): string {
+  const flat = schema.intro.replace(/\s+/g, " ").trim();
+  const end = flat.search(/[.!?](?:\s|$)/);
+  return end >= 0 ? flat.slice(0, end + 1) : flat;
+}
+
+/**
+ * A component as an agent reads it (`ep0ch library --brief`, the `outline_components` tools): the id, its purpose in
+ * a line, where it goes, each property as `key: values (default) — meaning`, and the minimal example. No drawn
+ * variations. A property written anywhere but the component's line says where, in brackets after its key.
+ */
+export function componentBrief(schema: ComponentSchema): string {
+  const origin = schema.origin && schema.origin !== "built-in" ? ` (${schema.origin})` : "";
+  const props = schema.props.map(p =>
+    `- ${p.token ?? p.key}${p.where === "line" ? "" : ` [${PLACE_WORDS[p.where]}]`}: ${valuesWords(p)}${p.default === undefined ? "" : ` (default ${p.default})`} — ${p.meaning.replace(/\s+/g, " ").trim()}`);
+  return [`## ${schema.id}${origin}`, purposeOf(schema), `Where: ${schema.where}.`, "Properties:", ...props, "Example:", fence("markdown", variationText(variation(schema, {})))].join("\n");
+}
+
+/** Several components' briefs, one block each. */
+export const componentBriefs = (schemas: readonly ComponentSchema[]): string => schemas.map(componentBrief).join("\n\n") + "\n";

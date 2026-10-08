@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  axisValues, BUILTIN_COMPONENT_SCHEMAS, checkValue, componentPageMarkdown, componentSchemaProblem, grid, keyCandidates, mergeComponentSchemas,
+  axisValues, BUILTIN_COMPONENT_SCHEMAS, checkValue, componentBrief, componentBriefs, componentPageMarkdown, componentSchemaProblem, grid, keyCandidates, mergeComponentSchemas,
   propertyAtCursor, spaceSize, spaceVariations, sweep, valueCandidates, variation, variationText, yamlAtCursor, yamlKeyCandidates, type ComponentSchema,
 } from "../src/component-schema";
 import { BAND_ALIGNS, BAND_LETTERS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLES, HEADING_FIELD_KEYS, headingStylesFromBlocks } from "../src/heading-styles";
@@ -156,4 +156,16 @@ test("a page as Markdown: intro, the table, each value with its source and drawi
   expect(md).toContain("## heading-pattern × heading-align");
   expect(md).toContain("heading-pattern × heading-align × heading-row × heading-letters × heading-tone × heading-rows: 2430 variations");
   expect(md).not.toContain("[heading-tone::coral] [heading-letters::spaced] [heading-rows::3]");
+});
+
+test("a component's brief: purpose in a line, where, each property as key: values (default) — meaning, one example, nothing drawn", () => {
+  const brief = componentBrief(schema("heading-style"));
+  const lines = brief.split("\n");
+  expect(lines[0]).toBe("## heading-style");
+  expect(lines[1]).not.toContain("\n");
+  expect(lines).toContain("Properties:");
+  expect(lines.some(l => /^- heading-pattern \[on the declaring note\]: stack, waffle/.test(l) && l.includes(" — "))).toBe(true);
+  expect(brief).toContain("Example:\n```markdown\n");
+  expect(brief).not.toContain("```text");
+  expect(componentBriefs([schema("rule"), schema("callout")])).toContain("\n```\n\n## callout\n");
 });

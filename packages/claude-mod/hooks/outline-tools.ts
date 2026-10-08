@@ -6,6 +6,9 @@
  *   (src/agent-tools.ts) with the tool's input as JSON on stdin. The service and
  *   that module own the rules; this file only names the operation and checks
  *   the input's shape.
+ * - `outline_components`: `ep0ch library --brief`, the components a note can hold as this session's outline has them
+ *   (its own styles and types, its extensions'). It is the door's CLI that answers, from the schema read the
+ *   door and the MCP gateway share.
  * - `door_*`: each is one `ep0ch` command on the session's EP0CH_CONTROL, the
  *   door this Claude runs in. They exist only when EP0CH_CONTROL is set. The
  *   door enforces its rules (an agent never takes the person's focus); its
@@ -297,6 +300,29 @@ export interface DoorToolDefinition {
   name: string
   description: string
   inputSchema: Json
+}
+
+export const COMPONENTS_TOOL = {
+  name: 'outline_components',
+  description:
+    'The components a note can hold, as this session\'s outline has them (ep0ch library --brief): per component its ' +
+    'purpose, where it goes, each property as `key: values (default) — meaning`, and a minimal example. The ' +
+    "outline's own heading styles, callout types and its extensions' components are among the values. Name " +
+    'components to read only those. Only reads; the library screen is for people.',
+  inputSchema: {
+    type: 'object',
+    properties: { components: { type: 'array', items: { type: 'string' }, description: 'Component ids (heading-style, callout, rule, …); leave out for all' } },
+    additionalProperties: false,
+  } as Json,
+} as const
+
+/** `ep0ch library --brief` argv for the components named (all when none are), or the reason the input is unusable. */
+export function componentsArgv(input: Record<string, unknown>): { argv: string[] } | string {
+  const names = input.components ?? []
+  if (!Array.isArray(names) || !names.every(n => typeof n === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(n))) {
+    return 'components is a list of component ids such as heading-style or callout (leave it out for all).'
+  }
+  return { argv: ['ep0ch', 'library', '--brief', ...(names as string[])] }
 }
 
 export const DOOR_TOOLS: readonly DoorToolDefinition[] = [

@@ -486,7 +486,7 @@ describe('register', () => {
     expect(registered).toEqual([
       'show', 'work_create', 'work_stage', 'work_set', 'work_deliver', 'work_complete', 'work_body', 'note_section',
       'outline_read', 'outline_find', 'outline_resolve', 'outline_edit', 'outline_create', 'outline_comment',
-      'outline_reply', 'outline_resolve_thread', 'view_order', 'outline_changes', 'outline_patch', 'outline_set_property',
+      'outline_reply', 'outline_resolve_thread', 'view_order', 'outline_changes', 'outline_patch', 'outline_set_property', 'outline_components',
     ])
 
     const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
