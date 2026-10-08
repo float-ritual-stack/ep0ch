@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseEnvFile, parseMirrors } from "../src/backup/config";
 import { backupCommand, parseAt, pick } from "../src/backup/cli";
-import { changeSeq, followersOf, mirror, newer, runAll, snapshot, snapshotNewer, takeLock } from "../src/backup/jobs";
+import { changeSeq, followersOf, mirror, newer, runAll, schemaVersion, snapshot, snapshotNewer, takeLock } from "../src/backup/jobs";
 import { parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -71,7 +71,7 @@ describe("settings", () => {
   test("restic's answers: outline snapshots and the summary line", () => {
     const rows = [{ id: "aa", time: "2026-05-02T09:00:00Z", paths: ["/garden.sqlite"], tags: ["ep0ch-outline", "outline=garden", "seq=12"], hostname: "laptop" },
       { id: "bb", time: "2026-05-02T09:00:00Z", paths: ["/home"], tags: ["nightly"] }];
-    expect(parseSnapshots(JSON.stringify(rows))).toEqual([{ id: "aa", time: "2026-05-02T09:00:00Z", outline: "garden", seq: 12, host: "laptop" }]);
+    expect(parseSnapshots(JSON.stringify(rows))).toEqual([{ id: "aa", time: "2026-05-02T09:00:00Z", outline: "garden", seq: 12, schema: null, host: "laptop" }]);
     // A tag naming a path is no outline: its name becomes a file name.
     expect(parseSnapshots(JSON.stringify([{ ...rows[0], tags: ["ep0ch-outline", "outline=../../etc/x"] }]))).toEqual([]);
     expect(summaryId('{"message_type":"status"}\n{"message_type":"summary","snapshot_id":"cafe"}\n')).toBe("cafe");
@@ -306,6 +306,33 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     const piped: string[] = [];
     expect(await backupCommand(["backup", "run"], { out: s => piped.push(s), err: s => err.push(s) }, env)).toBe(0);
     expect(piped.join("\n")).toContain("no outline changed since its newest snapshot");
+  }, 120_000);
+  test("a schema migration is a change: the outline is snapshotted again, tagged, and the mirror takes it at the same change", async () => {
+    const home = machine("harbor"), far = machine("dock", { EP0CH_BACKUP_MIRRORS: "harbor" });
+    const path = join(home.outlines, "orchard.sqlite");
+    outline(path, ["Prune the pears"]);
+    const db = new Database(path); db.run("PRAGMA user_version = 3"); db.close();
+    const s = readBackupState(home.state), t = readBackupState(far.state);
+    expect((await snapshot(home, s, { say })).uploaded).toEqual(["orchard"]);
+    expect(s.outlines.orchard).toMatchObject({ seq: 1, schema: 3 });
+    await mirror(far, t, { say, follower: async () => false });
+    const copy = join(far.mirrorsDir, "harbor", "orchard.sqlite");
+    expect(schemaVersion(copy)).toBe(3);
+    // Nothing changed: not snapshotted again.
+    expect(await snapshot(home, s, { say })).toEqual({ uploaded: [], failed: [] });
+    // The host migrates it (user_version moves, the change feed doesn't): that is a change.
+    const moved = new Database(path); moved.run("PRAGMA user_version = 4"); moved.close();
+    expect((await snapshot(home, s, { say })).uploaded).toEqual(["orchard"]);
+    expect(s.outlines.orchard).toMatchObject({ seq: 1, schema: 4 });
+    expect(parseSnapshots(JSON.stringify([{ id: "a", time: "2026-05-02T10:00:00Z", paths: ["/orchard.sqlite"], tags: ["ep0ch-outline", "outline=orchard", "seq=1", "schema=4"] }]))).toEqual([expect.objectContaining({ seq: 1, schema: 4 })]);
+    // The mirror holds change 1 at schema 3, and the new snapshot is change 1 at schema 4: it replaces the copy.
+    await mirror(far, t, { say, follower: async () => false });
+    expect(schemaVersion(copy)).toBe(4);
+    // An older snapshot never replaces a copy at a newer schema.
+    const back = new Database(copy); back.run("PRAGMA user_version = 5"); back.close();
+    t.mirrors["harbor/orchard"] = { ...t.mirrors["harbor/orchard"], snapshot: undefined, seq: 0 };
+    await mirror(far, t, { say, follower: async () => false });
+    expect(schemaVersion(copy)).toBe(5);
   }, 120_000);
 });
 

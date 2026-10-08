@@ -13,6 +13,7 @@
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
@@ -143,13 +144,14 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
   const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
-  const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string }> => {
+  const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const read = await mirror.read();
-    if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.` };
+    if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.`, ...(read.access ? { access: read.access } : {}) };
     const which = `${read.copy.file}, last changed here ${read.copy.copiedAt}; its newest change is ${read.asOf}`;
+    const migrated = read.migrated ? `; this gateway migrated its own working copy from schema ${read.migrated.from} to ${read.migrated.to} (the mirror is untouched, and ${mirror.machine}'s next backup run brings a current one)` : "";
     const note = read.stale
       ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
-      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its backups`;
+      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its backups${migrated}`;
     return { board: read.board, served: { source: "mirror", asOf: read.asOf, copy: read.copy, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
   };
   // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
@@ -205,7 +207,13 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
           waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null,
           ...(q?.lastPull ? {} : { said: `${m.machine} hasn't pulled its queued writes from ${machine} yet: on ${m.machine}, \`ep0ch mcp pull --from ${machine}\` pulls now, and EP0CH_MCP_HUB=${machine} in its ~/.config/ep0ch/backup.env has its backup job pull every run (\`ep0ch install --apply\` writes it on a Mac; \`ep0ch doctor\` there shows the last pull)` }),
         };
-        if ("error" in target) { rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", note: target.error, ...(q ? { queue } : {}) }); continue; }
+        if ("error" in target) {
+          // The access setting is the outline's, read from the copy's metadata even when the copy can't be opened: writes
+          // are offered by it, and the note says why none can be made yet.
+          const level = "access" in target ? target.access : undefined, writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
+          rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", ...(level ? { access: level } : {}), ...(writes ? { writes } : {}), note: `${target.error}${writes ? ` Its access setting (${level}) takes writes, but one can be made only once the copy can be read.` : ""}`, ...(writes || q ? { queue } : {}) });
+          continue;
+        }
         const level = await access(target), writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
         rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
       }

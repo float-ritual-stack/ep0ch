@@ -38,7 +38,7 @@ export const complaint = (r: Ran) => {
 export const OUTLINE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const safeName = (n: string) => OUTLINE_NAME.test(n) && !n.includes("..");
 
-export interface OutlineSnapshot { id: string; time: string; outline: string; seq: number | null; host: string }
+export interface OutlineSnapshot { id: string; time: string; outline: string; seq: number | null; /** The outline's schema version when it was copied (null: a snapshot from before the tag). */ schema?: number | null; host: string }
 
 /** `restic snapshots --json`'s answer, as outline snapshots (others are left out). */
 export function parseSnapshots(json: string): OutlineSnapshot[] | { error: string } {
@@ -51,7 +51,8 @@ export function parseSnapshots(json: string): OutlineSnapshot[] | { error: strin
     const outline = tags.find(t => t.startsWith("outline="))?.slice(8) ?? r.paths?.[0]?.replace(/^\//, "").replace(/\.sqlite$/, "");
     if (!outline || !safeName(outline)) return [];
     const seq = tags.find(t => t.startsWith("seq="))?.slice(4);
-    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, host: r.hostname ?? "" }];
+    const schema = tags.find(t => t.startsWith("schema="))?.slice(7);
+    return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, schema: schema && /^\d+$/.test(schema) ? Number(schema) : null, host: r.hostname ?? "" }];
   });
 }
 
@@ -72,9 +73,9 @@ export function summaryId(out: string): string | null {
 }
 
 /** A consistent copy, uploaded as `/<name>.sqlite`. */
-export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null): Promise<{ id: string } | { error: string; code: number }> {
+export async function backupFile(c: BackupConfig, repo: string, copy: string, name: string, seq: number | null, schema: number | null = null): Promise<{ id: string } | { error: string; code: number }> {
   const r = await runRestic(c, repo, ["backup", "--json", "--stdin", "--stdin-filename", `${name}.sqlite`, "--host", c.machine,
-    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : [])], { stdin: copy });
+    "--tag", OUTLINE_TAG, "--tag", `outline=${name}`, ...(seq !== null ? ["--tag", `seq=${seq}`] : []), ...(schema !== null ? ["--tag", `schema=${schema}`] : [])], { stdin: copy });
   if (r.code !== 0) return { error: complaint(r), code: r.code };
   return { id: summaryId(r.out) ?? "?" };
 }

@@ -15,8 +15,8 @@ line.
 
 1. **Snapshot.** For each `<outlines>/<name>.sqlite` whose change feed (`max(change_id)`) moved since its newest
    snapshot: a consistent copy (`VACUUM INTO` from a read-only connection, `integrity_check`), uploaded with
-   `restic backup --stdin` as `/<name>.sqlite`, tagged `ep0ch-outline`, `outline=<name>`, `seq=<change>`. An outline
-   that hasn't changed isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
+   `restic backup --stdin` as `/<name>.sqlite`, tagged `ep0ch-outline`, `outline=<name>`, `seq=<change>`, `schema=<user_version>`. An outline
+   that hasn't changed (same change feed and same schema version: a migration is a change) isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
    nothing to repair; the next run tries again. A repository that isn't there yet is made (`restic init`).
 2. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
    --keep-daily 30 --keep-weekly 12`, with `--prune` once a day: every snapshot of the 48 hours before the newest,

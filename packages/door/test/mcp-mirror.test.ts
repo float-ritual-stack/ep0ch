@@ -14,6 +14,13 @@ import { outliner, ScratchHost, scratchDir } from "./scratch";
 
 const FAR = "far-box";
 
+/** `list_outlines` through a gateway of its own. */
+const answerList = async (outlines: McpOutlines) => {
+  const answer = await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: 9000, method: "tools/call", params: { name: "list_outlines", arguments: {} } }));
+  const result = (answer!.reply as { result: { content: { text: string }[] } }).result;
+  return { text: result.content[0]!.text };
+};
+
 describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
   const home = new ScratchHost();
   let here = "", mirrorsFolder = "", clock = Date.parse("2026-03-14T09:00:00Z");
@@ -178,6 +185,81 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     expect((await tool("outline_read", { uri })).isError).toBe(false);
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
+
+  /** A copy as it was at schema 3 (before block_revisions), at `path`. */
+  const asSchema3 = (name: string, path: string) => {
+    rmSync(path, { force: true });
+    const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
+    try { source.run("VACUUM INTO ?", [path]); } finally { source.close(); }
+    const db = new Database(path);
+    try { db.run("DROP TABLE block_revisions"); db.run("PRAGMA user_version = 3"); } finally { db.close(); }
+  };
+  const version = (path: string) => { const db = new Database(path, { readonly: true }); try { return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version; } finally { db.close(); } };
+
+  test("a mirror one schema behind is migrated on the gateway's private copy, never on the mirror, and said", async () => {
+    const dir = join(here, "behind");
+    mkdirSync(join(dir, FAR), { recursive: true });
+    const file = join(dir, FAR, "garden-notes.sqlite");
+    asSchema3("garden-notes", file);
+    const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
+    try {
+      const read = await mirror.read();
+      expect("error" in read).toBe(false);
+      expect((read as { migrated?: unknown }).migrated).toEqual({ from: 3, to: 4 });
+      expect(version(file)).toBe(3);
+      expect(logs.join("\n")).toContain("migrated the served copy");
+      const gateway = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => []);
+      const row = (JSON.parse((await answerList(gateway)).text).outlines as { note?: string; source: string }[])[0]!;
+      expect(row.source).toBe("mirror");
+      expect(row.note).toContain("migrated its own working copy from schema 3 to 4");
+    } finally { await mirror.close(); }
+  }, 60_000);
+
+  test("a mirror no script can migrate is listed unreadable with the exact fix, its access and writes still shown, never 'ep0ch install'", async () => {
+    const dir = join(here, "ancient");
+    mkdirSync(join(dir, FAR), { recursive: true });
+    const file = join(dir, FAR, "garden-notes.sqlite");
+    asSchema3("garden-notes", file);
+    await garden.configureMcpAccess("full");
+    try {
+      const copy = new Database(file); copy.run("PRAGMA user_version = 2"); copy.close();
+      const queue = join(here, "queue");
+      const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
+      const copied = new Database(file); copied.run("INSERT INTO metadata (key, value) VALUES ('mcp.local_access', 'full') ON CONFLICT(key) DO UPDATE SET value = 'full'"); copied.close();
+      try {
+        const gateway = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => [], queue);
+        const row = (JSON.parse((await answerList(gateway)).text).outlines as Record<string, unknown>[])[0]!;
+        expect(row).toMatchObject({ source: "unreachable", access: "full", writes: "queued" });
+        expect(row.note).toContain(`on ${FAR}: ep0ch backup run --force`);
+        expect(row.note).toContain("no migration script takes schema 2 to 3");
+        expect(row.note).not.toContain("install --apply");
+        expect(version(file)).toBe(2);
+      } finally { await mirror.close(); }
+    } finally { await garden.configureMcpAccess("read"); }
+  }, 60_000);
+
+  test("an older follower copy loses to the backup job's current one, and the other way round", async () => {
+    const dir = join(here, "both");
+    mkdirSync(join(dir, FAR), { recursive: true });
+    mkdirSync(join(dir, ".restic", FAR), { recursive: true });
+    const follower = join(dir, FAR, "garden-notes.sqlite"), restic = join(dir, ".restic", FAR, "garden-notes.sqlite");
+    asSchema3("garden-notes", follower);
+    const current = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
+    try { current.run("VACUUM INTO ?", [restic]); } finally { current.close(); }
+    const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
+    try {
+      const read = await mirror.read() as { copy: { file: string }; migrated?: unknown };
+      expect(read.copy.file).toBe(`.restic/${FAR}/garden-notes.sqlite`);
+      expect(read.migrated).toBeUndefined();
+      // The other way round: the follower is current, the restic copy is the old one.
+      rmSync(follower); rmSync(restic);
+      const f = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
+      try { f.run("VACUUM INTO ?", [follower]); } finally { f.close(); }
+      asSchema3("garden-notes", restic);
+      clock += 16_000;
+      expect((await mirror.read() as { copy: { file: string } }).copy.file).toBe(`${FAR}/garden-notes.sqlite`);
+    } finally { await mirror.close(); }
+  }, 60_000);
 
   test("config: mirrors are <outline>@<machine>, in a folder that isn't the outlines folder", () => {
     expect(mirrorsConfig({ HOME: "/fictional/home", EP0CH_MCP_MIRRORS: "garden-notes@far-box, attic-notes@far-box" })).toEqual({

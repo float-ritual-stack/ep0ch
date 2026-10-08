@@ -23,6 +23,8 @@ export const DRILL_EVERY_MS = 30 * 24 * 3_600_000;
 export interface OutlineState {
   /** The change feed's highest change_id in the newest snapshot (null: the outline has no change feed). */
   seq?: number | null;
+  /** The schema version (`user_version`) of that snapshot: a migration moves it without moving `seq`, and is a change. */
+  schema?: number | null;
   /** When that snapshot was taken, and its id. */
   at?: string;
   snapshot?: string;
