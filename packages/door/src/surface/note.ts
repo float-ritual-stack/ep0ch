@@ -22,7 +22,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
-import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget, UNSENT_NOTE } from "../authored";
+import { alignComments, isOutlineNote, openResource, RESOURCE_NOTE, rereadResource, resourceTarget, UNSENT_NOTE } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
@@ -708,7 +708,12 @@ export class NoteSurface {
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
     // A Resource or a file shown as a note: nothing in the outline to read for it.
-    if (!isOutlineNote(m)) { this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file"; return true; }
+    if (!isOutlineNote(m)) {
+      this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file";
+      // A Resource's text takes comments (PIE-650): its threads live in the outline, so they are read for it too.
+      if (m.resource) void this.loadComments(host);
+      return true;
+    }
     // Lists carry title, properties and revision only; the surface fetches the whole note.
     if (m.partial) this.readWhole(host); else this.settleUnsent(m, host);
     void this.loadComments(host);
@@ -1761,11 +1766,17 @@ export class NoteSurface {
 
   // ── comments ───────────────────────────────────────────────────────────────
 
-  async loadComments(host: SurfaceHost): Promise<void> {
+  async loadComments(host: SurfaceHost, retry = false): Promise<void> {
     const id = this.msg?.id;
     if (!id) return;
     try {
-      const c = await host.ctx.board.comments(id);
+      let stale = false;
+      const c = alignComments(await host.ctx.board.comments(id, this.msg?.resource ? { revision: this.msg.revision, stale: () => { stale = true; } } : undefined), this.msg);
+      // A Resource whose file changed since it was drawn: read again (the quotes were placed in the new text), once.
+      if (stale && this.msg?.id === id && !retry) {
+        const now = await host.ctx.board.get(id);
+        if (now && this.msg?.id === id) { this.refresh(rereadResource(now, this.msg)); return this.loadComments(host, true); }
+      }
       if (this.msg?.id !== id) return;
       this.comments = c; this.commentsFor = id;
       // A thread that's gone (deleted, or the note's comments re-read elsewhere) isn't kept expanded.
@@ -1785,7 +1796,7 @@ export class NoteSurface {
   private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {
       board: host.ctx.board,
-      fetch: id => host.ctx.board.get(id),
+      fetch: id => host.ctx.board.get(id).then(n => n && this.msg ? rereadResource(n, this.msg) : n),
       setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
       external: () => void this.runKey("edit.external", {}, host),
@@ -1810,7 +1821,8 @@ export class NoteSurface {
     if (!m || this.editing) return;
     // Text selected in the reader is where the passage picker starts: the same text, as a quote.
     const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
-    const fresh = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
+    const read = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
+    const fresh = read ? rereadResource(read, m) : read;
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { const why = "can't comment: the outline didn't say which revision this note is at"; host.ctx.flash(why); return why; }
     if (this.msg?.id !== m.id || this.editing) return;
@@ -3202,7 +3214,7 @@ export class NoteSurface {
       const to = resourceTarget(l.resource);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
       host.ctx.flash(`reading ${l.resource.label}…`);
-      const shown = await openResource(host.ctx.board, to, host.actor ?? USER).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
+      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
       if (!shown) return null;
       this.track(() => host.navigate(shown.note, how));
       if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);

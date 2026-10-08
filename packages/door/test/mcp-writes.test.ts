@@ -5,7 +5,7 @@
 // Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -154,6 +154,30 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const said = await tool("outline_comment", { uri, quote: "Scarlet runner beans", body: "Which variety exactly?" });
     expect(said.json).toMatchObject({ outcome: "applied", detail: { author: "agent", actorId: "mcp:chat.example.test" } });
     expect(logs.join("\n")).toContain(`mcp write: mcp:chat.example.test (${PERSON}) outline_patch ${uri}: applied`);
+  });
+
+  test("a Resource (PIE-650): outline_comment takes a [file::] ref and outline_read returns its text with the open threads; the file is never written; a read-only outline refuses", async () => {
+    const file = join(dir, "pr-body.md");
+    const source = "## Summary\n\nThe **cache** warms [on boot](https://example.test/boot).\n";
+    writeFileSync(file, source);
+    const linking = (await boardOn(here, "garden-notes", HERE).request<{ id: string }>("create", { parentId: null, text: `Reading [file::${file}] first.`, author: "user" })).id;
+    const said = await tool("outline_comment", { ref: `[file::${file}]`, outline: "garden-notes", quote: "warms [on boot](https://example.test/boot)", body: "Why on boot?", from: linking });
+    expect(said.text).toContain("applied");
+    expect(said.json).toMatchObject({ outcome: "applied", detail: { author: "agent", actorId: "mcp:chat.example.test" } });
+    const resourceId = said.json.detail.resourceId as string;
+    expect(resourceId).toBeTruthy();
+    // The thread is among the threads of the note whose link opened the Resource (its reference context), as a comment on that reference is.
+    expect((await boardOn(here, "garden-notes", HERE).comments(linking)).map(c => c.id)).toContain(said.json.detail.thread);
+    const read = (await tool("outline_read", { ref: `resource:${resourceId}`, outline: "garden-notes" })).json.resource;
+    expect(read).toMatchObject({ kind: "resource", text: source });
+    expect(read.threads).toHaveLength(1);
+    expect(read.threads[0]).toMatchObject({ thread: said.json.detail.thread, quote: "warms [on boot](https://example.test/boot)", body: "Why on boot?", anchored: true, actorId: "mcp:chat.example.test" });
+    // The note whose link opened it is the thread's reference context only when it links the Resource.
+    const refused = await tool("outline_comment", { ref: `resource:${resourceId}`, outline: "garden-notes", quote: "cache", body: "x", from: ids.seeds });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("no link to this Resource");
+    expect(readFileSync(file, "utf8")).toBe(source);
+    expect((await tool("outline_comment", { ref: `[file::${file}]`, outline: "quiet-notes", quote: "cache", body: "x" })).isError).toBe(true);
   });
 
   test("full: a stale revision becomes a proposal, never an overwrite", async () => {

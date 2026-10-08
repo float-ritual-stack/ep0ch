@@ -420,6 +420,23 @@ session's outline.
   file as it was with its first touch, kept once in the outline's folder (`file-touches/<session>/`) for its diff.
   Only in a folder bound to an outline; a failure is one toast a session.
 
+### Comments on a file (PIE-650)
+
+A file is a Resource in the outline, and anyone can comment on a passage of it (the door's `C` in a reader showing it, an
+agent's `outline_comment`). The thread is stored in the outline, beside the file; the file is never written.
+
+- **`outline_read`** on `resource:<id>` or a `[file::path]` token returns the file's stored text and its **open
+  threads** (who, the quote as it read when written, whether the passage is still where it was, the replies). A file an
+  agent rewrote keeps its threads: the service finds a quote that is still there again, and a thread whose passage went
+  stays listed with `anchored: false`.
+- **`outline_comment`** takes the same ref: `quote` is exact text of the file as `outline_read` returned it (the source,
+  not a rendered view), `from` the note whose link opened it (kept as the thread's reference context, so the thread also
+  shows among that note's comments).
+- **Before an edit:** the first Edit or Write of a file in a session asks the installed CLI whether the file has open
+  threads. If it does, the call is **held once** with them in its answer, so Claude reads what was said before it
+  rewrites the file; the same call again goes through. A file with none, a folder bound to no outline, or any failure
+  holds nothing. A Read is never held: `outline_read` is how Claude sees a file's threads while reading.
+
 ## Door tools
 
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets

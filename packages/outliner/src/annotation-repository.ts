@@ -2,6 +2,8 @@ import {resolveAnnotationPassage, passageResolutionStatus, passageDocumentRepres
 import {observeDocument} from "./document-provenance";
 import {resourceDocumentObservation} from "./document-resources";
 import { blockCommentTarget } from "./block-comments";
+import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { resourceCommentSource, resourceCommentTarget } from "./resource-comments";
 import type { SequenceChange } from "./change-feed";
 import { blockAnnotationRepresentation } from "./annotation-representations";
 import { checklistItems, updateChecklistText } from "./checklist-items";
@@ -55,6 +57,8 @@ import type {
   AnnotationResolutionStatus,
   AnnotationSource,
   AnnotationSubject,
+  ResourceCommentInput,
+  ResourceReconcileInput,
   AnnotationTarget,
   AnnotationThread,
   Block,
@@ -366,9 +370,10 @@ export class AnnotationRepository {
           throw new Error(`Duplicate annotation operationId: ${operationId}`);
         }
         operationIds.add(operationId);
-        if (operation.type === "create" || operation.type === "block-comment") {
+        if (operation.type === "create" || operation.type === "block-comment" || operation.type === "resource-comment") {
           let raw: AnnotationCreateInput;
-          if (operation.type === "block-comment") {
+          if (operation.type === "resource-comment") raw = this.resourceComment(operation.input);
+          else if (operation.type === "block-comment") {
             const request = operation.input;
             if (!request || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1) {
               throw new Error("Block comment requires a positive expectedRevision");
@@ -479,15 +484,30 @@ export class AnnotationRepository {
     });
   }
 
-  reconcile(input: AnnotationReconcileInput): AnnotationReconcileReceipt {
+  reconcile(input: AnnotationReconcileInput | ResourceReconcileInput): AnnotationReconcileReceipt {
     if (!input || typeof input !== "object") throw new Error("Annotation reconcile input must be an object");
     const subject = normalizeAnnotationSubject(input.subject, false);
     if (subject.kind === "legacy-file") throw new Error("legacy-file subjects are migration-only");
-    const representation = normalizeAnnotationRepresentation(input.newRepresentation, false);
+    let revision: number | undefined;
+    let given = "newRepresentation" in input ? input.newRepresentation : undefined;
+    let givenContent = "content" in input ? input.content : undefined;
+    if (given === undefined) {
+      // A Resource is read by the service (PIE-650): a client asking for its threads needs no copy of its text.
+      if (subject.kind !== "resource") throw new Error("Annotation reconcile needs the new representation of a block");
+      const source = resourceCommentSource(this.resources.describe(subject.resourceId, true));
+      if (!source) {
+        // Moved, deleted or unreadable: the threads stay, as last resolved, and the receipt says why.
+        return { threads: this.list({ subject, includeResolved: true }), changed: false, unavailable: "the Resource's text can't be read now (the file moved or is gone, or nothing is stored)" };
+      }
+      given = source.representation;
+      givenContent = source.text;
+      if (source.representation.contentHash) revision = resourceTextRevision(source.representation.contentHash);
+    }
+    const representation = normalizeAnnotationRepresentation(given, false);
     if (!sameSubject(subject, representation.subject)) {
       throw new Error("Reconciliation representation subject does not match the requested subject");
     }
-    const content = input.content === undefined ? this.representationContent(representation) : input.content;
+    const content = givenContent === undefined ? this.representationContent(representation) : givenContent;
     if (content !== null && typeof content !== "string") {
       throw new Error("Annotation reconciliation content must be a string");
     }
@@ -505,7 +525,30 @@ export class AnnotationRepository {
       }
       if (changed) this.blocks.markMutation({ kind: "annotate" });
     })();
-    return { threads: this.list({ subject, includeResolved: true }), changed };
+    return { threads: this.list({ subject, includeResolved: true }), changed, ...(revision === undefined ? {} : { revision }) };
+  }
+
+  /**
+   * A `resource-comment` operation as the `create` it stands for: the Resource's text read now, the quote
+   * anchored in it, and the note whose link opened it kept as the reference context.
+   */
+  private resourceComment(request: ResourceCommentInput): AnnotationCreateInput {
+    if (!request || typeof request !== "object") throw new Error("Resource comment input must be an object");
+    const resourceId = text(request.resourceId, "Comment Resource ID");
+    const source = resourceCommentSource(this.resources.describe(resourceId, true));
+    if (!source) throw new Error("This Resource has no stored text a comment can quote (a PDF, a ticket, or a file that is gone)");
+    const target = resourceCommentTarget(source, request.expectedRevision, request.passage);
+    let referenceContext: AnnotationReferenceContext | undefined;
+    if (request.referenceBlockId !== undefined) {
+      const host = this.blocks.requireActive(text(request.referenceBlockId, "Comment reference block ID"));
+      const contexts = authoredResourceReferenceOccurrences(host.text)
+        .filter(occurrence => occurrence.kind === "authored-resource")
+        .map(occurrence => createAnnotationReferenceContext(host, occurrence.start, occurrence.end))
+        .filter(context => this.referenceContextResourceId(context) === resourceId);
+      if (contexts.length === 0) throw new Error("The reference note has no link to this Resource");
+      referenceContext = contexts[0];
+    }
+    return { target: { ...target, ...(referenceContext ? { referenceContext } : {}) }, body: request.body, source: request.source };
   }
 
   approve(input: AnnotationApproveResolutionInput): AnnotationRecord {

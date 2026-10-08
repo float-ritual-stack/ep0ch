@@ -27,6 +27,7 @@ import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { projectOf, touchInputOf, touchOf } from './file-touches'
+import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'
 import {
   FILE_DIFF_REF,
   FILE_REF,
@@ -514,11 +515,15 @@ export function register(on: On, options: PluginOptions): void {
   // Each file an Edit or Write changed, recorded in the session's outline after the call ran (PIE-602): off the call, so
   // the tool's answer never waits for the outline, and one at a time, so a file's touches count up in order.
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const held = await holdForThreads($, option, e)
+    if (held) return { deny: held }
     const result = await next(e)
     queueTouch($, option, e, result)
     return result
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const held = await holdForThreads($, option, e)
+    if (held) return { deny: held }
     const result = await next(e)
     queueTouch($, option, e, result)
     return result
@@ -1460,6 +1465,29 @@ async function toolTitlesOf($: EngineInterface, view: { tool: string; input: unk
     }
   }
   return titles
+}
+
+/** Files an Edit or Write has been checked for open threads this session: asked once each, held once when it had some. */
+const threadChecked = new Set<string>()
+
+/**
+ * The first Edit or Write of a file that has open comment threads in the outline (PIE-650): held once with them, so the
+ * agent reads what was said before it rewrites the file; the same call again goes through. Null for everything else,
+ * and when anything fails: this never stands in the way of an edit it couldn't check.
+ */
+async function holdForThreads($: EngineInterface, option: PluginOptions, e: { tool: string }): Promise<string | null> {
+  try {
+    const path = threadedPathOf(e.tool, e)
+    if (!path || threadChecked.has(path)) return null
+    threadChecked.add(path)
+    if (!references) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return null
+    const out = await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', await actorFor($, {})], JSON.stringify({ ref: fileRefOf(path) }))
+    return threadsHeldNote(path, JSON.parse(out))
+  } catch {
+    return null
+  }
 }
 
 /** After an Edit or Write answered: its touch queued for the outline, unless it was denied or failed. Never throws. */

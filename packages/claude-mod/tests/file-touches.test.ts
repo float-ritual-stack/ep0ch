@@ -75,6 +75,7 @@ type Run = { argv: readonly string[]; init?: ProcessRunInit }
 /** A session in the garden folder (bound to `garden`), in a door tile or not, whose Edit and Write the test answers. */
 function sessionIn(on: On, env: Record<string, string> = {}) {
   const runs: Run[] = []
+  const readAnswer: { value: unknown } = { value: { kind: 'resource', id: 'resource:r1', threads: [] } }
   const toasts: string[] = []
   const copied: string[] = []
   const clock = mock.clock(on)
@@ -101,11 +102,12 @@ function sessionIn(on: On, env: Record<string, string> = {}) {
     if (argv.includes('bound-folder')) return { value: result(0, `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}\n`) }
     if (argv.includes('work-id-status')) return { value: result(0, '{"prefix":"PIE"}') }
     if (argv.includes('mentions')) return { value: result(0, '{"entries":[]}') }
+    if (argv.includes('agent') && argv.includes('read')) return { value: result(0, JSON.stringify(readAnswer.value)) }
     if (argv.includes('touch-file')) return { value: result(0, JSON.stringify({ id: 'b1', created: true, touches: 1, ...(JSON.parse(e.init?.stdin ?? '{}').original ? { snapshot: '/outlines/garden/file-touches/session-1/x-seed-list.txt' } : {}) })) }
     return { value: result(1, '', 'unexpected') }
   })
   const touches = () => runs.filter(r => r.argv.includes('touch-file')).map(r => JSON.parse(r.init?.stdin ?? '{}'))
-  return { runs, toasts, copied, clock, touches }
+  return { runs, toasts, copied, clock, touches, readAnswer }
 }
 
 const START = { surface: 'terminal', isInteractive: true, cwd: WORKSPACE } as const
@@ -127,6 +129,24 @@ describe('each touch, recorded in the session\'s outline', () => {
     await $.tool.call({ tool: 'Write', file_path: OUTSIDE, content: 'Borlotti\nChard\n' } as any)
     await s.clock.settle()
     expect(s.touches().at(-1)).toMatchObject({ path: OUTSIDE, project: 'notes' })
+  })
+
+  test('the first Edit of a file with open comment threads is held once with them (PIE-650); the same edit again goes through, and a file without threads is never held', async ($, on) => {
+    const s = sessionIn(on)
+    await $.session.start(START)
+    await s.clock.settle()
+    s.readAnswer.value = { kind: 'resource', id: 'resource:r1', threads: [{ thread: 't1', anchored: true, quote: 'Borlotti', body: 'Runner beans, not borlotti?', author: 'agent', actorId: 'reviewer-1', replies: [] }] }
+    const edit = { tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any
+    const held = await $.tool.call(edit) as any
+    expect(held.deny).toContain('has 1 open comment thread')
+    expect(held.deny).toContain('Runner beans, not borlotti?')
+    const read = s.runs.find(r => r.argv.includes('agent') && r.argv.includes('read'))!
+    expect(JSON.parse(read.init?.stdin ?? '{}')).toEqual({ ref: `[file::${FILE}]` })
+    expect(s.touches()).toEqual([])
+    expect(((await $.tool.call(edit)) as any).result).toEqual(EDITED)
+    // Another file, with no threads: asked once, never held.
+    s.readAnswer.value = { kind: 'resource', id: 'resource:r2', threads: [] }
+    expect(((await $.tool.call({ tool: 'Write', file_path: OUTSIDE, content: 'Borlotti\nChard\n' } as any)) as any).deny).toBeUndefined()
   })
 
   test('in a door tile, the file pressed opens there (ep0ch open file:), and diff opens its changes; outside a door the path is copied and said', async ($, on) => {

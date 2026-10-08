@@ -9,6 +9,7 @@
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
+import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { installExamples, installTickets, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
@@ -742,7 +743,7 @@ export interface Seeded {
   lanes: Msg[];
   cards: Msg[];
   chores: Msg[];
-  comments: { open: string; resolved: string };
+  comments: { open: string; resolved: string; resource: string };
 }
 
 /**
@@ -753,6 +754,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
   const notes = {} as Record<SeedName, Msg>;
+  let resourceThread = "";
 
   notes.root = await make(null, [`${SEED.root} [${SHOWCASE_MARK.key}::${SHOWCASE_MARK.value}]`, "",
     "A made-up household's outline for the door's showcase: every shared part, on notes you can edit, move and comment on.",
@@ -826,7 +828,14 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     const day = await make(notes.recentFiles.id, "2026-03-11 [file-day::2026-03-11]", SEED_AGENT);
     const project = await make(day.id, "allotment [file-project::allotment]", SEED_AGENT);
     const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}]`, SEED_AGENT);
-    for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
+    const touches: Msg[] = [];
+    for (const f of RECENT_FILES()) touches.push(await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT));
+    // A comment on the bed plan, a Resource (PIE-650): quoted from the file's own Markdown, opened from the block whose link
+    // names it, so the thread shows as a backlink there. The file is never written.
+    const plan = RECENT_FILES()[0]!, followed = await board.followAuthored({ kind: "filesystem", path: plan.file }, SEED_AGENT);
+    const note = resourceNote(await board.describeResource(followed.id), touches[0]!.id);
+    const quoted = "Net the brassicas before the pigeons find them.";
+    resourceThread = (await board.commentOnResource("showcase-resource", note.resource!, note.revision!, "Netting goes on before the first leaves show, or the pigeons get there first.", { quote: quoted, start: note.text.indexOf(quoted) }, SEED_AGENT)).id;
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
@@ -886,7 +895,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];
-  return { notes, lanes, cards, chores, comments: { open: open.id, resolved: resolved.id } };
+  return { notes, lanes, cards, chores, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
 }
 
 /** The showcase's root on this outline, or null when the outline has none. */

@@ -15,6 +15,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { createBlockComment } from "./block-comments";
+import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
+import { resourceCommentSource } from "./resource-comments";
+import type { ResourceDescription } from "./resources";
 import { parsePropertyFilterClause } from "./block-query";
 import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchPolicyName, type DraftPatchProposeWhen, type DraftPatchResult } from "./draft-patch";
 import { chipText, headerLine } from "@ep0ch/outline-core/header-line";
@@ -168,6 +172,111 @@ export async function resolveRef(client: AgentToolsClient, ref: string): Promise
   };
 }
 
+// ─── Resources ─────────────────────────────────────────────────────────────
+
+/** A Resource an agent names instead of a block: a registered one by id, or the reference that names it. */
+export type ResourceRef = { resourceId: string } | { reference: AuthoredResourceReference };
+
+/**
+ * `resource:<id>` (what outline_read returns for one) or an authored reference as written in a note, `[file::path]`,
+ * `[web::url]`: the Resource a read or a comment is about. Null when `ref` names a block (PIE-650).
+ */
+export function resourceRefOf(ref: string): ResourceRef | null {
+  const text = typeof ref === "string" ? ref.trim() : "";
+  const id = /^resource:([^\s:]+)$/.exec(text);
+  if (id) return { resourceId: id[1]! };
+  if (!text.startsWith("[")) return null;
+  const only = authoredResourceReferenceOccurrences(text);
+  const one = only.length === 1 ? only[0]! : null;
+  if (!one || one.start !== 0 || one.end !== text.length) return null;
+  if (one.kind === "invalid-authored-resource") throw new WorkToolRefusal(one.message);
+  return { reference: one.reference };
+}
+
+/** The registered Resource a ref names, registering it when `register` (a comment does; a read doesn't). Null when it isn't registered. */
+async function resourceIdOf(client: AgentToolsClient, ref: ResourceRef, register: boolean, actor?: AgentActor): Promise<string | null> {
+  if ("resourceId" in ref) return ref.resourceId;
+  const r = ref.reference;
+  if (r.kind === "resource") return r.resourceId;
+  if (r.kind === "filesystem") {
+    const found = await client.request<{ id: string } | null>({ action: "resources.lookup-filesystem", path: r.path });
+    if (found) return found.id;
+  }
+  if (!register) return null;
+  const followed = await client.request<{ resource: { id: string } }>({ action: "resources.follow-authored", reference: r, ...(actor ? { mutation: mutationOf(actor) } : {}) });
+  return followed.resource.id;
+}
+
+export interface ResourceThread {
+  thread: string;
+  /** "resolved": the quote is still where it was said (or was found again); "moved or gone": it isn't, and `quote` is the text as it read. */
+  anchored: boolean;
+  quote: string;
+  body: string;
+  author: BlockAuthor;
+  actorId?: string;
+  lifecycle: string;
+  replies: { id: string; author: BlockAuthor; body: string }[];
+}
+
+export interface ResourceReadResult {
+  kind: "resource";
+  id: string;
+  ref: string;
+  title: string;
+  /** `resourceTextRevision` of the stored text: what a comment on it names. */
+  revision: number | null;
+  text: string | null;
+  /** The comment threads on it that are open (a rewritten file's are re-anchored, or kept as they read when written). */
+  threads: ResourceThread[];
+  /** Why the text can't be read or quoted now, when it can't; the threads are still the ones there are. */
+  unavailable?: string;
+}
+
+function threadOf(thread: import("./types").AnnotationThread): ResourceThread {
+  const anchor = thread.originalTarget.anchor;
+  return {
+    thread: thread.block.id,
+    anchored: thread.resolvedTarget !== null,
+    quote: anchor.kind === "text-quote" ? anchor.exact : "",
+    body: thread.body,
+    author: thread.block.author,
+    ...(thread.block.actorId ? { actorId: thread.block.actorId } : {}),
+    lifecycle: thread.lifecycle,
+    replies: thread.replies.map(reply => ({ id: reply.block.id, author: reply.block.author, body: reply.body })),
+  };
+}
+
+/** The open threads on a Resource, re-anchored against its text as it is now (all of them with `resolved: true`). */
+export async function resourceThreads(client: AgentToolsClient, resourceId: string, includeResolved = false): Promise<{ threads: ResourceThread[]; unavailable?: string }> {
+  const receipt = await client.request<import("./types").AnnotationReconcileReceipt>({ action: "annotations.reconcile", input: { subject: { kind: "resource", resourceId } } });
+  return { threads: receipt.threads.filter(t => includeResolved || t.lifecycle === "open").map(threadOf), ...(receipt.unavailable ? { unavailable: receipt.unavailable } : {}) };
+}
+
+/** A Resource with its stored text and its open comment threads: what an agent reads before it edits the file (PIE-650). */
+export async function readResource(client: AgentToolsClient, ref: ResourceRef): Promise<ResourceReadResult> {
+  const id = await resourceIdOf(client, ref, false);
+  if (!id) {
+    const file = "reference" in ref && ref.reference.kind === "filesystem" ? ref.reference.path : null;
+    const named = file ?? "that reference";
+    return { kind: "resource", id: "", ref: "", title: named, revision: null, text: null, threads: [], unavailable: file
+      ? `${named} isn't a registered Resource, so nothing has been said about it`
+      : `${named} can't be looked up without registering it: read a registered Resource as resource:<id> (outline_comment returns the id; a note's link, opened in the door, registers it)` };
+  }
+  const description = await client.request<ResourceDescription>({ action: "resources.describe", target: { kind: "resource", resourceId: id } });
+  const source = resourceCommentSource(description);
+  const { threads, unavailable } = await resourceThreads(client, id);
+  const hash = source?.representation.contentHash;
+  return {
+    kind: "resource", id: `resource:${id}`, ref: `resource:${id}`,
+    title: (() => { const a = description.resource.address as Record<string, unknown>; return String(a.path ?? a.url ?? a.key ?? id); })(),
+    revision: hash ? resourceTextRevision(hash) : null,
+    text: source?.text ?? null,
+    threads,
+    ...(unavailable ? { unavailable } : source ? {} : { unavailable: "no stored text a comment can quote" }),
+  };
+}
+
 // ─── Read ──────────────────────────────────────────────────────────────────
 
 export interface ReadChild {
@@ -204,7 +313,9 @@ export const READ_CHILDREN_MAX_CHARS = 60_000;
 export async function readBlock(
   client: AgentToolsClient,
   input: { ref: string; depth?: number; limit?: number },
-): Promise<ReadResult> {
+): Promise<ReadResult | ResourceReadResult> {
+  const resource = resourceRefOf(input.ref);
+  if (resource) return readResource(client, resource);
   const depth = boundedInteger(input.depth, "depth", 1, 0, 6);
   const limit = boundedInteger(input.limit, "limit", 50, 0, 500);
   // The children's text in all, so a read of a large subtree never floods the caller: past it, `complete` is false.
@@ -512,6 +623,8 @@ export async function viewOrder(
 export interface CommentResult {
   thread: string;
   blockId?: string;
+  /** A comment on a Resource: which one. */
+  resourceId?: string;
   author: BlockAuthor;
   actorId?: string;
   lifecycle: string;
@@ -535,13 +648,15 @@ function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> =
  */
 export async function commentOn(
   client: AgentToolsClient,
-  input: { ref: string; body: string; quote?: string; whole?: boolean; start?: number; prefix?: string; suffix?: string; requestId?: string },
+  input: { ref: string; body: string; quote?: string; whole?: boolean; start?: number; prefix?: string; suffix?: string; requestId?: string; from?: string },
   actor: AgentActor,
 ): Promise<CommentResult> {
   const body = requireText(input.body, "The comment");
   if ((input.whole === true) === (typeof input.quote === "string")) {
     throw new WorkToolRefusal("Give either quote (exact source text) or whole: true");
   }
+  const resource = resourceRefOf(input.ref);
+  if (resource) return commentOnResource(client, resource, { ...input, body }, actor);
   const block = await writableBlock(client, input.ref);
   const receipt = await createBlockComment(client, {
     requestId: input.requestId?.trim() || randomUUID(),
@@ -565,6 +680,46 @@ export async function commentOn(
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
   return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}) });
+}
+
+/**
+ * A comment thread on a Resource's stored text (a file, a fetched page), as the agent: on an exact `quote` of the
+ * text outline_read returned, which the service reads again and refuses when the Resource has changed since
+ * `revision`. The thread lives in the outline; the Resource is never written. `from`: the note whose link names it,
+ * kept as the thread's reference context (it shows as a backlink there).
+ */
+async function commentOnResource(
+  client: AgentToolsClient,
+  ref: ResourceRef,
+  input: { body: string; quote?: string; whole?: boolean; start?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; revision?: number },
+  actor: AgentActor,
+): Promise<CommentResult> {
+  if (input.whole) throw new WorkToolRefusal("A Resource's text is commented on at a quote; give quote (exact source text), not whole");
+  const resourceId = (await resourceIdOf(client, ref, true, actor))!;
+  const description = await client.request<ResourceDescription>({ action: "resources.describe", target: { kind: "resource", resourceId } });
+  const source = resourceCommentSource(description);
+  const hash = source?.representation.contentHash;
+  if (!source || !hash) throw new WorkToolRefusal("This Resource has no stored text a comment can quote (a PDF, a ticket, or a file that is gone)");
+  const from = input.from?.trim() ? (await resolveReference(client, input.from)).block.id : undefined;
+  const receipt = await client.request<AnnotationBatchReceipt>({
+    action: "annotations.batch",
+    requestId: input.requestId?.trim() || randomUUID(),
+    author: "agent",
+    provenance: provenanceOf(actor),
+    operations: [{ operationId: "comment", type: "resource-comment", input: {
+      resourceId, expectedRevision: input.revision ?? resourceTextRevision(hash), body: input.body, source: "agent",
+      passage: {
+        quote: input.quote!,
+        ...(input.start === undefined ? {} : { start: input.start }),
+        ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
+        ...(input.suffix === undefined ? {} : { suffix: input.suffix }),
+      },
+      ...(from ? { referenceBlockId: from } : {}),
+    } }],
+  });
+  const record = receipt.annotations[0];
+  if (!record) throw new Error("The service recorded no comment");
+  return commentResult(record, { resourceId, ...(receipt.deduplicated ? { deduplicated: true } : {}) });
 }
 
 function threadId(thread: string): string {

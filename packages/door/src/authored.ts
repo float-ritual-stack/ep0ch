@@ -9,6 +9,7 @@
 import { basename, dirname, extname } from "node:path";
 import type { Msg } from "./board";
 import { printable } from "./text";
+import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 
 // ── the wire (pi-herdr-outliner src/authored-links.ts, src/resource-references.ts, src/resources.ts) ──
 
@@ -62,9 +63,9 @@ export type AuthoredLinksSnapshot =
 export interface ResourceDescription {
   resource: { id: string; provider: string; mediaType: string | null; address: Record<string, unknown> & { kind: string }; createdAt: string; updatedAt: string };
   source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: string[] } };
-  filesystem?: { text: string; capturedAt: string } | null;
+  filesystem?: { text: string; capturedAt: string; contentHash?: string } | null;
   pdf?: unknown;
-  web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null } } | null;
+  web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null }; representation?: { contentHash: string } } | null;
   webError?: string;
   remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Record<string, string | string[] | null>; sourceSnapshot?: { fetchedAt: string } } | null;
   remoteError?: string;
@@ -86,7 +87,7 @@ export const RESOURCE_NOTE = "resource:";
 
 /**
  * A note that isn't a block in the outline: a file a preview follows (`file:`) or a Resource shown in a reader
- * (`resource:`). It is read, never edited, commented on or asked for its backlinks.
+ * (`resource:`). It is read, never edited or asked for its backlinks. A Resource's text takes comments (PIE-650).
  */
 /** A view of what's put aside as unsent on a note (its diff, its copy: src/unsent.ts): read here, never written. */
 export const UNSENT_NOTE = "unsent:";
@@ -136,37 +137,69 @@ function addressLabel(a: ResourceDescription["resource"]["address"]): string {
  * A Resource's stored content as a note the reader draws: a title, a line saying where it's from, then the
  * content (Markdown as it is, any other file in a fence). Nothing stored yet says so.
  */
-export function resourceNote(d: ResourceDescription): Msg {
+export function resourceNote(d: ResourceDescription, from?: string): Msg {
   const r = d.resource, where = addressLabel(r.address);
   let title = where, body = "", when = "";
+  // The stored text a comment can quote, and where it sits in `body` when `body` draws it as it is.
+  let source: { raw: string; hash: string | undefined; at: number | null } | null = null;
+  let why: string | undefined;
   if (d.remoteEntity) {
     title = `${where} · ${d.remoteEntity.title}`;
     // The ticket's fields as the provider sent them (status, assignee, …), then its text.
     const fields = Object.entries(d.remoteEntity.metadata).filter(([k, v]) => k !== "key" && v !== null && (!Array.isArray(v) || v.length)).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(", ") : v}`);
     body = readable((fields.length ? fields.join(" · ") + "\n\n" : "") + cut(d.remoteEntity.markdown.replace(/^# .*\n+/, "")).text);
     when = d.remoteEntity.sourceSnapshot?.fetchedAt ?? "";
+    why = "a ticket's fields aren't a text to quote; its block takes comments";
   } else if (d.filesystem) {
     title = basename(where);
     const ext = extname(where).toLowerCase();
     when = d.filesystem.capturedAt;
-    if (looksBinary(d.filesystem.text)) body = `A binary file${r.mediaType ? ` (${r.mediaType})` : ""}: the door shows text files only.`;
+    if (looksBinary(d.filesystem.text)) { body = `A binary file${r.mediaType ? ` (${r.mediaType})` : ""}: the door shows text files only.`; why = "a binary file has no text to quote"; }
     else {
       const { text, note } = cut(readable(d.filesystem.text));
       // A fence long enough that a fence inside the file doesn't close it.
       const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/^\s*(`{3,})/gm)].map(m => m[1]!.length + 1)));
+      const head = note + (MARKDOWN.has(ext) ? "" : fence + ext.slice(1) + "\n");
       body = note + (MARKDOWN.has(ext) ? text : fence + ext.slice(1) + "\n" + text.replace(/\n$/, "") + "\n" + fence);
+      source = { raw: d.filesystem.text, hash: d.filesystem.contentHash, at: !note && text === d.filesystem.text ? head.length : null };
     }
-  } else if (d.web) { body = cut(readable(d.web.markdown)).text; when = d.web.sourceSnapshot?.fetchedAt ?? ""; }
-  else if (d.computed) { body = cut(readable(d.computed.markdown)).text; when = d.computed.derivedAt; }
-  else if (d.pdf || r.mediaType === "application/pdf") body = "A PDF: the door doesn't draw PDFs yet. Detail shows it.";
-  else if (d.source.policy?.deniedCapabilities?.includes("read")) body = `The workspace's policy doesn't let ${d.source.name} be read.`;
+  } else if (d.web) {
+    const shown = cut(readable(d.web.markdown));
+    body = shown.text; when = d.web.sourceSnapshot?.fetchedAt ?? "";
+    source = { raw: d.web.markdown, hash: d.web.representation?.contentHash, at: !shown.note && shown.text === d.web.markdown ? 0 : null };
+  }
+  else if (d.computed) { body = cut(readable(d.computed.markdown)).text; when = d.computed.derivedAt; why = "a computed document isn't stored text to quote"; }
+  else if (d.pdf || r.mediaType === "application/pdf") { body = "A PDF: the door doesn't draw PDFs yet. Detail shows it."; why = "a PDF's passages are commented on in Detail"; }
+  else if (d.source.policy?.deniedCapabilities?.includes("read")) { body = `The workspace's policy doesn't let ${d.source.name} be read.`; why = "the workspace's policy doesn't let this Resource be read"; }
   // The service reads a file each time it's asked; nothing means it couldn't (src/files.ts `readFileContents`).
-  else if (r.provider === "filesystem") body = `The file can't be read now: it's gone, isn't a regular file, or is over ${SERVICE_FILE_LIMIT / 1024 / 1024} MiB.`;
-  else body = readable(d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet.");
+  else if (r.provider === "filesystem") { body = `The file can't be read now: it's gone, isn't a regular file, or is over ${SERVICE_FILE_LIMIT / 1024 / 1024} MiB.`; why = "the file can't be read now: its threads stay, but nothing new can be quoted"; }
+  else { body = readable(d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet."); why = "nothing is stored for this Resource yet"; }
   const said = [d.source.name, d.source.name.toLowerCase().startsWith(r.provider) ? "" : r.provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
   const at = Date.parse(r.updatedAt) || Date.now();
   const line = (t: string) => readable(t).replace(/\n/g, " ");
-  return { id: `${RESOURCE_NOTE}${r.id}`, text: `${line(title)}\n*${line(said)}*\n\n${body}`, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {} };
+  const header = `${line(title)}\n*${line(said)}*\n\n`;
+  const commentable = !!source?.hash;
+  if (source && !source.hash) why = "the service didn't say which version of the text this is";
+  return {
+    id: `${RESOURCE_NOTE}${r.id}`, text: header + body, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {},
+    ...(commentable ? { revision: resourceTextRevision(source!.hash!) } : {}),
+    resource: { id: r.id, ...(from ? { from } : {}), sourceAt: source?.at == null ? null : header.length + source.at, ...(commentable ? {} : { uncommentable: why ?? "nothing to quote here" }) },
+  };
+}
+
+/**
+ * Comments on a Resource's note placed where its text is drawn: the service places a quote in the Resource's own
+ * text, and the note has a header (and maybe a fence) before it. A text not drawn as it is has no places.
+ */
+export function alignComments<C extends { start: number | null; end: number | null }>(comments: C[], on: Msg | null | undefined): C[] {
+  const r = on?.resource;
+  if (!r) return comments;
+  return comments.map(c => ({ ...c, start: r.sourceAt !== null && c.start !== null ? c.start + r.sourceAt : null, end: r.sourceAt !== null && c.end !== null ? c.end + r.sourceAt : null }));
+}
+
+/** The same Resource's note read again (its text may have changed), still opened from the note it was opened from. */
+export function rereadResource(fresh: Msg, was: Msg): Msg {
+  return fresh.resource && was.resource?.from ? { ...fresh, resource: { ...fresh.resource, from: was.resource.from } } : fresh;
 }
 
 /** An ISO time as the person's local "YYYY-MM-DD HH:MM". */
@@ -190,9 +223,9 @@ export function resourceTarget(link: AuthoredResourceLink): { resourceId: string
  * stored, fetching it once when nothing is (`resources.describe`, `resources.refresh`). One step, as the
  * outliner's Tree's ⏎ is.
  */
-export async function openResource<A>(board: { followAuthored(r: AuthoredResourceReference, actor?: A): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }, actor?: A): Promise<{ note: Msg; registered: boolean }> {
+export async function openResource<A>(board: { followAuthored(r: AuthoredResourceReference, actor?: A): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }, actor?: A, from?: string): Promise<{ note: Msg; registered: boolean }> {
   const followed = "resourceId" in to ? { id: to.resourceId, created: false } : await board.followAuthored(to.reference, actor);
-  return { note: resourceNote(await board.describeResource(followed.id, true)), registered: followed.created };
+  return { note: resourceNote(await board.describeResource(followed.id, true), from), registered: followed.created };
 }
 
 // ── the rows' words ──────────────────────────────────────────────────────────────────────────────────

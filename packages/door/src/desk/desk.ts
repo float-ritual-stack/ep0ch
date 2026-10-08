@@ -2672,9 +2672,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // column's h l w p x g), never while the person types (a filter, an edit opening).
     const pressed = pane && !this.holdsKeys() ? kindOf(pane)?.press?.(pane, k) : null;
     if (pressed) return this.run(pressed.action, pressed.args ?? {}, this.nameOf(this.focus));
-    const readOnly = pane instanceof ReaderPane && pane.readOnly;
     // Not while the tile takes typed text of its own (a river column's / filter): e, i and C are letters there.
-    const start = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg && !readOnly ? sessionStart(k) : null;
+    // A note that isn't a block keeps its own refusal (ReaderPane.key says it), except the comment keys a Resource takes.
+    const kind = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg ? sessionStart(k) : null;
+    const start = kind && !(pane instanceof ReaderPane && pane.refuses(kind)) ? kind : null;
     if (focused && start) {
       // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once (armsEdit).
       if (armsEdit(start)) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));

@@ -17,7 +17,7 @@ import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
-import { actorOf, applyWrite, assignIdRefusal, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -266,7 +266,30 @@ async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string)
 }
 
 
+/**
+ * A Resource addressed by `ref` (resource:<id> or a [file::path] token, PIE-650): read, or commented on, live in the
+ * outline it is registered in (a mirror is a copy of blocks, so a Resource is read at its home).
+ */
+async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown>): Promise<McpBoard | { error: string }> {
+  const named = namedOutline(args.outline);
+  if (named && "error" in named) return named;
+  if (!named && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}).` };
+  const target = await outlines.board(named);
+  if ("error" in target) return target;
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return status;
+  if (target.served.source === "mirror") return { error: `${target.board.address.outline}@${target.board.address.machine} is served from a read-only mirror here; a Resource and its threads are read live on ${target.board.address.machine}.` };
+  return target;
+}
+
 async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+  const ref = refArg(args);
+  if (ref && await isResourceRef(ref)) {
+    const target = await resourceBoard(outlines, args);
+    if ("error" in target) return toolError(target.error);
+    try { return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, resource: await readResourceOn(target.board, ref) }); }
+    catch (e) { return toolError((e as Error).message); }
+  }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const read = await recordForMcp(outlines, target, target.id);
@@ -573,7 +596,8 @@ function toolsFor(outlines: McpOutlines) {
     {
       name: "outline_read",
       description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
-        `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref.`,
+        `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
+        `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it.`,
       inputSchema: addressSchema,
     },
     {
@@ -682,6 +706,18 @@ const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level:
 async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   const shape = writeInput(tool, args);
   if ("error" in shape) return toolError(shape.error);
+  const resourceRef = tool === "outline_comment" ? refArg(args) : undefined;
+  if (resourceRef && await isResourceRef(resourceRef)) {
+    const target = await resourceBoard(outlines, args);
+    if ("error" in target) return toolError(target.error);
+    const status = await target.board.mcpAccessStatus();
+    if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+    if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
+    try {
+      const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actorOf(caller));
+      return toolText({ outcome: done.outcome, uri: done.uri, outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, detail: done.detail });
+    } catch (e) { return toolError((e as Error).message); }
+  }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const { board } = target;

@@ -271,7 +271,7 @@ export class BacklinksPane implements Pane {
       desk.redraw();
       return { row: i + 1, group: g };
     }
-    const { note: m, registered } = await linkNote(r, desk.ctx.board, how === "show" ? "show" : "open", actor);
+    const { note: m, registered } = await linkNote(r, desk.ctx.board, how === "show" ? "show" : "open", actor, this.target?.id);
     // The selection may have moved on while the note was read: only the latest pick shows.
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that

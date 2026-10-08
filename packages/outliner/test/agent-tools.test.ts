@@ -423,3 +423,38 @@ test("edit replaces a section that holds a live figure, figure included", async 
   expect(edited.json.section.previous).toBe("::graph-stat\n---\ntitle: Open\n---\n::");
   expect(store.get(note.id)!.text).toBe("Review\n\n## Since last review\n\nNothing new.\n\n## Rounds\n\nround one");
 });
+
+// PIE-650: a Resource is read with its open threads before an agent edits the file, and commented on by id or by its [file::] link.
+test("an agent reads a Resource with its open threads, comments on it by its [file::] link and the file is never written", async () => {
+  const { store, agent, root } = await setup();
+  const file = join(root, "pr-body.md");
+  const first = "## Summary\n\nThe **cache** warms [on boot](https://example.test/boot).\n\n- step one\n";
+  writeFileSync(file, first);
+  const host = store.create(`Reading [file::${file}] before the rollout.`);
+  // Not registered yet: a read registers nothing and says so.
+  const none = await agent("read", { ref: `[file::${file}]` });
+  expect(none.json).toMatchObject({ kind: "resource", threads: [], unavailable: expect.stringContaining("isn't a registered Resource") });
+  const quote = "warms [on boot](https://example.test/boot)";
+  const said = await agent("comment", { ref: `[file::${file}]`, quote, body: "Why on boot?", from: `((${host.id}))` });
+  expect(said.exitCode).toBe(0);
+  const resourceId = said.json.resourceId as string;
+  expect(resourceId).toBeTruthy();
+  expect(said.json).toMatchObject({ lifecycle: "open" });
+  const read = await agent("read", { ref: `resource:${resourceId}` });
+  expect(read.json).toMatchObject({ kind: "resource", text: first, threads: [{ thread: said.json.thread, quote, body: "Why on boot?", anchored: true, actorId: "garden-agent" }] });
+  expect(read.json.revision).toBeGreaterThan(0);
+  // The file is rewritten and the quote is gone: the thread is still read, as it read when written, no longer anchored.
+  writeFileSync(file, "## Summary\n\nRewritten.\n");
+  const later = await agent("read", { ref: `[file::${file}]` });
+  expect(later.json.threads).toMatchObject([{ thread: said.json.thread, quote, anchored: false }]);
+  // Resolved threads aren't in the open ones.
+  await agent("resolve-thread", { thread: said.json.thread, resolved: true });
+  expect((await agent("read", { ref: `[file::${file}]` })).json.threads).toEqual([]);
+  expect((await agent("comment", { ref: `[file::${file}]`, whole: true, body: "x" })).stderr).toContain("quote");
+  // A comment names the revision outline_read returned: a file rewritten since refuses it, even with the quote still there.
+  writeFileSync(file, `${first}\nAnd a new line.\n`);
+  const stale = await agent("comment", { ref: `resource:${resourceId}`, quote: "step one", body: "Two steps?", revision: read.json.revision });
+  expect(stale.exitCode).not.toBe(0);
+  expect(stale.stderr).toContain("stale");
+  expect((await agent("comment", { ref: `resource:${resourceId}`, quote: "step one", body: "Two steps?" })).exitCode).toBe(0);
+});

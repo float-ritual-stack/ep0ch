@@ -150,7 +150,7 @@ export { Outgoing };
 // ── the session a reader holds while commenting ───────────────────────────────
 
 export interface CommentEnv {
-  board: Pick<SocketBoard, "comment" | "reply" | "setLifecycle">;
+  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle">;
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
@@ -411,7 +411,7 @@ export class CommentSession {
       const a = p.firstLine + 1, b = p.lastLine + 1;
       const head = [
         fg(C.yellow) + pad(`» comment on a passage · ${title}`, w) + RESET,
-        fg(C.brown) + pad(`rev ${this.msg.revision} · line${a === b ? ` ${a}` : `s ${a}-${b}`} · ${p.quote.length} chars · the note's source text`, w) + RESET,
+        fg(C.brown) + pad(`${this.msg.resource ? "the file's text as read" : `rev ${this.msg.revision}`} · line${a === b ? ` ${a}` : `s ${a}-${b}`} · ${p.quote.length} chars · ${this.msg.resource ? "its source, never written" : "the note's source text"}`, w) + RESET,
         state ?? status(p.note || this.note || "pick the words to quote; Enter writes the comment", p.note ? C.yellow : C.cyan),
         rule(w),
       ];
