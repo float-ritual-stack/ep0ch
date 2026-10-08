@@ -13,7 +13,7 @@ import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/out
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
-import { bandLetters, drawBand, drawTrack } from "./figures/banner";
+import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -712,7 +712,7 @@ function styleDeclaration(line: string, W: number): string[] | null {
     s.pattern, `${s.rows} row${s.rows === 1 ? "" : "s"}`, `${s.align}/${s.row}`,
     ...(s.tone !== "neutral" ? [s.tone] : []), ...(s.letters !== "plain" ? [s.letters] : []),
     ...(s.padding.rows || s.padding.cols !== 2 ? [`padding ${s.padding.rows} ${s.padding.cols}`] : []),
-    ...(s.margin.rows || s.margin.cols ? [`margin ${s.margin.rows} ${s.margin.cols}`] : []),
+    ...(s.margin.top || s.margin.cols || s.margin.bottom ? [`margin ${s.margin.top} ${s.margin.cols} ${s.margin.bottom}`] : []),
     ...(s.defaults.length ? [`default for ${s.defaults.map(x => (x === "rule" ? "---" : "#".repeat(x))).join(" ")}`] : []),
   ] : [];
   const name = s?.name ?? liveTokensInLine(line).find(t => t.key === "heading-style")?.value ?? "";
@@ -738,7 +738,12 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
   const h = st.text.match(HEADING);
   if (!h) return { rows: prose(st.text, W, fold, literal), headRow: 0 };
   const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
-  return band ? { rows: band.rows, headRow: band.textRow } : { rows: prose(st.text, W, fold, literal), headRow: 0 };
+  if (band) return { rows: band.rows, headRow: band.textRow };
+  const margin = st.style?.margin;
+  const plain = prose(st.text, W, fold, literal);
+  if (!margin) return { rows: plain, headRow: 0 };
+  const m = withMargin(margin, plain, 0);
+  return { rows: m.rows, headRow: m.textRow };
 }
 
 /** A rule (`---`) with a style: its track, or as written when narrow. Null for a line that isn't one, or a plain one. */
@@ -746,7 +751,9 @@ function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | 
   const st = styleOf(line, env);
   if (!st || st.kind !== "rule" || (st.style === null && st.text === line)) return null;
   const track = st.style && drawTrack(st.style, W);
-  return { rows: track ?? wrap(st.text.trim(), W).map(l => fg(C.dark) + l + RESET) };
+  if (track) return { rows: track };
+  const rows = wrap(st.text.trim(), W).map(l => fg(C.dark) + l + RESET);
+  return { rows: st.style ? withMargin(st.style.margin, rows, 0).rows : rows };
 }
 
 /**

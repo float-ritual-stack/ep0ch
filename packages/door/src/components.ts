@@ -6,7 +6,7 @@ import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth }
 import { printable, wrap } from "./text";
 import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
-import { bandLetters, drawBand, drawTrack } from "./figures/banner";
+import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { TONE as CALLOUT_TONE } from "./callouts";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
@@ -80,7 +80,8 @@ function bandOf(n: Record<string, unknown>, w: number, headings: HeadingStyleReg
   const label = words ? BOLD + fg(ink) + bandLetters(words, style.letters) + UNBOLD + RESET : null;
   const band = drawBand(style, w, level, label, words || "band");
   if (band) return { rows: band.rows, headRow: band.textRow };
-  return { rows: words ? wrap(`${"#".repeat(level)} ${words}`, w).map(l => fg(ink) + BOLD + l + UNBOLD + RESET) : [fg(C.dark) + "─".repeat(w) + RESET], headRow: 0 };
+  const plain = withMargin(style.margin, words ? wrap(`${"#".repeat(level)} ${words}`, w).map(l => fg(ink) + BOLD + l + UNBOLD + RESET) : [fg(C.dark) + "─".repeat(w) + RESET], 0);
+  return { rows: plain.rows, headRow: plain.textRow };
 }
 
 type Node = Record<string, unknown>;

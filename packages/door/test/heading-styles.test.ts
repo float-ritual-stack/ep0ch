@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { BUILTIN_HEADING_STYLES, headingStyleRegistry, headingStylesFromBlocks, type HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { Msg } from "../src/board";
 import { foldPoints, renderDoc, type DocEnv } from "../src/doc";
-import { bandLetters, drawBand, drawTrack } from "../src/figures/banner";
+import { bandLetters, drawBand, drawTrack, withMargin } from "../src/figures/banner";
 import { DIM, INK } from "../src/figures/palette";
 import { TONE } from "../src/callouts";
 import { fg, visible } from "../src/style";
@@ -119,13 +119,22 @@ describe("the band", () => {
   });
 
   test("padding and margin: clear rows around the heading, blank rows and columns around the band", () => {
-    const band = drawBand({ ...builtin("band"), letters: "plain", padding: { rows: 1, cols: 4 }, margin: { rows: 1, cols: 2 } }, 80, 2, "Beds", "Beds")!;
+    const band = drawBand({ ...builtin("band"), letters: "plain", padding: { rows: 1, cols: 4 }, margin: { top: 1, cols: 2, bottom: 1 } }, 80, 2, "Beds", "Beds")!;
     expect(band.rows.length).toBe(5);
     expect([band.rows[0], band.rows[4]]).toEqual(["", ""]);
     const r = band.rows.map(visible), at = r[2]!.indexOf("Beds");
     expect(r[1]!.startsWith("  ")).toBe(true);
     expect(r[1]!.slice(at - 4, at + 8).trim()).toBe("");
     expect(r[3]!.slice(at - 4, at + 8).trim()).toBe("");
+  });
+
+  test("margin rows differ above and below, and a narrow tier's plain heading keeps them (columns dropped)", () => {
+    const style = { ...builtin("band"), margin: { top: 2, cols: 3, bottom: 1 } };
+    const band = drawBand(style, 80, 2, "Beds", "Beds")!;
+    expect(band.rows.length).toBe(6);
+    expect([band.rows[0], band.rows[1], band.rows[5]]).toEqual(["", "", ""]);
+    expect(band.textRow).toBe(3);
+    expect(withMargin(style.margin, ["## Beds"], 0)).toEqual({ rows: ["", "", "## Beds", ""], textRow: 2 });
   });
 
   test("lettering: as written, capitals, spaced capitals; a heading too long for the band is drawn as written", () => {

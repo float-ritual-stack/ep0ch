@@ -62,3 +62,13 @@ test("taking tokens out keeps the words apart, and a token in a code span is tex
   const line = "a [x::1] b `[y::2]`";
   expect(withoutTokens(line, liveTokensInLine(line))).toBe("a b `[y::2]`");
 });
+
+test("heading-margin: columns, rows and columns, or top, columns and bottom; out of range is said and clamped", () => {
+  const m = (v: string) => headingStyleWith(BASE_HEADING_STYLE, [{ key: "heading-margin", value: v }]);
+  expect(m("6").style.margin).toEqual({ top: 0, cols: 6, bottom: 0 });
+  expect(m("1 12").style.margin).toEqual({ top: 1, cols: 12, bottom: 1 });
+  expect(m("2 0 1")).toEqual({ style: expect.objectContaining({ margin: { top: 2, cols: 0, bottom: 1 } }), problems: [] });
+  expect(m("9 0 1").style.margin).toEqual({ top: 3, cols: 0, bottom: 1 });
+  expect(m("9 0 1").problems).toEqual([expect.stringContaining("at most 3 rows")]);
+  expect(m("1 2 3 4").problems).toEqual([expect.stringContaining("top columns bottom")]);
+});

@@ -9,7 +9,7 @@
 //   ▓▓▓▓▓▓▓▓▒▒▒▒░░░░ ·  ·        ·  · ░░░░▒▒▒▒▓▓▓▓▓▓▓▓   YOUR CALLS  ▓▓▓▒▒▒▒▒░░░░░ ·  ·   ·
 //   ▓▓▓▓▒▒▒░░        Y O U R   C A L L S      ░░▒▒▒▓▓▓▓   ▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒░░░░░ ·  ·
 //   ▓▓▒░                                          ░▒▓▓    ▓▓▓▓▓▒▒▒▒░░░░ ·   ·
-import type { BandLetters, HeadingStyle } from "@ep0ch/outline-core/heading-styles";
+import type { BandLetters, BandMargin, HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import { fg, RESET, stripMarks, width as vwidth } from "../style";
 import { DIM, INK, SHADES, tier } from "./palette";
 
@@ -94,7 +94,12 @@ export function drawBand(style: HeadingStyle, W: number, level: number, label: s
     }
     out.push(line + RESET);
   }
-  return { rows: [...Array(m.rows).fill(""), ...out, ...Array(m.rows).fill("")], textRow: m.rows + textRow };
+  return withMargin(m, out, textRow);
+}
+
+/** `rows` with the margin's blank rows above and below, and `textRow` moved down by those above: a band's, or a narrow tier's plain heading. */
+export function withMargin(m: BandMargin, rows: string[], textRow: number): Band {
+  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], textRow: m.top + textRow };
 }
 
 /** A rule's track (`--- [rule::fade]`): the style's band with no heading in it, or null when narrow. */
