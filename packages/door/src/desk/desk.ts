@@ -3089,7 +3089,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let next = this.nextId;
     for (const x of out.tiles) ids.set(x.id, next++);
     const tree = mapTree(out.tree, id => ids.get(id)!);
-    const r = this.ask({ op: "ungroup", tile: t.id, tree, names: out.tiles.map(x => [ids.get(x.id)!, x.name] as [number, string]) }, actor);
+    const m = (id: number) => ids.get(id)!;
+    const r = this.ask({
+      op: "ungroup", tile: t.id, tree, names: out.tiles.map(x => [m(x.id), x.name] as [number, string]),
+      folds: out.folds.filter(([k]) => ids.has(k)).map(([k, f]) => [m(k), f]), agents: out.agents.filter(([k]) => ids.has(k)).map(([k, l]) => [m(k), l]),
+      links: out.links.filter(([a, b]) => ids.has(a) && ids.has(b)).map(([a, b, role]) => [m(a), m(b), role]),
+    }, actor);
     if (!r.ok) { inner.takeBack(out); throw new ActionRefused(r.refused); }
     for (const x of out.tiles) { const id = this.put(x.pane); this.movedIn.add(id); }
     this.commit(r);
@@ -3103,15 +3108,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Every tile leaves this desk whole (a group spilling back, PIE-651): the tree they were in (by this desk's ids), each
    * with its instance and name. Nothing ends; `takeBack` puts them back as they were when the other screen refuses them.
    */
-  release(): { tree: LNode; tiles: { id: number; name: string; pane: Pane }[]; panes: Map<number, Pane> } {
+  release(): { tree: LNode; tiles: { id: number; name: string; pane: Pane }[]; panes: Map<number, Pane>; folds: [number, Fold][]; agents: [number, AgentLevel][]; links: [number, number, LinkRole | undefined][] } {
     if (this.floats.length) throw new ActionRefused(`${this.floats.map(f => this.nameOf(f.id)).join(", ")} float${this.floats.length === 1 ? "s" : ""} in it: put ${this.floats.length === 1 ? "it" : "them"} back first (^W f inside, ^W e goes in)`);
     const tiles = leaves(this.root).map(id => ({ id, name: this.nameOf(id), pane: this.panes.get(id)! }));
-    const out = { tree: this.root, tiles, panes: new Map(this.panes) };
+    const L = this.layout;
+    const out = { tree: this.root, tiles, panes: new Map(this.panes), folds: [...L.collapsed].map(([k, v]) => [k, { ...v }] as [number, Fold]), agents: [...L.agents], links: [...L.links].map(([a, b]) => [a, b, L.linkRoles.get(a)] as [number, number, LinkRole | undefined]) };
     for (const x of tiles) this.forgetTile(x.id, x.pane);
     return out;
   }
   takeBack(out: { panes: Map<number, Pane> }) { for (const [id, p] of out.panes) this.panes.set(id, p); }
 
+  /** Why a mount can't open beside the focused tile here now (a locked desk), or null. */
+  mountRefusal(actor: Actor): string | null {
+    if (!this.panes.has(this.focus)) return null;
+    const r = this.ask({ op: "open", tile: this.nextId, kind: "screen", at: placeOf("right", this.focus) }, actor);
+    return r.ok ? null : r.refused;
+  }
+  /** Keep a desk made to ask (Desk.resume) for the next open of the desk, as leaving it with programs does. */
+  static keep(d: Desk) { if (!Desk.kept) Desk.kept = d; }
   /** This screen can go on the desk as a mount (screen.mount): it's a registered screen, and not the desk or a mount. */
   mountable(): boolean { return this.spec.name !== "desk" && this.spec.name !== "group" && !this.onSave && screenNames().includes(this.spec.name) && !this.ctx?.hostLayer?.isDrawer(this); }
   /** The key of the nearest container around tile `sel` that has one (the board's lanes, readers): a part a mount can hold. */
@@ -3140,9 +3154,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const stack = ctx.screens?.() ?? [];
     const under = stack.at(-2);
-    let desk: Desk;
-    if (under instanceof Desk && under.spec.name === "desk") { desk = under; ctx.pop(); }
-    else { desk = Desk.resume(); ctx.replace(desk); }
+    const onDesk = under instanceof Desk && under.spec.name === "desk";
+    const desk: Desk = onDesk ? under : Desk.resume();
+    // The desk says yes before this screen goes: a locked desk refuses, and the person stays where they are.
+    const no = desk.mountRefusal(actor);
+    if (no) { if (!onDesk && desk !== under) Desk.keep(desk); throw new ActionRefused(`not put on the desk: ${no}`); }
+    if (onDesk) ctx.pop(); else ctx.replace(desk);
     const arg = screenTargetArg(this.spec.name), target = this.screenOpenArgs?.target;
     const args = arg && typeof target === "string" ? { [arg]: target } : {};
     const models = this.savedState().models;

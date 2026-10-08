@@ -116,6 +116,15 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(top.spec.name).toBe("desk");
     desk = top;
     expect(tile(r.tile)).toMatchObject({ mount: { screen: "board", args: { hub: seeded.notes.hub.id } } });
+    // A locked desk refuses it before the full screen goes: the person stays on the board.
+    await D().dispatch.act({ action: "layout.lock", args: { on: true } }, { kind: "user" });
+    const locked = openScreen("board", { hub: seeded.notes.hub.id }) as any;
+    app.push(locked);
+    locked.render(locked.ctx);
+    expect(await locked.dispatch.press("screen.mount", {})).toBeUndefined();
+    expect((app as any).stack.at(-1)).toBe(locked);
+    app.pop();
+    await D().dispatch.act({ action: "layout.lock", args: { on: false } }, { kind: "user" });
     // The tile menu offers the part around a tile (the lanes around a lane): screen.part.
     const back = openScreen("board", { hub: seeded.notes.hub.id }) as any;
     app.push(back);
@@ -144,11 +153,14 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(tile(g.tile)).toMatchObject({ kind: "screen", mount: { group: true, layout: { tree: { split: "col" } } } });
     expect(tile("shell")).toBeUndefined();
     expect(await act("tile.type", { text: "true" }, `${g.tile}/shell`)).toMatchObject({ tile: `${g.tile}/shell` });
+    // What its layout says of a tile in it comes back out with it (an agent's limit, tightened by an agent).
+    await act("tile.agent", { policy: "edit" }, `${g.tile}/${others[0]}`);
     const s = await act("tile.group", { on: false }, g.tile);
     expect(s.spilled.sort()).toEqual([others[0], "shell"].sort());
     render();
     expect(D().pane("shell")).toBe(pty);
     expect(tile("shell").terminal.running).toBe(true);
+    expect(tile(others[0]).agents).toBe("edit");
     void t;
   }, 20_000);
 });

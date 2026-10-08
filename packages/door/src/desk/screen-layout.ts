@@ -177,7 +177,7 @@ export type Op<I = number> =
    */
   | { op: "group"; tile?: I; node?: string; take?: I[]; with: I; kind: string; name?: string }
   /** A group tile `tile` spills back (PIE-651): `tree`, its tiles under new ids with their `names`, takes its place. */
-  | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][] }
+  | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][]; folds?: [I, Fold][]; agents?: [I, AgentLevel][]; links?: [I, I, LinkRole | undefined][] }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
   | { op: "float"; tile: I; at?: At<I> }
@@ -957,6 +957,10 @@ class Step<I> {
     this.d.tree = normalise(this.d.tree);
     this.forget(op.tile);
     for (const [t, n] of op.names) this.d.names.set(t, named(this.d, n) === undefined ? n : autoName(this.d, n.replace(/[-\d]+$/, "") || "tile"));
+    // What the group's layout said of each tile comes with it: its spine, what an agent may do to it, its links among them.
+    for (const [t, f] of op.folds ?? []) if (fresh.includes(t)) this.d.collapsed.set(t, { ...f });
+    for (const [t, l] of op.agents ?? []) if (fresh.includes(t)) this.d.agents.set(t, l);
+    for (const [t, to, role] of op.links ?? []) if (fresh.includes(t) && fresh.includes(to)) { this.d.links.set(t, to); if (role) this.d.linkRoles.set(t, role); }
     if (had) this.d.focus = fresh[0]!;
     this.d.answer = { tile: name, spilled: fresh.map(t => this.d.names.get(t)) };
   }

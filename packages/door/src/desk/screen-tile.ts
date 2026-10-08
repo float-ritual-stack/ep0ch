@@ -120,7 +120,9 @@ export class ScreenTile implements Pane {
   }
 
   init(desk: DeskApi) {
-    if (this.framed || this.follows) return;
+    // Moved to another screen (a group, your drawer): that one is its desk now, its screen inside as it was.
+    if (this.framed) { this.desk = desk; return; }
+    if (this.follows) return;
     let s: Screen;
     try {
       s = specs().mountDesk({ ...this.mount, saved: this.saved, ...(this.label ? { label: this.label } : {}), ...(this.given ? { given: this.given } : {}) }, {
@@ -138,9 +140,11 @@ export class ScreenTile implements Pane {
   select(m: Msg | null, desk: DeskApi) { if (this.follows) { this.framed?.dispose(); this.frame(this.follows.make(m), desk); } }
   private frame(s: Screen | null, desk: DeskApi) {
     this.desk = desk;
-    this.framed = s && new FramedScreen(s, () => desk.ctx, () => desk.ctx.flash(`the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this),
+    // The desk it's on is read each time, never kept from the first: a mount moved (into a group, your drawer, back) answers to its new one.
+    const on = () => this.desk ?? desk;
+    this.framed = s && new FramedScreen(s, () => on().ctx, () => on().ctx.flash(`the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!on().hasFocus?.(this),
       // Esc with nothing left in the screen: out of it when the person is in it, else the desk's own steps (a zoom, a dock, a float's keys).
-      () => (this.inside ? this.goIn(false) : desk.escaped ? desk.escaped() : nothingToClose(desk.ctx)));
+      () => (this.inside ? this.goIn(false) : on().escaped ? on().escaped!() : nothingToClose(on().ctx)));
   }
 
   /** An open its screen has no reader for (a mounted part: the lanes alone): where this tile's opens land, on the screen holding it. */
@@ -228,7 +232,13 @@ export class ScreenTile implements Pane {
   onEvent(_desk: DeskApi, e?: OutlineEvent) { if (e) this.framed?.onEvent(e); }
   unsaved() { return this.framed?.unsaved() ?? false; }
   keepDrafts() { return this.framed?.keepDrafts() ?? []; }
-  dispose() { this.framed?.dispose(); }
+  /** It goes (closed, or its screen goes): what it held is kept as its spec says it, and nothing draws it again. */
+  dispose() {
+    const d = this.inner;
+    if (d) try { this.saved = d.savedState(); } catch { /* it had nothing left to save */ }
+    this.framed?.dispose();
+    this.framed = null;
+  }
   /** Every key is its screen's now: it's in an edit, or the person went in. */
   holdsKeys() { return this.inside || !!this.framed?.top.holdsKeys?.(); }
   /** Programs run in it (a group's terminal): it holds work a new layout keeps. */
