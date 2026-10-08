@@ -373,7 +373,8 @@ The door draws that line as what it declares (a chip summary and a small band); 
 | `heading-rows` | 1–3 |
 | `heading-align` | left, center, right |
 | `heading-row` | top, middle, bottom |
-| `heading-padding`, `heading-margin` | columns, or `"rows columns"` |
+| `heading-padding` | columns, or `"rows columns"` |
+| `heading-margin` | columns, `"rows columns"` or `"top columns bottom"` (blank rows above and below the band) |
 | `heading-tone` | a callout tone |
 | `heading-letters` | plain, upper, spaced |
 | `heading-default` | `1, 2` or `rule` |

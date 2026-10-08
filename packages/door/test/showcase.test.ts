@@ -188,6 +188,11 @@ describe.skipIf(!outliner)("the showcase seed", () => {
       const wide = lines.filter(l => Bun.stringWidth(l) > w);
       expect(wide, `at ${w}: ${wide.slice(0, 3).join(" | ")}`).toEqual([]);
       expect(text).not.toMatch(/\[heading::|\[heading-|\[rule::/);
+      // Greenhouse's margin "2 0 1": two blank rows above its band (or heading), kept narrow too.
+      const gh = lines.findIndex(l => /Greenhouse/.test(l));
+      expect(gh, `at ${w}: Greenhouse`).toBeGreaterThan(2);
+      const bandTop = gh - (w === 40 ? 0 : 1);
+      expect(lines.slice(bandTop - 2, bandTop).map(l => l.trim()), `at ${w}: the margin above`).toEqual(["", ""]);
       if (w === 40) {
         for (const h of ["# Your calls", "## The plot", "## Beds", "### Water butts", "## Seed order", "## Compost", "## Odd jobs", "## Tool shed", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
         expect(lines.map(l => l.trim()).filter(l => l === "---").length).toBe(2);

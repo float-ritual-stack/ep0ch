@@ -27,8 +27,14 @@ export type BandRow = (typeof BAND_ROWS)[number];
 export const BAND_LETTERS = ["plain", "upper", "spaced"] as const;
 export type BandLetters = (typeof BAND_LETTERS)[number];
 
-/** Room in rows and columns (padding around the heading, margin around the band). */
+/** Room in rows and columns (the padding around the heading). */
 export interface BandRoom { rows: number; cols: number }
+
+/** The margin around a band: blank rows above and below it (they differ), and blank columns at both sides. */
+export interface BandMargin { top: number; cols: number; bottom: number }
+
+/** The most margin a style takes: rows above or below, columns at a side. */
+export const MARGIN_MOST: BandMargin = { top: 3, cols: 24, bottom: 3 };
 
 /**
  * One heading style. `rows`: the band's height (1 to 3). `row`: the band row the heading is on. `tone`: the heading's
@@ -42,7 +48,7 @@ export interface HeadingStyle {
   align: BandAlign;
   row: BandRow;
   padding: BandRoom;
-  margin: BandRoom;
+  margin: BandMargin;
   tone: CalloutTone;
   letters: BandLetters;
   defaults: readonly (number | "rule")[];
@@ -50,7 +56,7 @@ export interface HeadingStyle {
 }
 
 const style = (name: string, s: Partial<HeadingStyle>): HeadingStyle => ({
-  name, pattern: "stack", rows: 3, align: "center", row: "middle", padding: { rows: 0, cols: 2 }, margin: { rows: 0, cols: 0 }, tone: "neutral", letters: "plain", defaults: [], ...s,
+  name, pattern: "stack", rows: 3, align: "center", row: "middle", padding: { rows: 0, cols: 2 }, margin: { top: 0, cols: 0, bottom: 0 }, tone: "neutral", letters: "plain", defaults: [], ...s,
 });
 
 /** The styles every outline has. None is a default: a heading draws plain until the outline says otherwise. */
@@ -112,6 +118,7 @@ export const HEADING_FIELD_KEYS = ["heading-pattern", "heading-rows", "heading-a
 const FIELD_KEYS: ReadonlySet<string> = new Set(HEADING_FIELD_KEYS);
 
 const ROOM = /^\s*(\d+)(?:\s+(\d+))?\s*$/;
+const MARGIN = /^\s*(\d+)(?:\s+(\d+))?(?:\s+(\d+))?\s*$/;
 
 /** What a style is when nothing names one: the base a heading's own fields apply to when its level has no default. */
 export const BASE_HEADING_STYLE: HeadingStyle = style("", {});
@@ -137,6 +144,18 @@ function withFields(base: HeadingStyle, props: readonly { key: string; value: st
     const [rows, cols] = m[2] === undefined ? [fallback.rows, Number(m[1])] : [Number(m[1]), Number(m[2])];
     return { rows: Math.min(most.rows, rows), cols: Math.min(most.cols, cols) };
   };
+  // `heading-margin`: "N" (columns), "R C" (rows above and below, columns) or "T C B" (above, columns, below).
+  const marginRoom = (): BandMargin => {
+    const v = prop("heading-margin");
+    if (v === undefined) return base.margin;
+    const m = MARGIN.exec(v);
+    if (!m) { problems.push(`${where}: heading-margin ${JSON.stringify(v)} is columns, "rows columns" or "top columns bottom"`); return base.margin; }
+    const n = [m[1], m[2], m[3]].filter(x => x !== undefined).map(Number);
+    const [top, cols, bottom] = n.length === 1 ? [base.margin.top, n[0]!, base.margin.bottom] : n.length === 2 ? [n[0]!, n[1]!, n[0]!] : [n[0]!, n[1]!, n[2]!];
+    const out = { top: Math.min(MARGIN_MOST.top, top), cols: Math.min(MARGIN_MOST.cols, cols), bottom: Math.min(MARGIN_MOST.bottom, bottom) };
+    if (out.top !== top || out.cols !== cols || out.bottom !== bottom) problems.push(`${where}: heading-margin ${JSON.stringify(v)} is at most ${MARGIN_MOST.top} rows and ${MARGIN_MOST.cols} columns`);
+    return out;
+  };
   let rows = base.rows;
   const rowsRaw = prop("heading-rows");
   if (rowsRaw !== undefined) {
@@ -150,7 +169,7 @@ function withFields(base: HeadingStyle, props: readonly { key: string; value: st
     align: oneOf("heading-align", BAND_ALIGNS, base.align),
     row: oneOf("heading-row", BAND_ROWS, base.row),
     padding: room("heading-padding", base.padding, { rows: 2, cols: 12 }),
-    margin: room("heading-margin", base.margin, { rows: 3, cols: 24 }),
+    margin: marginRoom(),
     tone: oneOf("heading-tone", CALLOUT_TONES, base.tone),
     letters: oneOf("heading-letters", BAND_LETTERS, base.letters),
   };
@@ -171,8 +190,8 @@ export function headingStyleWith(base: HeadingStyle, fields: readonly { key: str
  * The heading styles an outline declares: each `[heading-style::name]`, on a note (its own properties) or on any line
  * of one (`# Plot style [heading-style::plot] [heading-pattern::dots]`: that line's tokens), with
  * `[heading-pattern::stack]` (stack, waffle, uptime, dots or rule), `[heading-rows::3]` (1 to 3),
- * `[heading-align::center]`, `[heading-row::middle]`, `[heading-padding::2]` and `[heading-margin::0]` (columns, or
- * "rows columns"), `[heading-tone::blue]` (a callout tone), `[heading-letters::spaced]` (plain, upper or spaced) and
+ * `[heading-align::center]`, `[heading-row::middle]`, `[heading-padding::2]` and `[heading-margin::0]` (columns; "rows columns",
+ * or "top columns bottom"), `[heading-tone::blue]` (a callout tone), `[heading-letters::spaced]` (plain, upper or spaced) and
  * `[heading-default::1, 2]` (the levels it draws when a heading names no style; `rule` for every `---`). A field left
  * out keeps the built-in's of that name, else the default. What can't be used is said in `problems` and falls back,
  * so one mistake never hides the rest. The first declaration of a name has it.
