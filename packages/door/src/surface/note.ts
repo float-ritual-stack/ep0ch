@@ -30,11 +30,13 @@ import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSa
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
+import { sizedPlacement } from "../text-sizing";
+import { theme, type Rgb } from "../theme";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
-import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
+import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -225,6 +227,17 @@ export interface HeaderInfo {
   comments: { open: number; total: number } | null;
   /** How many properties the panel (`i`) lists. */
   properties: number;
+}
+
+/** How much of the theme's brightest the title keeps in a tile that doesn't have the keys: a clear step down (not further: the night theme's text must keep 4.5:1), never brighter than the theme allows. */
+const TITLE_UNFOCUSED = 0.7;
+
+/** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
+interface HeaderBlock {
+  rows: string[]; summary: string; summaryRow: number;
+  summaryLinks: { from: number; to: number; link: Link; key: string }[];
+  /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
+  title: { row: number; text: string; ink: string; big: boolean } | null;
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -799,25 +812,42 @@ export class NoteSurface {
    * header, the BBS message header, then the summary line): the rows every reading render starts with, and the row the
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
-  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null): { rows: string[]; summary: string; summaryRow: number; summaryLinks: { from: number; to: number; link: Link; key: string }[] } {
+  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
     const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
-    const { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src);
+    const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
     const count = this.rows(m).length;
     // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
     // summary line comes after it, so its row is counted rather than assumed.
     const own = host?.header?.(m, w, this.headerInfo(m, count));
-    const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
-    const rows = own ? [...own, ...summaryRows] : [
-      fg(C.white) + pad(subject(m), w) + RESET,
-      ...summaryRows,
-      pad(fg(C.brown) + meta + (summary || this.panel || !count ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`) + said, w) + RESET,
-      fg(C.cyan) + pad(this.crumbs, w) + RESET,
-    ];
-    return { rows, summary, summaryRow: own ? own.length : 1, summaryLinks: summary ? summaryLinks : [] };
+    const props = !this.panel && count ? `${fg(C.dark)} · i ${count} propert${count === 1 ? "y" : "ies"}` : "";
+    if (own) {
+      const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
+      return { rows: [...own, ...summaryRows], summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks : [], title: null };
+    }
+    // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
+    // bold line (brighter in the focused tile, a step down in the others), at double height where the terminal has
+    // Kitty's text sizing and the title fits that wide; then one dim line holding everything else, its links kept.
+    const title = subject(m), focused = host?.focused !== false;
+    const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && width(title) * 2 <= w;
+    const ink = (focused ? fg(C.white) : fgRgb(theme().palette[C.white]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
+    const lead = `${fg(C.dark)}${meta}`;
+    // The summary's values follow the byline on the same line; its links shift by what comes before them.
+    const before = `${meta}${count && !this.panel ? ` · i ${count} propert${count === 1 ? "y" : "ies"}` : ""}${summary ? " · " : ""}`;
+    const merged = `${lead}${props}${fg(C.dark)} · ${summaryLine}${said}`;
+    // One line while it fits; in a narrow tile the summary (whose values are links) goes to a line of its own rather than
+    // being cut off the end of the byline.
+    const apart = !!summary && width(`${before}${summary}`) > w;
+    const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
+    const first = this.printed ? 1 : big ? 3 : 2;
+    // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = ink + pad(title, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big } };
   }
 
   /**
@@ -828,7 +858,7 @@ export class NoteSurface {
    */
   stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
     const src = this.use(host);
-    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
+    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src, false);
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
@@ -919,7 +949,7 @@ export class NoteSurface {
     const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
     if (foot) h -= 1;
     const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
-    const { rows: headerBlock, summary, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -952,7 +982,8 @@ export class NoteSurface {
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
-    head.push(rule(w));
+    // One blank row between the header and the body (PIE-657); a rule only under the property panel, which it closes.
+    head.push(this.panel ? rule(w) : "");
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
@@ -1085,6 +1116,11 @@ export class NoteSurface {
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
     if (shade.grid) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
     placements.unshift(...shade.placements);
+    // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
+    // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
+    if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && ![title.row, title.row + 1].some(r => this.selection?.span(r) || this.agentSelection?.sel.span(r))) {
+      placements.push(sizedPlacement("title", title.text, title.ink, 0, title.row, width(title.text), 2));
+    }
     if (foot) {
       while (lines.length < h) lines.push("");
       lines.push(foot.line);
@@ -1341,6 +1377,12 @@ export class NoteSurface {
     if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
   }
 
+  /**
+   * Whether the reader, drawn in `rows` rows, shows the note's title in its own header: then its tile's frame bar
+   * needn't say it again (a short tile, or a host's own header or an edit in its place, leaves the title to the frame).
+   */
+  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers; }
+
   /** What a host's header is told (SurfaceHost.header). */
   private headerInfo(m: Msg, properties: number): HeaderInfo {
     const c = this.comments && this.commentsFor === m.id ? this.comments : null;
@@ -1359,7 +1401,7 @@ export class NoteSurface {
    * The summary line as drawn: its text, the line with linked values coloured as links, and where each
    * linked value sits (columns from the line's start).
    */
-  private summaryView(m: Msg, src: Source | null) {
+  private summaryView(m: Msg, src: Source | null, rest: number = C.dark) {
     const segs = summarySegments(m.properties ?? [], this.summary(m).keys);
     const prefix = workIdPrefix(src) ?? null;
     const links: { from: number; to: number; link: Link; key: string }[] = [];
@@ -1370,7 +1412,7 @@ export class NoteSurface {
       s.value.split(", ").forEach((v, j) => {
         if (j) { line += ", "; col += 2; }
         const t = valueTarget(s.key, v, prefix), n = [...v].length;
-        if (t) { links.push({ from: col, to: col + n, link: t, key: s.key }); line += fg(C.lcyan) + v + fg(C.lgreen); }
+        if (t) { links.push({ from: col, to: col + n, link: t, key: s.key }); line += fg(C.lcyan) + v + fg(rest); }
         else line += v;
         col += n;
       });

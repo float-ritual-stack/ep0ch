@@ -167,7 +167,7 @@ describe("a projection in a reader", () => {
     const page = { ...READY, anchor: { kind: "page", line: 0, start: 0, end: 30 } };
     const r = await shown(stub(() => readOf([page])), note("Rollout page [jira::ACME-12]\nLocal notes under the ticket."));
     const body = r.lines().map(plain);
-    const rule = body.findIndex(l => l.startsWith("────"));
+    const rule = body.findIndex(l => l.trim() === "");           // the blank row that ends the header (PIE-657)
     expect(body[rule + 1]!.trim()).toStartWith("▌∙ Jira ACME-12");
     expect(body.findIndex(l => l.includes("Local notes"))).toBeGreaterThan(rule + 3);
 

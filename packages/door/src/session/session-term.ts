@@ -51,7 +51,7 @@ export class SessionClient {
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
   fresh = false;
   constructor(readonly id: number, readonly hello: Hello, readonly link: Link) {
-    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst };
+    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst, sized: !!hello.sized };
     this.rows = new ClientRows(s => { if (!this.away && !this.behind) this.link.send({ t: "output", text: s }); }, this.info);
     this.painter = new Painter(this.rows);
     this.decoder = new KeyDecoder(this.info);
@@ -304,7 +304,7 @@ export class SessionTerm implements Display {
   /** The session takes `c`'s size and terminal; true when its size changed (everything is painted whole). */
   private fit(c: SessionClient): boolean {
     const i = this.info;
-    i.cellW = c.info.cellW; i.cellH = c.info.cellH; i.kitty = c.info.kitty;
+    i.cellW = c.info.cellW; i.cellH = c.info.cellH; i.kitty = c.info.kitty; i.sized = c.info.sized;
     if (i.cols === c.info.cols && i.rows === c.info.rows) return false;
     i.cols = c.info.cols; i.rows = c.info.rows;
     this.mirror.resize(i.cols, i.rows);

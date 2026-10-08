@@ -96,7 +96,7 @@ describe("literal regions in a reader", () => {
     const text = "<!-- literal -->\nUse [stage::queued] on the subject line\nand stage:: doing on its own line.\n<!-- /literal -->\nThat's all.";
     expect(subject(note(text))).toBe("Use [stage::queued] on the subject line");
     const lines = read(text).map(plain).map(l => l.trim());
-    expect(lines[0]).toBe("Use [stage::queued] on the subject line");
+    expect(lines[1]).toBe("Use [stage::queued] on the subject line");   // under the breadcrumb (PIE-657)
     expect(lines.filter(l => l.includes("Use [stage::queued]"))).toHaveLength(1);   // not drawn again in the body
     expect(lines).toContain("and stage:: doing on its own line.");
   });

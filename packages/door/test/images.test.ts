@@ -227,13 +227,13 @@ describe("the reader draws the header image above the title", () => {
     const lines = v.lines.map(plain);
     expect(lines.length).toBeLessThanOrEqual(42);
     expect(lines.slice(0, 14).every(l => !l.trim())).toBe(true);
-    expect(lines[14]).toContain("Plot");
+    expect(lines[15]).toContain("Plot");          // the breadcrumb above it (PIE-657)
     expect(lines.find(l => l.includes("▀ header wide.jpg"))).toContain("[▀ ✓]");
     expect(v.placements).toHaveLength(1);
     // A click on the header makes its image the [ ] position.
     expect(s.click(5, 3, h)).toBe(true);
     // A pane too short for it, or no graphics: the header is drawn where it's written, or only named.
-    expect(s.render(100, 12, h).lines.map(plain)[0]).toContain("Plot");
+    expect(s.render(100, 12, h).lines.map(plain)[1]).toContain("Plot");
     const off = new NoteSurface(), ho = host(false);
     off.show(m as any, ho);
     expect(off.render(100, 42, ho).lines.map(plain).join("\n")).toContain("▀ header wide.jpg · no Kitty graphics in this terminal · 1200×600");
@@ -250,12 +250,12 @@ describe("the reader draws the header image above the title", () => {
     const sv = s.render(100, 42, h), top = sv.placements![0]!;
     expect(top).toMatchObject({ row: 0, rows: 10 });
     expect(top.crop!.y).toBeGreaterThan(first.crop!.y);
-    expect(plain(sv.lines[10]!)).toContain("Plot");
+    expect(plain(sv.lines[11]!)).toContain("Plot");
     // Clicks land on the rows drawn: the header's 10 rows are above the title.
     expect(s.sourceLineAt(10 + 5)).not.toBeNull();
     (s as any).scroll = 1e6;
     const end = s.render(100, 42, h).lines.map(plain);
-    expect(end[0]).toContain("Plot");
+    expect(end[1]).toContain("Plot");
     expect(end.join("\n")).toContain("line 59");
     // A short note scrolls only as far as its last line shows, whatever its length.
     for (let n = 20; n <= 46; n++) {
@@ -322,7 +322,7 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     const v = s.render(100, 40, h), b = backdropOf(v);
     // The title, the byline and the crumbs: three rows, the full width, under the text.
     expect(b).toMatchObject({ col: 0, row: 0, cols: 100, rows: 3, z: -2 });
-    expect(plain(v.lines[0]!)).toContain("Plot");
+    expect(plain(v.lines[1]!)).toContain("Plot");
     expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "kitty" });
     // Dark and muted: its mean held to HERO_MEAN, most of its colour gone; the original is never changed.
     expect(await meanOf(b.image.png)).toBeLessThanOrEqual(HERO_MEAN + 0.02);
@@ -422,7 +422,7 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     await until(() => !!backdropOf(s.render(100, 42, h)), "the backdrop, made", 10_000);
     const v = s.render(100, 42, h), b = backdropOf(v);
     expect(b).toMatchObject({ row: 0, rows: 3, cols: 100 });
-    expect(plain(v.lines[0]!)).toContain("Plot");
+    expect(plain(v.lines[1]!)).toContain("Plot");
     // Its crop is the header's box (100 × 3 cells of 10 × 20 px) around the focus, at the left of the picture.
     expect(b.crop.x).toBe(0);
     expect(b.crop.w / b.crop.h).toBeCloseTo((100 * 10) / (3 * 20), 0);
@@ -453,7 +453,7 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     (s as any).scroll = 10;
     await until(() => s.render(100, 40, h).lines[0]!.includes("\x1b[48;2;"), "the header's colours", 10_000);
     const v = s.render(100, 40, h);
-    expect(plain(v.lines[0]!)).toContain("Plot");
+    expect(plain(v.lines[1]!)).toContain("Plot");
     expect(v.lines.slice(0, 3).every(l => l.includes("\x1b[48;2;"))).toBe(true);
     expect(v.lines[4]).not.toContain("\x1b[48;2;");
     expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "cells" });

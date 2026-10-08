@@ -41,6 +41,7 @@ export const SEED = {
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
   hero: "An evening on the plot",
+  title: "A title you can find",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
@@ -254,6 +255,30 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
   "The notice board is paper white: it's dimmed as it's drawn, as every bright image is, so no image is brighter than the door. [dim::0.5] on its line would set how much.",
   "",
   `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
+].join("\n");
+
+/**
+ * The title section's note (PIE-657): the reader's header as it is now, with the old one written out to compare. Its
+ * properties give the byline's meta line something to hold (the summary values are links).
+ */
+export const titleText = () => [
+  `${SEED.title} [type::roadmap-item] [work-stage::doing] [priority::high] [track::allotment]`,
+  "",
+  "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bright, bold line (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and one dim line under it holds the author, the day, the work id, the property count and the summary values, which are still links. The tile's frame bar says only `detail`: the title is not written twice.",
+  "",
+  "Before:",
+  "",
+  "```",
+  "3 note detail · A title you can find · …",
+  "A title you can find",
+  "stage doing · priority high · track allotment",
+  "you · 03-11-26 (09:12) · i 5 properties",
+  "# Allotment notebook",
+  "```",
+  "",
+  "Now (this reader, the tile with the keys, and the same note in the tile beside it): the focused tile's title is the theme's brightest and bold; the other tile's is a clear step down.",
+  "",
+  "A tile too short for the header (two rows) keeps the title in its frame bar, as before; so does a narrow terminal without text sizing, where the title is bold on one row.",
 ].join("\n");
 
 /**
@@ -813,6 +838,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.callouts = await make(notes.root.id, CALLOUTS);
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
+  notes.title = await make(notes.root.id, titleText());
   // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);
   for (const d of DECISIONS) await make(notes.markdownFigures.id, `${d.title} [type::decision] [decision-state::${d.state}] [reason::${d.reason}] [date::${d.date}]`);

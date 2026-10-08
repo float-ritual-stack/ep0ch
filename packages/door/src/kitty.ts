@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { Rgba } from "./vga";
 import type { PngRef } from "./media";
+import type { SizedText } from "./text-sizing";
 
 export interface Placement {
   key: string;          // stable identity of this placement on screen
@@ -18,6 +19,8 @@ export interface Placement {
   z?: number;           // < 0 draws under text
   /** Source rectangle in image pixels: show only this part (reveal, scroll) without re-uploading. */
   crop?: { x: number; y: number; w: number; h: number };
+  /** Text drawn at a size, not a picture (src/text-sizing.ts): `image` is then a stand-in, and the KittyLayer leaves it to the SizedLayer. */
+  sized?: SizedText;
 }
 
 /**

@@ -163,8 +163,8 @@ describe("the surface: summary, panel and embeds at any width", () => {
     s.show(m, h);
     s.render(60, 40, h); await Bun.sleep(10);
     const lines = s.render(90, 40, h).lines.map(strip);
-    expect(lines[0]!.trim()).toBe("Build the compost bin");
-    expect(lines[1]!.trim()).toBe("stage doing · priority high · track soil, tools · i 6 properties");
+    expect(lines[1]!.trim()).toBe("Build the compost bin");          // the breadcrumb is the eyebrow above it (PIE-657)
+    expect(lines[2]!.trim()).toBe("you · 01-01-70 (00:00) · i 6 properties · stage doing · priority high · track soil, tools");
     expect(lines.join("\n")).not.toContain("[work-stage::");
     expect(lines.join("\n")).toContain("A bin by Garden plan.");
     expect(lines.join("\n")).toContain("» Garden plan");
@@ -291,8 +291,8 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   test("title, the lane's summary line, then the body: no metadata lines, links by title, every embed state", async () => {
     await until(() => { const s = shown(120); return s.includes("≡ Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("» Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
     const s = shown(120), lines = s.split("\n");
-    expect(lines[0]!.trim()).toBe("GDN-12 Build the compost bin");
-    expect(lines[1]!.trim()).toBe("priority high · track soil, tools · i 8 properties");   // the lane's [summary-properties::]
+    expect(lines[1]!.trim()).toBe("GDN-12 Build the compost bin");
+    expect(lines[2]!).toContain("i 8 properties · priority high · track soil, tools");     // the lane's [summary-properties::]
     expect(s).not.toContain("[type::");
     expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 ◌.");
     expect(s).toContain("owner:: the allotment group");                                   // a line-scope property is body text
@@ -591,5 +591,84 @@ describe("review: snapshot write scenarios are scratch-only", () => {
     const r = run({ EP0CH_SOCKET: "/var/lib/not-a-scratch/outliner.sock" });
     expect(r.code).toBe(2);
     expect(r.err).toContain("temp");
+  });
+});
+
+describe("the reader's header leads with the title (PIE-657)", () => {
+  const text = `Build the compost bin [type::roadmap-item] [priority::high]\n[work-stage::doing] [track::soil]\n[related-to::${A}]\n\n## Outcome\nA bin by ((${A})).`;
+  const m = msg("dddddddd-4444-4444-8444-444444444444", text, { author: "claude-code", properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["related-to", A]), props: { type: "roadmap-item", priority: "high", "work-id": "HUB-003" } });
+  const host = (src: Source, over: object = {}): SurfaceHost => ({ ctx: { board: src.board, flash() {}, t: { cellW: 9, cellH: 16, sized: true }, graphics: true, copy() {} } as any, redraw() {}, navigate() {}, ...over });
+  async function shown(over: object = {}, w = 70) {
+    const src = fakeSource(notes);
+    Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
+    const h = host(src, over), s = new NoteSurface();
+    s.show(m, h); s.render(w, 30, h); await Bun.sleep(10);
+    return { s, h, view: s.render(w, 30, h) };
+  }
+  test("breadcrumb above, the title the one bright line, one dim meta line with the summary and its links, a blank row, the body", async () => {
+    const { view } = await shown({}, 100);
+    const lines = view.lines.map(strip);
+    expect(lines[0]!.trim()).toBe("top level");
+    expect(lines[1]!.trim()).toBe("Build the compost bin");
+    expect(lines[3]!).toContain("claude-code · 01-01-70 (00:00) · HUB-003 · i 4 properties · stage doing");   // wide enough for one line
+    expect(lines[4]!.trim()).toBe("");
+    expect(lines[5]).toContain("Outcome");
+    // The title is bold and bright; the eyebrow and the meta line are dim.
+    expect(view.lines[1]).toContain("\x1b[1m");
+    expect(view.lines[0]).not.toContain("\x1b[1m");
+    expect(view.lines[3]).not.toContain("\x1b[1m");
+    expect(lines.join("\n")).not.toContain("[work-stage::");
+  });
+
+  test("double height where the terminal has text sizing and the title fits twice over; else bold on one row", async () => {
+    const big = (await shown({}, 70)).view;
+    expect(big.placements?.map(p => ({ row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ row: 1, rows: 2, cols: 42, text: "Build the compost bin", scale: 2 }]);
+    // Too narrow for twice the title's width: bold, one row, the meta line moves up.
+    const narrow = (await shown({}, 30)).view;
+    expect(narrow.placements ?? []).toEqual([]);
+    expect(strip(narrow.lines[1]!).trim()).toBe("Build the compost bin");
+    expect(strip(narrow.lines[2]!)).toContain("claude-code");
+    // No text sizing in the terminal: the same.
+    const src = fakeSource(notes);
+    Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
+    const plain = host(src); (plain.ctx as any).t.sized = false;
+    const s = new NoteSurface(); s.show(m, plain); s.render(70, 30, plain); await Bun.sleep(10);
+    const v = s.render(70, 30, plain);
+    expect(v.placements ?? []).toEqual([]);
+    expect(strip(v.lines[2]!)).toContain("claude-code");
+  });
+
+  test("a selection on the title draws in cells (no sized text over its highlight); the focused tile's title is brighter than an unfocused one's", async () => {
+    const bright = (await shown({ focused: true })).view.lines[1]!, dimmer = (await shown({ focused: false })).view.lines[1]!;
+    expect(bright).not.toBe(dimmer);
+    const rgb = (l: string) => (l.match(/38;2;(\d+);(\d+);(\d+)/) ?? []).slice(1).map(Number).reduce((a, b) => a + b, 0);
+    expect(rgb(bright)).toBeGreaterThan(rgb(dimmer) + 120);
+    expect(rgb(bright)).toBeLessThan(3 * 235);        // within the theme's brightness cap
+    const { s, h } = await shown();
+    s.press(3, 1, h); s.drag(12, 1, h);
+    const sel = s.render(70, 30, h);
+    expect(sel.placements ?? []).toEqual([]);
+  });
+
+  test("the summary line's links are still clicks, at their place in the merged line", async () => {
+    // Wide: on the byline's own line, shifted by what comes before it.
+    const wide = await shown({ summaryKeys: () => ["related-to"] }, 110);
+    const line = strip(wide.view.lines[3]!), at = line.indexOf("related-to") + "related-to ".length;
+    expect(at).toBeGreaterThan(40);
+    expect(wide.s.click(at + 2, 3, wide.h)).toBe(true);
+    expect(wide.s.click(2, 3, wide.h)).toBe(false);
+    // Narrow: the summary takes a line of its own, so no chip is cut off the end of the byline.
+    const narrow = await shown({ summaryKeys: () => ["related-to"] }, 60);
+    expect(strip(narrow.view.lines[4]!)).toContain("related-to");
+    expect(narrow.s.click(strip(narrow.view.lines[4]!).indexOf("related-to") + "related-to ".length + 2, 4, narrow.h)).toBe(true);
+  });
+
+  test("a tile too short for the header leaves the title to its frame bar", () => {
+    const s = new NoteSurface(), src = fakeSource(notes);
+    Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
+    expect(s.titleShown(10)).toBe(false);        // nothing shown yet
+    s.show(m, host(src));
+    expect(s.titleShown(10)).toBe(true);
+    expect(s.titleShown(1)).toBe(false);
   });
 });
