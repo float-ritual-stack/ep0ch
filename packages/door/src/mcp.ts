@@ -12,6 +12,7 @@ import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@e
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
+import { checkToolArgs, type ToolSchema } from "@ep0ch/outline-core/tool-args";
 import { briefFor } from "./library/brief";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
@@ -131,8 +132,8 @@ export function boundOutlines(board: Board): McpOutlines {
 const toolText = (value: unknown): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 const toolError = (message: string): ToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-/** The block a tool names: its `uri`, or `ref`; `id` is accepted as ref's alias (a model reaches for it). */
-const refArg = (args: Record<string, unknown>) => stringField(args, "uri") ?? stringField(args, "ref") ?? stringField(args, "id");
+/** The block a tool names: its `uri`, or `ref`. (`id`, `reference` and the other aliases became `ref` in checkToolArgs, which callTool runs first; a call naming two different blocks never gets here.) */
+const refArg = (args: Record<string, unknown>) => stringField(args, "uri") ?? stringField(args, "ref");
 const stringField = (value: Record<string, unknown>, key: string): string | undefined => typeof value[key] === "string" ? value[key] : undefined;
 
 /** A tool's `limit`: absent is the default; anything but a whole number from 1 to the maximum is refused, saying both. */
@@ -580,11 +581,10 @@ function toolsFor(outlines: McpOutlines) {
     properties: {
       uri: { type: "string", description: "The block's ep0ch:// URI; it names its outline (an outline that names another is refused)" },
       ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123), as the outline's own links name it" },
-      id: { type: "string", description: "Alias of ref" },
       outline: outlineProperty(outlines),
     },
     additionalProperties: false,
-    oneOf: [{ required: ["uri"] }, { required: ["ref"] }, { required: ["id"] }],
+    oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
   };
   return [
     {
@@ -595,14 +595,14 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_read",
-      description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
+      description: `Read the block \`ref\` in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
         `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
         `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it.`,
       inputSchema: addressSchema,
     },
     {
       name: "outline_threads",
-      description: `Read comment threads in ${which}. With a note (uri or ref): that note's threads, each with its id (for outline_reply and outline_resolve_thread), open or resolved, the quote it is about and whether that passage is still in the note, and every comment and reply with its author (a person, or an agent such as mcp:daddy) and time, oldest first. ` +
+      description: `Read comment threads in ${which}. With a note (\`ref\`): that note's threads, each with its id (for outline_reply and outline_resolve_thread), open or resolved, the quote it is about and whether that passage is still in the note, and every comment and reply with its author (a person, or an agent such as mcp:daddy) and time, oldest first. ` +
         `Without a note: the outline's inbox, the open threads anywhere in it (outline names which; newest activity first), narrowed by lastFrom (who spoke last: an actor id such as evan or daddy), mentions (an @name in any comment) and since (an ISO time, or epoch ms): what a scheduled check asks. ` +
         `outline_read shows a note's threads compactly. The service doesn't record whether a comment asks for an answer: read the thread's last comment. Requires ${grant}.`,
       inputSchema: { ...addressSchema, properties: { ...addressSchema.properties,
@@ -638,7 +638,7 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_links",
-      description: `Read a block's authored outlinks, resources and backlinks in ${which}, each group cut at limit; completeness says per group whether it is whole, how many it shows and the total. Requires ${grant}. Input: exactly one of uri or ref.`,
+      description: `Read the authored outlinks, resources and backlinks of the block \`ref\` in ${which}, each group cut at limit; completeness says per group whether it is whole, how many it shows and the total. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, limit: limitSchema(LINKS_LIMIT, "Entries per group (links, resources, backlinks)") } },
     },
     {
@@ -679,10 +679,48 @@ async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined
   });
 }
 
+/** A call that works, per tool, for the corrective error (tool-args.ts). */
+const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
+  list_outlines: {},
+  outline_read: { ref: "PIE-123" },
+  outline_threads: { ref: "PIE-123" },
+  outline_find: { query: "seed swap" },
+  outline_query: { query: "type=roadmap-item AND work-stage=doing" },
+  outline_links: { ref: "PIE-123" },
+  outline_components: { components: ["callout"] },
+  outline_create: { ref: "PIE-123", text: "Bring labels" },
+  outline_patch: { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] },
+  outline_comment: { ref: "PIE-123", body: "Is this still true?", whole: true },
+  outline_reply: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", body: "Yes, checked today." },
+  outline_resolve_thread: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", resolved: true },
+  outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
+  outline_assign_id: { ref: "PIE-123", revision: 3 },
+  outline_write_status: { queueId: "q-1" },
+};
+
+/**
+ * The arguments of a tool call, checked once for every tool against the schema the tool is listed with: `ref`'s
+ * aliases renamed, an unknown, missing or mistyped argument answered with the schema line and a call that works.
+ * Undefined for a tool this server doesn't offer (callTool says so).
+ */
+function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
+  const writes = !!caller && outlines.kind === "remote";
+  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])];
+  const definition = definitions.find(d => d.name === name);
+  if (!definition) return undefined;
+  // `limit` keeps limitOf's own answer, which names the tool's default and maximum.
+  const schema = definition.inputSchema as ToolSchema;
+  const { limit, ...others } = schema.properties ?? {};
+  const checked = checkToolArgs({ name, schema: limit ? { ...schema, properties: { ...others, limit: { description: limit.description } } } : schema, example: MCP_EXAMPLES[name] ?? {} }, argsValue);
+  return checked.ok ? { args: checked.args } : { error: checked.error };
+}
+
 async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller): Promise<ToolResult> {
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
-  const args = objectFields(params.arguments) ?? {};
+  const checked = checkedMcpArgs(outlines, params.name, params.arguments, caller);
+  if (checked && "error" in checked) return toolError(checked.error);
+  const args = checked?.args ?? objectFields(params.arguments) ?? {};
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "outline_read") return readRecord(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);

@@ -161,7 +161,7 @@ test("checklist tools preserve item evidence, caller provenance and explicit who
   const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, timeout?: number): Promise<T> {
     return originalRequest.call(fixture, input, timeout) as Promise<T>;
   });
-  type Tool = {name: string; parameters: TSchema; execute(id: string, params: unknown, signal: undefined,
+  type Tool = {name: string; parameters: TSchema; prepareArguments?(args: unknown): unknown; execute(id: string, params: unknown, signal: undefined,
     update: undefined, context: ExtensionContext): Promise<{details: unknown}>};
   const tools = new Map<string, Tool>();
   const context = {sessionManager: {getSessionId: () => "checklist-tool-session"}} as ExtensionContext;
@@ -169,8 +169,10 @@ test("checklist tools preserve item evidence, caller provenance and explicit who
     registerEntryRenderer() {}, appendEntry() {}, on() {}} as unknown as ExtensionAPI;
   const invoke = async <T>(name: string, params: unknown): Promise<T> => {
     const tool = tools.get(name)!;
-    expect(Value.Check(tool.parameters, params)).toBe(true);
-    return (await tool.execute("checklist-call", params, undefined, undefined, context)).details as T;
+    // As Pi runs a call: prepareArguments (the old names still work), then the schema, then the handler.
+    const prepared = tool.prepareArguments ? tool.prepareArguments(params) : params;
+    expect(Value.Check(tool.parameters, prepared)).toBe(true);
+    return (await tool.execute("checklist-call", prepared, undefined, undefined, context)).details as T;
   };
   try {
     outlinerExtension(pi);

@@ -134,7 +134,7 @@ export function idsToTitle(view: ToolCallView): string[] {
   const name = modToolOf(view.tool)
   const input = recordOf(view.input)
   if (!name || !input) return []
-  const refs = [input.ref, input.item, input.block, input.parent, input.view]
+  const refs = [input.ref, input.item, input.reference, input.id, input.block, input.parent, input.view]
   return [...new Set(refs.flatMap(ref => (typeof ref === 'string' ? [blockIdOfRef(ref)] : [])).filter((id): id is string => !!id))]
 }
 
@@ -263,7 +263,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       return { kind: 'write', glyph: input.resolved ? '✓' : '↺', lead: input.resolved ? 'resolved' : 'reopened', target: threadTarget(input.thread), change: [] }
     }
     case 'note_section': {
-      const target = targetOf(input.block, titleOf)
+      const target = targetOf(input.ref ?? input.block, titleOf)
       if (!target || typeof input.heading !== 'string' || typeof input.body !== 'string') return null
       const previous = typeof out?.previous === 'string' ? out.previous : undefined
       return {
@@ -283,19 +283,19 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       }
     }
     case 'work_stage': {
-      const target = itemTarget(input.item, out, titleOf)
+      const target = itemTarget(input.ref ?? input.item, out, titleOf)
       if (!target || typeof input.stage !== 'string') return null
       const previous = typeof out?.previous === 'string' && out.previous !== input.stage ? `${out.previous} ` : ''
       return { kind: 'write', glyph: '⇄', target, change: [`stage ${previous}→ ${input.stage}`] }
     }
     case 'work_set': {
-      const target = itemTarget(input.item, out, titleOf)
+      const target = itemTarget(input.ref ?? input.item, out, titleOf)
       if (!target || typeof input.key !== 'string' || typeof input.value !== 'string') return null
       const previous = typeof out?.previous === 'string' && out.previous !== input.value ? `${clip(out.previous, 24)} ` : ''
       return { kind: 'write', glyph: '⇄', target, change: [`${input.key} ${previous}→ ${clip(input.value, QUOTE_CHARS)}`] }
     }
     case 'work_body': {
-      const target = itemTarget(input.item, out, titleOf)
+      const target = itemTarget(input.ref ?? input.item, out, titleOf)
       if (!target || typeof input.body !== 'string') return null
       const previous = typeof out?.previous === 'string' ? out.previous : undefined
       return {
@@ -304,7 +304,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       }
     }
     case 'work_deliver': {
-      const target = itemTarget(input.item, out, titleOf)
+      const target = itemTarget(input.ref ?? input.item, out, titleOf)
       if (!target || typeof input.repo !== 'string' || typeof input.pr !== 'number') return null
       const pr = recordOf(out?.pullRequest)
       const delivery = recordOf(out?.delivery)
@@ -314,7 +314,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       }
     }
     case 'work_complete': {
-      const target = itemTarget(input.item, out, titleOf)
+      const target = itemTarget(input.ref ?? input.item, out, titleOf)
       if (!target) return null
       const proof = typeof input.proof === 'string' ? input.proof : undefined
       return {
@@ -323,7 +323,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       }
     }
     case 'view_order': {
-      const target = targetOf(input.view, titleOf)
+      const target = targetOf(input.ref ?? input.view, titleOf)
       if (!target) return null
       const order = Array.isArray(out?.order) ? out.order.map(recordOf).filter((o): o is Record<string, unknown> => !!o) : []
       const listed = order.length ? order.slice(0, DETAIL_LINES).map((o, i) => `${i + 1}. ${escapeMarkdown(String(o.workId ?? o.title ?? o.id ?? ''))}${o.workId && o.title ? ` ${escapeMarkdown(String(o.title))}` : ''}`).join('\n') : undefined
@@ -373,7 +373,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       return { kind: 'read', glyph: '⌕', lead: 'resolve', target, change: typeof out?.title === 'string' ? [`→ ${clip(out.title, QUOTE_CHARS)}`] : [] }
     }
     case 'show': {
-      const target = targetOf(input.reference, titleOf)
+      const target = targetOf(input.ref ?? input.reference, titleOf)
       if (!target) return null
       return { kind: 'read', glyph: '⌕', lead: 'show', target, change: [] }
     }

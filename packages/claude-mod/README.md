@@ -303,7 +303,7 @@ In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`,
 installed CLI's `work` / `note` command (see the
 [roadmap operations reference](../outliner/pi-extension/skills/outliner-workflow/references/roadmap-items.md#agent-commands))
 in the session's workspace, as an agent write attributed to `claude-code` and
-this session. Items are named by Work ID or block UUID, never by title. The tool
+this session. Items are named by `ref` (a Work ID or block UUID; `item` still works), never by title. The tool
 result is the command's JSON; a refusal (stale revision, unknown stage, unmerged
 delivery…) comes back as the CLI's reason.
 
@@ -334,13 +334,23 @@ comes back as the tool's error with the reason.
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_components` | `components?` (ids; all when left out) | `ep0ch library --brief` for this session's outline: per component its purpose, where it goes, each property as `key: values (default) — meaning`, a minimal example. Run from the bound folder, so the outline's own styles and types and its extensions' components appear |
 | `outline_changes` | `since` (an ISO time or a returned `cursor`), `author?`, `actor?`, `limit?`, `before?` | each changed block once, newest first, with who changed it; `complete`, with `before` for the older page when it is false; the next `cursor` |
-| `view_order` | `view` (id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
+| `view_order` | `ref` (the view: id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
 | `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |
 | `outline_set_property` | `ref`, `key`, `value`, `revision` | one header chip set as a `draft.patch` span: `applied`, `proposed` with the reason, or `unchanged` |
 | `outline_assign_id` | `ref`, `revision` | the outline's next work id stamped on the note (`outliner work-id-allocate`), recorded as the agent: `{outcome, workId, page: "[[HUB-002]]"}`, `unchanged` when it had one. The id is the page address (no `[page::…]`); for notes that aren't roadmap items, where `work_create` makes a roadmap item |
 
 A `ref` is a block id, `((id))`, `[[page]]` or a Work ID. A title is refused:
 find it with `outline_find` first.
+
+**`ref` is the one argument for "which note"** on every tool that takes one: the `outline_*` tools, `work_*`,
+`note_section`, `view_order`, `show` and `door_open`. The names a model reaches for are accepted too (`id`,
+`reference`, `block`, `blockId`, `uri`, `note`, and `item` on the workboard tools; `view` on `view_order`), through
+`hooks/tool-args.ts`, which every tool call passes before it runs. Two of them naming different notes (`{ref: "PIE-520",
+id: "PIE-588"}`) is refused as ambiguous, and nothing runs; the same note spelt two ways (`((id))` and the id) is
+accepted. A wrong call is answered with what was wrong and the right call: the unknown argument and the closest valid
+one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. That file is the same
+code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the door's
+`test/tool-args.test.ts` fails when the two differ.
 
 - **The safe path is read, then edit with the revision.** `outline_edit` refuses
   an empty or whitespace-only result, a revision that isn't the block's (read it
@@ -441,7 +451,7 @@ agent's `outline_comment`). The thread is stored in the outline, beside the file
 
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 `door_where`, `door_peek`, `door_act { action, args?, tile? }` and
-`door_open { id }`. They run `ep0ch where --json`, `ep0ch peek` and
+`door_open { ref }`. They run `ep0ch where --json`, `ep0ch peek` and
 `ep0ch act …` on that socket; `door_open` is the same open as a click or `show`
 ([Where a note opens](#where-a-note-opens)). Without
 `EP0CH_CONTROL` they are not offered, and a call is refused.

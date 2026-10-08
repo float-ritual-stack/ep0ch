@@ -14,6 +14,8 @@
  * anchor other notes link to.
  */
 import { randomUUID } from "node:crypto";
+import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
+import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
@@ -982,7 +984,11 @@ export function runAgentOperation(
     if (!actor?.actorId.trim()) throw new WorkToolRefusal(`agent ${operation} writes: pass --actor <agent id>`);
     return actor;
   };
-  const any = input as any;
+  // `ref` and its aliases; a wrong input is answered with the operation's arguments and a call that works.
+  const spec = AGENT_OPERATION_SPECS[operation];
+  const checked = spec ? checkToolArgs(spec, input) : undefined;
+  if (checked && !checked.ok) return Promise.reject(new WorkToolRefusal(checked.error));
+  const any = (checked?.ok ? (operation === "view-order" ? { ...checked.args, view: checked.args.ref } : checked.args) : input) as any;
   switch (operation) {
     case "read": return readBlock(client, any);
     case "find": return findBlocks(client, any);

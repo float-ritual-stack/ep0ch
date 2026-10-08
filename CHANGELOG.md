@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Agent tools take one `ref` argument, and wrong arguments get the right call back
+
+- **New:** `ref` names "which block or note" on every agent surface: the Claude mod's tools (`outline_*`, `work_*`,
+  `note_section`, `view_order`, `show`, `door_open`), the MCP gateway, the door's `act` (for its `id`) and `open`, the
+  Pi extension's block tools and `outliner agent`. `id`, `reference`, `block`, `blockId`, `uri` and `note` are accepted
+  wherever `ref` is; the old names (`item`, `view`, `reference`, `id`, `blockId`, `viewId`, `address`) still work.
+- **Safer:** a call that gives two of them for different notes is refused as ambiguous, naming both values, and nothing
+  runs or opens. The same note spelt two ways (`((id))` and the id) is fine.
+- **Better errors:** an unknown argument is named with the closest valid one ("did you mean `ref`?"), a missing or
+  mistyped one says what it needs, and every such error restates the tool's arguments and gives a call that works (the
+  corrected one when the fix is exact). No `PROTOCOL` change.
+
 ### Comment on a Resource (PIE-650)
 
 - **Fixed:** a reader showing a Resource (a file opened from a `[file::…]` link, a fetched page) refused C with "shown here

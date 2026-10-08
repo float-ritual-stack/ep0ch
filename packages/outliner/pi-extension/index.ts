@@ -1,3 +1,4 @@
+import { PI_REF_TOOLS, withRefArgument } from "../src/pi-tool-args";
 import { createBlockComment } from "../src/block-comments";
 import { readSavedView, type SavedViewReadResult } from "../src/saved-view-read";
 import { clientSupportsRole } from "../src/types";
@@ -2124,7 +2125,10 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  /** The tools that name a block take it as `ref`, with the corrective error for a wrong call (src/pi-tool-args.ts). */
+  const registerTool: typeof pi.registerTool = (definition) => pi.registerTool(PI_REF_TOOLS[definition.name] ? withRefArgument(definition as never, PI_REF_TOOLS[definition.name]!) as never : definition);
+
+  registerTool({
     ...outlinerToolPresentation("Outliner Task"),
     name: "outliner_task",
     label: "Outliner Task",
@@ -2160,7 +2164,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
           : { blockId: null });
       }
       if (params.operation === "start") {
-        if (!params.address) throw new Error("outliner_task start requires address");
+        if (!params.address) throw new Error("outliner_task start requires ref");
         return toolResult(await startTask(params.address, context));
       }
       if (params.operation === "pause") {
@@ -2176,7 +2180,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Delivery"),
     name: "outliner_delivery",
     label: "Outliner Delivery",
@@ -2234,7 +2238,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Focus"),
     name: "outliner_focus",
     label: "Outliner Focus",
@@ -2276,7 +2280,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Publish"),
     name: "outliner_publish",
     label: "Outliner Publish",
@@ -2342,7 +2346,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Create"),
     name: "outliner_create",
     label: "Outliner Create",
@@ -2365,7 +2369,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Roadmap Create"),
     name: "outliner_roadmap_create",
     label: "Outliner Roadmap Create",
@@ -2409,12 +2413,12 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Branch Rank"),
     name: "outliner_branch_rank",
     label: "Outliner Branch Rank",
     description:
-      "Replace the explicit occurrence order for a virtual branch without moving canonical blocks or changing work-stage",
+      "Replace the explicit occurrence order of the virtual branch `ref` without moving canonical blocks or changing work-stage",
     promptSnippet:
       "Rank roadmap items inside a virtual lane or track separately from canonical hierarchy and stage",
     parameters: Type.Object({
@@ -2436,7 +2440,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Capture"),
     name: "outliner_capture",
     label: "Outliner Capture",
@@ -2464,7 +2468,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotations"),
     name: "outliner_annotations",
     label: "Outliner Annotations",
@@ -2494,7 +2498,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotation Reconcile"),
     name: "outliner_annotation_reconcile",
     label: "Outliner Annotation Reconcile",
@@ -2538,11 +2542,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Comment"),
     name: "outliner_comment",
     label: "Outliner Comment",
-    description: "Comment on a block using its revision and exact source quote, without building representation internals. Omit passage only for a whole-block comment. Does not focus panes.",
+    description: "Comment on the block `ref` using its revision and exact source quote, without building representation internals. Omit passage only for a whole-block comment. Does not focus panes.",
     promptSnippet: "Create a revision-guarded block comment; disambiguate repeated quotes with source context or a stable checklist item ID",
     parameters: Type.Object({
       blockId: Type.String(), expectedRevision: Type.Integer({minimum: 1}), comment: Type.String(),
@@ -2563,7 +2567,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotate"),
     name: "outliner_annotate",
     label: "Outliner Annotate",
@@ -2590,7 +2594,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotation Reply"),
     name: "outliner_annotation_reply",
     label: "Outliner Annotation Reply",
@@ -2617,7 +2621,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotation Lifecycle"),
     name: "outliner_annotation_lifecycle",
     label: "Outliner Annotation Lifecycle",
@@ -2638,7 +2642,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Annotation Batch"),
     name: "outliner_annotation_batch",
     label: "Outliner Annotation Batch",
@@ -2695,7 +2699,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
   });
 
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Attention"),
     name: "outliner_attention",
     label: "Outliner Attention",
@@ -2785,7 +2789,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       }));
     },
   });
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Workflow"),
     name: "outliner_workflow",
     label: "Outliner Workflow",
@@ -2911,11 +2915,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       }
     },
   });
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Update"),
     name: "outliner_update",
     label: "Outliner Update",
-    description: "Update the version of a block the agent read. Preserve list-item ^IDs; declare intentional removals/renames explicitly. Prefer outliner_checklist_update for a single step's status.",
+    description: "Update the block `ref` (the version the agent read). Preserve list-item ^IDs; declare intentional removals/renames explicitly. Prefer outliner_checklist_update for a single step's status.",
     promptSnippet: "Optimistically update a shared outliner block using its integer edit revision",
     parameters: Type.Object({
       blockId: Type.String(),
@@ -2938,11 +2942,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Checklist Query"),
     name: "outliner_checklist_query",
     label: "Outliner Checklist Query",
-    description: "Read marked steps in one note using blockId, or search canonical plans using scope (omit both for the workspace). Status and property filters match the same item. Returns parent-plan context, revision, evidence and completeness; never assigns IDs.",
+    description: "Read marked steps in the note `ref`, or search canonical plans using scope (omit ref and scope for the workspace). Status and property filters match the same item. Returns parent-plan context, revision, evidence and completeness; never assigns IDs.",
     promptSnippet: "Find steps without rewriting or splitting the plan",
     parameters: Type.Object({
       blockId: Type.Optional(Type.String()),
@@ -2967,11 +2971,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Checklist Update"),
     name: "outliner_checklist_update",
     label: "Outliner Checklist Update",
-    description: "Change one checklist step's mark or explicitly assign its stable ID. Use the query's itemId and expectedEvidence, or start plus observed revision for an unassigned item. Preserves unrelated edits; changed/missing/ambiguous items require a fresh read. This does not change roadmap task stages.",
+    description: "Change one checklist step of the note `ref`: its mark or explicitly assign its stable ID. Use the query's itemId and expectedEvidence, or start plus observed revision for an unassigned item. Preserves unrelated edits; changed/missing/ambiguous items require a fresh read. This does not change roadmap task stages.",
     promptSnippet: "Update one checklist item with observed evidence, retaining the surrounding plan",
     parameters: Type.Object({
       blockId: Type.String(),
@@ -2993,11 +2997,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Property Patch"),
     name: "outliner_property_patch",
     label: "Outliner Property Patch",
-    description: "Replace, remove, or append property tokens without rewriting unrelated block prose",
+    description: "Replace, remove, or append property tokens on the block `ref` without rewriting unrelated block prose",
     promptSnippet: "Patch indexed outliner properties with optimistic concurrency",
     parameters: Type.Object({
       blockId: Type.String(),
@@ -3018,7 +3022,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Property Catalog"),
     name: "outliner_property_catalog",
     label: "Outliner Property Catalog",
@@ -3049,7 +3053,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Page"),
     name: "outliner_page",
     label: "Outliner Page Address",
@@ -3129,11 +3133,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Work ID"),
     name: "outliner_work_id",
     label: "Outliner Work ID",
-    description: "Read allocator state or transactionally assign the next immutable project Work ID",
+    description: "Read allocator state or transactionally assign (for `ref`) the next immutable project Work ID",
     promptSnippet: "Allocate project-scoped Work IDs through the canonical outliner service",
     parameters: Type.Object({
       operation: Type.Union([
@@ -3174,11 +3178,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner View"),
     name: "outliner_view",
     label: "Outliner View",
-    description: "Read matching canonical items of a saved virtual branch in branch order, independent of pane expansion. The service evaluates the view; results report the total, paging, limits and invalid definitions explicitly.",
+    description: "Read the matching canonical items of the saved virtual branch `ref` in branch order, independent of pane expansion. The service evaluates the view; results report the total, paging, limits and invalid definitions explicitly.",
     promptSnippet: "Read the results of a saved virtual branch",
     parameters: Type.Object({
       viewId: Type.String(),
@@ -3193,7 +3197,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Query"),
     name: "outliner_query",
     label: "Outliner Query",
@@ -3233,11 +3237,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Move"),
     name: "outliner_move",
     label: "Outliner Move",
-    description: "Move a block to another parent and optional sibling position",
+    description: "Move the block `ref` to another parent and optional sibling position",
     promptSnippet: "Move a shared outliner block",
     parameters: Type.Object({
       blockId: Type.String(),
@@ -3255,7 +3259,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Clients"),
     name: "outliner_clients",
     label: "Outliner Clients",
@@ -3275,7 +3279,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     ...outlinerToolPresentation("Outliner Selection"),
     name: "outliner_selection",
     label: "Outliner Selection",

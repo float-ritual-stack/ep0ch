@@ -458,3 +458,33 @@ test("an agent reads a Resource with its open threads, comments on it by its [fi
   expect(stale.stderr).toContain("stale");
   expect((await agent("comment", { ref: `resource:${resourceId}`, quote: "step one", body: "Two steps?" })).exitCode).toBe(0);
 });
+
+test("agent operations take ref and its aliases; two aliases for different notes are refused and write nothing; a wrong input gets the right call back", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Seed swap plan\n\nBorlotti.");
+  const other = store.create("Pond notes\n\nFrogs.");
+  for (const alias of ["ref", "id", "reference", "block", "blockId", "uri", "note"]) {
+    const read = await agent("read", { [alias]: note.id });
+    expect(read.exitCode, `${alias}: ${read.stderr}`).toBe(0);
+    expect(read.json.id).toBe(note.id);
+    const said = await agent("comment", { [alias]: note.id, body: `via ${alias}`, whole: true });
+    expect(said.exitCode, `${alias}: ${said.stderr}`).toBe(0);
+  }
+  const edits = await agent("edit", { ref: note.id, id: other.id, expectedRevision: note.revision, append: "Nope." });
+  expect(edits.exitCode).toBe(1);
+  expect(edits.stderr).toContain("Ambiguous");
+  expect(edits.stderr).toContain("pass one `ref`");
+  expect(edits.stderr).toContain("Example: outliner agent edit --json '{");
+  expect(store.require(note.id).text).toBe("Seed swap plan\n\nBorlotti.");
+  expect(store.require(other.id).text).toBe("Pond notes\n\nFrogs.");
+  const same = await agent("edit", { ref: `((${note.id}))`, id: note.id, expectedRevision: note.revision, append: "Yes." });
+  expect(same.exitCode, same.stderr).toBe(0);
+  expect(store.require(note.id).text).toContain("Yes.");
+  const typo = await agent("read", { refe: note.id });
+  expect(typo.exitCode).toBe(1);
+  expect(typo.stderr).toContain("`refe` is not an argument of outliner agent read; did you mean `ref`?");
+  expect(typo.stderr).toContain("Arguments: ref (string, required)");
+  expect(typo.stderr).toContain(`Call it as: outliner agent read --json '{"ref":"${note.id}"}'`);
+  // view-order keeps its old name for the view.
+  expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
+});

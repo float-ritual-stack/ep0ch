@@ -10,6 +10,10 @@ export interface WorkToolDefinition {
   name: string
   description: string
   inputSchema: Json
+  /** A call that works. */
+  example: Json
+  /** Names this tool also answers to for an argument (`item` is `ref`). */
+  aliases?: Record<string, readonly string[]>
   /** The CLI arguments and stdin for one call, or the reason the input is unusable. */
   command(input: Record<string, unknown>): { args: string[]; stdin?: string } | string
 }
@@ -55,6 +59,7 @@ function schema(properties: Json, required: string[]): Json {
 export const WORK_TOOLS: readonly WorkToolDefinition[] = [
   {
     name: 'work_create',
+    example: {"title": "Show the weather on the home screen", "project": "ep0ch", "arc": "door", "priority": "medium", "tracks": ["door"]},
     description:
       "Create a roadmap item under the project's work queue with a newly allocated Work ID. Returns the Work ID, " +
       'block reference and revision. New work defaults to unprioritized; pass stage only when it was agreed.',
@@ -84,45 +89,51 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
   },
   {
     name: 'work_stage',
+    example: {"ref": "PIE-123", "stage": "doing"},
+    aliases: { ref: ['item'] },
     description:
-      "Move a roadmap item to another work stage (queued, doing, review, validate, later…), checked against its " +
+      "Move the roadmap item `ref` to another work stage (queued, doing, review, validate, later…), checked against its " +
       'revision and read back. Done needs proof: use work_complete.',
-    inputSchema: schema({ item: ITEM, stage: { type: 'string' }, expectedRevision: EXPECTED }, ['item', 'stage']),
+    inputSchema: schema({ ref: ITEM, stage: { type: 'string' }, expectedRevision: EXPECTED }, ['ref', 'stage']),
     command(input) {
-      const [item, stage] = [text(input, 'item'), text(input, 'stage')]
-      if (!item || !stage) return 'Give the item and the stage.'
+      const [item, stage] = [text(input, 'ref'), text(input, 'stage')]
+      if (!item || !stage) return 'Give the ref and the stage.'
       return { args: ['work', 'stage', ...expected(input), '--', item, stage] }
     },
   },
   {
     name: 'work_set',
+    example: {"ref": "PIE-123", "key": "priority", "value": "high"},
+    aliases: { ref: ['item'] },
     description:
-      'Set one single-valued property on a roadmap item (priority, work-batch, arc…), checked against its revision ' +
+      'Set one single-valued property on the roadmap item `ref` (priority, work-batch, arc…), checked against its revision ' +
       'and read back. Identity properties and multi-valued ones are refused. On a delivery only delivery-stage can ' +
       'be set: complete finishes a merged delivery (e.g. one left in validate on an item already done), validate reopens it.',
     inputSchema: schema({
-      item: {
+      ref: {
         type: 'string',
         description: 'A roadmap item (Work ID or block UUID), or for delivery-stage a delivery: its block UUID or key (PIE-123/door).',
       },
       key: { type: 'string' },
       value: { type: 'string' },
       expectedRevision: EXPECTED,
-    }, ['item', 'key', 'value']),
+    }, ['ref', 'key', 'value']),
     command(input) {
-      const [item, key, value] = [text(input, 'item'), text(input, 'key'), text(input, 'value')]
-      if (!item || !key || !value) return 'Give the item, the property key and its value.'
+      const [item, key, value] = [text(input, 'ref'), text(input, 'key'), text(input, 'value')]
+      if (!item || !key || !value) return 'Give the ref, the property key and its value.'
       return { args: ['work', 'set', ...expected(input), '--', item, key, value] }
     },
   },
   {
     name: 'work_deliver',
+    example: {"ref": "PIE-123", "repo": "example-org/example-repo", "pr": 42},
+    aliases: { ref: ['item'] },
     description:
-      "Record a GitHub pull request as one of the item's deliveries and sync its live state: an open PR moves the " +
+      "Record a GitHub pull request as one of the deliveries of the item `ref` and sync its live state: an open PR moves the " +
       "item to review, a merged one to validate. The PR's branches must match the delivery's. An item can have " +
       'several deliveries (one per repository or branch), each under its own key.',
     inputSchema: schema({
-      item: ITEM,
+      ref: ITEM,
       repo: { type: 'string', description: 'owner/name' },
       pr: { type: 'integer', minimum: 1 },
       key: {
@@ -133,11 +144,11 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       },
       base: { type: 'string', description: "Base branch; defaults to the PR's" },
       branch: { type: 'string', description: "Work branch; defaults to the PR's head" },
-    }, ['item', 'repo', 'pr']),
+    }, ['ref', 'repo', 'pr']),
     command(input) {
-      const [item, repo] = [text(input, 'item'), text(input, 'repo')]
+      const [item, repo] = [text(input, 'ref'), text(input, 'repo')]
       const pr = input.pr
-      if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the item, repo and PR number.'
+      if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the ref, repo and PR number.'
       const args = ['work', 'deliver', opt('repo', repo), opt('pr', String(pr))]
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
       if (key) args.push(opt('key', key))
@@ -148,13 +159,15 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
   },
   {
     name: 'work_complete',
+    example: {"ref": "PIE-123", "allMerged": true, "proof": "Shipped\n\nChecked on a scratch host."},
+    aliases: { ref: ['item'] },
     description:
-      'Accept a roadmap item with linked proof. Every incomplete delivery must be covered: name them in deliveries ' +
+      'Accept the roadmap item `ref` with linked proof. Every incomplete delivery must be covered: name them in deliveries ' +
       'or set allMerged; each must be merged. If another delivery is still incomplete the call is refused, naming it ' +
       'and how to finish it. The proof is added as a child block (or an existing linked proof block is used), the ' +
       'covered deliveries become complete and the item done.',
     inputSchema: schema({
-      item: ITEM,
+      ref: ITEM,
       deliveries: {
         type: 'array',
         items: { type: 'string' },
@@ -164,14 +177,14 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       allMerged: { type: 'boolean', description: 'Complete every delivery whose PR is merged, instead of naming them' },
       proof: { type: 'string', description: 'Proof as Markdown: first line is its title' },
       proofBlock: { type: 'string', description: 'An existing proof block UUID linked to the item, instead of proof text' },
-    }, ['item']),
+    }, ['ref']),
     command(input) {
-      const item = text(input, 'item')
+      const item = text(input, 'ref')
       const [proof, proofBlock] = [text(input, 'proof'), text(input, 'proofBlock')]
       const deliveries = Array.isArray(input.deliveries)
         ? input.deliveries.filter((delivery): delivery is string => typeof delivery === 'string' && delivery.trim() !== '')
         : []
-      if (!item) return 'Give the item.'
+      if (!item) return 'Give the ref.'
       if (!proof === !proofBlock) return 'Give either proof text or an existing proofBlock.'
       if (input.allMerged === true && deliveries.length) return 'Name deliveries or set allMerged, not both.'
       const args = ['work', 'complete', ...deliveries.map(delivery => opt('delivery', delivery)),
@@ -181,29 +194,33 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
   },
   {
     name: 'work_body',
+    example: {"ref": "PIE-123", "body": "Context and acceptance criteria."},
+    aliases: { ref: ['item'] },
     description:
-      "Replace a roadmap item's (or any block's) body below its title and property lines, checked against its revision.",
-    inputSchema: schema({ item: ITEM, body: { type: 'string' }, expectedRevision: EXPECTED }, ['item', 'body']),
+      "Replace the body of the roadmap item (or any block) `ref` below its title and property lines, checked against its revision.",
+    inputSchema: schema({ ref: ITEM, body: { type: 'string' }, expectedRevision: EXPECTED }, ['ref', 'body']),
     command(input) {
-      const item = text(input, 'item')
-      if (!item || typeof input.body !== 'string') return 'Give the item and its new body.'
+      const item = text(input, 'ref')
+      if (!item || typeof input.body !== 'string') return 'Give the ref and its new body.'
       return { args: ['work', 'body', '--stdin', ...expected(input), '--', item], stdin: input.body }
     },
   },
   {
     name: 'note_section',
+    example: {"ref": "PIE-123", "heading": "## Now", "body": "Updated text."},
+    aliases: { ref: ['item'] },
     description:
-      'Replace one Markdown section of a note: the text under a heading up to the next heading of its level, as ' +
+      'Replace one Markdown section of the note `ref`: the text under a heading up to the next heading of its level, as ' +
       'Detail folds it. The heading stays; the replaced text is returned as "previous".',
     inputSchema: schema({
-      block: { type: 'string', description: 'The note: block UUID or Work ID' },
+      ref: { type: 'string', description: 'The note: block UUID or Work ID' },
       heading: { type: 'string', description: 'Heading text, optionally with its ## level' },
       body: { type: 'string' },
       expectedRevision: EXPECTED,
-    }, ['block', 'heading', 'body']),
+    }, ['ref', 'heading', 'body']),
     command(input) {
-      const [block, heading] = [text(input, 'block'), text(input, 'heading')]
-      if (!block || !heading || typeof input.body !== 'string') return 'Give the note, the heading and the new section text.'
+      const [block, heading] = [text(input, 'ref'), text(input, 'heading')]
+      if (!block || !heading || typeof input.body !== 'string') return 'Give the ref of the note, the heading and the new section text.'
       return { args: ['note', 'section', '--stdin', ...expected(input), '--', block, heading], stdin: input.body }
     },
   },

@@ -33,7 +33,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
 `outline_patch`, `outline_create`, `outline_assign_id`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
-`door_act`, `door_open`. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
+`door_act`, `door_open`. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
 `ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod. `ep0ch find --query
 "type=task updated >= -7d" --ids` (or `--view <id>`, `--under <id>`) lists what the outline says a query holds for, as

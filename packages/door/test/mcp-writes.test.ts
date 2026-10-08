@@ -156,6 +156,46 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(logs.join("\n")).toContain(`mcp write: mcp:chat.example.test (${PERSON}) outline_patch ${uri}: applied`);
   });
 
+  test("tool arguments: ref and each alias are accepted; two aliases for different notes are refused with nothing written; a wrong argument gets the right call back", async () => {
+    const seeds = ids.seeds!;
+    const threadsOn = async () => ((await tool("outline_threads", { ref: seeds, outline: "garden-notes" })).json.threads as unknown[]).length;
+    for (const alias of ["ref", "id", "reference", "block", "blockId", "note"]) {
+      for (const name of ["outline_read", "outline_threads", "outline_links"]) {
+        const r = await tool(name, { [alias]: seeds, outline: "garden-notes" });
+        expect(r.isError, `${name} ${alias}: ${r.text}`).toBe(false);
+      }
+    }
+    const before = await threadsOn();
+    for (const alias of ["ref", "id", "reference", "block", "blockId", "note"]) {
+      const c = await tool("outline_comment", { [alias]: seeds, outline: "garden-notes", whole: true, body: `via ${alias}` });
+      expect(c.json?.outcome, `${alias}: ${c.text}`).toBe("applied");
+    }
+    expect(await threadsOn()).toBe(before + 6);
+    // Different notes: refused whichever way they are named, and no thread is made.
+    for (const args of [{ ref: seeds, id: ids.frogs }, { ref: seeds, uri: formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.frogs! }) }]) {
+      const conflict = await tool("outline_comment", { ...args, outline: "garden-notes", whole: true, body: "which note?" });
+      expect(conflict.isError).toBe(true);
+      expect(conflict.text).toContain("Ambiguous");
+      expect(conflict.text).toContain("pass one `ref`");
+      expect(conflict.text).toContain("Example: outline_comment");
+    }
+    expect((await tool("outline_read", { ref: seeds, id: ids.frogs })).text).toContain("Ambiguous");
+    expect(await threadsOn()).toBe(before + 6);
+    // One note spelt two ways is the same note.
+    const same = await tool("outline_comment", { ref: `((${seeds}))`, id: seeds, outline: "garden-notes", whole: true, body: "same note twice" });
+    expect(same.json?.outcome).toBe("applied");
+    expect(await threadsOn()).toBe(before + 7);
+    // The error says the right thing.
+    const typo = await tool("outline_read", { refe: seeds });
+    expect(typo.isError).toBe(true);
+    expect(typo.text).toContain("`refe` is not an argument of outline_read; did you mean `ref`?");
+    expect(typo.text).toContain("Arguments: uri (string");
+    expect(typo.text).toContain(`Call it as: outline_read {"ref":"${seeds}"}`);
+    const typed = await tool("outline_patch", { ref: seeds, revision: "3", patches: [] });
+    expect(typed.text).toContain("`revision` must be integer >= 1; got string \"3\"");
+    expect(typed.text).toContain("Example: outline_patch {");
+  });
+
   test("a Resource (PIE-650): outline_comment takes a [file::] ref and outline_read returns its text with the open threads; the file is never written; a read-only outline refuses", async () => {
     const file = join(dir, "pr-body.md");
     const source = "## Summary\n\nThe **cache** warms [on boot](https://example.test/boot).\n";

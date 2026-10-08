@@ -101,9 +101,9 @@ describe("the surface without a service", () => {
       go: { summary: "go", touches: "nothing", replay: "safe", args: { n: { type: "number", about: "n" }, loud: { type: "boolean", optional: true, about: "l" }, say: { type: "string", optional: true, about: "s" } }, run: a => { ran.push(a); return a; } },
     });
     expect(await set.runUntyped("go", { n: "3", loud: "true" }, null, { kind: "user" })).toEqual({ n: 3, loud: true });
-    expect(() => set.runUntyped("go", {}, null, { kind: "user" })).toThrow("go needs n");
+    expect(() => set.runUntyped("go", {}, null, { kind: "user" })).toThrow("Missing required `n`");
     expect(() => set.runUntyped("go", { n: "x" }, null, { kind: "user" })).toThrow("n is a number");
-    expect(() => set.runUntyped("go", { n: 1, colour: "red" }, null, { kind: "user" })).toThrow("go takes no colour");
+    expect(() => set.runUntyped("go", { n: 1, colour: "red" }, null, { kind: "user" })).toThrow("`colour` is not an argument of go");
     expect(() => set.runUntyped("stop", {}, null, { kind: "user" })).toThrow(ActionRefused);
     expect(ran).toHaveLength(1);
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-act-"));
@@ -227,7 +227,7 @@ describe("the surface without a service", () => {
     await expect(act({ invitation: inv.id })).rejects.toThrow("invitation= needs base=");
     await expect(s.act("comment.write", { body: "x", invitation: inv.id, base: inv.base }, h, { kind: "agent", id: "other-agent" })).rejects.toThrow(`no open invitation ${inv.id} for other-agent`);
     // edit.text takes no invitation: an invitation= sent with it opens nothing.
-    await expect(s.act("edit.text", { text: "x", invitation: inv.id }, h, AGENT)).rejects.toThrow("edit.text takes no invitation");
+    await expect(s.act("edit.text", { text: "x", invitation: inv.id }, h, AGENT)).rejects.toThrow("`invitation` is not an argument of edit.text");
     expect(c.text).toBe("how often, daily\n@claude-7 tidy");
     // Invited: the range above the line is rewritten, the line and the cursor's place in it kept; one reply.
     expect(await act({ invitation: inv.id, base: inv.base })).toEqual({ applied: true, dirty: true });
