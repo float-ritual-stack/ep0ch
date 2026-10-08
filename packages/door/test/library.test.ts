@@ -180,6 +180,15 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
       expect([json.code, json.err]).toEqual([0, ""]);
       const [schema] = JSON.parse(json.out);
       expect(schema.props[0].values.map((v: any) => v.value)).toContain("plot");
+      const brief = await run("heading-style", "--brief");
+      expect([brief.code, brief.err]).toEqual([0, ""]);
+      expect(brief.out).toContain("## heading-style\n");
+      expect(brief.out).toContain("- heading: band, tab, waffle, uptime, dots, rule, fade, plot — ");
+      expect(brief.out).toContain("- heading-rows [on the declaring note]: 1 to 3 (default 3) — ");
+      expect(brief.out).toContain("Example:\n```markdown\n");
+      expect(brief.out).not.toContain("```text");
+      const both = await run("--brief", "--json");
+      expect(both.code).toBe(2);
       const dir = mkdtempSync(join(tmpdir(), "ep0ch-library-"));
       try {
         const wrote = await run("--out", dir);

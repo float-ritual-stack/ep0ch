@@ -23,6 +23,10 @@ are its record. The outliner's entries from then are kept below, under
   read as having none.
 - **Run:** nothing beyond `ep0ch install --apply`. No protocol or schema change.
 
+### Component discovery for agents
+
+- **New:** agents discover components without the library screen: `ep0ch library --brief [<component>…]`, the Claude mod's and the MCP gateway's `outline_components` tool, and each component as an MCP resource (`resources/list`, `ep0ch://<outline>@<machine>/components/<id>`) for claude.ai to `@`-mention. Per component: purpose, where it goes, each property as `key: values (default) — meaning`, one example.
+
 ### What an agent may do to each tile (PIE-639)
 
 - **New:** each tile has a level for agents. `free` (the default) is as before; `edit` lets an agent edit the note the tile

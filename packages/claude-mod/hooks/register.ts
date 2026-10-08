@@ -22,7 +22,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
+import { actorOf, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -312,7 +312,7 @@ export function register(on: On, options: PluginOptions): void {
     // loaded on demand, so the session never waits for them. The door tools act in the door this Claude runs
     // in: only in a door tile, where EP0CH_CONTROL names it.
     $.clock.after(0, () => void (async () => {
-      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, ...((await $.env.get('EP0CH_CONTROL')) ? DOOR_TOOLS : [])]
+      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, ...((await $.env.get('EP0CH_CONTROL')) ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })
       }
@@ -399,6 +399,19 @@ export function register(on: On, options: PluginOptions): void {
       }
     })
   }
+
+  // The library's brief, from the session's outline: `ep0ch` is the door's CLI, run in the bound folder.
+  on('tool.call', { tool: `mcp__pi-outliner__${COMPONENTS_TOOL.name}` }, async ($, e) => {
+    const command = componentsArgv(e as Record<string, unknown>)
+    if (typeof command === 'string') return { deny: command }
+    if (!references) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
+    const ran = await $.process.run(command.argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 })
+      .catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
+    if (ran.exitCode !== 0) return { deny: failureReasonOf(ran.stderr) || ran.stderr.trim() || 'ep0ch library --brief failed' }
+    return { result: ran.stdout.trim() }
+  })
 
   for (const tool of DOOR_TOOLS) {
     on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {

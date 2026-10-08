@@ -9,14 +9,17 @@ import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
+import { briefFor } from "./library/brief";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailSummary } from "./mcp-netmail";
 import { actorOf, applyWrite, isWriteTool, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
-                                   tools list_outlines, outline_read, outline_find, outline_links; resources/read with envelope
+                                   tools list_outlines, outline_read, outline_find, outline_links, outline_components; resources/read with envelope,
+                                   and the outline's components as resources (resources/list)
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
                                    server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
@@ -337,7 +340,56 @@ async function linkData(outlines: McpOutlines, args: Record<string, unknown>): P
   });
 }
 
+/** A component's resource URI: `ep0ch://<outline>@<machine>/components/<id>`. */
+const COMPONENT_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/components\/([a-z0-9][a-z0-9-]*)$/;
+const componentUri = (board: Board, id: string) => `ep0ch://${board.address.outline}@${board.address.machine}/components/${id}`;
+
+/** The component schemas of a board, once the outline's access lets this caller read it: the same read as `ep0ch library`. */
+async function componentsOf(outlines: McpOutlines, target: McpBoard): Promise<ComponentSchema[] | { error: string }> {
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return status;
+  return (await target.board.componentSchemas()).schemas;
+}
+
+async function componentsTool(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+  const names = args.components === undefined ? [] : Array.isArray(args.components) && args.components.every(c => typeof c === "string") ? args.components as string[] : null;
+  if (!names) return toolError("components is a list of component ids (leave it out for all of them).");
+  const which = namedOutline(args.outline);
+  if (which && "error" in which) return toolError(which.error);
+  if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
+  const served = await outlines.board(which);
+  if ("error" in served) return toolError(served.error);
+  const all = await componentsOf(outlines, served);
+  if ("error" in all) return toolError(all.error);
+  const brief = briefFor(all, names);
+  return "error" in brief ? toolError(brief.error) : toolText(brief.text);
+}
+
+/** Every component of the outlines this server reads, as resources (an outline this caller can't read adds none). */
+async function componentResources(outlines: McpOutlines): Promise<unknown[]> {
+  const named = outlines.defaultOutline ? [{ outline: outlines.defaultOutline }] : (await outlines.list()).filter(o => o.source !== "unreachable" && o.access && o.access !== "none").map(o => ({ outline: o.outline, machine: o.machine }));
+  const out: unknown[] = [];
+  for (const n of named) {
+    const served = await outlines.board(n);
+    if ("error" in served) continue;
+    const all = await componentsOf(outlines, served).catch(() => null);
+    if (!all || "error" in all) continue;
+    for (const s of all) out.push({ uri: componentUri(served.board, s.id), name: `${s.id}@${served.board.address.outline}`, title: s.title, description: s.where, mimeType: "text/markdown" });
+  }
+  return out;
+}
+
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
+  const component = typeof uriValue === "string" ? COMPONENT_URI.exec(uriValue.trim()) : null;
+  if (component) {
+    const served = await outlines.board({ outline: component[1]!, machine: component[2]! });
+    if ("error" in served) throw invalidParams(served.error);
+    const all = await componentsOf(outlines, served);
+    if ("error" in all) throw new RpcError(-32002, all.error);
+    const brief = briefFor(all, [component[3]!]);
+    if ("error" in brief) throw invalidParams(brief.error);
+    return { contents: [{ uri: componentUri(served.board, component[3]!), mimeType: "text/markdown", text: brief.text }] };
+  }
   const target = await addressedBlock(outlines, uriValue, undefined, false);
   if ("error" in target) throw invalidParams(target.error);
   const read = await recordForMcp(outlines, target, target.id);
@@ -396,6 +448,15 @@ function toolsFor(outlines: McpOutlines) {
       description: `Read a block's authored outlinks, resources and backlinks in ${which}, each group cut at limit; completeness says per group whether it is whole, how many it shows and the total. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, limit: limitSchema(LINKS_LIMIT, "Entries per group (links, resources, backlinks)") } },
     },
+    {
+      name: "outline_components",
+      description: `The components a note can hold in ${which}, as an agent reads them: per component its purpose, where it goes, each property as key: values (default) — meaning, and a minimal example. ` +
+        `The outline's own heading styles, callout types and extensions' components are among them. Also served as resources (ep0ch://<outline>@<machine>/components/<id>). Requires ${grant}.`,
+      inputSchema: { type: "object", properties: {
+        components: { type: "array", items: { type: "string" }, description: "Component ids (heading-style, callout, …); leave out for all" },
+        outline: outlineProperty(outlines),
+      }, additionalProperties: false },
+    },
   ];
 }
 
@@ -433,6 +494,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   if (params.name === "outline_read") return readRecord(outlines, args);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
+  if (params.name === "outline_components") return componentsTool(outlines, args);
   if (isWriteTool(params.name) && caller && outlines.kind === "remote") return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
 }
@@ -495,7 +557,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller): 
     case "tools/call":
       return callTool(outlines, req.params, caller);
     case "resources/list":
-      return { resources: [] };
+      return componentResources(outlines).then(resources => ({ resources }));
     case "resources/templates/list": {
       const outline = outlines.kind === "local" ? outlines.defaultOutline! : "{outline}";
       const machine = outlines.kind === "local" ? outlines.machine : "{machine}";
