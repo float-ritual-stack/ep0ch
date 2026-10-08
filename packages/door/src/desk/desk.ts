@@ -9,7 +9,7 @@
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
 import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
-import { bodyLinesOf, subject, type Msg } from "../board";
+import { subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
@@ -23,8 +23,6 @@ import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type 
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
-import { LineInput } from "../surface/line";
-import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
@@ -33,9 +31,6 @@ import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./
 import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
-import { colourBody, wrap } from "../text";
-import { emphasis } from "../inline";
-import { presentLinks } from "../refs";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, defaultLinkRole, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
@@ -1265,6 +1260,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (r) r.pane.surface.track(show); else show();
     this.redraw();
     return r?.name ?? null;
+  }
+
+  /** `open fresh=true` naming no tile (the power bar's alt+⏎): a new detail beside the focused tile, as alt+⏎ on a link opens one; the keys go there only for the person. */
+  async openFresh(id: string, actor: Actor): Promise<{ reader: string | null; id: string }> {
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    const before = new Set(this.all());
+    this.setCurrent(m, { from: this.panes.get(this.focus), link: true, fresh: true, by: actor });
+    const made = this.all().find(x => !before.has(x));
+    this.redraw();
+    return { reader: made !== undefined ? this.nameOf(made) : null, id: m.id };
   }
 
   /**
@@ -2572,7 +2578,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.focusedReader() !== rd) this.focusPane(rd, USER);
     const token = { pane: rd };
     this.pending = token;
-    const still = () => this.pending === token && this.focusedReader() === rd && !this.overlays.get("search");
+    const still = () => this.pending === token && this.focusedReader() === rd && !this.overlays.top();
     const opened = (open: boolean) => {
       const want = still();
       if (this.pending === token) this.pending = null;
@@ -3489,10 +3495,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async searchNotes(query: string | undefined, limit: number | undefined, actor: Actor): Promise<unknown> {
     const q = query?.trim() ?? "";
+    // The person's is the power bar in its notes scope (PIE-656): the same search, its hits beside the note read through a reader.
     if (actor.kind !== "agent") {
-      this.overlays.push(searchOverlay(this, q));
-      this.redraw();
-      return { overlay: true, query: q };
+      if (!this.ctx.press) throw new ActionRefused("no power bar here: this screen isn't given the door's actions · ctrl+k from the door's own screens");
+      await this.ctx.press("bar.open", { scope: "notes", ...(q ? { query: q } : {}) });
+      return { bar: true, scope: "notes", query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
     const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.current?.id });
@@ -3649,6 +3656,31 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutGet() {
     return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), id: this.tileId(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
+  }
+
+  /**
+   * The screen's tiles in the layout tree's order, each with how deep it sits (a container inside a container is one
+   * deeper), what it shows and how it's placed now: the power bar's tiles scope (PIE-656) lists them indented as the
+   * tree. Floats come last. Reading it changes nothing.
+   */
+  tileOutline(): TileLine[] {
+    const out: TileLine[] = [];
+    const line = (id: number, depth: number, how: { tab?: boolean; shown?: boolean; docked?: boolean } = {}) => {
+      const p = this.panes.get(id);
+      if (!p) return;
+      const m = this.showing(p);
+      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m) } : null,
+        focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true });
+    };
+    const walk = (n: LNode, depth: number, docked: boolean) => {
+      if (n.t === "leaf") return line(n.id, depth, { docked });
+      if (n.t === "tabs") { n.ids.forEach((id, i) => line(id, depth, { tab: n.ids.length > 1, shown: i === n.active, docked })); return; }
+      const kids = kidsOf(n), inner = n === this.root ? depth : depth + 1;
+      for (const k of kids) walk(k, inner, docked || n.t === "dock");
+    };
+    walk(this.root, 0, false);
+    for (const f of this.floats) line(f.id, 0);
+    return out;
   }
 
   /**
@@ -4611,6 +4643,12 @@ const NO_SOURCE = Symbol("no source");
 /** The layout's `pin` answer in the action's words: `docked`, never `pinned`. */
 const docked = ({ pinned, ...rest }: Record<string, unknown>) => ({ ...rest, ...(pinned !== undefined ? { docked: !pinned } : {}) });
 /** A tile moving between screens (or into and out of the drawer) whole: its instance, its name, its spec, whether the person was typing in it. */
+/** One tile as the power bar lists it (Desk.tileOutline): its stable id, name, kind, depth in the tree, and what it shows. */
+export interface TileLine {
+  id: string; name: string; kind: string; depth: number; title: string; showing: { id: string; title: string } | null;
+  focused: boolean; collapsed: boolean; float: boolean; docked: boolean; tab: boolean; shown: boolean;
+}
+
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean }
 
 /** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */
@@ -4713,61 +4751,6 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
   return p;
 }
 
-/**
- * `/`: the service's search (the one search, `tree.search`) as it's typed, from the desk's current note (nearer
- * notes first), the hits on the left, the one picked read on the right; ⏎ opens it. A pause asks Jev to re-order
- * the same hits, used only if the query and the pick haven't moved, and the picked hit stays picked.
- */
-function searchOverlay(d: Desk, q: string): DeskPicker {
-  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
-  const input = new LineInput(q, false, { complete: false });   // the one search's plain words (`tree.search`): no property grammar to complete
-  const near = () => d.current?.id;
-  const stop = () => { if (timer) clearTimeout(timer); timer = null; seq++; };
-  const askJev = (n: number, t: string) => {
-    if (t.length < 3 || hits.length < 2 || jevOff.has(d.ctx.board)) return;
-    timer = setTimeout(() => {
-      if (n !== seq) return;
-      const sel = p.sel, id = hits[sel]?.id;
-      jev = "asking"; d.redraw();
-      d.ctx.board.search(t, 30, { semantic: true, near: near() }).then(h => {
-        if (h.semantic && notConfigured(h.semantic)) jevOff.add(d.ctx.board);
-        if (n !== seq) return;
-        const at = h.findIndex(m => m.id === id);
-        if (p.sel !== sel || hits[sel]?.id !== id || at < 0) { jev = undefined; d.redraw(); return; }
-        hits = h; p.sel = at; jev = h.semantic?.status === "ranked" ? "ranked" : undefined; d.redraw();
-      }, () => { if (n === seq) { jev = undefined; d.redraw(); } });
-    }, SEARCH_JEV_PAUSE_MS);
-  };
-  const run = () => {
-    if (timer) clearTimeout(timer);
-    const n = ++seq, t = input.text.trim();
-    jev = undefined;
-    if (t.length < 2) { hits = []; return; }
-    timer = setTimeout(() => {
-      busy = true; d.redraw();
-      d.ctx.board.search(t, 30, { near: near() }).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); askJev(n, t); } }, () => { busy = false; });
-    }, 250);
-  };
-  const p: ListPicker<Msg, Desk> = new ListPicker<Msg, Desk>({
-    name: "search", items: () => hits, input, typed: run,
-    row: (m, _i, on, w) => [pickRow(` ${m.props["work-id"] && !subject(m).startsWith(m.props["work-id"]) ? m.props["work-id"] + " " : ""}${subject(m)}`, on, w)],
-    // Putting it away stops a pending ask: no Jev call for a search that's gone.
-    choose: m => { stop(); d.run("open", { id: m.id }); },
-    closed: () => stop(),
-    frame: a => {
-      const rect: Rect = { col: Math.floor(a.cols * 0.1), row: Math.floor(a.rows * 0.12), cols: Math.floor(a.cols * 0.8), rows: Math.floor(a.rows * 0.72) };
-      const w = rect.cols - 2, listW = Math.floor(w * 0.42), m = hits[p.sel];
-      return {
-        rect, title: "search the board", foot: "↑↓ pick · ⏎ open · esc close",
-        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)${jev === "ranked" ? " · jev ranked" : jev === "asking" ? " · jev…" : ""}`}`), fg(C.blue) + "─".repeat(w) + RESET],
-        side: { w: listW, lines: m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [] },
-      };
-    },
-  });
-  if (q) run();
-  return p;
-}
-
 interface DeskOn { d: Desk; reader?: string }
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
@@ -4786,7 +4769,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     run(_, { d }) { return d.keysMore(); },
   }),
   "search": def({
-    summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the search overlay, ⏎ there opens the hit (`open`)",
+    summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the power bar in its notes scope (bar.open scope=notes), where ⏎ opens the hit (`open`) and alt+⏎ opens it in a new detail",
     keys: "/; river column: g",
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
@@ -4798,7 +4781,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
-    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎)" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
+    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
       file: { type: "string", optional: true, about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },
       against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" } },
@@ -4823,23 +4806,14 @@ function openNote({ id, from, fresh }: { id: string; from?: string; fresh?: bool
   // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
   // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
   if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
+  // fresh=true naming neither (the power bar's alt+⏎): a new detail beside the tile with the keys, as alt+⏎ on a link opens one.
+  if (fresh && from === undefined && reader === undefined) return d.openFresh(id, actor);
   // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
   if (from === undefined && reader === undefined && actor.kind !== "agent" && d.focusInFlow()) return d.openFrom(id, d.focusedName(), actor, !!fresh);
   return from !== undefined ? d.openFrom(id, from, actor, !!fresh)
     : reader === undefined && actor.kind === "agent" ? d.openLanding(id, actor)
     : d.openIn(id, reader, actor);
 }
-
-/** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
-function previewLines(m: Msg, w: number): string[] {
-  // A draft proposal's hidden patch (`[draft-patch::…]`, PIE-501) is machine data, never shown.
-  const body = bodyLinesOf(m.text).filter(l => !/^\s*\[draft-patch::[A-Za-z0-9_-]*\]\s*$/.test(l.text));
-  while (body.length && !body[0]!.text.trim()) body.shift();
-  while (body.length && !body.at(-1)!.text.trim()) body.pop();
-  // Links read as their labels and **bold** as bold, as the reader draws them (no ((uuid|…)) or ** in a preview).
-  return body.flatMap(l => (l.text ? wrap(l.literal ? l.text : emphasis(presentLinks(l.text, false, null, m.text)), w, { code: true }) : [""]).map(x => colourBody(x, l.literal)));
-}
-export { previewLines as searchPreviewLines };
 
 /** A tree with its tiles' ids mapped (a group's tiles under this screen's ids as it spills, PIE-651). */
 function mapTree(n: LNode, f: (id: number) => number): LNode {

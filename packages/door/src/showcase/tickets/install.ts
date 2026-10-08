@@ -61,7 +61,7 @@ export async function refreshTicket(b: SocketBoard, resourceId: string): Promise
 }
 
 /** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */
-export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy"] as const;
+export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy", "glyphs"] as const;
 /** The outliner's example rules (PIE-600): one that decorates, one that runs, one on a text pattern. */
 export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
 

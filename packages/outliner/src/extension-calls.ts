@@ -1,3 +1,4 @@
+import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
 import {
   ComponentError,
   renderComponent,
@@ -104,6 +105,21 @@ export interface ExtensionActResult {
   readonly proposalId?: string;
 }
 
+/** `extensions.bar`: a query for one of an extension's command-palette sources (PIE-656). */
+export interface ExtensionBarRequest {
+  readonly extension: string;
+  readonly source: string;
+  readonly query: string;
+  /** The note the person is on (the bar's context): the call sees it as `context`, as an action's does. */
+  readonly near?: string;
+  readonly limit?: number;
+}
+
+export type { ExtensionBarResult, ExtensionBarRow };
+
+const MAX_BAR_ROWS = 50;
+const MAX_BAR_PREVIEW = 8 * 1024;
+
 export interface ExtensionRenderResult {
   readonly blockId: string;
   readonly line: number;
@@ -183,6 +199,37 @@ function validateAct(value: unknown): { message?: string; writes: ExtensionWrite
       throw new Error(`writes[${index}] must be { op: "create", parentId, text } or { op: "update", blockId, expectedRevision, text }`);
     }),
   };
+}
+
+/** A bar source's answer: `{ rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`, cleaned. */
+function validateBar(value: unknown, actionOk: (id: string) => boolean, blockOk: (id: string) => boolean): ExtensionBarRow[] {
+  const rows = isObject(value) ? value.rows : undefined;
+  if (!Array.isArray(rows) || rows.length > MAX_BAR_ROWS) throw new Error(`a bar source returns { rows: [...] }, at most ${MAX_BAR_ROWS}`);
+  const text = (row: Record<string, unknown>, key: string, index: number, max: number, lines = false): string | undefined => {
+    const v = row[key];
+    if (v === undefined) return undefined;
+    if (typeof v !== "string" || v.length > max) throw new Error(`rows[${index}].${key} must be text up to ${max} characters`);
+    return cleanExtensionText(v, lines);
+  };
+  const ids = new Set<string>();
+  return rows.map((row, index): ExtensionBarRow => {
+    if (!isObject(row)) throw new Error(`rows[${index}] must be an object`);
+    const id = text(row, "id", index, 200), label = text(row, "label", index, 200);
+    if (!id || !label?.trim()) throw new Error(`rows[${index}] needs an id and a label`);
+    if (ids.has(id)) throw new Error(`rows[${index}].id ${id} is another row's too: each row's id is its own`);
+    ids.add(id);
+    const block = text(row, "block", index, 100), action = text(row, "action", index, 32), copy = text(row, "copy", index, 2000, true);
+    if (block !== undefined && !blockOk(block)) throw new Error(`rows[${index}].block ${block} is no block here`);
+    if (action !== undefined && !actionOk(action)) throw new Error(`rows[${index}].action ${action} isn't one of its actions on a bar row (on: bar, or on: block with a block)`);
+    if (action !== undefined && row.args !== undefined && (!isObject(row.args) || Object.values(row.args).some((v) => typeof v !== "string"))) throw new Error(`rows[${index}].args must map names to text`);
+    if (block === undefined && action === undefined && copy === undefined) throw new Error(`rows[${index}] does nothing when picked: give it a block, an action or copy`);
+    const preview = text(row, "preview", index, MAX_BAR_PREVIEW, true), detail = text(row, "detail", index, 200);
+    return {
+      id, label, ...(detail ? { detail } : {}), ...(preview ? { preview } : {}), ...(block ? { block } : {}), ...(action ? { action } : {}),
+      ...(action && isObject(row.args) ? { args: Object.fromEntries(Object.entries(row.args as Record<string, string>).map(([k, v]) => [cleanExtensionText(k), cleanExtensionText(v)])) } : {}),
+      ...(copy !== undefined ? { copy } : {}),
+    };
+  });
 }
 
 export class ExtensionCalls {
@@ -619,7 +666,7 @@ export class ExtensionCalls {
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
     if (request.blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
-    if (!block && (action.on ?? "block") !== "block" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
+    if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
     if (!block && (action.on ?? "block") === "block") throw new Error(`${action.name} acts on a block: pass blockId`);
     const call = block ? this.callFor(block, action, request.line) : undefined;
     if (action.builtIn) return this.keep(extension, action, block!, call!, request.requestedBy);
@@ -647,6 +694,39 @@ export class ExtensionCalls {
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}) };
+  }
+
+  /**
+   * `extensions.bar` (PIE-656): one of an extension's command-palette sources answers a query with rows. It only
+   * answers (no writes); what a row does when picked is the client's call through the usual paths (open a block,
+   * `extensions.act` its action, copy).
+   */
+  async bar(request: ExtensionBarRequest): Promise<ExtensionBarResult> {
+    const extension = this.registry.extension(request.extension);
+    if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
+    const source = (extension.manifest.bar ?? []).find((candidate) => candidate.id === request.source);
+    if (!source) throw new Error(`${extension.name} has no bar source ${request.source}`);
+    const near = request.near ? this.store.get(request.near) : null;
+    const limit = Math.max(1, Math.min(MAX_BAR_ROWS, request.limit ?? MAX_BAR_ROWS));
+    const answer = await this.runtime.invokeLoaded(extension, "bar", {
+      source: source.id, query: request.query, limit,
+      ...(near && !near.effectiveDeletedRootId ? { context: this.context(near, undefined) } : {}),
+    }, durationMs(source.deadline) ?? this.deadline(extension));
+    const actionOk = (id: string) => { const a = this.registry.action(extension.id, id); return !!a && !a.builtIn && ((a.on ?? "block") === "block" || a.on === "bar"); };
+    const blockOk = (id: string) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; };
+    let rows: ExtensionBarRow[];
+    try {
+      rows = validateBar(answer.value, actionOk, blockOk);
+    } catch (error) {
+      throw new Error(`${extension.name}'s bar source ${source.id} answered what the service can't show: ${message(error)}`);
+    }
+    // An action on a block runs on the row's block: one without a block is refused here, not when it's picked.
+    for (const row of rows) {
+      if (row.action && (this.registry.action(extension.id, row.action)!.on ?? "block") === "block" && !row.block) {
+        throw new Error(`${extension.name}'s bar source ${source.id}: row ${row.id} runs ${row.action}, which acts on a block, and names none`);
+      }
+    }
+    return { extension: extension.id, source: source.id, rows: rows.slice(0, limit) };
   }
 
   private callFor(block: Block, action: ExtensionActionEntry, line: number | undefined): HandlerCall | undefined {

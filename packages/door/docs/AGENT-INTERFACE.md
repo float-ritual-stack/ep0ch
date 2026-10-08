@@ -280,6 +280,22 @@ the drawer has an id `k<n>`, never a screen tile's `t<n>`. A preview that follow
 its identity (ADR 0001), into the drawer and back. In the drawer a tile's keys work as on a screen, `^W P` (the policy
 panel) too.
 
+### The power bar (PIE-656)
+
+The person's palette over every screen (`ctrl+k`): tiles on every screen and in the drawer (indented as each layout
+tree), notes (the service's one search), actions (the focused tile's menu, then every action needing no argument),
+what changed, screens, and an extension's bar sources (`extensions.bar`). An agent reads and picks with a bar of its
+own; it never touches the person's.
+
+| Action | Args | Keys, mouse | Agent rules |
+|---|---|---|---|
+| `bar.open` | `query`, `scope` (`tiles` `notes` `actions` `recent` `screens`, an extension's `ext.<id>.<source>`, or a prefix) | `ctrl+k`, `cmd+k`, a click on the status bar's `^K`; `/` and a river column's `g` (the notes scope) | an agent's answers the rows (`n`, `source`, `key`, `label`, `detail`, `depth`, `group`, `keycap`, `refused`) and the scopes, and opens nothing |
+| `bar.pick` | `n`, `alt`; an agent's `query`, `scope` | `⏎`, a double click; `alt+⏎`, an alt- or ctrl-click | an agent's lists for itself and picks as itself, through the row's own path (`tile.focus`, `open`, the action, `extensions.act`, a copy returned): a tile on a screen not shown is refused, a note lands where an agent's opens land |
+| `bar.close` | | `esc`, a click outside | the person's only |
+
+`peek` has `bar` (scope, query, selected, rows) while the person's is open; the person is busy then, so an agent's move
+of their screen waits.
+
 ### Program status: what waits on the person (PIE-614)
 
 A terminal tile reads what its program reports with OSC 7501 (the Program Status Protocol: working, blocked with a

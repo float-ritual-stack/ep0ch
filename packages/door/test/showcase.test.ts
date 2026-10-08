@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
+import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
@@ -388,8 +389,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],
-    // The desk's search overlay, opened on a query with two typos: both allotment notes found, in the service's order.
-    search: ["search the board", "alotment notebok", "hit(s)", "Allotment notebook", "Allotment figures"],
+    // The finding note: what / (the power bar's notes scope) finds, typos and all.
+    search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
@@ -447,6 +448,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
     // The component library on the heading styles' page: its tabs, its parts, the minimal example.
     library: ["Heading styles", "1 overview", "Minimal example"],
+    // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
+    bar: ["outline", "Kitchen whiteboard", "Bike shed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -1215,6 +1218,30 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 30_000);
 
+  test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; an agent's bar.open answers and opens nothing", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "bar" }, as: "test-agent" });
+    await until(() => marks.bar!.every(m => screen().includes(m)), "the power bar section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    await until(() => !!stage().tileOutline().find(t => t.name === "pears")?.collapsed, "the second detail folded");
+    // An agent's: the rows, nothing opened.
+    const r = await app.act({ action: "bar.open", args: { scope: "tiles" }, as: "test-agent" }) as any;
+    const row = (name: string) => r.rows.find((x: any) => x.label.startsWith(`${name} ·`));
+    expect(row("outline").depth ?? 0).toBe(0);
+    expect(row("reader").depth).toBe(1);
+    expect(row("pears")).toMatchObject({ depth: 2, label: "pears · Allotment notebook" });
+    expect(row("pears").detail).toContain("a spine");
+    expect((app as any).bar).toBeNull();
+    // The person's: ctrl+k, %pears, ⏎.
+    press({ kind: "char", ch: "k", ctrl: true });
+    for (const c of "%pears") press({ kind: "char", ch: c });
+    expect((app as any).bar.describe()).toMatchObject({ scope: "tiles", query: "pears" });
+    press({ kind: "enter" });
+    await until(() => { const t = stage().tileOutline().find(x => x.name === "pears")!; return !t.collapsed && t.focused; }, "pears opened and given the keys");
+    expect((app as any).bar).toBeNull();
+    if (S().focus === "stage") press({ kind: "esc" });
+  }, 30_000);
+
   test("the agent policy section (PIE-639): free, edit only and hands off tiles; an agent's open is refused or lands, its edit of the middle note goes through, peek says the limits, the person's keys are never limited", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "agents" }, as: "test-agent" });
@@ -1310,7 +1337,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 30_000);
 
-  test("search: (( forgives a typo and another order through act, from the note read there; / asks from that note, then Jev keeps the pick", async () => {
+  test("search: (( forgives a typo and another order through act, from the note read there; the bar's notes scope asks from that note, then Jev keeps the pick", async () => {
     (app as any).lastInput = 0;
     const finding = seeded.notes.finding.id;
     const asked: { query: string; semantic: boolean; near?: string }[] = [];
@@ -1321,12 +1348,18 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       const r = await real(text, { ...opts, semantic: false });
       return opts.semantic ? { ...r, matches: [...r.matches].reverse(), semantic: { status: "ranked" } } : r;
     };
-    // A scratch host has no Jev key (test/scratch.ts): the overlay that said so is asked again, of the stand-in.
+    // A scratch host has no Jev key (test/scratch.ts): the bar that said so is asked again, of the stand-in.
     jevOff.delete(board);
     try {
-      S().stages.delete(SECTIONS.findIndex(s => s.key === "search"));   // the search stage built again, its overlay asking the stand-in
       expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
-      await until(() => screen().includes("hit(s)"), "the stage's overlay", 5000);
+      // The person's / on the section's desk: the power bar's notes scope, typed in.
+      press({ kind: "enter" });
+      await until(() => S().focus === "stage", "in the stage");
+      press({ kind: "char", ch: "/" });
+      await until(() => (app as any).bar?.scope === "notes", "the bar's notes scope", 5000);
+      for (const c of "alotment notebok") press({ kind: "char", ch: c });
+      const bar = () => (app as any).bar;
+      await until(() => bar()?.items.length > 0, "the hits", 5000);
       // (( in the reader's note: the same search a draft's popup asks, with a typo in each word, then another order.
       const typo = await app.act({ action: "complete", args: { text: "((alotment notebok" }, as: "test-agent" }) as any;
       expect(typo).toMatchObject({ kind: "block", query: "alotment notebok" });
@@ -1334,18 +1367,24 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       const order = await app.act({ action: "complete", args: { text: "((soup lentl" }, as: "test-agent" }) as any;
       expect(order.items[0].label).toBe("Lentil soup");
       expect(asked.filter(a => a.query === "soup lentl").map(a => a.near)).toEqual([finding]);
-      // The / overlay the section opened asked from the note under it; after a pause, Jev's order with the pick kept.
-      await until(() => screen().includes("jev ranked"), "Jev's order in the overlay", 5000);
+      // The bar asked from the note under it; after a pause, Jev's order with the pick kept.
+      await until(() => bar()?.describe().said?.notes === "jev ranked", "Jev's order in the bar", 5000);
       expect(asked.some(a => a.query === "alotment notebok" && a.semantic && a.near === finding)).toBe(true);
-      expect(screen().split("\n").find(l => l.includes("/ alotment notebok"))).toContain("jev ranked");
-      // Jev's order (the stand-in reversed it) puts another note first, and the notebook, picked before, is still the
-      // one read on the right: the first list row and the picked note share the overlay's first row.
-      const rows = screen().split("\n"), at = rows.findIndex(l => l.includes("/ alotment notebok"));
-      const first = rows[at + 2]!;
-      expect(first).not.toMatch(/│ Allotment notebook\s+│ Allotment notebook/);
-      expect(first).toMatch(/│ Allotment notebook\s+│/);
+      const drawn = () => { (app as any).paint(); return painted.map(plain).join("\n"); };
+      expect(drawn().split("\n").find(l => l.includes("› alotment notebok"))).toContain("jev ranked");
+      // Jev's order (the stand-in reversed it) puts another note first, and the notebook, picked before, is still lit.
+      const d = bar().describe();
+      expect(d.rows[0].label).not.toBe("Allotment notebook");
+      expect(d.rows[d.selected - 1].label).toBe("Allotment notebook");
+      press({ kind: "esc" });
+      press({ kind: "esc" });
       expect(S().focus).toBe("index");
-    } finally { board.searchBlocks = real; }
+    } finally {
+      board.searchBlocks = real;
+      // Whatever failed above, the next test starts at the index with no bar open.
+      if ((app as any).bar) press({ kind: "esc" });
+      if (S().focus === "stage") press({ kind: "esc" });
+    }
   }, 20_000);
 
   test("edit (PIE-626): completion on every line: a property's value and a filter's words, through act, from the same completer", async () => {

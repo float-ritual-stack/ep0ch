@@ -331,10 +331,12 @@ export class AgentDrawer {
   }
 
   /**
-   * Go to tile `p` (the waiting-on-you list's status.go): in the drawer, it's pulled up with that tab shown and the keys
-   * in it; on the screen shown, the drawer goes away and the keys go to it. A tile on a screen under this one is refused.
+   * Go to tile `p` (the waiting-on-you list's status.go, the power bar's tiles): in the drawer, it's pulled up with that
+   * tab shown and the keys in it; on the screen shown, the drawer goes away and the keys go to it; on a screen under
+   * this one or kept in the background, that screen comes to the top first (`Ctx.raise`; the person's only: an agent
+   * never moves their screen this way). A spine opens first (`tile.expand`); `zoom` zooms it after.
    */
-  goTo(p: Pane, actor: Actor): { tile: string; in: "drawer" | "screen" } {
+  goTo(p: Pane, actor: Actor, o: { zoom?: boolean } = {}): { tile: string; in: "drawer" | "screen"; raised?: string } {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {
       if (!this.open) { this.offered = true; this.set(true, actor); }
@@ -342,18 +344,28 @@ export class AgentDrawer {
       d.run("tab.select", {}, inDrawer);
       this.intoShown();
       p.focused?.(d, actor);
+      if (o.zoom) d.zoomTile(inDrawer, true, actor);
       this.host.redraw();
       return { tile: inDrawer, in: "drawer" };
     }
-    const screen = tilesOf(this.host.screen?.()), name = screen?.nameOfPane(p) ?? "";
+    let screen = tilesOf(this.host.screen?.()), name = screen?.nameOfPane(p) ?? "", raised: string | undefined;
     const what = (p as { statusName?(): string }).statusName?.() ?? "that tile";
-    if (!screen || !name) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
+    if (!screen || !name) {
+      const ctx = this.host.ctx?.(), under = ctx ? [...(ctx.screens?.() ?? []), ...(ctx.kept?.() ?? [])].find(s => s !== this.host.screen?.() && !!tilesOf(s)?.nameOfPane(p)) : undefined;
+      if (!under || !ctx?.raise) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
+      if (actor.kind === "agent") throw new ActionRefused(`${what} is on the ${under.title}, under this screen: an agent doesn't move the person's screen to it (screen.open names a screen, as the person's idle allows)`);
+      ctx.raise(under);
+      raised = under.title;
+      screen = tilesOf(under); name = screen!.nameOfPane(p);
+    }
     if (this.open) this.set(false, actor);
-    screen.focusPane(p, actor);
+    if (screen!.tileOutline().some(t => t.name === name && t.collapsed)) screen!.collapseTile(name, false, actor);
+    screen!.focusPane(p, actor);
     // Already the focused tile, the focus didn't move: the person is back in it all the same.
-    p.focused?.(screen, actor);
+    p.focused?.(screen!, actor);
+    if (o.zoom) screen!.zoomTile(name, true, actor);
     this.host.redraw();
-    return { tile: name, in: "screen" };
+    return { tile: name, in: "screen", ...(raised ? { raised } : {}) };
   }
 
   /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */

@@ -238,6 +238,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
   looked, from the change feed. `changes.list` reads the rows (id, title, who, kind, when, seen), `changes.open` opens the
   list in their drawer behind the tab shown, `changes.go` and `changes.diff` act on a row. Marking it seen
   (`changes.seen`, and the person's own open of the list) is theirs; yours is refused and your open never clears it.
+- **The power bar** (PIE-656): the person's `ctrl+k` palette. `bar.open query=… scope=tiles|notes|actions|recent|screens`
+  answers what it lists (every tile on every screen and in the drawer with its depth in the tree, notes from the one
+  search, actions with their keys, what changed, screens, an extension's rows) and opens nothing; `bar.pick n=… query=…`
+  picks as you, through the row's own path and its rules (a tile on a screen not shown is refused). While the person's
+  bar is open (`peek`'s `bar`), they're busy: don't wait on them, and never close it (`bar.close` is theirs).
 - **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
   done as seen (`status.seen`) is theirs; yours is refused.

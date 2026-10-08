@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     enter("short");
     await until(() => tile("short").terminal.exited !== null, "the program to exit");
     for (const k of [char("/"), char("q"), { kind: "esc" } as Key, char("1"), { kind: "tab" } as Key]) key(k);
-    expect(D().overlays.get("search")).toBeNull();
+    expect((app as any).bar).toBeNull();
     expect(top()).toBe(desk);
     expect(D().focus).toBe(idOf("short"));
     expect(message()).toContain("exited · ⏎ runs it again · ^W x closes · ctrl+] back to the door");

@@ -449,7 +449,7 @@ const FINDING = [
   "",
   "Press / (on the river, g) and type. The outline host ranks what you type, the same way for every client:",
   "",
-  "- **Typos:** the search above was opened with a letter missing from each word, and the notebook on the plot is still first; a longer word may be off by a letter or two.",
+  "- **Typos:** type the notebook's name with a letter missing from each word, and the notebook on the plot is still first; a longer word may be off by a letter or two.",
   "- **Any order:** `whiteboard kitchen` finds the Kitchen whiteboard.",
   "- **Punctuation folds:** `bike-shed` is `bike shed`.",
   "- **All but one word:** a note holding every word but one still shows, below every full match.",

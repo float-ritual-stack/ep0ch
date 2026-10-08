@@ -104,8 +104,11 @@ const Action = Type.Object(
     id: ID,
     label: Type.String({ minLength: 1, maxLength: 60 }),
     description: Type.Optional(Type.String({ maxLength: 300 })),
-    /** What it acts on: `block` (any block), `handler:<key>` (a line of that handler), `tile:<kind>`. Default `block`. */
-    on: Type.Optional(Type.String({ pattern: "^(block|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
+    /**
+     * What it acts on: `block` (any block), `handler:<key>` (a line of that handler), `tile:<kind>`, or `bar` (a row of
+     * one of its bar sources: no block, the row's `args`). Default `block`.
+     */
+    on: Type.Optional(Type.String({ pattern: "^(block|bar|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
     /** A suggested key for clients that bind one (the door's `ActionDef`). */
     key: Type.Optional(Type.String({ minLength: 1, maxLength: 12 })),
     /** `write`: it may return writes. `read` (default): it only answers. */
@@ -167,6 +170,29 @@ const Agent = Type.Object(
   { additionalProperties: false },
 );
 export type ExtensionAgent = Static<typeof Agent>;
+
+/**
+ * A source of rows for a client's command palette (the door's power bar, PIE-656): the `bar` operation answers a
+ * query with rows, each opening a block, running one of the extension's actions or copying text; its preview is
+ * Markdown the client draws with its own renderer.
+ */
+const BarSourceSchema = Type.Object(
+  {
+    id: ID,
+    title: Type.String({ minLength: 1, maxLength: 30 }),
+    /** The character that scopes the bar to this source when typed first (`~`). */
+    prefix: Type.Optional(Type.String({ pattern: "^[!#$&*:;=^|~]$" })),
+    description: Type.Optional(Type.String({ maxLength: 300 })),
+    /**
+     * Its rows join the bar's main list (before a scope is chosen, typed or not), not only its own scope after its
+     * prefix. Each keystroke calls it, so only a quick source should.
+     */
+    main: Type.Optional(Type.Boolean()),
+    deadline: Type.Optional(Duration),
+  },
+  { additionalProperties: false },
+);
+export type ExtensionBarSource = Static<typeof BarSourceSchema>;
 
 const literals = <T extends string>(values: readonly T[]) => Type.Union(values.map((value) => Type.Literal(value)));
 
@@ -244,6 +270,8 @@ const ManifestV2 = Type.Object(
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
+    /** Sources of rows for a client's command palette (PIE-656): `bar` answers a query with rows. */
+    bar: Type.Optional(Type.Array(BarSourceSchema, { maxItems: 4 })),
     /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
     components: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 8 })),
   },
@@ -461,6 +489,13 @@ function checkManifest(manifest: ExtensionManifest): void {
     }
     if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change) throw new ExtensionLoadError(`${where}/on names no action: give start, stop or change`);
   }
+  const barIds = new Set<string>();
+  for (const [index, source] of (manifest.bar ?? []).entries()) {
+    if (barIds.has(source.id)) throw new ExtensionLoadError(`extension.json: bar/${index}/id ${source.id} is declared twice`);
+    barIds.add(source.id);
+    const barDeadline = durationMs(source.deadline);
+    if (barDeadline !== undefined && barDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: bar/${index}/deadline is longer than 5m`);
+  }
   const componentIds = new Set<string>();
   for (const [index, component] of (manifest.components ?? []).entries()) {
     const problem = componentSchemaProblem(component);
@@ -469,9 +504,9 @@ function checkManifest(manifest: ExtensionManifest): void {
     if (componentIds.has(id)) throw new ExtensionLoadError(`extension.json: components/${index}/id ${id} is declared twice`);
     componentIds.add(id);
   }
-  const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0;
-  if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions, agents and rules that decorate with code need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, rules, tiles or components");
+  const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
+  if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
+  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles or components");
 }
 
 /** `bun` in an argv means the service's own Bun, so a folder works wherever the service runs. */

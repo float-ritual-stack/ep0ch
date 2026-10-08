@@ -378,15 +378,14 @@ describe("a hint row's clickable keys (hintSpots)", () => {
   });
 });
 
-test("under the desk's own overlay (the search) the hint row's keys aren't clicks: the overlay keeps the click", () => {
+test("under the desk's own overlay (the policy panel) the hint row's keys aren't clicks: the overlay keeps the click", () => {
   const s = on(new MainMenu());
   const desk = openScreen("who") as Desk;
   s.stack.push(desk); desk.enter(s.ctx);
-  s.key({ kind: "char", ch: "/" });
-  expect(s.lines().some(l => l.includes("search the board"))).toBe(true);
+  s.key({ kind: "char", ch: "w", ctrl: true }); s.key({ kind: "char", ch: "P" });
+  expect((desk as any).overlays.top()?.name).toBe("policy");
   const rows = s.lines(), y = rows.findLastIndex(l => l.includes("q menu"));
   if (y >= 0) s.mouse("down", rows[y]!.indexOf("q menu") + 2, y);
-  // The overlay took the click (a click outside it puts it away); nothing was typed into its filter.
+  // The overlay took the click (a click outside it puts it away): the screen stays, no q ran.
   expect(s.top()).toBe(desk);
-  expect((desk as any).overlays.top()?.spec.input?.text ?? "").toBe("");
 });

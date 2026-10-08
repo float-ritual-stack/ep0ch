@@ -16,6 +16,7 @@
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { hostname } from "node:os";
+import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
 import type { Actor, SocketBoard } from "./socket";
 import { printable } from "./text";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
@@ -23,6 +24,7 @@ import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unreg
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
+import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
 
 /** One action an extension declares, as `extensions.list` names it. */
 export interface ExtensionAction {
@@ -74,12 +76,22 @@ export interface RuleEntry {
   matching?: number;
   problem?: string;
 }
-export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[] }
+export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
+export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[] }
 export interface ExtensionActResult { extension: string; action: string; message?: string; written: string[] }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
 export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number): void; redraw(): void } }
-export interface ExtArgs { block?: string; line?: number }
+export interface ExtArgs { block?: string; line?: number; with?: string }
+
+/** A bar row's `args` as `with=` carries them (JSON text of names to text), checked; refused with why. */
+function withArgs(raw: string | undefined): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { throw new ActionRefused("with= is JSON: names to text, as a bar row's args"); }
+  if (!v || typeof v !== "object" || Array.isArray(v) || Object.values(v).some(x => typeof x !== "string")) throw new ActionRefused("with= maps names to text");
+  return v as Record<string, string>;
+}
 
 /**
  * The actions of handler lines and blocks (`ext.<id>.<action>`), on every screen: `act ext.fancy-horror.ward
@@ -191,22 +203,24 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
 
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
-  const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null;
+  const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar";
   const k = keyOf(a.key);
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
-    summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
+    summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
       block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : "the block it acts on" },
       line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
+      with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
     },
-    run({ block, line }, on, actor) {
-      if (!block) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
-      return runExtensionAction(on.ctx, a, e.id, { blockId: block, ...(line !== undefined ? { line } : {}) }, actor);
+    run({ block, line, with: w }, on, actor) {
+      const args = withArgs(w);
+      if (!block && !bar) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
+      return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(args ? { args } : {}) }, actor);
     },
   };
 }
@@ -268,6 +282,61 @@ function kindEntry(t: ExtensionTileKind): TileKind {
     accepts: { notes: false, tiles: t.accepts ?? [] },
     actions,
   });
+}
+
+// ── a bar source from the service ────────────────────────────────────────────
+
+/**
+ * One of an extension's command-palette sources (PIE-656) as a power bar source: its rows asked of the service
+ * (`extensions.bar`, the note in front of the person as its context) once typing pauses; a row's Markdown preview drawn
+ * by the readers' renderer; a pick copies, opens the row's block where opens land, or runs the extension's action
+ * through `extensions.act` like any of its actions (written as `ext:<id>`, who asked recorded beside it).
+ */
+function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
+  return {
+    id: b.name, title: b.title, prefix, by: b.extension, asks: true,
+    about: `${b.description ?? b.title} (extension ${b.extension})`,
+    main: { empty: b.main, typed: b.main, most: 6 },
+    async rows(q, host) {
+      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined });
+      return r.rows.map(row => ({ key: oneLine(row.id), label: oneLine(row.label), ...(row.detail ? { detail: oneLine(row.detail) } : {}), data: row }));
+    },
+    preview(row) {
+      const r = row.data as ExtensionBarRow;
+      return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy).slice(0, 60)}`] : [])] };
+    },
+    async pick(row, host, how) {
+      const r = row.data as ExtensionBarRow;
+      // Its action runs as any of the extension's actions does: through the dispatcher, as who picked it, its rules its own.
+      if (r.action) {
+        const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
+        if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
+        const args = { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) };
+        return how.actor.kind === "agent" ? host.dispatch.act({ action: a.name, args }, how.actor) : host.dispatch.press(a.name, args);
+      }
+      if (r.block) return openNote(r.block, host, how);
+      // A copy is the person's clipboard; an agent gets the text back.
+      if (r.copy !== undefined) { if (how.actor.kind !== "agent") host.ctx.copy?.(r.copy); return { copied: r.copy }; }
+      throw new ActionRefused("that row does nothing when picked");
+    },
+  };
+}
+
+/** The bar sources this module registered (by name), with what they were made from. */
+const boundBar = new Map<string, string>();
+
+/** Register the service's bar sources, take away those gone; a prefix another source has is left off (tab still reaches it), and said. */
+function bindBar(list: readonly ExtensionBarSource[], problems: string[]) {
+  const want = new Map(list.map(b => [b.name, b] as const));
+  for (const name of boundBar.keys()) if (!want.has(name)) { unregisterBarSource(name); boundBar.delete(name); }
+  for (const [name, b] of want) {
+    const print = JSON.stringify(b);
+    if (boundBar.get(name) === print) continue;
+    const holder = b.prefix ? barSources().find(s => s.prefix === b.prefix && s.id !== name) : undefined;
+    if (holder) problems.push(`${b.extension}'s bar source ${b.title} has no prefix: ${b.prefix} is ${holder.title}'s (tab reaches it)`);
+    registerBarSource(barEntry(b, holder ? "" : b.prefix ?? ""));
+    boundBar.set(name, print);
+  }
 }
 
 // ── binding ──────────────────────────────────────────────────────────────────
@@ -333,6 +402,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
     changed = true;
   }
   if (changed) kindsChanged();
+  bindBar(next?.barSources ?? [], problems);
   const after = new Set(served.map(e => e.id));
   return { added: [...after].filter(id => !before.has(id)), removed: [...before].filter(id => !after.has(id)), problems };
 }

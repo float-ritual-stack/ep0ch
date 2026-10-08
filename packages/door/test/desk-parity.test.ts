@@ -56,20 +56,21 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EDITOR"]) delete process.env[k];
   });
 
-  test("search: an agent's query answers the hits and opens nothing; the person's / opens the overlay, and ⏎ there runs open", async () => {
+  test("search: an agent's query answers the hits and opens nothing; the person's / opens the power bar's notes scope, and ⏎ there runs open", async () => {
     const focus = get().focus;
     const r = await act("search", { query: "Prune the pears" }) as any;
     expect(r.hits.some((h: any) => h.id === notes.pears.id)).toBe(true);
-    expect(D().overlays.get("search")).toBeNull();
+    expect((app as any).bar).toBeNull();
     expect(get().focus).toBe(focus);
     await expect(act("search", { query: "p" })).rejects.toThrow(/at least 2 characters/);
-    expect(await ran(char("/"))).toEqual(["search"]);
-    expect(desk.holdsKeys()).toBe(true);
+    expect(await ran(char("/"))).toEqual(["search", "bar.open"]);
+    expect((app as any).bar.scope).toBe("notes");
+    expect(app.person().busy).toBe(true);
     for (const c of "Thin the plums") key(char(c));
-    await until(() => D().overlays.get("search").items.length > 0, "the search hits", 5000);
-    expect(await ran({ kind: "enter" })).toContain("open");
+    await until(() => (app as any).bar.items.length > 0, "the search hits", 5000);
+    expect(await ran({ kind: "enter" })).toEqual(["bar.pick", "open"]);
     await until(() => desk.current?.id === notes.plums.id, "the plums note opened");
-    expect(D().overlays.get("search")).toBeNull();
+    expect((app as any).bar).toBeNull();
   });
 
   test("a list tile's pick: the person's moves the selection; an agent's answers the row and moves nothing", async () => {

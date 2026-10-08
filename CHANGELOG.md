@@ -37,6 +37,27 @@ are its record. The outliner's entries from then are kept below, under
 - **The focused tile's title is the theme's brightest;** the other tiles' are a clear step down, never above the theme's cap.
 - **Run:** nothing. The kitchen sink has a `title` section.
 
+### The power bar: one palette for tiles, notes, actions, what changed and extensions (PIE-656)
+
+- **`ctrl+k` on any screen** (or `cmd+k` where your terminal sends it, or a click on `^K` at the status bar's left) opens
+  one palette over the screen and your drawer: a list on the left, the lit row read on the right (a note as a reader
+  draws it, a terminal's screen, an action's summary and keys), its scopes along the top.
+- **Nothing typed:** the tiles open on every screen and in your drawer, indented as each screen's layout tree, with the
+  note each shows; then what others changed since you looked.
+- **Typed:** tiles, notes (the service's one search, as Goto ranks it), the actions you can do here with their keys,
+  what changed and the screens, each under its heading. `%` `/` `>` `+` `@` (or tab) narrow it to one.
+- **⏎ goes there:** a tile gets your keys (a spine opens, a screen under this one comes up), a note opens where opens
+  land, an action runs. `alt+⏎` zooms a tile, or opens a note in a new detail. Mouse: a click lights a row, a double
+  click goes, an alt-click is the alternate, a click on a scope picks it.
+- **The desk's `/` and a river column's `g` open it in its notes scope.** The desk's own search overlay is gone; the
+  search and its keys are the same.
+- **Extensions add sources:** a `bar[]` in an extension's `extension.json` answers what's typed with rows that open a
+  block, run one of its actions or copy text (`extensions.bar`). The outliner ships `glyphs` as the example: `~shade`.
+- **Agents:** `bar.open` answers the rows and opens nothing; `bar.pick` picks as the agent, through the same paths and
+  their rules. `peek` shows the bar while it's open.
+- **Run:** a protocol change (113): `ep0ch install --apply` on each machine, which restarts the outline host; doors
+  and the host must both be on it. The kitchen sink has a `bar` section.
+
 ### The status bar's +N new opens what changed (PIE-647)
 
 - **`+N new` counts notes, not events.** It is the distinct notes an agent, another client or (when asked for, with a click

@@ -1595,10 +1595,21 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "extensions.list" || request.action === "extensions.act") {
+    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar") {
       try {
         let result: unknown;
-        if (request.action === "extensions.list") {
+        if (request.action === "extensions.bar") {
+          // A command-palette source (PIE-656): it only answers; picking a row goes through open, extensions.act or a copy.
+          if (typeof request.extension !== "string" || typeof request.source !== "string") throw new Error("extensions.bar needs extension and source");
+          if (typeof request.query !== "string" || request.query.length > 500) throw new Error("query must be text up to 500 characters");
+          if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
+          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
+          result = await this.extensionCalls.bar({
+            extension: request.extension, source: request.source, query: request.query,
+            ...(request.near !== undefined ? { near: request.near } : {}),
+            ...(request.limit !== undefined ? { limit: request.limit } : {}),
+          });
+        } else if (request.action === "extensions.list") {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
           if (request.reload) await this.extensionRegistry.reload();
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
@@ -2033,6 +2044,7 @@ export class OutlinerServer {
         }
         case "extensions.list":
         case "extensions.act":
+        case "extensions.bar":
         case "computed.execute":
         case "resources.open":
         case "resources.refresh":

@@ -19,7 +19,7 @@ several of them.
 The canonical examples ship in [`extensions/`](../../extensions): [moon](../../extensions/moon) and
 [jira](../../extensions/jira) (data), [horoscope](../../extensions/horoscope) (inline output),
 [fancy-horror](../../extensions/fancy-horror) (rich component) and [tarot](../../extensions/tarot)
-(a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates),
+(a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates), [glyphs](../../extensions/glyphs) (a bar source),
 [done-stamp](../../extensions/done-stamp) (a rule that runs) and [shout](../../extensions/shout) (a rule on a
 text pattern). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
 is yours to edit.
@@ -132,6 +132,7 @@ extensions/horoscope/
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
+| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 
 ### `config.json`
@@ -176,6 +177,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context?, output? }` | `{ message?, writes?: [...] }` |
+| `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }` |
 | `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -584,7 +586,8 @@ actions yet; `r` is its path today.
 ```
 
 - `on`: `block` (any block; the default), `handler:<key>` (a line of that handler: the request
-  names the block, and the line when there are several), or `tile:<kind>` (needs no block).
+  names the block, and the line when there are several), `tile:<kind>` (needs no block), or `bar` (a
+  bar source's row runs it: no block, the row's `args`).
 - `effects`: `read` (the default) answers only; `write` may return writes.
 - `act` returns `{ message?, writes? }`. Writes are
   `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
@@ -611,6 +614,37 @@ actions yet; `r` is its path today.
 { "action": "extensions.act", "extension": "fancy-horror", "extensionAction": "ward", "blockId": "…", "line": 1,
   "mutation": { "author": "agent", "actorId": "loki" } }
 ```
+
+## Bar sources: a command palette's rows
+
+A **bar source** (PIE-656) gives a client's command palette (the door's power bar, `ctrl+k`) rows of the extension's
+own. It isn't a fifth kind: it only answers, and what a row does when picked goes through the paths every client
+already has.
+
+```json
+"bar": [{ "id": "glyphs", "title": "glyphs", "prefix": "~", "description": "CP437 shades, blocks and box lines", "main": false }]
+```
+
+- `prefix`: one character (`! # $ & * : ; = ^ | ~`) that scopes the bar to this source when typed first; one the bar
+  already uses (its own `% / > + @`, another extension's) is left off, and tab still reaches the source.
+- `main`: its rows join the bar's main list (before a scope is chosen) as well as its own scope. Each pause in typing
+  calls it, so only a quick source should.
+- **The `bar` operation** gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
+  front of the person as `context` (bounded and read-only, as an action's). It returns `{ rows }`, at most 50:
+  `{ id, label, detail?, preview?, block?, action?, args?, copy? }`.
+  - `preview` is Markdown the client draws with its own renderer beside the list;
+  - picking a row opens its `block` where opens land, runs its `action` through `extensions.act` (one of the
+    extension's own, `on: bar` or `on: block` with the row's `block`; its `args` passed on, its writes attributed
+    `ext:<id>` with who asked beside them), or puts `copy` on the clipboard.
+- **The service checks each answer** (text cleaned, a `block` that exists, an `action` that's the extension's own and
+  can run on that row, a row that does something) and refuses the whole answer, saying why, when one row is wrong.
+- **`extensions.bar`** asks one: `{ "action": "extensions.bar", "extension": "glyphs", "source": "glyphs",
+  "query": "shade", "near": "<block id>" }` → `{ extension, source, rows }`. It writes nothing. `extensions.list` lists
+  every serving extension's sources as `barSources` (and each extension's own under `bar`), named
+  `ext.<extension>.<source>`.
+
+The example is [glyphs](../../extensions/glyphs): code page 437's shades and box lines by name, a row copying one,
+and on a note a row that rules it with one (its `rule` action).
 
 ## Agents in the note
 
@@ -756,9 +790,11 @@ socket call.
     "loadedAt": "…", "runsCode": true,
     "handlers": [{ "key": "horoscope", "kind": "output", "effects": "read", "argument": { … }, "options": { … }, "staleAfter": "1h" }],
     "actions": [{ "id": "keep", "name": "ext.horoscope.keep", "builtIn": true, … }],
-    "tiles": []
+    "tiles": [],
+    "bar": []
   }],
   "tileKinds": [ … ],
+  "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
   "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],

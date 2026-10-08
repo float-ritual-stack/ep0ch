@@ -2164,6 +2164,11 @@ export type OutlinerRequestAction =
   | { id: string; action: "drafts.read"; blockId: string }
   /** Capability `extensions.list`. `reload` reads the folders now instead of waiting for the watcher. */
   | { id: string; action: "extensions.list"; reload?: boolean }
+  /**
+   * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
+   * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
+   */
+  | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */

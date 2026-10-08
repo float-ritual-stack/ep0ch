@@ -196,6 +196,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
+    // The power bar is the App's, over every screen: put away.
+    A().bar?.close(); A().bar = null;
     (Desk as any).kept = null;
     // The drawer is the App's, over every screen: put away, its program ended.
     const drawer = A().drawer;
