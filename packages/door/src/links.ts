@@ -275,9 +275,10 @@ function unregisteredNote(link: AuthoredResourceLink): Msg {
  * The note a row stands for. `show` (a preview following the list): read only, never a write or a fetch (a
  * Resource's stored content as it is, an unregistered one saying so). `open` (⏎, a double click): a Resource is
  * registered if it must be and fetched once when nothing is stored (`openResource`), as the Tree's ⏎ does.
- * Refused, with the reason, for a row that leads nowhere.
+ * Refused, with the reason, for a row that leads nowhere. `from`: the note whose links these are, kept on a comment
+ * made on the Resource as its reference context (PIE-650).
  */
-export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open", actor: Actor = USER): Promise<{ note: Msg; registered?: boolean; ticket?: string }> {
+export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open", actor: Actor = USER, from?: string): Promise<{ note: Msg; registered?: boolean; ticket?: string }> {
   if (r.kind === "group" || r.kind === "kind") throw new ActionRefused("a group's header stands for no note: ⏎ folds it");
   if (r.kind === "backlink") {
     const m = await board.get(r.source.blockId);
@@ -306,9 +307,9 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
   if ("refused" in to) throw new ActionRefused(to.refused);
   if (how === "show") {
     if ("reference" in to) return { note: unregisteredNote(r.link) };
-    return { note: resourceNote(await board.describeResource(to.resourceId, false)) };
+    return { note: resourceNote(await board.describeResource(to.resourceId, false), from) };
   }
-  return openResource(board, to, actor).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
+  return openResource(board, to, actor, from).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
 }
 
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */

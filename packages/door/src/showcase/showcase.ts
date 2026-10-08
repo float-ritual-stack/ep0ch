@@ -43,7 +43,8 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, LOGS, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, RECENT_FILES, SEED, type SeedName } from "./seed";
+import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
 import { WhatChangedPane } from "../desk/what-changed";
@@ -363,6 +364,24 @@ export const SECTIONS: Section[] = [
     aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; the note is never written; two readers of one note, each with its own tab and density",
     // Two readers on one note: each keeps its own tab and density.
     stage(n, show) { const a = new ReaderPane(), b = new ReaderPane(); return deskOf({ title: "showcase · tabs", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.plotJobs], [b, n.plotJobs]]); },
+  },
+  {
+    key: "resource-comments", need: "comment on a Resource (a file, a fetched page): select text, C", part: "comments on a Resource's stored text (PIE-650): the reader showing a Resource takes C and m like a note; the thread is stored in the outline (annotations.batch resource-comment, threads through annotations.reconcile), quoting the selection from the file's own source and keeping the note whose link opened it as its reference context; the file is never written", files: "src/authored.ts (resourceNote, alignComments), src/socket.ts (commentOnResource, comments), src/desk/panes.ts (ReaderPane.refuses), src/draft-session.ts, outliner src/resource-comments.ts",
+    aside: "left: the block whose [file::] link names the bed plan; right: the file as a Resource, one thread already on it (m lists it). Select a passage and press C (or click ⋯ comment), or act passage.select then comment.send · a file an agent rewrites keeps its threads: the service re-anchors a quote that is still there and shows the rest as they read when written · the thread also lists as a backlink of the left block",
+    stage(n, show) {
+      const note = new ReaderPane(), res = new ReaderPane();
+      const plan = RECENT_FILES()[0]!;
+      return deskOf({ title: "showcase · resource comments", panes: [note, res], layout: ([a, b]) => row(0.4, a!, b!) }, show, [], d => {
+        void (async () => {
+          const block = (await d.ctx.board.byProp("file", plan.file, 1))[0];
+          if (!block) return;
+          note.show(block, d);
+          const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: plan.file } }, USER, block.id);
+          res.show(opened.note, d);
+          d.redraw();
+        })().catch(() => {});
+      });
+    },
   },
   {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",

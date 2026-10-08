@@ -330,7 +330,7 @@ export class TreePane implements Pane {
     if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
     // A link: its note, a ticket's block, or a Resource registered if it must be and shown (the shared model's open).
     if (r.kind === "resource" && !r.link.recordBlockId) desk.ctx.flash(`reading ${r.link.label}…`);
-    const { note, registered, ticket } = await linkNote(r, desk.ctx.board, "open", actor);
+    const { note, registered, ticket } = await linkNote(r, desk.ctx.board, "open", actor, this.panels.get(r.owner)?.blockId);
     land(note);
     if (r.kind !== "resource") return { row: i + 1, id: note.id };
     if (ticket) return { row: i + 1, id: note.id, ticket };

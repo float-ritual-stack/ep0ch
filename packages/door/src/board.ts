@@ -24,6 +24,20 @@ export interface Msg {
   partial?: boolean;
   /** In the Trash (it or an ancestor was deleted); still readable. */
   deleted?: boolean;
+  /**
+   * A Resource shown as a note (`resourceNote`, src/authored.ts; id `resource:<id>`). It is read, never written, but a
+   * passage of its stored text can be commented on (PIE-650): the thread lives in the outline beside it.
+   * `revision` is then `resourceTextRevision` of the text the note was drawn from.
+   */
+  resource?: {
+    id: string;
+    /** The note whose link opened it: kept on the comment as its reference context (the thread is a backlink there). */
+    from?: string;
+    /** Where the Resource's source text begins in `text` when it is drawn as it is, else null (a quote then carries no offset). */
+    sourceAt: number | null;
+    /** Why a passage can't be commented on (a ticket, a PDF, a file that can't be read); absent when it can. */
+    uncommentable?: string;
+  };
 }
 
 export interface Caller {

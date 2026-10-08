@@ -7,7 +7,17 @@
 // and literal ranges, the link grammar, the heading styles, the component schemas, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 111;
+export const PROTOCOL = 112;
+
+/**
+ * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
+ * stored text has no revision counter like a block's; its content hash is the revision, and this folds it to
+ * the integer a Msg and a comment request carry (the first 48 bits, which a JS number holds exactly).
+ */
+export function resourceTextRevision(contentHash: string): number {
+  const n = Number.parseInt(contentHash.slice(0, 12), 16);
+  return Number.isSafeInteger(n) && n > 0 ? n : 1;
+}
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side

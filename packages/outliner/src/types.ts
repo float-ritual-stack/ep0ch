@@ -585,6 +585,22 @@ export interface BlockCommentInput {
   readonly passage?: BlockCommentPassage;
 }
 
+/**
+ * A comment on a Resource's stored text (a file, a fetched page; PIE-650). The service reads the text itself, so a
+ * client sends the quote it selected in the source, not a representation. `expectedRevision` is
+ * `resourceTextRevision` of the content hash the client read: a Resource that changed since is refused.
+ * `referenceBlockId`: the note whose link opened the Resource, kept as the comment's reference context (it
+ * shows as a backlink there).
+ */
+export interface ResourceCommentInput {
+  readonly resourceId: string;
+  readonly expectedRevision: number;
+  readonly body: string;
+  readonly source: AnnotationSource;
+  readonly passage?: BlockCommentPassage;
+  readonly referenceBlockId?: string;
+}
+
 export interface AnnotationReplyInput {
   readonly annotationId: string;
   readonly body: string;
@@ -593,6 +609,7 @@ export interface AnnotationReplyInput {
 
 export type AnnotationBatchOperation =
   | { readonly operationId: string; readonly type: "block-comment"; readonly input: BlockCommentInput }
+  | { readonly operationId: string; readonly type: "resource-comment"; readonly input: ResourceCommentInput }
   | { readonly operationId: string; readonly type: "create"; readonly input: AnnotationCreateInput }
   | { readonly operationId: string; readonly type: "reply"; readonly input: AnnotationReplyInput };
 
@@ -630,9 +647,18 @@ export interface AnnotationReconcileInput {
   readonly content?: string;
 }
 
+/** A Resource's threads re-anchored against its text as the service reads it now (PIE-650): no representation to send. */
+export interface ResourceReconcileInput {
+  readonly subject: { readonly kind: "resource"; readonly resourceId: string };
+}
+
 export interface AnnotationReconcileReceipt {
   readonly threads: AnnotationThread[];
   readonly changed: boolean;
+  /** A Resource whose text can't be read now: its threads are as last resolved, and this says why. */
+  readonly unavailable?: string;
+  /** A Resource's threads were placed in the text of this revision (`resourceTextRevision`): offsets mean that text only. */
+  readonly revision?: number;
 }
 
 export interface AnnotationApproveResolutionInput {
@@ -2064,7 +2090,7 @@ export type OutlinerRequestAction =
   | {
       id: string;
       action: "annotations.reconcile";
-      input: AnnotationReconcileInput;
+      input: AnnotationReconcileInput | ResourceReconcileInput;
     }
   | {
       id: string;

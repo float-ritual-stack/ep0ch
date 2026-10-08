@@ -5,11 +5,11 @@
 // second renderer. A file is shown read-only: it is edited in its editor, and re-read when it changes.
 import { statSync, unwatchFile, watchFile, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import type { Msg } from "../board";
+import { subject, type Msg } from "../board";
 import { C, fg, RESET } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
-import { ReaderPane, type DeskApi, type PaneView } from "./panes";
+import { ReaderPane, type DeskApi, type PaneView, type SessionKind } from "./panes";
 import type { TileKindName } from "./tile-kinds";
 
 export type PreviewSource = { tile: string } | { file: string };
@@ -69,6 +69,8 @@ export class PreviewPane extends ReaderPane {
   init(desk: DeskApi) { this.on = desk; this.watch(desk); }
   /** A file source (or a terminal tile's file): e, C, m, i, I and ctrl+e are refused here, not started as sessions. */
   override get readOnly() { return !!this.fileNow() || super.readOnly; }
+  protected override fileSource(): boolean { return !!this.fileNow(); }
+  override refuses(kind: SessionKind) { return this.fileNow() && this.msg ? `${subject(this.msg)} is shown here to read · it isn't a note in the outline` : super.refuses(kind); }
 
   /** A file source is read now and again each time it changes on disk (an editor's save, even by rename). */
   watch(desk: DeskApi) {

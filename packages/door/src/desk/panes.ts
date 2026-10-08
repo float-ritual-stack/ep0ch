@@ -348,11 +348,26 @@ export class ReaderPane implements Pane {
     return { title: this.msg ? subject(this.msg) : this.title(), marks };
   }
 
-  /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited or commented on. */
+  /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited. */
   get readOnly(): boolean { return !!this.msg && !isOutlineNote(this.msg); }
+  /**
+   * Why `kind` can't start here, or null. A note that isn't a block is read only, but a Resource's text takes
+   * comments (PIE-650: C, m): the thread lives in the outline beside it, the Resource is never written.
+   */
+  refuses(kind: SessionKind): string | null {
+    const m = this.msg;
+    if (!m || !this.readOnly) return null;
+    if ((kind === "select" || kind === "threads") && m.resource && !this.fileSource()) {
+      return kind === "select" && m.resource.uncommentable ? `${subject(m)}: ${m.resource.uncommentable}` : null;
+    }
+    return `${subject(m)} is shown here to read · it isn't a note in the outline`;
+  }
+  /** A tile following a file on disk (a preview of a path): never a Resource's text. */
+  protected fileSource(): boolean { return false; }
 
   key(k: Key, desk: DeskApi): boolean {
-    if (this.readOnly && !this.holdsKeys && sessionStart(k)) { desk.ctx.flash(`${subject(this.msg!)} is shown here to read · it isn't a note in the outline`); return true; }
+    const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
+    if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
     if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.hold", {}, { pane: this, desk }); return true; }
     // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
     if (!this.editing && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }

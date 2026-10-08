@@ -306,7 +306,7 @@ export class RiverColumn extends ReaderPane {
       desk.redraw();
       return { group: r.kind === "group" ? r.group : r.group.kind };
     }
-    const { note } = await linkNote(r, desk.ctx.board, "open", actor);
+    const { note } = await linkNote(r, desk.ctx.board, "open", actor, this.rootOf()?.id);
     this.host(desk).navigate(note, { link: true, by: actor, ...(fresh ? { fresh: true } : {}) });
     return { opened: note.id };
   }

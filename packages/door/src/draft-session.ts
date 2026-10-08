@@ -721,7 +721,7 @@ export function commentTarget(o: {
   where(): CommentWhere;
   /** The note it's on, for its place and name. */
   note: Msg;
-  board(): Pick<SocketBoard, "comment" | "reply">;
+  board(): Pick<SocketBoard, "comment" | "commentOnResource" | "reply">;
   out: Outgoing;
   landed(r: { id: string; deduplicated?: boolean }, where: CommentWhere): Promise<void>;
   /** Not sent, and why (said by the host at once, before the outcome reaches whoever asked). */
@@ -752,7 +752,9 @@ export function commentTarget(o: {
       d.saving = true;
       try {
         const b = o.board();
-        const r = t.kind === "quote" ? await b.comment(requestId, t.blockId, t.revision, body, t.passage, by) : await b.reply(requestId, t.thread.id, body, by);
+        const r = t.kind === "reply" ? await b.reply(requestId, t.thread.id, body, by)
+          : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.passage, by)
+          : await b.comment(requestId, t.blockId, t.revision, body, t.passage, by);
         o.out.done();
         d.saving = false;
         await o.landed(r, t);

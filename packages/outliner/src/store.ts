@@ -87,6 +87,7 @@ import type {
   AnnotationLifecycleInput,
   AnnotationListQuery,
   AnnotationReconcileInput,
+  ResourceReconcileInput,
   AnnotationReconcileReceipt,
   AnnotationRecord,
   AnnotationReplyInput,
@@ -1148,7 +1149,7 @@ export class OutlinerStore {
     return this.annotations.list(query);
   }
 
-  reconcileAnnotationThreads(input: AnnotationReconcileInput): AnnotationReconcileReceipt {
+  reconcileAnnotationThreads(input: AnnotationReconcileInput | ResourceReconcileInput): AnnotationReconcileReceipt {
     return this.annotations.reconcile(input);
   }
 

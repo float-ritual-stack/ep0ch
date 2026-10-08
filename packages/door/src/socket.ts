@@ -13,7 +13,7 @@ import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
-import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
+import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
@@ -524,6 +524,8 @@ export class SocketBoard implements Board {
    * reads as "no block" (PIE-488).
    */
   async get(id: string): Promise<Msg | null> {
+    // A Resource shown as a note (src/authored.ts) is read again from its stored text, not as a block (PIE-650).
+    if (id.startsWith(RESOURCE_NOTE)) return this.describeResource(id.slice(RESOURCE_NOTE.length)).then(d => resourceNote(d), e => { if (e instanceof Refused) return null; throw e; });
     try {
       const ctx = await this.request<{ selected: WireBlock | null; children: WireBlock[] }>("blocks.context", { blockId: id });
       return ctx.selected ? toMsg(ctx.selected, ctx.children.map(c => c.id)) : null;
@@ -835,19 +837,31 @@ export class SocketBoard implements Board {
   }
 
   /** Comment threads anchored on a block (open ones first). */
-  async comments(blockId: string): Promise<Comment[]> {
-    const threads = await this.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId }, includeResolved: true } });
+  async comments(blockId: string, shown?: { revision?: number; stale?: () => void }): Promise<Comment[]> {
+    // A Resource's threads are read through the service's reconcile (PIE-650): it reads the text now and re-anchors
+    // each quote through the resolution events (or keeps it as it read, with no place, when it is gone).
+    let placedIn: number | undefined;
+    let threads: any[];
+    if (blockId.startsWith(RESOURCE_NOTE)) {
+      const r = await this.request<{ threads: any[]; revision?: number }>("annotations.reconcile", { input: { subject: { kind: "resource", resourceId: blockId.slice(RESOURCE_NOTE.length) } } });
+      threads = r.threads; placedIn = r.revision;
+    } else threads = await this.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId }, includeResolved: true } });
+    // Offsets mean the text they were placed in. The reader drew another (the file changed since): no places, and it reads again.
+    const placed = shown?.revision === undefined || placedIn === undefined || shown.revision === placedIn;
+    if (!placed) shown!.stale?.();
     const who = (r: any) => r?.block?.actorId ?? r?.source ?? r?.block?.author ?? "?";
     const text = (r: any) => String(r?.body ?? r?.block?.text ?? "").trim();
     const when = (r: any) => Date.parse(r?.block?.createdAt ?? r?.createdAt ?? "") || 0;
     const offset = (v: unknown) => (typeof v === "number" ? v : null);
     return threads.map(t => {
-      // resolvedTarget follows the quote through later edits; null means the service lost it.
-      const at = t.resolvedTarget?.anchor;
+      // resolvedTarget follows the quote through later edits; null means the service lost it. A comment on a Resource
+      // that this note's link opened (its reference context) is placed on that link here, not at the file's offsets.
+      const onResource = !blockId.startsWith(RESOURCE_NOTE) && t.originalTarget?.representation?.subject?.kind === "resource";
+      const at = onResource ? t.resolvedTarget?.referenceContext?.anchor : t.resolvedTarget?.anchor;
       return {
         id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
         quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
-        start: at?.kind === "text-quote" ? offset(at.start) : null, end: at?.kind === "text-quote" ? offset(at.end) : null,
+        start: placed && at?.kind === "text-quote" ? offset(at.start) : null, end: placed && at?.kind === "text-quote" ? offset(at.end) : null,
         replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r) })),
       };
     }).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
@@ -863,6 +877,26 @@ export class SocketBoard implements Board {
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
       requestId, ...who,
       operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, passage } }],
+    });
+    return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
+  }
+
+  /**
+   * A comment on a passage of a Resource's stored text (`annotations.batch` / `resource-comment`, PIE-650). The
+   * service reads the text itself and refuses the comment when it isn't the text `expectedRevision` names. `at`
+   * is where the Resource's text begins in the note the passage was picked in (null: it isn't drawn as it is, so
+   * the quote goes without an offset). Nothing is written to the Resource.
+   */
+  async commentOnResource(requestId: string, resource: NonNullable<Msg["resource"]>, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER): Promise<CommentReceipt> {
+    const { source, ...who } = annotationAuthor(actor);
+    const start = resource.sourceAt === null ? undefined : passage.start - resource.sourceAt;
+    const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
+      requestId, ...who,
+      operations: [{ operationId: "comment", type: "resource-comment", input: {
+        resourceId: resource.id, expectedRevision, body, source,
+        passage: { quote: passage.quote, ...(start !== undefined && start >= 0 ? { start } : {}) },
+        ...(resource.from ? { referenceBlockId: resource.from } : {}),
+      } }],
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }

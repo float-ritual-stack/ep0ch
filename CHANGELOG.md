@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Comment on a Resource (PIE-650)
+
+- **Fixed:** a reader showing a Resource (a file opened from a `[file::…]` link, a fetched page) refused C with "shown here
+  to read". It now takes C and m: select text, press C, write. The thread is stored in the outline, anchored to the
+  Resource (it is registered first when the link is followed), and quotes the file's own source, mapped back from what the
+  reader drew (a heading, a link, emphasis, a list item). The file is never written. The note whose link opened the
+  Resource is the thread's reference context, so the thread also lists among that note's comments.
+- **New (service):** the `resource-comment` batch operation (`annotations.batch`) and `annotations.reconcile` with only a
+  Resource subject: the service reads the Resource's text itself, anchors the quote, and re-anchors a rewritten file's
+  threads through the resolution events (a thread whose passage went stays, as it read). `PROTOCOL` 112.
+- **New (agents):** `outline_read` on a Resource (`resource:<id>` or `[file::path]`) returns its text and open threads;
+  `outline_comment` takes the same ref (the Claude mod's tools, `outliner agent`, and the MCP gateway on a live outline).
+  The mod holds the first Edit or Write of a file with open threads once, with them in the answer.
+
 ### The status bar's +N new opens what changed (PIE-647)
 
 - **`+N new` counts notes, not events.** It is the distinct notes an agent, another client or (when asked for, with a click

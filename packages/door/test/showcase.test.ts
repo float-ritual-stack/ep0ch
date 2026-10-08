@@ -415,6 +415,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
+    "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
@@ -684,6 +685,40 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(f.opened).toBe(seeded.notes.whiteboard.id);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("resource comments (PIE-650): a Resource's text takes a comment from an agent's act, quoting the file's source, the file untouched; its seeded thread is placed in the text and is a backlink of the block whose link opened it", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "resource-comments" }, as: "test-agent" })).toMatchObject({ key: "resource-comments" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "resource-comments")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const resTile = () => tiles().find(t => String(t.showing?.id ?? "").startsWith("resource:"));
+    await until(() => !!resTile() && screen().includes("Net the brassicas before the pigeons find them."), "the bed plan as a Resource", 8000);
+    const tile = resTile().name as string;
+    const plan = RECENT_FILES()[0]!;
+    const before = readFileSync(plan.file, "utf8");
+    // The seeded thread is read for the Resource and placed in its text (the note has a header before the file's own text).
+    await until(() => screen().includes("1 open comment"), "the seeded thread counted", 8000);
+    const threads = await app.act({ action: "threads", tile, as: "test-agent" }) as any;
+    expect(threads.threads).toHaveLength(1);
+    // An agent comments on a passage of the rendered Markdown: the quote is the source's own (`**Bed 2:**` keeps its asterisks).
+    const quote = "**Bed 2:** runner beans up the wigwam";
+    const sent = await app.act({ action: "comment", tile, args: { quote, body: "Is the wigwam tall enough this year?" }, as: "test-agent" }) as any;
+    expect(sent).toBeDefined();
+    const after = await app.act({ action: "threads", tile, as: "test-agent" }) as any;
+    expect(after.threads).toHaveLength(2);
+    expect(after.threads.some((t: any) => t.quote === quote)).toBe(true);
+    // Stored in the outline against the Resource, with the block that opened it as its reference context; never in the file.
+    const touch = (await board.byProp("file", plan.file, 1))[0]!;
+    const resourceId = String(resTile().showing.id).slice("resource:".length);
+    const stored = await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
+    expect(stored).toHaveLength(2);
+    expect(stored.every(t => t.originalTarget.referenceContext?.representation.subject.blockId === touch.id)).toBe(true);
+    expect(stored.find(t => t.originalTarget.anchor.exact === quote)).toBeDefined();
+    expect(readFileSync(plan.file, "utf8")).toBe(before);
+    // A ticket-like or unreadable Resource says why instead (the reader's refusal), and a note that is not a block still can't be edited.
+    await expect(app.act({ action: "edit", tile, as: "test-agent" })).rejects.toThrow();
+    expect(S().focus).toBe("index");
+  }, 30_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;

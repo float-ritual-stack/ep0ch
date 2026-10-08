@@ -62,7 +62,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       "Read a note: its full text (never just the title), properties, revision, who last wrote it and when, and its " +
       'children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. ' +
       '`complete` says whether anything was left out; a child with `more` has unread children. Read before you ' +
-      'edit: outline_edit and outline_patch need the revision this returns.',
+      'edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a ' +
+      '`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file ' +
+      'that has threads before you rewrite it.',
     inputSchema: schema({
       ref: REF,
       depth: { type: 'integer', minimum: 0, maximum: 6 },
@@ -161,7 +163,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
     description:
       'Start a comment thread on a note, as you: on an exact `quote` of its source text (add start, prefix or ' +
       'suffix when the quote repeats), or on the `whole` note. Returns the thread id for outline_reply and ' +
-      'outline_resolve_thread. A requestId makes a retry return the same thread.',
+      'outline_resolve_thread. A requestId makes a retry return the same thread. `ref` may be a Resource ' +
+      '(`resource:<id>` or a `[file::path]` token) instead of a note: the quote is exact text of the file as ' +
+      'outline_read returned it, `from` names the note whose link opened it, and the file is never written.',
     inputSchema: schema({
       ref: REF,
       body: { type: 'string' },
@@ -171,11 +175,13 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       prefix: { type: 'string' },
       suffix: { type: 'string' },
       requestId: { type: 'string' },
+      from: { type: 'string', description: 'A Resource comment: the note whose link opened it' },
+      revision: { type: 'integer', minimum: 1, description: 'A Resource comment: the revision outline_read returned; the comment is refused if the file changed since' },
     }, ['ref', 'body']),
     command(input) {
       if (!nonEmpty(input.ref) || !nonEmpty(input.body)) return 'Give the note and a non-empty comment.'
       if ((input.whole === true) === (typeof input.quote === 'string')) return 'Give either quote (exact source text) or whole: true.'
-      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'prefix', 'suffix', 'requestId']) }
+      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'prefix', 'suffix', 'requestId', 'from', 'revision']) }
     },
   },
   {

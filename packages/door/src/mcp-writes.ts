@@ -118,7 +118,7 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
     case "outline_comment":
       if (!nonEmpty(args.body)) return { error: "Give a non-empty comment." };
       if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
-      return { tool, input: pick(args, ["body", "quote", "whole", "start", "prefix", "suffix", "requestId"]) };
+      return { tool, input: pick(args, ["body", "quote", "whole", "start", "prefix", "suffix", "requestId", "from", "revision"]) };
     case "outline_reply":
       if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply." };
       return { tool, input: pick(args, ["thread", "body", "requestId"]) };
@@ -138,13 +138,15 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
 /** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
 interface AgentTools {
   createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
-  commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; deduplicated?: boolean }>;
+  commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
   replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
   resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
   assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
+  resourceRefOf(ref: string): unknown | null;
+  readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
 }
 type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
@@ -164,6 +166,26 @@ const clientOf = (board: WriteBoard) => ({
  */
 export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{ id: string; fragmentId?: string }> {
   return (await loadAgentTools()).resolveRef(clientOf(board), ref);
+}
+
+/**
+ * Whether `ref` names a Resource (`resource:<id>`, or a `[file::path]` token) instead of a block, by the outliner's own
+ * reading of it (PIE-650). A Resource is read and commented on live, in the outline it is registered in.
+ */
+export async function isResourceRef(ref: string): Promise<boolean> {
+  try { return !!(await loadAgentTools()).resourceRefOf(ref); } catch { return true; }
+}
+
+/** A Resource with its stored text and open comment threads (`outliner agent read`, as the Claude mod's outline_read gives it). */
+export async function readResourceOn(board: WriteBoard, ref: string): Promise<Record<string, unknown>> {
+  const tools = await loadAgentTools();
+  return tools.readResource(clientOf(board), tools.resourceRefOf(ref));
+}
+
+/** A comment on a Resource's text, as the agent (the same operation as a block's comment, kept for the note whose link names it with `from`). */
+export async function commentOnResourceOn(board: WriteBoard, ref: string, input: Record<string, unknown>, actor: WriteActor): Promise<WriteOutcome> {
+  const c = await (await loadAgentTools()).commentOn(clientOf(board), { ref, ...input }, actor);
+  return { outcome: "applied", uri: c.resourceId ? `resource:${c.resourceId}` : ref, said: `commented on ${ref} (thread ${c.thread}); the Resource is not written`, detail: c };
 }
 
 export interface ApplyOptions {
@@ -266,7 +288,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
 
 const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
-  ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123)" },
+  ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123); for outline_read and outline_comment also a Resource: resource:<id> or a [file::path] token" },
   id: { type: "string", description: "Alias of ref" },
 };
 const REVISION = { type: "integer", minimum: 1, description: "The revision outline_read returned. A note that changed since gets a proposal, never an overwrite." };
@@ -303,10 +325,13 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     },
     {
       name: "outline_comment",
-      description: `Start a comment thread on a note: on an exact quote of its source text (add start, prefix or suffix when the quote repeats), or on the whole note. A requestId makes a retry return the same thread. A comment changes nothing but its thread, so propose access allows it. ${answer}`,
+      description: `Start a comment thread on a note: on an exact quote of its source text (add start, prefix or suffix when the quote repeats), or on the whole note. A requestId makes a retry return the same thread. A comment changes nothing but its thread, so propose access allows it. ` +
+        `ref may name a Resource instead (resource:<id>, or a [file::path] token): the quote is then exact text of the file as outline_read returned it, from names the note whose link opened it, and the file is never written. ${answer}`,
       inputSchema: addressed({
         body: { type: "string" }, quote: { type: "string", description: "Exact source text the comment is about" }, whole: { type: "boolean" },
         start: { type: "integer", minimum: 0 }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
+        from: { type: "string", description: "A Resource comment: the note whose link opened it (kept as the thread's reference context)" },
+        revision: { type: "integer", minimum: 1, description: "A Resource comment: the revision outline_read returned; the comment is refused if the file changed since" },
       }, ["body"]),
     },
     {
