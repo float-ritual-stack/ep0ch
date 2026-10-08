@@ -221,15 +221,28 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.collapse": def({
-    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. Only a tile side by side with others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
-    keys: "^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
+    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. Only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
+    keys: "alt+h (alt+H a horizontal spine); the ◂ ▾ on a tile's frame (alt+click: horizontal); ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
     menu: { label: "fold to a spine", group: TILE, key: "ctrl+w c", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float || n.inDrawer ? { hide: true } : { refused: n.refused("collapse") }; } },
-    args: { on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" } },
-    run({ on }, { d, reader }, actor) {
-      return d.collapseTile(reader, on, actor);
+    args: {
+      on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" },
+      dir: { type: "string", optional: true, about: "v: a vertical spine (tiles side by side), h: a horizontal one (tiles stacked); default the way its split runs. Another way than it's folded refolds it" },
+    },
+    run({ on, dir }, { d, reader }, actor) {
+      if (dir !== undefined && dir !== "v" && dir !== "h") throw new ActionRefused(`tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
+      return d.collapseTile(reader, on, actor, dir as "v" | "h" | undefined);
+    },
+  }),
+  "tile.expand": def({
+    summary: "open tile=<tile> from its spine, back at the size it had (tile.collapse on=false); what was in it is as it was left",
+    keys: "alt+h or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
+    touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `opened ${r.tile}`),
+    args: {},
+    run(_a, { d, reader }, actor) {
+      return d.collapseTile(reader, false, actor);
     },
   }),
   "tile.travel": def({

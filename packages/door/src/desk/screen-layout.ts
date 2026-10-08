@@ -46,13 +46,22 @@ export type { Cover } from "./flow";
 /** The flow's squeeze, and where back and forward go from a column (its trail). */
 export { columnOf, squeeze, fullWidth, PEEK, travelTarget, tileOfColumn } from "./flow";
 
+/**
+ * A tile folded to a spine (`tile.collapse`): the agent that folded it, if an agent did, and which way. Vertical (the
+ * default) is a strip `SPINE` cells wide in a row of tiles side by side; `dir: "h"` is one row high in a column of
+ * stacked tiles. Its weight in the split is untouched, so opening it again gives it back its size.
+ */
+export type Fold = { by?: string; dir?: "h" };
+/** Whether a fold fits a split along `axis`: a vertical spine needs tiles side by side (row), a horizontal one stacked (col). */
+export const foldFits = (fold: Fold, axis: string | undefined): boolean => (fold.dir === "h" ? axis === "col" : axis === "row");
+
 /** A screen's layout: everything about where its tiles are, and nothing about what they show. */
 export interface LayoutState<I = number> {
   readonly tree: LNode<I>;
   /** Tiles with their own rectangle, above everything, the last on top. */
   readonly floats: readonly Float<I>[];
   /** Tiles folded to a spine (`tile.collapse`), and the agent that folded one, if an agent did. */
-  readonly collapsed: ReadonlyMap<I, { by?: string }>;
+  readonly collapsed: ReadonlyMap<I, Fold>;
   /** The tile filling the screen, if one does. */
   readonly zoom: I | null;
   /** Where a tile's opens land (PIE-473): tile → tile. */
@@ -149,7 +158,7 @@ export type Op<I = number> =
   | { op: "place"; tile?: I; dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }
   | { op: "pin"; tile: I; on?: boolean; edge?: Dir; container?: string }
   | { op: "slide"; tile: I; open?: boolean; container?: string }
-  | { op: "collapse"; tile: I; on?: boolean }
+  | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
   | { op: "resize"; split?: string; path?: string; border: number; share: number }
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
@@ -186,7 +195,7 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, { by?: string }>; zoom: I | null; links: Map<I, I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; links: Map<I, I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
@@ -237,7 +246,7 @@ function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: s
  * blank, its containers given ids. `prev` goes on from an earlier state (its revision and ids, its agents' locks
  * and the docks' remembered policy), or from a saved revision and next id.
  */
-export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, { by?: string }>; links?: ReadonlyMap<I, I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
+export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; links?: ReadonlyMap<I, I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
   prev?: LayoutState<I> | { rev: number; nextNode: number }, opts: { freshIds?: boolean } = {}): LayoutState<I> {
   const given = clone(parts.tree);
   // A layout loaded from elsewhere (not this screen's own save coming back) never hands out an id given here before.
@@ -364,7 +373,7 @@ function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | 
 
 /** How the tiles are placed: a folded tile is a spine across a row; a tile holding work keeps its flow column wide. */
 export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed">, holds?: (id: I) => boolean): PlaceOpts<I> {
-  return { fixed: (id, dir) => (dir === "row" && s.collapsed.has(id) ? SPINE : undefined), ...(holds ? { holds } : {}) };
+  return { fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, ...(holds ? { holds } : {}) };
 }
 /** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
 function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
@@ -579,7 +588,7 @@ class Step<I> {
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "slide": return this.slide(op.tile, op.open, op.container);
-      case "collapse": return this.collapse(op.tile, op.on);
+      case "collapse": return this.collapse(op.tile, op.on, op.dir);
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
@@ -867,7 +876,7 @@ class Step<I> {
     if (!next) refuse(`${this.name(src)} can't go there: ${leaves(this.d.tree).length < 2 ? "it's the only tile" : "that's where it is"}`);
     this.d.tree = next!;
     // A spine moved where it isn't side by side with others opens.
-    if (this.d.collapsed.has(src) && parentOf(this.d.tree, src)?.parent.dir !== "row") this.d.collapsed.delete(src);
+    this.unfoldMisfit(src);
     // Moved into a shut dock (its handle), the dock opens for the person; an agent's leaves it as it was. An
     // agent's move of the tile the person has into a shut dock opens it too: their tile never vanishes.
     const wasShown = visible(this.d.tree);
@@ -895,7 +904,7 @@ class Step<I> {
     };
     this.d.tree = go(this.d.tree);
     // A spine swapped where it isn't side by side with others opens, as a move does.
-    for (const id of [a, b]) if (this.d.collapsed.has(id) && parentOf(this.d.tree, id)?.parent.dir !== "row") this.d.collapsed.delete(id);
+    for (const id of [a, b]) this.unfoldMisfit(id);
   }
 
   /** Where a new float goes: half the screen, a little lower and to the right of the last one. */
@@ -1066,21 +1075,44 @@ class Step<I> {
     this.d.answer = { open: want, edge: dr!.edge, ...(dr!.id ? { container: dr!.id } : {}) };
   }
 
-  private collapse(id: I, on: boolean | undefined) {
+  /** The tiles a fold covers: a tab set folds as one (its shown tab's spine), so each of its tabs carries the fold. */
+  private foldSet(id: I): I[] { return tabsOf(this.d.tree, id)?.ids ?? [id]; }
+  /** A spine moved or swapped where its fold doesn't fit (not side by side, or not stacked) opens. */
+  private unfoldMisfit(id: I) {
+    const f = this.d.collapsed.get(id);
+    if (f && !foldFits(f, parentOf(this.d.tree, id)?.parent.dir)) for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
+  }
+
+  /**
+   * Fold `id` to a spine, or open it. `dir` `v` is a vertical spine (tiles side by side), `h` a horizontal one (stacked);
+   * none takes the way its split runs. A tab set folds as one and a docked tile in a split of its dock folds there;
+   * a dock's lone tile isn't a fold (the desk shuts the dock instead).
+   */
+  private collapse(id: I, on: boolean | undefined, dir?: "v" | "h") {
     this.present(id);
-    const name = this.name(id), was = this.d.collapsed.has(id), want = on ?? !was;
-    if (want === was) { this.d.changed = false; this.d.answer = { collapsed: was, changed: false }; return; }
-    if (want) {
-      this.notFloat(id, "a spine");
-      this.shape(id, `folding ${name}`);
-      const p = parentOf(this.d.tree, id);
-      if (!p || p.parent.dir !== "row" || p.parent.t === "flow") refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)` : `${name} isn't side by side with other tiles: only a tile in a row or columns folds to a spine`);
-      const e = this.policyAt(id);
-      if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
-      if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't fold it`);
-      this.d.collapsed.set(id, byOf(this.ctx.actor));
-    } else this.d.collapsed.delete(id);
-    this.d.answer = { collapsed: want };
+    const name = this.name(id), was = this.d.collapsed.get(id), want = on ?? !was;
+    if (dir !== undefined && dir !== "v" && dir !== "h") refuse(`tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
+    if (!want && !was) { this.d.changed = false; this.d.answer = { collapsed: false, changed: false }; return; }
+    if (!want) { for (const t of this.foldSet(id)) this.d.collapsed.delete(t); this.d.answer = { collapsed: false }; return; }
+    const p = parentOf(this.d.tree, id);
+    const axis = p?.parent.t === "flow" ? undefined : p?.parent.dir;
+    const fold: Fold = (dir ?? (axis === "col" ? "h" : "v")) === "h" ? { dir: "h" } : {};
+    // Folded already the way asked for: nothing to do.
+    if (was && (was.dir ?? "v") === (fold.dir ?? "v")) { this.d.changed = false; this.d.answer = { collapsed: true, changed: false }; return; }
+    this.notFloat(id, "a spine");
+    this.shape(id, `folding ${name}`);
+    if (!p || p.parent.t === "flow" || !foldFits(fold, axis)) {
+      refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)`
+        : !p ? `${name} isn't side by side or stacked with other tiles: only a tile in a row or a column folds to a spine`
+        : fold.dir === "h" ? `${name} isn't stacked with other tiles: a horizontal spine needs a tile above or below it (dir=v folds it to a vertical one)`
+        : `${name} isn't side by side with other tiles: a vertical spine needs a tile beside it (dir=h folds it to a horizontal one)`);
+    }
+    const e = this.policyAt(id);
+    if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    const by = byOf(this.ctx.actor);
+    for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
+    this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {
@@ -1204,7 +1236,7 @@ class Step<I> {
     this.present(id);
     const set = tabsOf(this.d.tree, id);
     if (set && !(this.agent && set.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
-    this.d.collapsed.delete(id);
+    for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
     // An agent doesn't move a flow's strip under the column the person is typing in (as its widen doesn't).
     const f = flowHolding(this.d.tree, id), typing = this.ctx.person.typingIn;
     const steps = !(this.agent && f && typing !== null && flowHolding(this.d.tree, typing)?.flow === f.flow);

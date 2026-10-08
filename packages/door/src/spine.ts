@@ -4,7 +4,7 @@
 import { cp437Code } from "./ansi";
 import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
-import { C, fg, RESET } from "./style";
+import { C, fg, pad, RESET, width } from "./style";
 import { theme } from "./theme";
 import { rasterize, rotateCW, type Rgba } from "./vga";
 
@@ -58,4 +58,19 @@ export function drawSpine(canvas: Canvas, r: Rect, s: Spine, v: { graphics: bool
   const style = s.cellStyle ?? fg(s.colour);
   [...s.title].slice(0, room).forEach((ch, i) => canvas.text(r.col, top + i, style + ch + RESET, 1));
   return null;
+}
+
+/**
+ * Draw a horizontal spine into `r` (one row): its marks, then `▸ title` and a rule along the rest of the row, so a
+ * tile folded down gives its height to the tile above it and still reads as a tile with a name (a click opens it).
+ */
+export function drawHSpine(canvas: Canvas, r: Rect, s: Spine): void {
+  const marks = (s.marks ?? []).slice(0, Math.max(0, r.cols - 4));
+  marks.forEach((m, i) => canvas.text(r.col + i, r.row, m, 1));
+  const x = r.col + marks.length, room = r.cols - marks.length;
+  if (room < 1) return;
+  const label = pad(`▸ ${s.title} `, Math.min(room, width(`▸ ${s.title} `)));
+  canvas.text(x, r.row, (s.cellStyle ?? fg(s.colour)) + label + RESET, room);
+  const used = width(label);
+  if (room > used) canvas.text(x + used, r.row, fg(C.blue) + "─".repeat(room - used) + RESET, room - used);
 }
