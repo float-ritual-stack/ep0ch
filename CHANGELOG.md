@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Copy a block's text cleanly: a ⧉ on code blocks, quotes and callouts (PIE-638)
+
+- **New:** every fenced code block, quote and callout in a reader (detail, preview, desk, the BBS reader) and a river column
+  has a small dim `⧉` at its top right edge. A click, `y` with `[ ]` on the block (or on anything in it), ⏎ on a block, or
+  `act block.copy n=…` copies its content as written: a fence's lines without the fence, a quote's lines without the `>`
+  markers, a callout's body without its marker line, links and styles as typed. It goes to your clipboard (OSC 52) and the
+  status line says "copied N lines". An agent's copy is returned to it and never touches your clipboard. `[ ]` now stops on
+  code blocks and quotes (a callout already was one); `act blocks` lists them.
+- **New:** an inline `code span` is copyable too: a click copies its contents without the backticks ("copied N chars"), it is a
+  `[ ]` element so `y` copies it, and `act block.copy element=n` works. Links stay as they were; a code span isn't one.
+- **Fixed:** a mouse selection in a reader or a river column copies the words, not the drawing: the bars of a quote, the frame of
+  a callout or a code block, a fence's info line and fold arrows are left out. A list item keeps its marker as the note has it
+  (`- `, `* `, `1. `) and its indent, not the `∙` drawn for it. Selecting part of a quote copies just those words.
+
 ### Mirrors follow a schema bump, and the gateway never sends you to `install` for one
 
 - **Fixed:** the backup job treated a migration as no change (it moves `user_version`, not the change feed), so

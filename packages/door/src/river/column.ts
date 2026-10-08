@@ -9,10 +9,11 @@
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { historyRow, IN_TRASH, type Link } from "../surface/note";
+import { COPY_ROWS, historyRow, IN_TRASH, type Link } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
-import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
+import { Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
+import type { DocTrim } from "../doc";
 import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
 import { isOutlineNote } from "../authored";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
@@ -44,7 +45,7 @@ export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind:
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
 /** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
+type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -152,11 +153,12 @@ export class RiverColumn extends ReaderPane {
   private shownElem?: string | null;
   private height = 10;
   private maxTop = 0;
-  private drawn: { lines: string[]; w: number } | null = null;
+  private drawn: { lines: string[]; w: number; trims: Map<number, DocTrim>; body: [number, number] } | null = null;
   private rows: HitRow[] = [];
   /** A block column's sticky header (the reader's, PIE-598): its rows, kept above the scroll, and where the digest starts. */
   private sticky: HitRow[] = [];
   private digestAt = 0;
+  private digestRows = 0;
   /** Rows above the cards (the filter's line): a click's row there isn't a card's. */
   private headRows = 0;
   /** The note's images on the column's rows (before its scroll), from its digest. */
@@ -373,7 +375,7 @@ export class RiverColumn extends ReaderPane {
   /** The column's rows as they show: its note (a block column) and its cards, scrolled; what a click reaches kept. */
   private view(w: number, rows: number, active: boolean): string[] {
     const desk = this.desk;
-    const all: (HitRow & { text: string })[] = [];
+    const all: (HitRow & { text: string })[] = [], trims = new Map<number, DocTrim>();
     this.images = [];
     const push = (text: string, card = -1, replies = false) => all.push({ text, card, replies });
     if (this.error) push(fg(C.lred) + this.error + RESET);
@@ -390,12 +392,31 @@ export class RiverColumn extends ReaderPane {
       if (this.surface.msg?.id !== m.id) this.surface.show(m, host);
       const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
       this.digestAt = at;
+      this.digestRows = dg.lines.length;
       this.images = dg.placements.map(p => ({ ...p, row: p.row + at, col: p.col + 1 }));
       const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
       for (const x of dg.links) { const r = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (r) r.push(l); else byRow.set(x.row, [l]); }
       // A heading (or a list item's mark) is a fold point, as in a reader: a click on it folds or unfolds it.
       const folds = new Map(dg.folds.map(f => [f.row, { to: f.cols + 1, n: f.n }] as const));
-      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: byRow.get(i) ?? [], ...(folds.has(i) ? { fold: folds.get(i)! } : {}) }));
+      // A code block's, a quote's and a callout's copy control (PIE-638): a dim ⧉ where the reader puts it, a click on it block.copy.
+      const copies = new Map<number, { b: (typeof dg.blocks)[number]; put: string }>();
+      // An inline code span is a click target, no control: it copies its contents.
+      const spans = new Map<number, { from: number; to: number; n: number }[]>();
+      for (const b of dg.blocks) if (b.kind === "span") { const g = spans.get(b.row) ?? []; g.push({ from: b.col + 1, to: (b.to ?? b.col) + 1, n: b.n }); spans.set(b.row, g); }
+      for (const b of dg.blocks) {
+        if (b.kind === "span") continue;
+        for (let r = b.row; r < Math.min(dg.lines.length, b.row + Math.min(b.rows, COPY_ROWS)) && b.col + 1 < w; r++) {
+          const put = putCell(" " + dg.lines[r]!, b.col + 1, "⧉", fg(b.n + 1 === this.surface.currentBlock() ? C.lcyan : C.dark));
+          if (put !== null) { copies.set(r, { b, put }); break; }
+        }
+      }
+      dg.lines.forEach((l, i) => {
+        const c = copies.get(i), b = c?.b, put = c?.put, hits = [...(put && b ? [{ from: b.col + 1, to: b.col + 2, n: b.n }] : []), ...(spans.get(i) ?? [])];
+        all.push({ text: put ?? " " + l, card: -1, replies: false, links: byRow.get(i) ?? [], ...(folds.has(i) ? { fold: folds.get(i)! } : {}), ...(hits.length ? { copy: hits } : {}) });
+        const t = dg.trims.get(i), cuts = (t?.cuts ?? []).map(([a, z, rep]) => [a + 1, z + 1, rep] as [number, number, string?]);
+        if (put && b) cuts.push([b.col + 1, b.col + 2]);                 // the control itself is never copied
+        if (cuts.length || t?.edge) trims.set(all.length - 1, { cuts, ...(t?.edge ? { edge: true as const } : {}) });
+      });
       // The element `[ ]` just stepped to comes into view (only when it changed: the wheel still reads on).
       if (dg.key !== (this.shownElem ?? null)) {
         this.shownElem = dg.key;
@@ -445,10 +466,10 @@ export class RiverColumn extends ReaderPane {
     // Past the end as every reader scrolls (PIE-622, reader.overscroll): the last row up to the middle.
     this.maxTop = lastTop(all.length, rows);
     this.top = scrolled(this.top, 0, this.maxTop);
-    this.drawn = { lines: all.map(l => l.text), w };
+    this.drawn = { lines: all.map(l => l.text), w, trims, body: [this.digestAt, this.digestAt + (this.source.kind === "block" && root && desk ? this.digestRows : 0)] };
     if (this.text && this.text.w !== w) this.text = null;
     const shown = all.slice(this.top, this.top + rows);
-    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold, ...(l.linksHead ? { linksHead: true } : {}) }));
+    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold, ...(l.copy ? { copy: l.copy } : {}), ...(l.linksHead ? { linksHead: true } : {}) }));
     return shown.map((l, i) => { const span = this.text?.span(this.top + i); return span ? paintRange(l.text, span[0], span[1], SELECT_BG) : l.text; });
   }
 
@@ -572,6 +593,8 @@ export class RiverColumn extends ReaderPane {
     const sel = this.text;
     if (!sel) {
       if (this.surface.editing) return false;
+      // y on a code block, a quote or a callout that is the current element copies its text (PIE-638).
+      if (c === "y" && this.surface.msg?.id === this.noteOf()?.id && this.surface.currentBlock() !== null) { this.run(desk, "column.block"); return true; }
       if (c === "y" || c === "Y") { desk.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
       if (c !== "v" || !this.drawn) return false;
       const at = { row: this.top, col: 0 };
@@ -586,14 +609,20 @@ export class RiverColumn extends ReaderPane {
       if (k.kind === "esc") { this.text = null; desk.redraw(); return true; }
       return false;
     }
-    const r = modeKey(k, sel, rowsOf(this.drawn?.lines ?? []), 10);
+    const r = modeKey(k, sel, this.selRows(), 10);
     if (r === null) return false;
     if (r === "done") this.text = null;
     desk.redraw();
     return true;
   }
+  /** The drawn rows a selection is over: without the drawing a copy leaves out (a quote's bar, a frame, a bullet glyph). */
+  private selRows() {
+    const d = this.drawn;
+    // The note's rows are drawn one cell in (its margin), which is not text.
+    return rowsOf(d?.lines ?? [], r => (d && r >= d.body[0] && r < d.body[1] ? 1 : 0), r => d?.trims.get(r));
+  }
   /** The hint while text is selected (the screen's hint row says the rest). */
-  selectionHint(): string | null { return this.text ? selectionHint(this.text, [...this.text.text(rowsOf(this.drawn?.lines ?? []))].length).replace(" · Y source", "") : null; }
+  selectionHint(): string | null { return this.text ? selectionHint(this.text, [...this.text.text(this.selRows())].length).replace(" · Y source", "") : null; }
 
   // ── the mouse (every event inside the tile; x, y in it) ──
 
@@ -626,7 +655,7 @@ export class RiverColumn extends ReaderPane {
       this.down = null;
       if (d && r.click) this.click_(d, desk);
       // A drag, a double or a triple click copies what it selected (copy on select), as y does.
-      else if (d && r.copy && this.text?.text(rowsOf(this.drawn?.lines ?? [])).trim()) this.run(desk, "column.copy");
+      else if (d && r.copy && this.text?.text(this.selRows()).trim()) this.run(desk, "column.copy");
       this.justFocused = false;
       desk.redraw();
       return true;
@@ -639,6 +668,8 @@ export class RiverColumn extends ReaderPane {
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
     if (back) { void desk.perform?.("tile.travel", { dir: back.dir < 0 ? "back" : "forward" }, USER, this); return true; }
+    const copy = row?.copy?.find(c => x >= c.from && x < c.to);
+    if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);
     // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
     // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.
@@ -650,7 +681,7 @@ export class RiverColumn extends ReaderPane {
     this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(g === "fresh" ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
-    const rows = this.drawn && rowsOf(this.drawn.lines);
+    const rows = this.drawn && this.selRows();
     if (n > 1 && rows) { const at = pos(x, y); this.text = n === 2 ? wordAt(rows, at) : lineAt(rows, at.row); this.text.w = this.drawn!.w; }
     else if (this.text && n === 1) this.text = null;
     desk.redraw();
@@ -755,13 +786,20 @@ export class RiverColumn extends ReaderPane {
   copy(actor: Actor, desk: DeskApi): { chars: number; text: string } {
     const sel = this.text;
     if (!sel) throw new ActionRefused("nothing is selected · drag across the text, or v and move");
-    const text = sel.text(rowsOf(this.drawn?.lines ?? []));
+    const text = sel.text(this.selRows());
     if (!text.trim()) throw new ActionRefused("nothing to copy: only blanks are selected");
     if (actor.kind !== "agent") {
       if (desk.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
       desk.ctx.flash(`copied ${[...text].length} chars`);
     }
     return { chars: [...text].length, text };
+  }
+
+  /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
+  copyBlock(n: number | undefined, actor: Actor, desk: DeskApi) {
+    const m = this.noteOf();
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    return this.surface.copyBlock(n, this.host(desk), actor);
   }
 
   describe() {
@@ -866,6 +904,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, id: m.id };
     },
+  }),
+  "column.block": def({
+    summary: "copy a code block's, quote's or callout's content as written (the fence lines, > markers and callout marker line left out), as the reader's block.copy: the person's goes to their clipboard (\"copied N lines\"), an agent's is given back",
+    keys: "y or cmd+c with [ ] on the block (or anything in it), a click on its ⧉",
+    touches: "nothing", replay: "safe",
+    args: { n: { type: "number", optional: true, about: "which block, from 1, in reading order; default the one the person's current element is in" } },
+    run: ({ n }, { pane, desk }, actor) => columnOf(pane).copyBlock(n, actor, desk),
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",

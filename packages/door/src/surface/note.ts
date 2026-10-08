@@ -14,7 +14,7 @@ import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, type CommentEnv } from "../comment";
-import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
@@ -50,8 +50,8 @@ import { LineInput } from "./line";
 import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
-import { calloutBlocks, rewriteCalloutHeader, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -217,7 +217,7 @@ const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -225,7 +225,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
  * and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
 /**
@@ -240,9 +240,15 @@ interface Element {
   task?: StepRef;
   /** A callout's icon and type (PIE-538): the callout as it was read where it's drawn. */
   callout?: CalloutRef;
+  /** A code block's or quote's (PIE-638): which of the drawn document's blocks (`doc.blocks`) it is. */
+  block?: number;
 }
 /** What ⏎ does on a kept-draft line's control. */
 const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show what your edit changed against the note now", copy: "open its copy", dismiss: "let it go (its copy stays on disk)", add: "add the lines the note doesn't have into an edit", keep: "keep it as a note under this one", show: "show the old edits" };
+/** The copy control of a code block, a quote or a callout (PIE-638). */
+const COPY_GLYPH = "⧉";
+/** How many of a block's first rows its copy control looks through for a free cell. */
+export const COPY_ROWS = 4;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
@@ -251,6 +257,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
+  : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
@@ -591,7 +598,7 @@ export class NoteSurface {
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -1010,6 +1017,27 @@ export class NoteSurface {
       const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
       return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
+    // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
+    // block holds the `[ ]` position. A click is block.copy, as y is. Not drawn over a code cell it would hide.
+    const blockNow = current ? this.blockOf(current) : null;
+    doc.blocks.forEach((b, n) => {
+      if (b.kind === "span") {
+        const row = b.row - this.scroll;
+        if (row >= 0 && row < room && b.col + 1 < w) this.hits.push({ row: top + row, from: b.col + 1, to: Math.min(w, (b.to ?? b.col) + 1), block: n });
+        return;
+      }
+      if (b.col + 1 >= w) return;
+      // On its first row with a free cell there (a long first line of a quote or code fills its row).
+      for (let r = b.row; r < b.row + Math.min(b.rows, COPY_ROWS); r++) {
+        const row = r - this.scroll, at = top + row;
+        if (row < 0 || row >= room || at >= lines.length) continue;
+        const put = putCell(lines[at]!, b.col + 1, COPY_GLYPH, fg(n === blockNow ? C.lcyan : C.dark));
+        if (put === null) continue;
+        lines[at] = put;
+        this.hits.push({ row: at, from: b.col + 1, to: b.col + 2, block: n });
+        break;
+      }
+    });
     // The header's backdrop (PIE-598): the hero image, muted, under the title, summary, byline and crumbs once it
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
@@ -1243,7 +1271,7 @@ export class NoteSurface {
    * reader lays them out whenever the host draws Kitty graphics (at most `maxImageRows` tall), by row and column of
    * the returned lines, for the host to cut to what it shows (`inWindow`) and hand to the desk as a reader tile does.
    */
-  digest(m: Msg, w: number, host: SurfaceHost, maxImageRows = 8): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; placements: Placement[]; current: number | null; key: string | null } {
+  digest(m: Msg, w: number, host: SurfaceHost, maxImageRows = 8): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; placements: Placement[]; current: number | null; key: string | null; trims: Doc["trims"]; blocks: { row: number; rows: number; col: number; to?: number; kind: DocBlock["kind"]; n: number }[] } {
     const src = this.use(host);
     this.drawn = null;
     this.digesting = true;
@@ -1260,7 +1288,7 @@ export class NoteSurface {
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
-    return { lines, links, folds, placements: imagePlacements(doc.images, 0, ...cellOf(host)), current: current ? current.row : null, key: current?.key ?? null };
+    return { lines, links, folds, placements: imagePlacements(doc.images, 0, ...cellOf(host)), current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.map((b, n) => ({ row: b.row, rows: b.rows, col: b.col, ...(b.to !== undefined ? { to: b.to } : {}), kind: b.kind, n })) };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -1975,7 +2003,7 @@ export class NoteSurface {
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || ("follow" in h && h.follow)) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -2420,6 +2448,8 @@ export class NoteSurface {
     // (element.open sends an agent's through figure.tab and figure.density itself, with their rules.)
     if (e.kind === "figure" && e.link?.figure) { this.pressFigure(e.link.figure, host); return null; }
     if (e.kind === "control") return this.useControl(e, host);
+    // A code block or a quote has nothing to open: ⏎ copies it, as y does.
+    if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
     // A callout's icon or type opens its type choice under it (the person's; an agent changes it by callout.type).
@@ -2594,6 +2624,16 @@ export class NoteSurface {
       const p = points.find(p => p.key === hd.key);
       if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: 1, to: hd.cols + 1, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
     }
+    // A code block and a quote (a callout is an element already): `[ ]` stops on them so y copies one (PIE-638).
+    doc.blocks.forEach((b, n) => {
+      if (b.kind === "callout") return;
+      if (b.kind === "span") {
+        out.push({ key: `block:span:${b.row}:${b.col}`, kind: "block", row: top + b.row, from: b.col + 1, to: (b.to ?? b.col) + 1, ruler: [top + b.row, top + b.row + b.rows], label: `code · ${ellipsize(b.text, 40)}`, block: n });
+        return;
+      }
+      const lines = b.text.split("\n").length;
+      out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: 1, to: 1 + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"} · ${lines} line${lines === 1 ? "" : "s"}`, block: n });
+    });
     for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
     for (const c of controls) out.push({ key: controlKey(c.thread, c.control), kind: "control", row: top + c.row, from: c.from + 1, to: c.to + 1, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control });
@@ -2883,6 +2923,86 @@ export class NoteSurface {
     }));
   }
 
+  // ── copying a block (PIE-638) ──────────────────────────────────────────────
+
+  /** The document the last render drew, with the content row its first row is at (a river column's digest starts at 0). */
+  private blockDoc(): { doc: Doc; top: number } | null {
+    if (this.drawn) return { doc: this.drawn.doc, top: this.drawn.top };
+    return this.digesting && this.digested ? { doc: this.digested.doc, top: 0 } : null;
+  }
+
+  /** The code block, quote or callout (index into `doc.blocks`) element `e` is, or is inside (the innermost); null for none. */
+  blockOf(e: Element): number | null {
+    if (e.block !== undefined) return e.block;
+    const bd = this.blockDoc();
+    if (!bd) return null;
+    let best: number | null = null;
+    bd.doc.blocks.forEach((b, n) => {
+      if (b.kind === "span") return;
+      if (e.row >= bd.top + b.row && e.row < bd.top + b.row + b.rows && (best === null || b.rows < bd.doc.blocks[best]!.rows)) best = n;
+    });
+    return best;
+  }
+
+  /** The blocks the last render drew, as `blocks` lists them: number, kind, the note lines (from 1) and the first words. */
+  describeBlocks() {
+    const bd = this.blockDoc();
+    if (!bd) return [];
+    return bd.doc.blocks.map((b, i) => {
+      const text = this.blockText(b), lines = text.split("\n").length;
+      return { n: i + 1, kind: b.kind, lines, from: (this.drawnLines()[b.line] ?? b.line) + 1, to: (this.drawnLines()[b.end - 1] ?? b.end - 1) + 1, text: ellipsize(printable(text.split("\n")[0] ?? ""), 60), current: this.blockOfCurrent() === i };
+    });
+  }
+
+  /** A block's content as the note has it written (links, styles and inner quotes as typed), else as the document has it. */
+  private blockText(b: DocBlock): string {
+    const m = this.drawn ? this.msg : this.digested?.m, lines = this.drawnLines();
+    if (b.kind === "span" || !m || !lines.length) return b.text;
+    const raw = m.text.split("\n"), out: string[] = [];
+    for (let k = b.inner[0]; k < b.inner[1]; k++) { const n = lines[k]; if (n !== undefined) out.push(stripQuotes(raw[n] ?? "", b.strip)); }
+    return out.join("\n").trimEnd();
+  }
+
+  /** The block (number from 1) element `n` (from 1) is or is in; refused for one in no block. */
+  blockNumberOf(n: number): number {
+    const i = this.blockOf(this.element(n));
+    if (i === null) throw new ActionRefused(`element ${n} is in no code block, quote, callout or code span`);
+    return i + 1;
+  }
+  /** The block (number from 1, as `blocks` lists them) the person's current element is, or is in; null for none. A host's `y` asks it. */
+  currentBlock(): number | null { const n = this.blockOfCurrent(); return n === null ? null : n + 1; }
+  /** The note line (from 0, the subject) of each body line of the last render. */
+  private drawnLines(): readonly number[] { return this.drawn?.lines ?? this.digested?.lines ?? []; }
+  private blockOfCurrent(): number | null { const e = this.inView(); return e ? this.blockOf(e) : null; }
+
+  /**
+   * The text of block `n` (from 1, `blocks` lists them; left out, the one the current element is in): the content as written,
+   * without a fence's lines, a quote's `>` markers or a callout's marker line. The person's goes to their clipboard (OSC 52) and
+   * is said as "copied N lines"; an agent's is only returned.
+   */
+  copyBlock(n: number | undefined, host: SurfaceHost, actor: Actor): { n: number; kind: DocBlock["kind"]; text: string; lines: number; clipboard: boolean } {
+    const bd = this.blockDoc();
+    if (!bd) this.requireDrawn();
+    const cur = actor.kind === "user" ? this.inView() : null;
+    const i = n !== undefined ? n - 1 : cur ? this.blockOf(cur) : null;
+    if (i === null || i === undefined) throw new ActionRefused(n === undefined && actor.kind === "agent" ? "say which block: n (blocks lists them)" : "no code block, quote or callout is the current element; [ ] to one, or pass n (blocks lists them)");
+    const drawn = bd?.doc.blocks[i];
+    if (!drawn) throw new ActionRefused(`there is no block ${i + 1}; the reader draws ${bd?.doc.blocks.length ?? 0} (blocks lists them)`);
+    const b = { ...drawn, text: this.blockText(drawn) };
+    if (!b.text.trim()) throw new ActionRefused(`the ${b.kind === "code" ? "code block" : b.kind} has nothing in it to copy`);
+    const lines = b.text.split("\n").length, chars = [...b.text].length;
+    const said = b.kind === "span" ? `${chars} char${chars === 1 ? "" : "s"}` : `${lines} line${lines === 1 ? "" : "s"}`;
+    if (actor.kind === "user") {
+      // Over COPY_MAX nothing is copied: App.copy's toast says why, and the action is refused.
+      if (host.ctx.copy?.(b.text) === false) throw new ActionRefused(`not copied: ${[...b.text].length} chars is more than the clipboard takes`);
+      host.ctx.flash(`copied ${said}`);
+      return { n: i + 1, kind: b.kind, text: b.text, lines, clipboard: true };
+    }
+    host.ctx.flash(`copied ${said} for itself · your clipboard is untouched`);
+    this.noteAgent(actor, `copied ${said} of ${b.kind === "code" ? "a code block" : b.kind === "span" ? "a code span" : "a " + b.kind}`);
+    return { n: i + 1, kind: b.kind, text: b.text, lines, clipboard: false };
+  }
+
   /** Refused unless the last render drew the note (the elements come from it). */
   requireDrawn() {
     if (!this.drawn && !this.digesting) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
@@ -2920,6 +3040,15 @@ export class NoteSurface {
     const h = this.hitAt(x, y);
     // Each click is the action its key is (PIE-506): copy, back and forward, select.clear, element.open, …
     if (h && "copy" in h) { void this.runKey("select.copy", h.copy === "source" ? { source: true } : {}, host); return true; }
+    // The copy control on a code block, a quote or a callout (PIE-638): block.copy, as y on it.
+    if (h && "block" in h) {
+      // A code span becomes the `[ ]` position (its row tinted for a moment), then copies as y on it does.
+      const span = this.blockDoc()?.doc.blocks[h.block]?.kind === "span" ? this.elems.find(e => e.block === h.block) : undefined;
+      if (span) this.setElem(span);
+      void this.runKey("block.copy", { n: h.block + 1 }, host);
+      host.redraw();
+      return true;
+    }
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) void this.runKey("select.clear", {}, host);
@@ -3655,6 +3784,9 @@ export class NoteSurface {
       },
       // A shaded region's gutter (an embed's, a resource projection's) is drawn like the margin, and isn't copied.
       margin: r => (r < d.top ? 0 : d.body[r - d.top]?.startsWith(" " + SHADE) ? 2 : 1),
+      // The drawing inside the text (a quote's bar, a frame's edges, a bullet glyph, a fold arrow) is drawn, never copied (PIE-638).
+      cuts: r => (r < d.top ? undefined : d.doc.trims.get(r - d.top)?.cuts.map(([a, b, rep]) => [a + 1, b + 1, rep] as const)),
+      edge: r => r >= d.top && !!d.doc.trims.get(r - d.top)?.edge,
     };
   }
 
@@ -3830,7 +3962,9 @@ export class NoteSurface {
         void this.runKey("select.copy", {}, host);
         return true;
       }
-      if (c === "y" || c === "Y") { host.ctx.flash("nothing is selected · drag across the text, or v and move"); return true; }
+      // y on a code block, a quote or a callout (or something in one) that is the current element copies its text (PIE-638).
+      if (c === "y" && e && this.blockOf(e) !== null) { void this.runKey("block.copy", {}, host); return true; }
+      if (c === "y" || c === "Y") { host.ctx.flash("nothing is selected · drag across the text, or v and move · [ ] to a code block or quote, then y copies it"); return true; }
       if (c !== "v") return false;
       void this.runKey("select.mode", {}, host);
       return true;
@@ -4340,6 +4474,9 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
       images: doc.images.map(im => ({ ...im, line: mv(im.line) })),
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
+      trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
+      // A block that rows were put inside (a thread under a quote's passage) grows with them.
+      blocks: doc.blocks.map(b => ({ ...b, row: mv(b.row), rows: mv(b.row + b.rows - 1) + 1 - mv(b.row), col: b.col })),
     },
     starts,
   };
@@ -4993,6 +5130,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const i = n ?? (cur ? surface.describeElements().findIndex(e => e.current) + 1 : 0);
       if (!i) throw new ActionRefused("no element is current in view; pass n");
       const e = surface.element(i);
+      // A code block or a quote has nothing to open: ⏎ copies it (the person's to their clipboard, an agent's returned).
+      if (e.kind === "block") { const r: unknown = await NOTE_ACTIONS.run("block.copy", { n: e.block! + 1 }, on, actor); return r; }
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // A step's box opens the person's status choice; an agent sets the status itself.
       // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
@@ -5558,6 +5697,32 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, `selected ${out.chars} chars`);
       host.redraw();
       return out;
+    },
+  }),
+  "blocks": def({
+    summary: "list the code blocks, quotes and callouts this reader draws, in reading order: number, kind, size, note lines and first words (the current one marked). block.copy n= copies one's content",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { surface }) {
+      await surface.whole();
+      surface.requireDrawn();
+      return { blocks: surface.describeBlocks() };
+    },
+  }),
+  "block.copy": def({
+    summary: "copy a code block's, quote's or callout's content as written: a fence's lines without the fence, a quote's lines without the > markers, a callout's body without its marker line (inner Markdown kept). The person's goes to their clipboard (OSC 52) and the status line says \"copied N lines\"; an agent's is returned to it and never touches the person's clipboard",
+    keys: "y or cmd+c on the current element ([ ] to the block, or anything in it), ⏎ on a block element, a click on its ⧉ control",
+    touches: "nothing", replay: "safe",
+    args: {
+      n: { type: "number", optional: true, about: "which block, from 1, as blocks lists them; default the block the person's current element is in" },
+      element: { type: "number", optional: true, about: "or the block the nth element (elements lists them) is, or is in: an inline code span is one" },
+    },
+    async run({ n, element }, { surface, host }, actor) {
+      if (actor.kind === "agent") await surface.whole();
+      if (n !== undefined && element !== undefined) throw new ActionRefused("say n or element, not both");
+      const r = surface.copyBlock(n ?? (element !== undefined ? surface.blockNumberOf(element) : undefined), host, actor);
+      host.redraw();
+      return r;
     },
   }),
   "select.copy": def({

@@ -164,7 +164,8 @@ describe("Markdown links", () => {
 test("a ```component:<name> fence is a code block like any other, drawn as code", () => {
   const { draw } = setup("Status\n```component:status\nTo do :: 4\n```");
   const lines = draw().map(l => plain(l).trim());
-  expect(lines).toEqual(expect.arrayContaining(["╭ component:status", "│ To do :: 4"]));
+  // The block's copy control (PIE-638) is at the right end of its first row.
+  expect(lines).toEqual(expect.arrayContaining([expect.stringMatching(/^╭ component:status +⧉$/), "│ To do :: 4"]));
 });
 
 describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {

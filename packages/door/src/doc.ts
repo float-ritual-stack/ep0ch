@@ -133,9 +133,30 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
  */
 export interface Doc {
   lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[];
+  /** The drawing a copy leaves out, by row of `lines` (only rows that have some). */
+  trims: Map<number, DocTrim>;
+  /** The code blocks, quotes and callouts drawn, in reading order: what the copy control copies. */
+  blocks: DocBlock[];
   /** The header image (`env.hero`): the first `[layout::hero]` image, drawn by the reader above the title. */
   hero?: DocMedia & { media: Media };
 }
+
+/**
+ * Drawing that is not the note's text, in a row's cells: `cuts` are cell ranges [from, to) (`to` may be Infinity) a
+ * selection's copy leaves out (a quote's bar, a frame's edges, a bullet glyph, a fold arrow); `edge`: the row is only
+ * decoration (a frame's top or bottom edge), left out whole.
+ */
+export interface DocTrim { cuts: [number, number, string?][]; edge?: true }
+/**
+ * A fenced code block, a quote or a callout as drawn (PIE-638): `row`, `rows` where it is in `lines`; `line`, `end` the
+ * source lines [line, end) it is; `inner` the source lines [from, to) that are its content, `strip` how many levels of `>` its
+ * lines lose to be that (the reader copies them from the note as written, which this document's lines are not: links and
+ * styles are marks by now); `text` that content as this document has it (for what has no note behind it); `col` the cell of
+ * `row` its copy control `⧉` sits in (drawn when that cell is blank or a rule).
+ */
+export interface DocBlock { kind: "code" | "quote" | "callout" | "span"; row: number; rows: number; line: number; end: number; inner: [number, number]; strip: number; text: string; col: number;
+  /** An inline code span (`kind: "span"`, one row, `col` to `to`): `text` its contents without the backticks. It has no control; a click on it copies. */
+  to?: number }
 
 /**
  * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
@@ -259,6 +280,23 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
   const mediaAt = mediaLines(src);
   const source: number[] = [], heads: Doc["heads"] = [];
+  const trims = new Map<number, DocTrim>(), blocks: DocBlock[] = [];
+  const cut = (row: number, ...cuts: [number, number, string?][]) => { const t = trims.get(row); if (t) t.cuts.push(...cuts); else trims.set(row, { cuts }); };
+  const edge = (row: number) => trims.set(row, { cuts: [[0, Infinity]], edge: true });
+  /**
+   * A sub-document's rows taken in at `base`: its trims and blocks moved by `dx` cells and `off` lines. `frame`: its rows sit
+   * inside a frame `│ … │` (2 cells each side, the text `inner` wide), which is decoration too.
+   */
+  const adopt = (sub: Doc, base: number, dx: number, off: number, frame?: { inner: number }, quoted = 0) => {
+    sub.lines.forEach((_, r) => {
+      const t = sub.trims.get(r);
+      if (t?.edge) { edge(base + r); return; }
+      const cuts: [number, number, string?][] = (t?.cuts ?? []).map(([a, b, r]) => [a + dx, b + dx, r]);
+      if (frame) cuts.push([0, dx], [dx + frame.inner, Infinity]);
+      if (cuts.length) cut(base + r, ...cuts);
+    });
+    for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
+  };
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
@@ -311,7 +349,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const base = out.length;
         sub.lines.forEach((l, r) => { out.push(fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET); source.push(off + (sub.source[r] ?? 0)); });
         for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+        edge(base - 1);
+        adopt(sub, base, 2, off, { inner });
         out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET);
+        edge(out.length - 1);
         i = end - 1;
         continue;
       }
@@ -324,6 +365,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const disclosure = { folded, selected, hidden: fp.hidden };
       const styled = fp.kind === "heading" ? styledHeading(line, W, env, lit(i), disclosure) : null;
       const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)));
+      if (!styled) proseCuts(line, W, disclosure).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + k, ...c); });
       heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
@@ -357,11 +399,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       i = fence.end;
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
-      if (fence.fence.info) out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET);
+      const first = out.length;
+      if (fence.fence.info) { out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET); edge(first); }
       // A ```diff fence colours its lines by their mark: + added, - removed, @@ a hunk, the rest dim (the unsent diff).
       const diff = /^diff\b/.test(fence.fence.info);
       const ink = (c: string) => (!diff ? C.lcyan : c.startsWith("+") ? C.lgreen : c.startsWith("-") ? C.lred : c.startsWith("@@") ? C.cyan : C.grey);
-      for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(ink(c)) + piece + RESET);
+      for (const c of code) for (const piece of chunk(c, W - 2)) { cut(out.length, [0, 2]); out.push(fg(C.blue) + "│ " + fg(ink(c)) + piece + RESET); }
+      blocks.push({ kind: "code", row: first, rows: out.length - first, line: fence.start, end: fence.end + 1, inner: [fence.start + 1, fence.start + 1 + code.length], strip: 0, text: code.join("\n"), col: W - 1 });
       continue;
     }
 
@@ -397,6 +441,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (cb) {
       const t = (env.callouts ?? BUILTIN_CALLOUT_REGISTRY).style(cb.type), colour = TONE[t.tone];
       let body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
+      const written = body.join("\n").trimEnd();
       // A quote's last `— name, source` line is its byline (outline-core's quoteByline, as Detail reads it): drawn
       // after the body, to the right, the source muted.
       const byline = t.name === "quote" ? quoteByline(body) : null;
@@ -419,7 +464,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (body.length && !folded) {
           const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, decorate: undefined, literal: undefined });
           mark();
+          const base0 = out.length;
           sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
+          adopt(sub, base0, 0, i + 1, undefined, cb.depth);
           if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
         }
         i = cb.end - 1;
@@ -446,15 +493,18 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const head = ` ${glyph}${tag(t.icon)} ${selected ? fg(C.yellow) : ""}${title}${fg(colour)} `;
       const label = typeName && bw - 3 - vwidth(head) >= typeName.length + 4 ? ` ${tag(typeName)} ` : "";
       if (fp2) heads.push({ key: fp2.key, row: out.length, cols: W });
+      const top = out.length;
+      edge(top);
       out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head) - vwidth(label) - (label ? 1 : 0))) + (label ? fg(C.dark) + label + fg(colour) + "─" : "") + "╮" + RESET);
-      const framed = (l: string) => fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET;
+      const framed = (l: string) => { cut(out.length, [0, 2], [2 + inner, Infinity]); return fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET; };
       if (folded) {
         const n = body.filter(l => l.trim()).length, said = `▸ ${n} line${n === 1 ? "" : "s"} folded`;
         // The hint gives way by width, whole words at a time, never cut mid-word.
         const hint = (fp2 ? [`${said} · f or a click on the title unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
+        cut(out.length, [0, 2], [2 + inner, Infinity]);
         out.push(fg(colour) + "│ " + fg(C.dark) + pad(hint, inner) + fg(colour) + " │" + RESET);
       } else {
-        for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
+        for (const l of spill ? wrap(spill, inner) : []) { cut(out.length, [0, 2], [2 + inner, Infinity]); out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET); }
         // A title-only callout is just the titled frame; no empty row inside.
         if (body.length) {
           const off = i + 1, inside = (n: number) => n > i && n < cb.end;
@@ -468,10 +518,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           const base = out.length;
           sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(off + (sub.source[r] ?? 0)); });
           for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+          adopt(sub, base, 2, off, { inner }, cb.depth);
           if (byline) { out.push(framed(bylineRow(inner))); source.push(off + byline.line); }
         }
       }
+      edge(out.length);
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);
+      blocks.push({ kind: "callout", row: top, rows: out.length - top, line: i, end: cb.end, inner: [i + 1, cb.end], strip: cb.depth, text: written, col: bw - 2 });
       i = cb.end - 1;
       continue;
     }
@@ -514,13 +567,23 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (declared) { out.push(...declared); continue; }
     const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
     if (styled) { out.push(...styled.rows); continue; }
-    out.push(...prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box))));
+    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)));
+    proseCuts(line, W).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + k, ...c); });
+    // A run of `>` lines is one quote: its copy control is on the first.
+    if (/^\s*>/.test(line)) {
+      const text = line.replace(/^\s*> ?/, ""), last = blocks.at(-1);
+      if (last?.kind === "quote" && last.end === i && last.row + last.rows === out.length) { last.rows += rows.length; last.end = i + 1; last.inner[1] = i + 1; last.text += "\n" + text; }
+      else blocks.push({ kind: "quote", row: out.length, rows: rows.length, line: i, end: i + 1, inner: [i, i + 1], strip: 1, text, col: W - 1 });
+    }
+    out.push(...rows);
   }
   mark();
   insert(src.length);
-  if (env.keepTags) return { lines: out.map(stripMarks), images, media: mediaRefs, links: [], source, heads, ...(hero ? { hero } : {}) };
+  // The inline code spans as drawn (nested documents' are found again in the rows they were framed into), and every block in reading order.
+  const finish = (lines: string[]) => { blocks.push(...codeSpans(lines, source)); blocks.sort((a, b) => a.row - b.row || a.col - b.col); return blocks; };
+  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges, source, heads, ...(hero ? { hero } : {}) };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) };
 }
 
 /** Rows `cols` cells of `m` take, its aspect kept. */
@@ -723,6 +786,69 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
   }
   if (!line.trim()) return [""];
   return wrap(line, W, BODY).map(inline);
+}
+
+const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey), TAG_CHAR = /[\u{100000}-\u{10FFFD}]/u;
+/**
+ * The inline code spans in drawn `lines`, as colourBody draws them (magenta, then back to grey: nothing else ends that way), one block
+ * each (`kind: "span"`). A span the wrap cut across rows is one: its text joined with a space.
+ */
+function codeSpans(lines: readonly string[], source: readonly number[]): DocBlock[] {
+  const out: DocBlock[] = [];
+  const cellsOfRow = (l: string) => l.split(/\x1b\[[\d;]*m/).join("").split("").filter(c => !TAG_CHAR.test(c));
+  lines.forEach((line, row) => {
+    const parts = line.split(/(\x1b\[[\d;]*m)/);
+    let col = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]!;
+      if (p.startsWith("\x1b[")) {
+        const text = parts[i + 1] ?? "";
+        if (p === CODE_ON && parts[i + 2] === CODE_OFF && text.replace(TAG_CHAR, "").trim()) {
+          const t = [...text].filter(c => !TAG_CHAR.test(c)).join("");
+          out.push({ kind: "span", row, rows: 1, line: source[row] ?? 0, end: (source[row] ?? 0) + 1, inner: [0, 0], strip: 0, text: t, col, to: col + [...t].length });
+        }
+        continue;
+      }
+      col += [...p].filter(c => !TAG_CHAR.test(c)).length;
+    }
+  });
+  // A span the wrap cut: the last on its row, then the first on the next, with only blanks, bars and a list's lead around them.
+  const merged: DocBlock[] = [];
+  for (const b of out) {
+    const prev = merged.at(-1);
+    if (prev && prev.row + prev.rows === b.row) {
+      const before = cellsOfRow(lines[b.row]!).slice(0, b.col).join(""), after = cellsOfRow(lines[prev.row]!).slice(prev.to!).join("");
+      const firstOnRow = !out.some(o => o !== b && o.row === b.row && o.col < b.col), lastOnRow = !out.some(o => o !== prev && o.row === prev.row && o.col > prev.col);
+      if (firstOnRow && lastOnRow && /^[\s│▌∙]*$/.test(before) && /^[\s│]*$/.test(after)) { prev.text += " " + b.text; prev.rows += 1; continue; }
+    }
+    merged.push({ ...b });
+  }
+  return merged;
+}
+
+/**
+ * The cells of `prose(line, W, fold)`'s rows that are drawing, not the note's words (a copy leaves them out): a quote's bar, a
+ * bullet glyph or fold arrow with the space after it, and the indent a wrapped item's next rows are drawn with.
+ */
+function proseCuts(line: string, W: number, fold?: Disclosure): [number, number, string?][][] {
+  if (/^\s*>/.test(line)) {
+    const body = line.replace(/^\s*> ?/, ""), item = /^(\s*)([-*]) /.exec(body);
+    // colourBody draws a quoted "- " as a bullet glyph: copied as the note's own marker.
+    return wrap(body, W - 2, BODY).map((_, k) => (k === 0 && item ? [[0, 2], [2 + item[1]!.length, 4 + item[1]!.length, item[2]! + " "]] : [[0, 2]]));
+  }
+  const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
+  if (HEADING.test(line)) return [glyph ? [[0, 2]] : []];
+  const li = line.match(ITEM);
+  if (!li) return [];
+  const indent = li[1]!.length, num = /\d/.test(li[2]!);
+  const mark = num ? li[2]! + glyph : glyph || "∙";
+  const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
+  const at = Math.max(0, Math.min(indent, W - mark.length - 1 - room)), lead = at + mark.length + 1;
+  // The box of a step is drawn in place of its text: what `wrap` makes of the rest isn't known here, so the rows after
+  // the first are cut by the indent they are drawn with (rows past those the item has are ignored).
+  // A bullet glyph is the list marker as the note has it ("- ", "* ") when copied; a number is drawn as written.
+  const first: [number, number, string?][] = !num ? [[at, lead, li[2]! + " "]] : glyph ? [[at + li[2]!.length, at + mark.length]] : [];
+  return [first, ...Array.from({ length: 64 }, () => [[at, lead]] as [number, number][])];
 }
 
 function chunk(s: string, w: number): string[] {
