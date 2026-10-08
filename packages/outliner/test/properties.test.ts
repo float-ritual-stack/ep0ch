@@ -267,7 +267,7 @@ test("inserts metadata before a code-only first-line fence", () => {
 
 test("rejects invalid values and conflicting token edits", () => {
   expect(() => validateProperty("bad key", "value")).toThrow("Invalid property key");
-  expect(() => validateProperty("status", "bad]value")).toThrow("cannot contain");
+  expect(() => validateProperty("status", "bad]value")).toThrow("balanced brackets");
   expect(() => patchPropertyText("[status::open]", [{ op: "remove", ordinal: 9 }])).toThrow(
     "Property token not found",
   );
