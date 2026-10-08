@@ -882,13 +882,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "tile.open", tile: "tree", args: { kind: "detail", where: "right" }, as: "test-agent" });
     await app.act({ action: "tile.link", tile: "tree", args: { to: "detail" }, as: "test-agent" });
     expect(tiles().map(t => t.kind)).toEqual(["tree", "detail"]);
-    const saved = await app.act({ action: "screen.save", args: { name: "allotment-work" }, as: "test-agent" }) as any;
-    expect(saved).toMatchObject({ screen: "allotment-work", created: true, tiles: ["tree", "detail"] });
+    const saved = await app.act({ action: "screen.save", args: { name: "Allotment work" }, as: "test-agent" }) as any;
+    // Named the way it is typed: the title is kept, the answer says the slug it saved under.
+    expect(saved).toMatchObject({ screen: "allotment-work", title: "Allotment work", slug: "allotment-work", created: true, tiles: ["tree", "detail"] });
     const note = await board.get(saved.note);
     expect(note!.props).toMatchObject({ type: "screen", screen: "allotment-work" });
     expect(note!.author).toBe("test-agent");               // attributed to the agent that saved it
     // Opened again by name, as `ep0ch --screen allotment-work` does: the same tiles, the outline's opens landing in the detail.
-    await app.act({ action: "screen.open", args: { name: "allotment-work" }, as: "test-agent" });
+    await app.act({ action: "screen.open", args: { name: "allotment work" }, as: "test-agent" });
     const top = () => app.screens().at(-1) as any;
     await until(() => top().name === "allotment-work", "the saved screen opened");
     expect((top().layoutGet().tiles as any[]).map(t => [t.name, t.link ?? null])).toEqual([["tree", "detail"], ["detail", null]]);

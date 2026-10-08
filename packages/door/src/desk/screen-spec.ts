@@ -192,12 +192,53 @@ export type SpecOf = (args?: Record<string, unknown>) => ScreenSpec;
 export interface ScreenRegistration {
   target?: string;
   /** A screen a person made (a screen note in the outline, src/desk/screen-notes.ts): its note's id and revision. */
-  made?: { id: string; revision: number };
+  made?: { id: string; revision: number; title?: string };
 }
 const specs = new Map<string, SpecOf>();
 const registrations = new Map<string, ScreenRegistration>();
 /** Why `name` can't be a screen's name, or null. */
 export const screenNameProblem = (name: string): string | null => (NAME.test(name) ? null : `a screen's name is a letter, then letters, digits, . - _, at most 40 (not ${JSON.stringify(name)})`);
+
+/**
+ * The name a title is kept under: lowercase, runs of spaces to `-`, anything but letters, digits, `.` `-` `_` dropped,
+ * at most 40. "Daily test" is `daily-test`. It may still not be a name (it must start with a letter): `screenTitleProblem`.
+ */
+export const screenSlug = (title: string): string =>
+  title.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").replace(/-{2,}/g, "-").slice(0, 40).replace(/-+$/, "");
+
+/**
+ * Why a screen can't be saved as `title` (what a person typed: spaces and capitals are fine), or null. The reason says
+ * the name it would have and, where there is one, a name that would work.
+ */
+export function screenTitleProblem(title: string): string | null {
+  const t = title.trim();
+  if (!t) return "type a name for the screen (daily test saves as daily-test)";
+  if (/[\[\]\n\r]/.test(t)) return `a screen's name has no [ ], and is one line (${JSON.stringify(t)}) · try ${JSON.stringify(t.replace(/[\[\]]/g, "").replace(/\s+/g, " ").trim() || "my screen")}`;
+  if (t.length > 60) return `a screen's name is at most 60 characters (this is ${t.length}) · try ${JSON.stringify(t.slice(0, 60).trim())}`;
+  const slug = screenSlug(t);
+  if (!NAME.test(slug)) {
+    const tail = slug.replace(/^[^a-z]+/, "");
+    return slug
+      ? `a screen's name starts with a letter (${JSON.stringify(t)} would be ${slug})${tail ? ` · try ${JSON.stringify(tail)}` : ""}`
+      : `a screen's name needs letters (${JSON.stringify(t)} has none to make a name from) · try ${JSON.stringify("my screen")}`;
+  }
+  if (builtinScreen(slug)) return `${slug} is a built-in screen's name · try ${JSON.stringify(`${t} 2`)} (saves as ${screenSlug(`${t} 2`)})`;
+  return null;
+}
+/** The name a screen a person made is shown by: its title, as they typed it (else the name). */
+export const screenTitle = (name: string): string => registrations.get(name)?.made?.title || name;
+/**
+ * The registered screen `asked` means: its name, a screen a person made by its title (case aside), or the name a
+ * typed title would be. Null when there's none; a built-in's name is itself.
+ */
+export function resolveScreen(asked: string): string | null {
+  const a = asked.trim();
+  if (specs.has(a)) return a;
+  const lower = a.toLowerCase();
+  for (const [name, r] of registrations) if (r.made?.title && r.made.title.toLowerCase() === lower) return name;
+  const slug = screenSlug(a);
+  return slug && specs.has(slug) ? slug : null;
+}
 /** Register a screen by name (refused under a name taken already). */
 export function registerScreen(name: string, of: SpecOf, how: ScreenRegistration = {}): void {
   const bad = screenNameProblem(name);
@@ -214,7 +255,7 @@ export function forgetScreen(name: string): boolean {
   return true;
 }
 /** The note a screen a person made is kept in (its id and the revision this door read), or undefined for a built-in. */
-export const madeScreen = (name: string): { id: string; revision: number } | undefined => registrations.get(name)?.made;
+export const madeScreen = (name: string): { id: string; revision: number; title?: string } | undefined => registrations.get(name)?.made;
 /** A screen the door itself registers (desk, board, blank…): a screen note can't take its name. */
 export const builtinScreen = (name: string): boolean => specs.has(name) && !registrations.get(name)?.made;
 /** The spec of the screen named `name`, or null. */
@@ -227,7 +268,28 @@ export const screenTargetArg = (name: string): string | undefined => registratio
 /** Every screen registered, by name. */
 export const screenNames = (): string[] => [...specs.keys()];
 
-// ── a screen mounted in another (PIE-651) ──────────────────────────────────────
+// ── a screen mounted in another (PIE-651) ──
+
+/** Mounts nest this deep at most: a screen holding a mount holding a mount… (four: the top, then three below it). */
+export const MAX_MOUNT_DEPTH = 4;
+/** The screens a spec mounts, by name (a `screen` tile; the older board and river kinds are mounts of theirs). */
+const mountsIn = (spec: ScreenSpec): string[] => savedNodes(spec.layout.root).flatMap(n => (n.t === "leaf" ? [typeof n.screen === "string" && n.screen ? n.screen : n.kind === "board" || n.kind === "river" ? n.kind : ""] : [])).filter(Boolean);
+/**
+ * Why `screen` can't be mounted under `chain` (the screens held one inside the next, outermost first; "group" is a
+ * group's tiles, never a screen), or null: it is in the chain already (itself, or A holding B holding A: said as the
+ * chain, "daily-test → focus → daily-test"), a screen it mounts would be (its saved spec is walked), or the mounts
+ * would nest past MAX_MOUNT_DEPTH. One rule for a mount opened, restored and a saved screen's spec loading.
+ */
+export function mountProblem(chain: readonly string[], screen: string): string | null {
+  const shown = (extra: string) => [...chain.filter(n => n !== "group"), extra].join(" → ");
+  if (chain.includes(screen)) return `a screen can't hold itself: ${shown(screen)}`;
+  if (chain.length >= MAX_MOUNT_DEPTH) return `mounts nest at most ${MAX_MOUNT_DEPTH} deep: ${shown(screen)}`;
+  let inner: ScreenSpec | null = null;
+  try { inner = screenSpec(screen); } catch { /* a spec that needs its target: it mounts nothing to follow */ }
+  if (!inner) return null;
+  for (const m of mountsIn(inner)) { const why = mountProblem([...chain, screen], m); if (why) return why; }
+  return null;
+}
 
 /**
  * The part of a screen named `key` (a container's key, or a tile's name) as a screen of its own: its layout is that

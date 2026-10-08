@@ -1,14 +1,15 @@
 // Screens a person made (PIE-565): each one a screen note in the outline, so it travels with the outline, every door
 // on it opens it and an agent reads it. A screen note is an ordinary block (Detail and the outliner show it as one):
 //
-//     garden-work [type::screen] [screen::garden-work]
+//     Garden work [type::screen] [screen::garden-work]
 //     A screen made in the door … (what it is and how to open it)
 //
 //     ```json
 //     { the spec as data: what `screen.spec` answers (specData), read back by readSpec }
 //     ```
 //
-// Its name is its `screen::` property (a name a person chose: ADR 0001), its spec the JSON in its first ```json fence.
+// Its name is its `screen::` property (a name a person chose: ADR 0001: a slug), its title the note's own title as they
+// typed it ("Garden work"; `screenSlug` makes the name of it), its spec the JSON in its first ```json fence.
 // The door reads every screen note as it starts and again when one changes, and registers each as a screen
 // (`registerScreen` with `made`), so `screen.open`, `--screen <name>`, `screen.list`, the screen pickers and
 // `layout.load` find it beside the built-ins. A name that is a built-in screen's, or that two notes share, isn't
@@ -20,7 +21,7 @@
 import { subject, type Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
-import { builtinScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, specData, type ScreenSpec } from "./screen-spec";
+import { builtinScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
 
 /** The property value that makes a block a screen note, and the one of the note they're kept under. */
 export const SCREEN_TYPE = "screen";
@@ -30,7 +31,7 @@ const HOME_TYPE = "screens";
 export type ScreenStore = Pick<SocketBoard, "byProp" | "createBlock" | "update" | "trash">;
 
 /** A screen note as read: the screen's name, its note and the revision read, and its spec. */
-export interface ScreenNote { name: string; id: string; revision: number; spec: ScreenSpec }
+export interface ScreenNote { name: string; title: string; id: string; revision: number; spec: ScreenSpec }
 
 /** The screen notes registered now, by name. */
 let notes = new Map<string, ScreenNote>();
@@ -44,12 +45,13 @@ export const screenNote = (name: string): ScreenNote | undefined => notes.get(na
 /** What the last read of the screen notes found wrong, in words. */
 export const screenNoteProblems = (): readonly string[] => problems;
 
-/** A screen's note text: its name as the title, its properties, a line on what it is, and its spec as data. */
+/** A screen's note text: its title (as typed), its properties, a line on what it is, and its spec as data. */
 export function screenNoteText(spec: ScreenSpec): string {
-  const data = specData({ ...spec, title: spec.name });
+  const title = spec.title && screenSlug(spec.title) === spec.name ? spec.title.trim() : spec.name;
+  const data = specData({ ...spec, title });
   return [
-    `${spec.name} [type::${SCREEN_TYPE}] [${SCREEN_TYPE}::${spec.name}]`,
-    `A screen made in the door: \`ep0ch --screen ${spec.name}\` opens it, and ^W w on it saves it again. Its layout is the data below, as \`screen.spec\` answers it. Trash this note to take the screen away.`,
+    `${title} [type::${SCREEN_TYPE}] [${SCREEN_TYPE}::${spec.name}]`,
+    `A screen made in the door: \`ep0ch --screen ${spec.name}\`${title === spec.name ? "" : ` (or \`--screen ${JSON.stringify(title)}\`)`} opens it, and ^W w on it saves it again. Its layout is the data below, as \`screen.spec\` answers it. Trash this note to take the screen away.`,
     "",
     "```json",
     JSON.stringify(data, null, 2),
@@ -63,7 +65,10 @@ export function screenNoteText(spec: ScreenSpec): string {
  * ```), so the JSON's own lines are never taken for anything else.
  */
 export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: string; id: string } {
-  const name = (m.props[SCREEN_TYPE] ?? "").trim() || subject(m);
+  const heading = subject(m).trim();
+  const name = (m.props[SCREEN_TYPE] ?? "").trim() || screenSlug(heading) || heading;
+  // Its title is the note's own when that makes this name (renaming the property renames the screen, title and all).
+  const title = heading && screenSlug(heading) === name ? heading : name;
   const where = `the screen note ((${m.id}))`;
   const wrong = (problem: string) => ({ problem, name, id: m.id });
   const bad = screenNameProblem(name);
@@ -75,9 +80,8 @@ export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: st
   let data: unknown;
   try { data = JSON.parse(lines.slice(open + 1, close).join("\n")); } catch (e) { return wrong(`${where} (${name}): its layout isn't JSON (${(e as Error).message})`); }
   try {
-    // Its name is the note's: renaming the property renames the screen. Its title is its name.
-    const spec = readSpec({ ...(data && typeof data === "object" ? data : {}), name, title: name });
-    return { name, id: m.id, revision: m.revision ?? 0, spec };
+    const spec = readSpec({ ...(data && typeof data === "object" ? data : {}), name, title });
+    return { name, title, id: m.id, revision: m.revision ?? 0, spec };
   } catch (e) { return wrong(`${where}: ${(e as Error).message}`); }
 }
 
@@ -91,7 +95,7 @@ export function register(n: ScreenNote) {
   writes++;
   forgetScreen(n.name);
   notes.set(n.name, n);
-  registerScreen(n.name, () => readSpec(specData(n.spec)), { made: { id: n.id, revision: n.revision } });
+  registerScreen(n.name, () => readSpec(specData(n.spec)), { made: { id: n.id, revision: n.revision, title: n.title } });
 }
 /** One screen note taken out. */
 function unregister(name: string) { writes++; forgetScreen(name); notes.delete(name); }
@@ -146,9 +150,9 @@ export class ScreenConflict extends ActionRefused { constructor(msg: string, rea
  * checked against that, so a newer save another door made (and this door has since read) is never written over unseen.
  */
 export async function saveScreenNote(board: ScreenStore, spec: ScreenSpec, actor: Actor, base?: { id: string; revision: number } | null): Promise<{ note: ScreenNote; created: boolean }> {
-  const bad = screenNameProblem(spec.name);
+  const bad = screenNameProblem(spec.name) ?? (screenSlug(spec.title) === spec.name ? screenTitleProblem(spec.title) : null);
   if (bad) throw new ActionRefused(bad);
-  if (builtinScreen(spec.name)) throw new ActionRefused(`${spec.name} is a built-in screen: a screen you make takes a name of its own (the built-ins: ${screenNames().filter(builtinScreen).join(", ")})`);
+  if (builtinScreen(spec.name)) throw new ActionRefused(`${spec.name} is a built-in screen: a screen you make takes a name of its own (the built-ins: ${screenNames().filter(builtinScreen).join(", ")}) · try ${JSON.stringify(`${spec.title} 2`)}`);
   const clash = problems.find(p => p.includes(` are named ${spec.name}:`));
   if (clash) throw new ActionRefused(clash);
   const text = screenNoteText(spec);

@@ -192,7 +192,7 @@ const RECENT: BarSource = {
   pick: (row, host, how) => openNote(row.key, host, how),
 };
 
-interface ScreenListed { stack: string[]; screens: { key: string; label: string; about: string }[]; named: { name: string; made?: boolean }[] }
+interface ScreenListed { stack: string[]; screens: { key: string; label: string; about: string }[]; named: { name: string; title?: string; made?: boolean }[] }
 
 const SCREENS: BarSource = {
   id: "screens", title: "screens", prefix: "@", by: "door",
@@ -201,7 +201,7 @@ const SCREENS: BarSource = {
   async rows(q, host) {
     const l = await host.dispatch.act({ action: "screen.list" }, USER) as ScreenListed;
     const rows: BarRow[] = l.screens.filter(s => s.key !== "G" && s.key !== "E").map(s => ({ key: s.key, label: s.label, detail: `the menu's ${s.key}`, data: { name: s.key, about: s.about } }));
-    for (const n of l.named) if (!rows.some(r => r.label.toLowerCase() === n.name.toLowerCase())) rows.push({ key: `named:${n.name}`, label: n.name, detail: n.made ? "a screen you made" : "a screen", data: { name: n.name, about: n.made ? "a screen someone made and saved as a screen note (^W w)" : "" } });
+    for (const n of l.named) if (!rows.some(r => r.label.toLowerCase() === (n.title ?? n.name).toLowerCase())) rows.push({ key: `named:${n.name}`, label: n.title ?? n.name, detail: n.made ? "a screen you made" : "a screen", data: { name: n.name, about: n.made ? "a screen someone made and saved as a screen note (^W w)" : "" } });
     return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { about: string }).about]);
   },
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),

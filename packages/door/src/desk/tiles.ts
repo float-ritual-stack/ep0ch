@@ -9,6 +9,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../state";
 import { screenNote, screenNotes } from "./screen-notes";
+import { resolveScreen } from "./screen-spec";
 import { subject } from "../board";
 import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
@@ -195,16 +196,17 @@ export function builtin(name: string): LayoutSpec | null {
 export const BUILTIN = ["daily", "river", "board", "desk"] as const;
 
 /** A layout by name: a screen note's (a screen a person made, PIE-565), else the built-in. */
-export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
+export function layoutNamed(asked: string): { spec: LayoutSpec; saved: boolean } | null {
+  const name = (screenNote(asked) ? asked : resolveScreen(asked)) ?? asked;
   const n = screenNote(name);
   if (n) return { spec: { ...n.spec.layout, name }, saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }
 /** Every layout a screen can be laid out as: the built-ins, then the screens people made (a note may take a built-in layout's name: daily). */
-export function layoutNames(): { name: string; saved: boolean; builtin: boolean }[] {
+export function layoutNames(): { name: string; title: string; saved: boolean; builtin: boolean }[] {
   const saved = screenNotes().map(n => n.name);
-  return [...new Set([...BUILTIN, ...saved])].map(name => ({ name, saved: saved.includes(name), builtin: (BUILTIN as readonly string[]).includes(name) }));
+  return [...new Set([...BUILTIN, ...saved])].map(name => ({ name, title: screenNote(name)?.title ?? name, saved: saved.includes(name), builtin: (BUILTIN as readonly string[]).includes(name) }));
 }
 
 // The built-in kinds register as the door starts (an extension's join the same registry later).

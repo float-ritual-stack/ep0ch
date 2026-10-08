@@ -163,8 +163,9 @@ if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.
 const asked = screenArg(args);
 if (asked && !args.includes("--remote")) {
   const { knownScreen, unknownScreen } = await import("./screens");
-  const { screenNameProblem } = await import("./desk/screen-spec");
-  if (!knownScreen(asked.name) && screenNameProblem(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
+  const { screenNameProblem, screenSlug } = await import("./desk/screen-spec");
+  // A title as typed ("daily test") may be a screen a person made: the door finds it once it has read the outline.
+  if (!knownScreen(asked.name) && screenNameProblem(screenSlug(asked.name))) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
 }
 // The showcase lives on its own seeded outline, never the one this folder names: `ep0ch --showcase [--reset]` is
 // `ep0ch try --showcase [--reset]`. With --ws (as try-it.sh itself runs it) it opens the screen on that outline.

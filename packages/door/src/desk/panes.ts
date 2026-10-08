@@ -27,6 +27,8 @@ export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: 
 
 export interface DeskApi {
   ctx: Ctx;
+  /** The screens held one inside the next down to this desk (a mount is checked against it). */
+  mountChain?(): string[];
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;

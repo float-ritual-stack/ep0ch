@@ -19,7 +19,7 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { madeScreen, screenNames, screenTargetArg } from "./desk/screen-spec";
+import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } from "./desk/screen-spec";
 import { screenNoteProblems } from "./desk/screen-notes";
 import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "./machine-name";
@@ -419,7 +419,7 @@ function itemNamed(name: string): MenuItem | undefined {
   return ITEMS.find(i => i.key.toLowerCase() === n) ?? ITEMS.find(i => i.label.toLowerCase() === n || SCREEN_NAMES[i.key]?.includes(n));
 }
 /** Whether `screen.open` (and `ep0ch --screen`) knows `name`: a menu item by any of its names, or a registered screen. */
-export const knownScreen = (name: string): boolean => !!itemNamed(name) || screenNames().includes(name);
+export const knownScreen = (name: string): boolean => !!itemNamed(name) || resolveScreen(name) !== null;
 
 /** The refusal for a screen nobody knows: the names there are, and the command to try. */
 export function unknownScreen(name: string): string {
@@ -480,7 +480,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + M, or n j k r w l f s q b d g x t o c i e m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     args: {
-      name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name (screen.list)" },
+      name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, a registered screen name, or the title of a screen a person made as they typed it (daily test; screen.list)" },
       target: { type: "string", optional: true, about: "what the screen opens on, where it takes one: detail's block (an id, ((ref)) or ep0ch:// URI), the board's hub" },
       note: { type: "string", optional: true, about: "detail's block: target= by its old name" },
     },
@@ -488,6 +488,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       const given = target ?? note;
       // A registered screen with a target opens on it; else the menu's item by that name comes first (its lit item,
       // its "already open"), then a registered screen.
+      // A screen a person made answers to its title as typed ("daily test") as well as its name.
+      if (!itemNamed(name)) name = resolveScreen(name) ?? name;
       const registered = screenNames().includes(name);
       const item = given !== undefined && registered ? undefined : itemNamed(name);
       if (!item) {
@@ -692,7 +694,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return {
         stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })),
         // Every registered screen (`ep0ch --screen <name>`), with the argument its target fills.
-        named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(madeScreen(name) ? { made: true, note: madeScreen(name)!.id } : {}) })),
+        named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(madeScreen(name) ? { made: true, title: screenTitle(name), note: madeScreen(name)!.id } : {}) })),
         // What's wrong with a screen note that kept it from being opened (a built-in's name, two notes with one name).
         ...(screenNoteProblems().length ? { problems: [...screenNoteProblems()] } : {}),
       };

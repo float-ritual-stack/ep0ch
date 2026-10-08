@@ -496,12 +496,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "screen.save": def({
-    summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
+    summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. The name is kept as typed (the note's title) and the screen is opened by it or by its slug: lowercase, spaces to -, other characters dropped (daily test: daily-test). Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
     keys: "^W w",
     touches: "nothing", replay: "ask", confirms: true,
-    says: r => (r?.prompt ? null : `saved the screen as ${r.screen}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.screen} opens it`),
+    says: r => (r?.prompt ? null : `saved the screen as ${r.title}${r.slug ? ` (${r.slug})` : ""}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.slug ?? r.screen} opens it`),
     menu: { label: "save this screen as…", group: SCREEN, key: "ctrl+w w" },
-    args: { name: { type: "string", optional: true, about: "the screen's name: a letter, then letters, digits, . - _ (left out: the person types it)" } },
+    args: { name: { type: "string", optional: true, about: "the screen's name as a person would type it: spaces and capitals are fine (daily test is saved as daily-test; the answer says the name). An empty name, a built-in's or one with [ ] is refused with the reason (left out: the person types it)" } },
     async run({ name }, { d }, actor) { return await d.saveScreen(name, actor); },
   }),
   "screen.delete": def({
