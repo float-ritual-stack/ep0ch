@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Your look, part two: surfaces, frames, edges and the header, tuned live (PIE-675)
+
+- **New:** a tile or a box can sit on a surface (`[style.bg::raised]`, `sunken`, or a tone: blue, green, violet, amber,
+  coral, neutral) at a strength of 1 to 6 (`bg.strength`), get a frame (`border`: line, round, heavy, double, none; a
+  tile's `auto` is its screen's) and an accent in its tone (`edge`: a bar down its left side, or the whole frame; `tone`).
+  Surfaces are theme roles, never colours: each theme draws them dark, under a brightness cap, with every word at 4.5:1
+  or better on them, and a tile's yields under a header's picture. In a note: `::box{bg=sunken border=round tone=amber}`.
+- **New:** a list's divider can be dashed, double, a fade (the `--- [rule::fade]` track) or a glyph of your own
+  (`[style.list.divider::glyph] [style.list.divider.glyph::✦]`), at the top, centre (now the default) or bottom of the gap
+  (`list.divider.align`). The zebra stripe takes a surface and a strength (`list.zebra.bg`, `list.zebra.strength`), so it
+  shows on a near-black theme.
+- **New:** a reader's sticky header (title, byline, crumbs) gets a surface of its own (`header.bg`, `header.bg.opacity`),
+  and its picture can be chosen (`header.image`: one of the note's pictures by its file's name, or a path) and its crop
+  moved (`header.image.x`, `header.image.y`, in % of the picture).
+- **New:** one field, three widths: `[style.pad::0 1 | 1 3 | 1 6]` is narrow, normal and wide. A reader in a wide tile
+  gets padding 1 4 by default.
+- **Changed in the tune inspector:** `x` (or a row's ×) takes one value back to the level under it; `X` lets every nudge
+  go. A save of a value taken away removes it from its note. A surface's row shows a swatch of it, and `+ −` on
+  `header.image` step through the note's pictures. Every new value is a row, nudged and saved as before.
+- **Run:** PROTOCOL 124 (the cascade's tokens). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for
+  float-hub) restarts the host on the new code. No schema change.
+
 ### A note's children join its links; the thread tile is a links tile with Children alone (PIE-693, slice 1)
 
 - **New:** the links tile lists a fourth group, `↓ children`: the notes under the note (a thread's replies; comments stay

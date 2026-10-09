@@ -75,7 +75,7 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     expect(d.tints).toEqual([{ rows: [1, d.lines.length - 1], cols: [1, 39], bg: expect.stringMatching(/^\x1b\[48;2;/) }]);
     expect(copy(d, 40)).toBe("- Net the brassicas\n- Oil the shed hinge");
     const barred = renderDoc(["::box{edge=bar tone=green}", "Keep the gate shut.", "::"].join("\n"), { ...env({}), width: 40 });
-    expect(barred.lines.map(plain)[0]).toBe("▎ Keep the gate shut.");
+    expect(barred.lines.map(plain)[0]).toBe("▌ Keep the gate shut.");
     expect(copy(barred, 40)).toBe("Keep the gate shut.");
     // Too narrow for a frame: inset, as before.
     expect(renderDoc(BOX, { ...env({}), width: 12 }).lines.map(plain).some(l => l.includes("╭"))).toBe(false);

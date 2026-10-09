@@ -408,7 +408,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const g = glyphs ?? BORDER_BOXES.line;
       // A row of the box: its text (or nothing, a padding row) between its frame's sides, after its bar, or inset.
       const row = (l: string) => framed ? " ".repeat(mx) + ink + g.side + RESET + " ".repeat(px) + pad(l, inner) + " ".repeat(px) + ink + g.side + RESET
-        : bar ? " ".repeat(mx) + ink + "▎" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
+        : bar ? " ".repeat(mx) + ink + "▌" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
       // Drawing only (margins, the frame's edges, padding): edge rows, never copied.
       const drawn = (text: string, n: number, at: number) => { for (let k = 0; k < n; k++) { edge(out.length); out.push(text); source.push(at); } };
       const frameEdge = (l: string, r: string) => " ".repeat(mx) + ink + l + g.top.repeat(Math.max(0, W - 2 * mx - 2)) + r + RESET;
