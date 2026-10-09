@@ -323,7 +323,10 @@ export class AgentDrawer {
   }
 
   /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
-  async openOnScreen(id: string, fresh: boolean, actor: Actor): Promise<{ reader: string | null; id: string }> {
+  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }> {
+    // The tile it comes from has a link to a tile of the screen (alt+l): that tile takes it, whatever has the keys (PIE-700).
+    const linked = from && !fresh && this.d ? await this.d.openOnLink(id, from, actor) : null;
+    if (linked) return { reader: linked, id };
     const screen = tilesOf(this.host.screen?.());
     if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
     if (screen.hasPlaces()) return screen.openPlace(id, fresh ? "new-detail" : "detail", actor);
@@ -926,7 +929,7 @@ export class AgentDrawer {
       if (!d) return true;
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
-      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile()) { run("host.leave", { quiet: true }); return true; }
+      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
       return true;
@@ -1006,6 +1009,20 @@ export class AgentDrawer {
     const chip = this.chipAt;
     const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
     const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows;
+    // alt+l waiting for a tile (PIE-700): a click on the other desk picks it, the drawer's list linking to a reader of the
+    // screen above or a screen tile to one in the drawer; the keys stay where they are.
+    if (k.action === "down" && screen && this.d && screen !== this.d) {
+      if (this.d.linkingFrom() && !inDrawer && !onChip) {
+        const target = screen.paneAtCell(k.x, k.y);
+        if (target) this.d.linkToPane(target); else this.d.cancelLinking();
+        return true;
+      }
+      if (screen.linkingFrom() && inDrawer) {
+        const target = this.d.paneAtCell(k.x, k.y - this.deskRow());
+        if (target) screen.linkToPane(target); else screen.cancelLinking();
+        return true;
+      }
+    }
     // A screen's tile dragged by its title over the drawer (the chip, the drawer): it lights up; released, it goes in.
     const dragged = screen && screen !== this.d ? screen.draggedTile() : null;
     // No drag any more (let go elsewhere, esc, a key that acted on it): the chip and the drawer stop lighting up.
