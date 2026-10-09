@@ -73,7 +73,7 @@ export function projectRecord(r: BlockRecord, fields: readonly string[], ctx: Ro
 export type DerivedKind = "proposal" | "comment" | "delivery";
 const KIND_OF_TYPE: Record<string, DerivedKind> = { "draft-proposal": "proposal", annotation: "comment", "annotation-reply": "comment", delivery: "delivery" };
 /** What a block's `type` makes it, when it only exists because of another block: a proposal, a comment or a delivery. */
-export const derivedKindOf = (type: string | undefined): DerivedKind | undefined => (type ? KIND_OF_TYPE[type] : undefined);
+export const derivedKindOf = (type: string | undefined): DerivedKind | undefined => (type && Object.hasOwn(KIND_OF_TYPE, type) ? KIND_OF_TYPE[type] : undefined);
 export const typeOf = (r: Pick<BlockRecord, "properties">) => r.properties.find(p => p.key === "type")?.values[0];
 
 export interface Changes { count: number; proposals: number; comments: number; deliveries: number; summary: string; ids: string[] }
@@ -142,8 +142,9 @@ export class ResponseScope {
   rpc: string | number | null = null;
   private sent = new Map<string, string>();
   /** Where this block's body already went in this response, or null (and now it is: the caller sends it at `where`). */
-  claim(id: string, revision: number, where: string): string | null {
-    const key = pairOf(id, revision), first = this.sent.get(key);
+  claim(outline: string, id: string, revision: number, form: "full" | "pointer", where: string): string | null {
+    // The outline is in the key (an imported or mirrored copy can share id@revision), and so is the form: a pointer is not the stored body.
+    const key = `${outline}/${pairOf(id, revision)}/${form}`, first = this.sent.get(key);
     if (first) return first;
     this.sent.set(key, `${this.rpc ?? "-"}:${where}`);
     return null;
@@ -185,16 +186,27 @@ export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise
     const p = (await loadDraftPatch()).parseProposal(r.text);
     if (!p) return null;
     const revs = await revisionsOf(board, p.edits.map(e => e.blockId));
+    // The diff names the revision it was proposed against; `now` says where a target has moved on since.
+    const moved = [...new Set(p.edits.filter(e => revs.has(e.blockId) && revs.get(e.blockId) !== e.revision).map(e => ref(e.blockId, revs)))];
     return {
       kind: "proposal", id: r.id, revision: r.revision, status: prop(r, "proposal-status") ?? "open",
       ...(prop(r, "proposal-applies") === "no" ? { applies: false } : {}),
       proposedBy: p.actor?.actorId ? `@${p.actor.actorId}` : who(r), reason: p.reason, changes: p.edits.reduce((n, e) => n + e.patches.length, 0),
-      diff: p.edits.flatMap(e => e.patches.map(s => ({ target: ref(e.blockId, revs), observed: s.observed, replacement: s.replacement }))),
+      diff: p.edits.flatMap(e => e.patches.map(s => ({ target: pairOf(e.blockId, e.revision), observed: s.observed, replacement: s.replacement }))),
+      ...(moved.length ? { now: moved } : {}),
     };
   }
   if (kind === "comment" && r.parent) {
-    const revs = await revisionsOf(board, [r.parent]);
-    const threads = await board.comments(r.parent).catch(() => []);
+    // The note a comment is about: the nearest ancestor that isn't itself a comment (a reply hangs from its thread).
+    let owner: string | null = r.parent;
+    for (let hops = 0; owner && hops < 6; hops++) {
+      const up: BlockRecord | undefined = (await board.records([owner]).catch(() => ({ records: [] as BlockRecord[] }))).records[0];
+      if (!up || derivedKindOf(typeOf(up)) !== "comment") break;
+      owner = up.parent;
+    }
+    if (!owner) return null;
+    const revs = await revisionsOf(board, [owner]);
+    const threads = await board.comments(owner).catch(() => []);
     const thread = threads.find(t => t.id === r.id), reply = thread ? undefined : threads.find(t => t.replies.some(x => x.id === r.id));
     const on = thread ?? reply;
     // The comment's own words: not the "Comment on “…”" heading (a quote of the note) nor its property line.
@@ -203,7 +215,7 @@ export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise
     return {
       kind: "comment", id: r.id, revision: r.revision, status: prop(r, "annotation-status") ?? "open",
       ...(typeOf(r) === "annotation-reply" ? { reply: true } : {}), author: who(r), at: r.created,
-      target: ref(r.parent, revs), thread: on?.id ?? r.id,
+      target: ref(owner, revs), thread: on?.id ?? r.id,
       anchor: on && on.start !== null ? { start: on.start, end: on.end } : null,
       body,
     };

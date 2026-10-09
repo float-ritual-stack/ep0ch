@@ -328,12 +328,12 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   // while a queued write is laid over the text, or the mirror is behind: that answer is news. Threads are other blocks: outline_threads.
   const news = !!pending || !!staleSince;
   if (!news && seen?.has(pairOf(read.record.id, read.record.revision))) return toolText({ uri: target.uri, ...unchangedStub(read.record.id, read.record.revision), reachability: read.access });
-  const first = !news && scope ? scope.claim(read.record.id, read.record.revision, "record") : null;
+  // A proposal or a comment points at its note (id@revision) instead of copying it; raw: true sends the block as stored.
+  const pointer = args.raw === true ? null : await derivedPointer(target.board, read.record).catch(() => null);
+  const first = !news && scope ? scope.claim(target.board.address.outline, read.record.id, read.record.revision, pointer ? "pointer" : "full", "record") : null;
   if (first) return toolText({ uri: target.uri, ...seeStub(read.record.id, read.record.revision, first), reachability: read.access });
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
   const env = envelope(target.board, target.uri, read.access, read.record, read.record.revision);
-  // A proposal or a comment points at its note (id@revision) instead of copying it; raw: true sends the block as stored.
-  const pointer = args.raw === true ? null : await derivedPointer(target.board, read.record).catch(() => null);
   return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
 }
 
@@ -378,11 +378,12 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
   const matches: unknown[] = [];
   for (const [i, { record: r, changes, path }] of rows.entries()) {
     const uri = blockUri(board, r.id), extra = changes ? { changes } : {};
-    if (seen?.has(pairOf(r.id, r.revision))) { matches.push({ ...unchangedStub(r.id, r.revision, uri), ...extra }); continue; }
+    // A stub keeps what the revision doesn't vouch for: a path moves when an ancestor is renamed, a fold's count when a comment is added.
+    if (seen?.has(pairOf(r.id, r.revision))) { matches.push({ ...unchangedStub(r.id, r.revision, uri), ...(fields?.fields.includes("path") && path !== undefined ? { path: pathOf(path) } : {}), ...extra }); continue; }
     if (fields) { matches.push({ ...projectRecord(r, fields.fields, { uri, ...(path !== undefined ? { path: pathOf(path) } : {}) }), ...extra }); continue; }
-    const first = scope?.claim(r.id, r.revision, `matches[${i}]`);
-    if (first) { matches.push({ ...seeStub(r.id, r.revision, first, uri), ...extra }); continue; }
     const pointer = args.raw === true ? null : await derivedPointer(board, r).catch(() => null);
+    const first = scope?.claim(board.address.outline, r.id, r.revision, pointer ? "pointer" : "full", `matches[${i}]`);
+    if (first) { matches.push({ ...seeStub(r.id, r.revision, first, uri), ...extra }); continue; }
     matches.push({ uri, revision: r.revision, record: pointer ?? mcpRecord(r), ...extra });
   }
   // A projected answer is for orienting: compact, since its size is the point.
@@ -523,7 +524,7 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
     const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
     rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision }));
     // A hit the caller holds at this revision is a stub: its title and path are what they already have.
-    if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? unchangedStub(r.id, r.revision, r.uri) as unknown as typeof r : r);
+    if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
     search = semanticSays(askSemantic, found.semantic);
   } else {

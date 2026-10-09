@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
   const oldEnv: Record<string, string | undefined> = {};
   let board: SocketBoard, gateway: Gateway, closeOutlines: () => void, signing: CryptoKey, rpcId = 1;
   const notes: Record<string, { id: string; revision: number }> = {};
-  const derived: { comments: string[]; proposal: string; delivery: string } = { comments: [], proposal: "", delivery: "" };
+  const derived: { comments: string[]; reply: string; proposal: string; delivery: string } = { comments: [], reply: "", proposal: "", delivery: "" };
   const LONG = "UNIQUE-TARGET-SENTENCE the lamp room keeps its brass fittings dry with a waxed cloth every second Sunday of the month.";
 
   const stdio: Transport = {
@@ -80,6 +80,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
       const at = (await board.request<{ text: string }>("get", { blockId: notes.lamp!.id })).text.indexOf(q);
       derived.comments.push((await board.comment(`seed-${i}`, notes.lamp!.id, notes.lamp!.revision, `Is "${q}" still right?`, { quote: q, start: at })).id);
     }
+    derived.reply = (await board.reply("seed-reply", derived.comments[1]!, "Yes, checked on Sunday.")).id;
     derived.delivery = (await make("delivery", "Delivery PIE-9001/primary [type::delivery] [delivery-key::PIE-9001/primary]\nBranch lamp-upkeep.", notes.lamp!.id)).id;
     const outlines = machineOutlines(undefined, () => {});
     closeOutlines = outlines.close;
@@ -152,13 +153,13 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
 
     test("fold collapses a note's proposal, comments and delivery into it, with a count", async () => {
       const flat = await call("outline_query", { query: "updated >= -1d", fields: "title", limit: 50 });
-      for (const d of [...derived.comments, derived.proposal, derived.delivery]) expect(ids(flat)).toContain(d);
+      for (const d of [...derived.comments, derived.reply, derived.proposal, derived.delivery]) expect(ids(flat)).toContain(d);
       const folded = await call("outline_query", { ...ORIENT, limit: 50 });
-      for (const d of [...derived.comments, derived.proposal, derived.delivery]) expect(ids(folded)).not.toContain(d);
+      for (const d of [...derived.comments, derived.reply, derived.proposal, derived.delivery]) expect(ids(folded)).not.toContain(d);
       const row = folded.json.matches.find((m: any) => m.id === notes.lamp!.id);
-      expect(row.changes).toMatchObject({ count: 4, proposals: 1, comments: 2, deliveries: 1, summary: "4 changes (1 proposal, 2 comments, 1 delivery)" });
-      expect(row.changes.ids.sort()).toEqual([...derived.comments, derived.proposal, derived.delivery].sort());
-      expect(folded.json.total).toBe(flat.json.total - 4);
+      expect(row.changes).toMatchObject({ count: 5, proposals: 1, comments: 3, deliveries: 1, summary: "5 changes (1 proposal, 3 comments, 1 delivery)" });
+      expect(row.changes.ids.sort()).toEqual([...derived.comments, derived.reply, derived.proposal, derived.delivery].sort());
+      expect(folded.json.total).toBe(flat.json.total - 5);
       expect(folded.json.foldedFrom).toBe(flat.json.total);
       // A folded note is a row once, wherever its derived blocks were.
       expect(new Set(ids(folded)).size).toBe(ids(folded).length);
@@ -183,7 +184,10 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
       const lamp = (await call("outline_read", { ref: notes.lamp!.id })).json;
       const r = await call("outline_read", { ref: derived.proposal });
       expect(r.json.record).toMatchObject({ kind: "proposal", id: derived.proposal, status: "open", changes: 1,
-        diff: [{ target: `${notes.lamp!.id}@${lamp.revision}`, observed: "waxed cloth", replacement: "microfibre cloth" }] });
+        diff: [{ target: `${notes.lamp!.id}@${notes.lamp!.revision}`, observed: "waxed cloth", replacement: "microfibre cloth" }] });
+      // The diff names the revision it was proposed against; `now` says the note has moved on (the comments bumped it).
+      expect(lamp.revision).toBeGreaterThan(notes.lamp!.revision);
+      expect(r.json.record.now).toEqual([`${notes.lamp!.id}@${lamp.revision}`]);
       expect(r.text).not.toContain("UNIQUE-TARGET-SENTENCE");
       expect(r.text).not.toContain("draft-patch");
       const full = await call("outline_read", { ref: derived.proposal, raw: true });
@@ -201,6 +205,20 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
       expect(r.json.record).toMatchObject({ kind: "comment", id: derived.comments[0], status: "open", target: `${notes.lamp!.id}@${lamp.revision}`, anchor: { start, end: start + "brass fittings".length }, body: 'Is "brass fittings" still right?' });
       expect(r.text).not.toContain("Comment on");
       expect(r.text).not.toContain("UNIQUE-TARGET-SENTENCE");
+    });
+
+    test("a pointer never stands in for a raw read, and a reply points at the note, not its thread", async () => {
+      const [pointer, raw, again] = await t.batch([
+        { name: "outline_read", args: { ref: derived.proposal } },
+        { name: "outline_read", args: { ref: derived.proposal, raw: true } },
+        { name: "outline_read", args: { ref: derived.proposal } },
+      ]);
+      expect(pointer!.json.record.kind).toBe("proposal");
+      expect(raw!.json.see).toBeUndefined();
+      expect(raw!.text).toContain("draft-patch");
+      expect(again!.json).toMatchObject({ see: expect.stringMatching(/:record$/) });
+      const r = await call("outline_read", { ref: derived.reply });
+      expect(r.json.record).toMatchObject({ kind: "comment", reply: true, target: expect.stringMatching(new RegExp(`^${notes.lamp!.id}@\\d+$`)), thread: derived.comments[1], body: "Yes, checked on Sunday." });
     });
 
     test("seen: a block held at that revision is a stub, a changed one comes back whole, over read, query and find", async () => {
