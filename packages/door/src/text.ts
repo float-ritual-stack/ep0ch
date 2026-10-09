@@ -102,7 +102,7 @@ export function wrap(text: string, w: number, { code = false }: { code?: boolean
     if (!whole.length) { out.push(""); continue; }
     // A property token that fits a row is not broken across two: colourBody colours a row alone, so a half of a
     // chip would be drawn as plain text. Its spaces are held as NBSP-like placeholders while the line is cut.
-    const raw = whole.includes("::") ? whole.replace(propertyTokenPattern(), tok => (len(tok) <= w ? tok.replace(/\s/g, HELD) : tok)) : whole;
+    const raw = whole.includes("::") ? replacePropertyTokens(whole, t => (len(t.raw) <= w ? t.raw.replace(/\s/g, HELD) : t.raw)) : whole;
     // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
     // long paragraph's wrap quadratic).
     let line = "", n = 0;
