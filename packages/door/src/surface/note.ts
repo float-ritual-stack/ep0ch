@@ -2180,7 +2180,7 @@ export class NoteSurface {
     if (T) {
       // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc clears it.
       if (k.kind === "enter") { this.linkBlockUI.set(block, { ...this.linkBlockUI.get(block), filter: T.text.trim() || undefined }); this.linksTyping = null; }
-      else if (k.kind === "esc") this.linksTyping = null;
+      else if (k.kind === "esc") { this.linksTyping = null; const u = this.linkBlockUI.get(block); if (u?.filter) this.linkBlockUI.set(block, { ...u, filter: undefined }); }
       else if (!T.key(k)) return true;
       host.redraw();
       return true;
@@ -3399,7 +3399,7 @@ export class NoteSurface {
     // (the [ ] position, its preview following), a second click on it soon after opens it (⏎), an alt-, ctrl- or
     // middle-click opens it fresh (alt+⏎). A ::links with no preview opens a row on a click, as any link.
     const lbk = h.link.linksBlock, lbi = lbk ? this.linkBlocksDrawn.find(b => b.key === lbk.key) : undefined;
-    if (e && lbk?.row && lbi && (lbi.preview !== null || lbi.entered)) {
+    if (e && lbk?.row && lbi && (lbi.previews || lbi.entered)) {
       const i = this.elems.indexOf(e), g = this.linkPresses.press(i);
       void this.runKey(g === "open" || host.freshClick ? "element.open" : "element.select", { n: i + 1 }, host);
       host.redraw();

@@ -602,7 +602,7 @@ export interface LinkBlocksEnv {
 export interface LinkBlockInfo {
   key: string; n: number; title: string;
   rows: { key: string; id: string | null; text: string; kind: LinkRow["kind"] }[];
-  sel: string | null; preview: string | null; entered: boolean; typing: string | null;
+  sel: string | null; preview: string | null; previews: boolean; entered: boolean; typing: string | null;
   query: string | null; groups: LinkGroupName[];
 }
 
@@ -673,7 +673,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const control = blocks?.control ? blocks.control(key, word) : "";
   blocks?.seen?.({
     key, n, title, rows: entries.map(r => ({ key: r.key, id: linkBlock(r), text: linkWords(r).text, kind: r.kind })),
-    sel: sel ?? null, preview: previewing && previewId ? previewId : null, entered, typing, query: spec.query, groups,
+    sel: sel ?? null, preview: previewing && previewId ? previewId : null, previews: previewing, entered, typing, query: spec.query, groups,
   });
   return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${what}${filter ? ` · ${filter}` : ""}${spec.of ? ` · of ${of!.slice(0, 8)}` : ""}`, control);
 }
