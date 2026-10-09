@@ -20,7 +20,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** the thread tile is gone. A layout saved with one gets a links tile with Children alone (`^W o h` opens
   one); the desk layout's `replies` tile is one. Its pick and open are `backlinks.pick` and `backlinks.open` (⏎ where the
   list's opens land, alt+⏎ a new detail); `thread.pick` and `thread.up` are gone (`u` in the reader goes up).
-- **Run:** PROTOCOL 123 (`blocks.facets`, new). After `ep0ch install --apply` on each machine, restart the host, then the
+- **Run:** PROTOCOL 124 (`blocks.facets`, new). After `ep0ch install --apply` on each machine, restart the host, then the
   doors. No schema change.
 ### A chain of linked readers: what-changed opens into reader 9, reader 9's links into reader 10 (PIE-700)
 
