@@ -64,43 +64,120 @@ export function sourceTarget(src: { level: string; label: string; block?: string
  */
 export const UNSET = "\u0000unset";
 interface Tuned { value: string; by: Actor; saved?: boolean; from?: string }
-interface Undo { target: TuneTarget; field: FieldKey; before: Tuned | undefined; by: Actor }
+/** The nudges at one moment, target → field → value: what a write's undo puts back. */
+type Snapshot = Map<TuneTarget, Map<FieldKey, Tuned>>;
+const copyOf = (m: Snapshot): Snapshot => new Map([...m].map(([k, v]) => [k, new Map(v)]));
 
-/** The nudges on one connection: target → field → value, an undo stack, and a generation that changes with each. */
+/**
+ * One note's style properties written by the inspector (a save, a level reset, a revert, or one of their undos):
+ * property → value before and after (null: not set), and the revision the note was left at, which an undo or redo
+ * names so a note changed since is refused, never overwritten.
+ */
+export interface NoteWrite { note: string; before: Record<string, string | null>; after: Record<string, string | null>; revision: number }
+
+/**
+ * A step of the session's history (PIE-675): a nudge (or a value taken away or let go) in memory, or a write to the
+ * outline with the nudges as they were before and after it (a save marks them saved; a reset or a revert lets them go).
+ */
+export type TuneStep =
+  | { kind: "nudge"; target: TuneTarget; field: FieldKey; before: Tuned | undefined; after: Tuned | undefined; by: Actor }
+  | { kind: "write"; what: string; writes: NoteWrite[]; tuningBefore: Snapshot; tuningAfter: Snapshot; by: Actor };
+
+/** A value as the history says it: the nudge's, "taken away", or the outline's (no nudge). */
+const tunedWords = (t: Tuned | undefined) => (!t ? "the outline's" : t.value === UNSET ? "taken away" : t.value);
+/** What a step did, in words for the status line: `pad.x 4 → 6 at this page`, `save of style.pad.x=6 to this page`. */
+export function stepWords(s: TuneStep, undoing: boolean): string {
+  if (s.kind === "write") return s.what;
+  const [from, to] = undoing ? [s.after, s.before] : [s.before, s.after];
+  return `${s.field} ${tunedWords(from)} → ${tunedWords(to)} at ${targetWords(s.target)}`;
+}
+
+/**
+ * The nudges on one connection: target → field → value, the session's history of steps (each nudge and each write) with
+ * its redo, the revision each style note had before this session first wrote it (what revert puts back), and a
+ * generation that changes with each.
+ */
 export class Tuning {
-  readonly layers = new Map<TuneTarget, Map<FieldKey, Tuned>>();
-  private undos: Undo[] = [];
+  layers: Snapshot = new Map();
+  private history: TuneStep[] = [];
+  private redos: TuneStep[] = [];
+  /** Each style note this session wrote: its style properties before the first write, and the revision it was left at. */
+  readonly baseline = new Map<string, Record<string, string | null>>();
+  readonly last = new Map<string, number>();
   /** Bumped by every change: a reader's layout cache keys on it. */
   gen = 0;
 
   get(target: TuneTarget, field: FieldKey): Tuned | undefined { return this.layers.get(target)?.get(field); }
 
-  /** `from`: for UNSET, the note the field is taken from. */
-  set(target: TuneTarget, field: FieldKey, value: string, by: Actor, from?: string) {
+  private put(target: TuneTarget, field: FieldKey, t: Tuned | undefined) {
     const at = this.layers.get(target) ?? new Map<FieldKey, Tuned>();
-    this.undos.push({ target, field, before: at.get(field), by });
-    if (this.undos.length > 200) this.undos.shift();
-    at.set(field, { value, by, ...(value === UNSET && from ? { from } : {}) });
-    this.layers.set(target, at);
+    if (t) at.set(field, t); else at.delete(field);
+    if (at.size) this.layers.set(target, at); else this.layers.delete(target);
     this.gen++;
   }
 
+  /** A step done now: it goes on the history, and what was undone can't be redone past it. */
+  record(step: TuneStep) {
+    this.history.push(step);
+    if (this.history.length > 500) this.history.shift();
+    this.redos = [];
+  }
+
+  /** `from`: for UNSET, the note the field is taken from. */
+  set(target: TuneTarget, field: FieldKey, value: string, by: Actor, from?: string) {
+    const after: Tuned = { value, by, ...(value === UNSET && from ? { from } : {}) };
+    this.record({ kind: "nudge", target, field, before: this.get(target, field), after, by });
+    this.put(target, field, after);
+  }
+
+  /** Lets go of `target`'s nudge of `field` (a step: undo puts it back); whether there was one. */
+  drop(target: TuneTarget, field: FieldKey, by: Actor): boolean {
+    const had = this.get(target, field);
+    if (!had) return false;
+    this.record({ kind: "nudge", target, field, before: had, after: undefined, by });
+    this.put(target, field, undefined);
+    return true;
+  }
+
+  /** The nudges as they are now (a write's step keeps them before and after). */
+  snapshot(): Snapshot { return copyOf(this.layers); }
+  /** Puts the nudges back as `s` had them. */
+  restore(s: Snapshot) { this.layers = copyOf(s); this.gen++; }
+
   /**
-   * Takes back the last change `by` made (the person: the last change; an agent: only its own); what it took back, or
-   * null. An agent's change someone changed again since is theirs now: refused (an Error saying so), nothing undone.
+   * The step `by` would take back: the person's, the last; an agent's, its own last, and only while nobody changed that
+   * value since (a nudge) or did anything since (a write, whose undo puts every nudge back as it was). Why not: an Error.
    */
-  undo(by: Actor): Undo | null {
-    const mine = (u: Undo) => (by.kind === "user" ? true : u.by.kind === "agent" && u.by.id === by.id);
-    const at = this.undos.findLastIndex(mine);
+  nextUndo(by: Actor): TuneStep | null {
+    const mine = (u: TuneStep) => (by.kind === "user" ? true : u.by.kind === "agent" && u.by.id === by.id);
+    const at = this.history.findLastIndex(mine);
     if (at < 0) return null;
-    const later = this.undos.slice(at + 1).find(x => x.target === this.undos[at]!.target && x.field === this.undos[at]!.field);
-    if (later) throw new Error(`${this.undos[at]!.field} was changed again since (${later.by.kind === "user" ? "by you" : `by ${later.by.kind === "agent" ? later.by.id : "someone"}`}): it's theirs to take back`);
-    const [u] = this.undos.splice(at, 1);
-    const layer = this.layers.get(u!.target) ?? new Map<FieldKey, Tuned>();
-    if (u!.before) layer.set(u!.field, u!.before); else layer.delete(u!.field);
-    if (layer.size) this.layers.set(u!.target, layer); else this.layers.delete(u!.target);
-    this.gen++;
-    return u!;
+    const s = this.history[at]!, later = this.history.slice(at + 1);
+    const who = (a: Actor) => (a.kind === "user" ? "by you" : `by ${a.kind === "agent" ? a.id : "someone"}`);
+    if (s.kind === "nudge") {
+      const again = later.find(x => x.kind === "write" || (x.target === s.target && x.field === s.field));
+      if (again) throw new Error(`${s.field} was changed again since (${who(again.by)}): it's theirs to take back`);
+    } else if (later.length) throw new Error(`${s.what} has changes after it (${who(later[0]!.by)}): those are taken back first`);
+    return s;
+  }
+  /** Takes `s` (nextUndo's) back in memory: a nudge's value as it was, a write's nudges as they were; it can be redone. */
+  undone(s: TuneStep) {
+    this.history.splice(this.history.lastIndexOf(s), 1);
+    if (s.kind === "nudge") this.put(s.target, s.field, s.before); else this.restore(s.tuningBefore);
+    this.redos.push(s);
+  }
+  /** The step a redo would do again: the last one undone (an agent: only its own, and only while it is the last). */
+  nextRedo(by: Actor): TuneStep | null {
+    const s = this.redos.at(-1);
+    if (!s) return null;
+    if (by.kind === "agent" && !(s.by.kind === "agent" && s.by.id === by.id)) throw new Error("the last thing taken back isn't yours to redo");
+    return s;
+  }
+  /** Does `s` (nextRedo's) again in memory. */
+  redone(s: TuneStep) {
+    this.redos.pop();
+    if (s.kind === "nudge") this.put(s.target, s.field, s.after); else this.restore(s.tuningAfter);
+    this.history.push(s);
   }
 
   /** Nudges not yet written to the outline, by target (a field taken away with the note it's taken from). */
@@ -123,21 +200,9 @@ export class Tuning {
     this.gen++;
   }
 
-  /** Lets go of `target`'s nudge of `field` (undoable: its undo puts it back); whether there was one. */
-  drop(target: TuneTarget, field: FieldKey, by: Actor): boolean {
-    const at = this.layers.get(target), had = at?.get(field);
-    if (!at || !had) return false;
-    this.undos.push({ target, field, before: had, by });
-    at.delete(field);
-    if (!at.size) this.layers.delete(target);
-    this.gen++;
-    return true;
-  }
-
-  /** Lets go of every nudge (`all`) or `target`'s: the outline's values stand again. */
+  /** Lets go of every nudge (`all`) or `target`'s: the outline's values stand again (not a step: a write's own part). */
   clear(target?: TuneTarget) {
     if (target === undefined) this.layers.clear(); else this.layers.delete(target);
-    this.undos = this.undos.filter(u => target !== undefined && u.target !== target);
     this.gen++;
   }
 
@@ -273,84 +338,156 @@ export interface StyleWriteBoard {
 /** Words for a target: `global`, `tile detail`, `screen desk`, `this page`. */
 export const targetWords = (t: TuneTarget) => (t === "global" ? "global" : t.startsWith("page:") ? "this page" : t.includes(":") ? t.replace(":", " ") : `style ${t}`);
 
+/** A note's style properties (`style.…`), each as written (its first value). */
+function styleProps(m: Msg): Record<string, string> {
+  return Object.fromEntries(Object.entries(m.props ?? {}).filter(([k]) => k.toLowerCase().startsWith("style.")).map(([k, v]) => [k, String(Array.isArray(v) ? v[0] : v)]));
+}
+
+/**
+ * Writes style properties onto note `note` as `actor`, one attributed patch: each key to its value, or removed (null; every
+ * one of the note's own, so a value written twice can't show again). `expected`: the revision it must still be at (an
+ * undo, a redo, a revert, a reset), else it's refused naming the note; null reads it fresh (a save). The first write of
+ * a note this session keeps what it had (Tuning.baseline), for revert. Null when nothing changes.
+ */
+export async function writeNote(board: StyleWriteBoard, tuning: Tuning, note: string, want: Readonly<Record<string, string | null>>, expected: number | null, actor: Actor): Promise<NoteWrite | null> {
+  const keys = Object.keys(want);
+  if (!keys.length) return null;
+  if (!tuning.baseline.has(note)) {
+    const m = await board.get(note);
+    if (m) tuning.baseline.set(note, styleProps(m));
+  }
+  for (let tries = 0; tries < 3; tries++) {
+    const reads = await Promise.all(keys.map(k => board.propertyTokens(note, k)));
+    const revision = reads[0]!.revision;
+    if (reads.some(r => r.revision !== revision)) continue;
+    if (expected !== null && revision !== expected) throw new Error(`note ${note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
+    const before: Record<string, string | null> = {}, ops: PropertyPatch[] = [];
+    keys.forEach((k, i) => {
+      const own = reads[i]!.tokens.filter(x => x.scope === "block"), v = want[k]!;
+      before[k] = own[0]?.value ?? null;
+      if (v === null) ops.push(...own.map(x => ({ op: "remove" as const, ordinal: x.ordinal })));
+      else if (own[0]?.value !== v) ops.push(own[0] ? { op: "replace", ordinal: own[0].ordinal, value: v } : { op: "append", key: k, value: v });
+    });
+    if (!ops.length) return null;
+    const m = await board.patchProperties(note, revision, ops, actor);
+    tuning.last.set(note, m.revision ?? revision + 1);
+    return { note, before, after: { ...want }, revision: m.revision ?? revision + 1 };
+  }
+  throw new Error("the style note kept changing while it was read: try again");
+}
+
 /**
  * Writes `target`'s unwritten nudges to the outline as `actor`: a page's onto its own note, a level's onto its newest
  * style note that declares it as the note's own properties (each field replaced where it is, else added), else a new
- * style note for it. Every write names the revision it read; a conflict is refused, never overwritten. The nudges stay
- * over the outline until its answer says the same.
+ * style note for it; a field taken away, off the note it was taken from. Each note written goes into `done` (the save's
+ * step) and is marked saved as soon as it is, so a save that fails part way leaves only what it didn't write. The
+ * nudges stay over the outline until its answer says the same.
  */
-export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, target: TuneTarget, actor: Actor = USER): Promise<Saved | null> {
+export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, target: TuneTarget, actor: Actor = USER, done: NoteWrite[] = []): Promise<Saved | null> {
   const t = tuningOf(src.board), entry = t.unsaved().find(u => u.target === target);
   if (!entry) return null;
   const prop = (k: FieldKey) => { const f = parseFieldKey(k)!; return styleProperty(f.token, f.variant); };
   const sets = entry.fields.filter(([, v]) => v !== UNSET).map(([k, v]) => ({ key: prop(k), value: v }));
   const gone = entry.fields.filter(([, v]) => v === UNSET).map(([k, , from]) => ({ key: prop(k), from: from ?? "" }));
   const board = src.board;
-  // Every token read at one revision (asked again when the note moved between the reads), and the patch names it: a
-  // note changed since is refused by the service, never patched at ordinals that moved. A field taken away removes
-  // every one of the note's own (a value written twice would show again); one the note no longer has is said.
-  const patchOnto = async (id: string, put: readonly { key: string; value: string }[], remove: readonly string[]) => {
-    const keys = [...put.map(p => p.key), ...remove];
-    for (let tries = 0; tries < 3; tries++) {
-      const reads = await Promise.all(keys.map(k => board.propertyTokens(id, k)));
-      const revision = reads[0]!.revision;
-      if (reads.some(r => r.revision !== revision)) continue;
-      const own = (k: number) => reads[k]!.tokens.filter(x => x.scope === "block");
-      const ops: PropertyPatch[] = [
-        ...put.flatMap((p, k): PropertyPatch[] => { const mine = own(k); return mine[0] ? [{ op: "replace", ordinal: mine[0].ordinal, value: p.value }] : [{ op: "append", key: p.key, value: p.value }]; }),
-        ...remove.flatMap((key, k): PropertyPatch[] => {
-          const mine = own(put.length + k);
-          if (!mine.length) throw new Error(`${key} isn't on note ${id.slice(0, 8)} any more: nothing to take away (x again lets it go)`);
-          return mine.map(x => ({ op: "remove", ordinal: x.ordinal }));
-        }),
-      ];
-      return board.patchProperties(id, revision, ops, actor);
-    }
-    throw new Error("the style note kept changing while it was read: s again saves");
-  };
-  let note = "", created = false;
-  // Each note written is marked saved as soon as it is (its fields stay over the outline until its answer agrees), so a
-  // save that fails part way leaves only what wasn't written unsaved, and s again writes just that.
-  const written = (keys: readonly string[]) => {
+  const written = (keys: readonly string[], w: NoteWrite | null) => {
+    if (w) done.push(w);
     t.markSaved(target, entry.fields.filter(([k]) => keys.includes(prop(k))));
     SHEETS.stale(board);
   };
+  const onto = async (id: string, put: readonly { key: string; value: string }[], off: readonly string[]) => {
+    const want = Object.fromEntries([...put.map(p => [p.key, p.value] as const), ...off.map(k => [k, null] as const)]);
+    written([...put.map(p => p.key), ...off], await writeNote(board, t, id, want, null, actor));
+  };
+  let note = "", created = false;
   // What's taken away, from the note each was taken from (the one the inspector showed it came from).
   const byNote = new Map<string, string[]>();
   for (const g of gone) byNote.set(g.from, [...(byNote.get(g.from) ?? []), g.key]);
-  const setKeys = sets.map(p => p.key);
+  const take = (id: string) => { const off = byNote.get(id) ?? []; byNote.delete(id); return off; };
   if (target.startsWith("page:")) {
     note = target.slice(5);
-    const off = byNote.get(note) ?? [];
-    await patchOnto(note, sets, off);
-    byNote.delete(note);
-    written([...setKeys, ...off]);
+    await onto(note, sets, take(note));
   } else if (sets.length) {
     const sheets = sheetsOf(src);
     // The newest declaration for it wins in the cascade: written there when it's a note's own properties; when it's a
     // line, a new style note (newer still) holds the values, so what's saved is what shows.
     const own = sheets.filter(s => s.for === target).at(-1);
-    if (own && own.line === undefined) {
-      note = own.block;
-      const off = byNote.get(note) ?? [];
-      await patchOnto(note, sets, off);
-      byNote.delete(note);
-      written([...setKeys, ...off]);
-    } else {
+    if (own && own.line === undefined) { note = own.block; await onto(note, sets, take(note)); }
+    else {
       const parent = await styleHome(board, sheets, actor);
       const text = `Style · ${targetWords(target)} [style-for::${target}] ${sets.map(p => `[${p.key}::${p.value}]`).join(" ")}`;
-      note = (await board.createBlock(parent, text, actor)).id;
-      created = true;
-      written(setKeys);
+      const made = await board.createBlock(parent, text, actor);
+      note = made.id; created = true;
+      // Made by this session: revert takes its values off again; its undo too.
+      t.baseline.set(note, {});
+      t.last.set(note, made.revision ?? 1);
+      written(sets.map(p => p.key), { note, before: Object.fromEntries(sets.map(p => [p.key, null])), after: Object.fromEntries(sets.map(p => [p.key, p.value])), revision: made.revision ?? 1 });
     }
   }
   for (const [id, keys] of byNote) {
     if (!id) throw new Error("a value taken away doesn't say which note it came from: x again");
-    await patchOnto(id, [], keys);
-    written(keys);
+    await onto(id, [], keys);
     note ||= id;
   }
   return { target, note, fields: [...sets.map(p => `${p.key}=${p.value}`), ...gone.map(g => `${g.key} removed`)], created };
+}
+
+/** Undoes (`back`) or redoes one write step's notes: each written as it was before (or after), at the revision it was left at. */
+export async function rewrite(board: StyleWriteBoard, tuning: Tuning, writes: NoteWrite[], back: boolean, actor: Actor) {
+  // Every note checked before any is written: one changed since refuses the whole step.
+  for (const w of writes) { const m = await board.get(w.note); if (m && m.revision !== w.revision) throw new Error(`note ${w.note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`); }
+  for (const w of back ? [...writes].reverse() : writes) {
+    const r = await writeNote(board, tuning, w.note, back ? w.before : w.after, w.revision, actor);
+    if (r) w.revision = r.revision;
+  }
+  SHEETS.stale(board);
+}
+
+/** The notes a level's reset clears for `place`, with the style properties each sets, and the declarations on lines it can't. */
+export function levelNotes(src: ListSource | null | undefined, target: TuneTarget, place: StylePlace): { notes: { id: string; fields: number }[]; lines: string[] } {
+  if (target.startsWith("page:")) {
+    const props = (place.page?.properties ?? []).filter(p => p.key.toLowerCase().startsWith("style."));
+    return { notes: props.length ? [{ id: target.slice(5), fields: props.length }] : [], lines: [] };
+  }
+  const sheets = sheetsOf(src).filter(s => s.for === target);
+  const notes = new Map<string, number>();
+  for (const s of sheets) if (s.line === undefined) notes.set(s.block, (notes.get(s.block) ?? 0) + Object.keys(s.fields).length);
+  return { notes: [...notes].filter(([, n]) => n > 0).map(([id, fields]) => ({ id, fields })), lines: sheets.filter(s => s.line !== undefined).map(s => s.block) };
+}
+
+/** Clears every style property of `notes` (a level's reset), each at the revision read: the writes, for the step. */
+export async function clearNotes(board: StyleWriteBoard, tuning: Tuning, notes: readonly string[], actor: Actor): Promise<NoteWrite[]> {
+  const out: NoteWrite[] = [];
+  for (const id of notes) {
+    const m = await board.get(id);
+    if (!m) continue;
+    const w = await writeNote(board, tuning, id, Object.fromEntries(Object.keys(styleProps(m)).map(k => [k, null])), m.revision ?? null, actor);
+    if (w) out.push(w);
+  }
+  SHEETS.stale(board);
+  return out;
+}
+
+/**
+ * Puts every style note this session wrote back as it was before the first write (saved changes too), each at the
+ * revision this session left it at: one changed since by another door or an agent refuses the whole revert, naming it.
+ */
+export async function revertAll(board: StyleWriteBoard, tuning: Tuning, actor: Actor): Promise<NoteWrite[]> {
+  const now = new Map<string, Msg>();
+  for (const id of tuning.baseline.keys()) {
+    const m = await board.get(id);
+    if (!m) continue;
+    if (tuning.last.has(id) && m.revision !== tuning.last.get(id)) throw new Error(`note ${id.slice(0, 8)} changed since you started (by another door or an agent): refused, nothing reverted`);
+    now.set(id, m);
+  }
+  const out: NoteWrite[] = [];
+  for (const [id, m] of now) {
+    const base = tuning.baseline.get(id)!, keys = new Set([...Object.keys(styleProps(m)), ...Object.keys(base)]);
+    const w = await writeNote(board, tuning, id, Object.fromEntries([...keys].map(k => [k, base[k] ?? null])), m.revision ?? null, actor);
+    if (w) out.push(w);
+  }
+  SHEETS.stale(board);
+  return out;
 }
 
 export type { ResolvedStyle };

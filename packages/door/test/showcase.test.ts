@@ -637,11 +637,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // An agent sets the zebra's surface, then takes the tile's bg back to the level under it: the built-in none.
     expect(await app.act({ action: "tune.set", args: { row: "bg", value: "amber" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "amber", at: "style lab" });
     await until(() => raw().some(l => l.includes(surfaceBg("amber", 2))), "the amber surface drawn", 5000);
-    expect(await app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).toMatchObject({ row: "bg", value: "raised" });
+    // Reset value: the lab style's own bg is taken away (not just the nudge): what it inherits, the built-in none.
     expect(await app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).toMatchObject({ row: "bg", value: "none", from: "built-in" });
-    await until(() => !raw()[lab]!.includes(raised), "the tile's surface taken away", 5000);
+    await until(() => !raw()[lab]!.includes(raised) && !raw()[lab]!.includes(surfaceBg("amber", 2)), "the tile's surface taken away", 5000);
     await expect(app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).rejects.toThrow(/built-in already/);
-    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg" });
+    // Two steps back: the amber nudge, then the lab's raised.
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg taken away → amber at style lab" });
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg amber → the outline's at style lab" });
     await until(() => raw()[lab]!.includes(raised), "the surface back", 5000);
     // The header's picture: scrolled under the title, the header takes it, its crop moved up by header.image.y.
     // End twice: the last line on the edge, then in the middle (PIE-622), so the picture's line is above the top.

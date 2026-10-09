@@ -26,9 +26,18 @@ are its record. The outliner's entries from then are kept below, under
   moved (`header.image.x`, `header.image.y`, in % of the picture).
 - **New:** one field, three widths: `[style.pad::0 1 | 1 3 | 1 6]` is narrow, normal and wide. A reader in a wide tile
   gets padding 1 4 by default.
-- **Changed in the tune inspector:** `x` (or a row's ×) takes one value back to the level under it; `X` lets every nudge
-  go. A save of a value taken away removes it from its note. A surface's row shows a swatch of it, and `+ −` on
-  `header.image` step through the note's pictures. Every new value is a row, nudged and saved as before.
+- **Changed in the tune inspector, back to "as if I had done nothing":**
+  - `u` and `U` (or `ctrl+r`) undo and redo every nudge and save of the session, one step at a time, each said on the
+    status line ("undo: pad.x 6 → 4 at this page"). Undoing a save writes the note back; a note changed since is refused.
+  - `x` (or a row's ×, or `[reset value]`) resets a value to what it inherits: what sets it is taken off the note that
+    wrote it, a width variant before its plain value; the save removes the property.
+  - `X` (`[reset level]`) clears every value the picked level sets here, off its style notes; `R` (`[revert all]`)
+    puts every style note the session wrote back as it was, saved changes included, and refuses, naming the note, when
+    one changed since. Both ask in place: the key again, or `[confirm]`.
+- **New in the tune inspector:** with a level (`v`) or one width (`w`) picked, each row shows what that level says
+  itself beside the value in force, and a row something nearer wins is marked ⊘ ("page overrides", "narrow overrides
+  at this width"). A nudge there asks first: `a` nudges anyway, `o` nudges what wins instead, `c` clears it. A surface's
+  row shows a swatch of it, and `+ −` on `header.image` step through the note's pictures.
 - **Run:** PROTOCOL 124 (the cascade's tokens). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for
   float-hub) restarts the host on the new code. No schema change.
 

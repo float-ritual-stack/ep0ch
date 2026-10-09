@@ -8,7 +8,7 @@ import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { exportFiles, readRecords } from "../src/export";
-import { lookFor, sheetsReady, Tuning, tuningOf, UNSET } from "../src/look";
+import { lookFor, sheetsReady, stepWords, Tuning, tuningOf, UNSET } from "../src/look";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { renderDoc } from "../src/doc";
@@ -120,17 +120,31 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
 
 describe("the tuning (no service)", () => {
   const A = { kind: "agent" as const, id: "agent-a" }, B = { kind: "agent" as const, id: "agent-b" }, YOU = { kind: "user" as const };
-  test("an agent undoes only its own, and not once someone changed that value again", () => {
+  test("an agent undoes only its own, and not once someone changed that value again; redo does it again", () => {
     const t = new Tuning();
+    const undo = (by: typeof A | typeof YOU) => { const s = t.nextUndo(by); if (s) t.undone(s); return s; };
     t.set("global", "list.gap", "1", A);
     t.set("global", "list.gap", "2", B);
-    expect(() => t.undo(A)).toThrow("list.gap was changed again since (by agent-b)");
+    expect(() => t.nextUndo(A)).toThrow("list.gap was changed again since (by agent-b)");
     expect(t.get("global", "list.gap")?.value).toBe("2");
-    expect(t.undo(B)?.field).toBe("list.gap");
+    expect(undo(B)).toMatchObject({ field: "list.gap" });
     expect(t.get("global", "list.gap")?.value).toBe("1");
-    // The person's undo takes back the last change, whoever made it.
+    // The person's undo takes back the last change, whoever made it; and steps back through every one.
     t.set("global", "measure", "72", A);
-    expect(t.undo(YOU)?.field).toBe("measure");
+    t.set("global", "measure", "76", YOU);
+    expect(stepWords(undo(YOU)!, true)).toBe("measure 76 → 72 at global");
+    expect(stepWords(undo(YOU)!, true)).toBe("measure 72 → the outline's at global");
+    expect(stepWords(undo(YOU)!, true)).toBe("list.gap 1 → the outline's at global");
+    expect(t.get("global", "list.gap")).toBeUndefined();
+    // Redo, in order; an agent can't redo another's (the last taken back is agent-a's list.gap).
+    expect(() => t.nextRedo(B)).toThrow("isn't yours");
+    const redo = () => { const s = t.nextRedo(YOU)!; t.redone(s); return s; };
+    expect(stepWords(redo(), false)).toBe("list.gap the outline's → 1 at global");
+    expect(stepWords(redo(), false)).toBe("measure the outline's → 72 at global");
+    expect(t.get("global", "measure")?.value).toBe("72");
+    // A new nudge ends what can be redone.
+    t.set("global", "pad.x", "4", YOU);
+    expect(t.nextRedo(YOU)).toBeNull();
   });
   test("a save marks saved only the values it wrote: one nudged again meanwhile stays unsaved", () => {
     const t = new Tuning();
@@ -190,16 +204,17 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   /** A door at `cols` columns on the detail screen of the note, its terminal's writes kept. */
-  async function door(cols: number) {
+  async function door(cols: number, board0: SocketBoard = board, show?: { id: string; drawn: string }) {
+    const board = board0;
     const writes: string[] = [];
     let key: (k: Key) => void = () => {};
     const term = { info: { cols, rows: 46, cellW: 9, cellH: 16, kitty: false }, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term as any, board, Date.now(), () => {});
     const sub = board.subscribe(e => app.event(e));
-    const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
+    const desk = openScreen("detail", { note: show?.id ?? note.id, persist: false }) as Desk;
     app.push(new MainMenu()); app.push(desk);
     const lines = () => desk.render((desk as any).ctx).lines.map(plain);
-    await until(() => lines().some(l => l.includes("Oil the shed")) && lines().some(l => /· · ·/.test(l)), `the note drawn with its look at ${cols}`, 10_000);
+    await until(() => (show ? lines().some(l => l.includes(show.drawn)) : lines().some(l => l.includes("Oil the shed")) && lines().some(l => /· · ·/.test(l))), `the note drawn with its look at ${cols}`, 10_000);
     const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
     const where = (text: string) => {
       const ls = lines();
@@ -336,12 +351,136 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(raw()[bodyRow]).toContain(surfaceBg("raised", 2));
       // The inspector's frame in the tone (edge=box, amber) at rest.
       expect(raw().find(l => plain(l).includes("╭─") && plain(l).includes("tune"))).toContain(fg(14));
-      // X lets every nudge go: nothing was written.
-      d.key({ kind: "char", ch: "2" });
-      d.key({ kind: "char", ch: "X" });
-      await until(() => tuningOf(board).unsavedCount() === 0 && !d.lines().some(l => l.includes("╭─")), "the nudges let go", 5000);
+      // Six steps back, the agent's own: nothing was written, nothing is left.
+      for (let i = 0; i < 6; i++) await d.app.act({ action: "tune.undo", tile: "tune", as: "look-agent" });
+      await until(() => tuningOf(board).unsavedCount() === 0 && !d.lines().some(l => l.includes("╭─")), "the nudges taken back", 5000);
     } finally { d.close(); }
   }, 40_000);
+
+  test("PIE-675: a level picked shows its own values; a row something nearer wins is marked, and a nudge there asks (anyway, instead, clear); the width trap: narrow, then all widths", async () => {
+    // A connection of its own: its own session of the inspector.
+    const b2 = new SocketBoard(scratch.sock);
+    await b2.info();
+    const d = await door(120, b2);
+    try {
+      expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
+      const tune = () => [...(d.desk as any).panes.values()].find((p: any) => p.kind === "tune");
+      // Read as drawn: a frame first (the inspector reads the look the tile was last drawn with).
+      const v = (tk: string) => { d.lines(); return tune().describe(d.desk).values[tk]; };
+      await until(() => !!tune()?.describe(d.desk).values, "the inspector", 5000);
+      d.lines();
+      expect(tune().describe(d.desk).breakpoint).toBe("narrow");
+      const act = (action: string, args: Record<string, unknown> = {}) => d.app.act({ action, args, tile: "tune", as: "look-agent" }) as Promise<any>;
+      // The page picked: each row says what the page sets itself (nothing yet), beside the value in force.
+      await act("tune.level", { level: "page" });
+      expect(v("pad.x")).toMatchObject({ value: "2", from: "screen detail", at: { level: "this page", value: null } });
+      await until(() => d.lines().some(l => /in force +page +from/.test(l)) && d.lines().some(l => /pad\.x +2 +— +← scree/.test(l)), "the page's column:\n" + d.lines().join("\n"), 5000);
+      // Global picked: the screen's style wins over it, so the row is marked, and an agent's nudge there says why and what it can do.
+      await act("tune.level", { level: "global" });
+      expect(v("pad.x").overridden).toBe("screen detail overrides");
+      await until(() => d.lines().some(l => /pad\.x .*⊘/.test(l)), "the shadowed row marked", 5000);
+      await expect(act("tune.nudge", { row: "pad.x", by: 1 })).rejects.toThrow(/screen detail overrides: shadow=anyway .*shadow=instead .*shadow=clear/);
+      // Anyway: written to global, shown only where nothing nearer sets it (so pad.x stays the screen's 2 here).
+      expect(await act("tune.nudge", { row: "pad.x", by: 1, shadow: "anyway" })).toMatchObject({ at: "global", shadow: "anyway" });
+      expect(v("pad.x")).toMatchObject({ value: "2", at: { level: "global", value: "4" } });
+      expect(await act("tune.undo")).toMatchObject({ undone: "pad.x" });
+      // The width trap: at a narrow tile, the page's narrow width, then all widths.
+      await act("tune.level", { level: "page" });
+      await act("tune.width", { scope: "this" });
+      expect(await act("tune.nudge", { row: "pad.x", by: 1 })).toMatchObject({ at: "this page, narrow only" });
+      expect(v("pad.x")).toMatchObject({ value: "4", from: "page · narrow" });
+      await act("tune.width", { scope: "all" });
+      expect(v("pad.x").overridden).toBe("narrow overrides at this width");
+      await expect(act("tune.nudge", { row: "pad.x", by: 1 })).rejects.toThrow(/narrow overrides at this width: .*shadow=instead \(nudge narrow instead\).*shadow=clear \(clear narrow so every width shows it\)/);
+      // The person: + on that row holds the nudge and offers the choice in place; c clears the variant and nudges every width.
+      d.key({ kind: "tab" });
+      await until(() => (d.desk as any).panes.get((d.desk as any).focus) === tune(), "the inspector has the keys", 3000);
+      while (tune().sel !== 2) { const was = tune().sel; d.key({ kind: was < 2 ? "down" : "up" }); await until(() => tune().sel !== was, "the pick moved", 3000); }
+      expect(tune().describe(d.desk).selected).toBe("pad.x");
+      d.key({ kind: "char", ch: "+" });
+      await until(() => tune().describe(d.desk).offer?.why === "narrow overrides at this width", "the offer", 5000);
+      expect(tune().describe(d.desk).offer.choices).toEqual(["anyway", "instead", "clear"]);
+      expect(d.lines().some(l => l.includes("[a nudge page anyway]"))).toBe(true);
+      d.key({ kind: "char", ch: "c" });
+      await until(() => v("pad.x").from === "page", "the variant cleared, every width's value in force", 5000);
+      expect(v("pad.x")).toMatchObject({ value: "4", at: { level: "this page", value: "4" } });
+      expect(v("pad.x").overridden).toBeUndefined();
+      // Reset value clears a variant first, then the plain value: narrow again, then x twice.
+      d.key({ kind: "char", ch: "w" });
+      d.key({ kind: "char", ch: "+" });
+      await until(() => v("pad.x").from === "page · narrow", "the narrow nudge", 5000);
+      d.key({ kind: "char", ch: "x" });
+      await until(() => v("pad.x").from === "page", "the variant reset first", 5000);
+      d.key({ kind: "char", ch: "x" });
+      await until(() => v("pad.x").from === "screen detail", "then the plain value: the screen's shows", 5000);
+      d.key({ kind: "tab" });
+    } finally { d.close(); b2.close(); }
+  }, 40_000);
+
+  test("PIE-675: back to as if nothing was done: undo and redo through nudges and saves, reset value, reset level (asked in place), revert all after a save, refused on a note changed since", async () => {
+    const b3 = new SocketBoard(scratch.sock);
+    await b3.info();
+    const page = await create(null, "Pea trellis [style.measure::60]\n- Net\n- Twine");
+    const level = await create(null, "Trellis look [style-for::screen:detail] [style.list.gap::2] [style.list.divider::line]");
+    const d = await door(140, b3, { id: page.id, drawn: "Twine" });
+    try {
+      expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
+      const tune = () => [...(d.desk as any).panes.values()].find((p: any) => p.kind === "tune");
+      const v = (tk: string) => { d.lines(); return tune().describe(d.desk).values[tk]; };
+      const act = (action: string, args: Record<string, unknown> = {}) => d.app.act({ action, args, tile: "tune", as: "look-agent" }) as Promise<any>;
+      const text = async (id: string) => (await b3.get(id))!.text;
+      await until(() => !!tune()?.describe(d.desk).values, "the inspector", 5000);
+      const target = page.id;
+      await act("tune.level", { level: "page" });
+      // Three nudges, two undone, one redone: each said, in order.
+      const m0 = Number(v("measure").value);
+      for (let i = 0; i < 3; i++) await act("tune.nudge", { row: "measure", by: 1 });
+      expect(v("measure").value).toBe(String(m0 + 12));
+      expect((await act("tune.undo")).words).toBe(`measure ${m0 + 12} → ${m0 + 8} at this page`);
+      expect((await act("tune.undo")).words).toBe(`measure ${m0 + 8} → ${m0 + 4} at this page`);
+      expect((await act("tune.redo")).words).toBe(`measure ${m0 + 4} → ${m0 + 8} at this page`);
+      expect(v("measure").value).toBe(String(m0 + 8));
+      // Saved, then the save taken back: the note as it was, the nudge unsaved again; redone, written again.
+      expect(await act("tune.save")).toMatchObject({ saved: true });
+      expect(await text(target)).toContain(`[style.measure::${m0 + 8}]`);
+      expect((await act("tune.undo")).words).toContain("save of style.measure");
+      expect(await text(target)).not.toContain(`[style.measure::${m0 + 8}]`);
+      expect(tuningOf(b3).unsavedCount()).toBe(1);
+      await act("tune.redo");
+      expect(await text(target)).toContain(`[style.measure::${m0 + 8}]`);
+      // Reset value: the page's own measure taken away, then saved off the note.
+      expect(await act("tune.unset", { row: "measure" })).toMatchObject({ row: "measure" });
+      await act("tune.save");
+      expect(await text(target)).not.toContain("[style.measure::");
+      // Reset level, asked in place: the screen's style notes lose every value they set here; undone, back.
+      await act("tune.level", { level: "screen" });
+      expect(await act("tune.resetlevel")).toMatchObject({ armed: true, words: expect.stringMatching(/^reset screen detail: \d+ values off \d+ style notes?/) });
+      await until(() => d.lines().some(l => l.includes("[confirm]")), "asked in place", 5000);
+      expect(await text(level.id)).toContain("[style.list.gap::2]");
+      expect(await act("tune.resetlevel", { confirm: true })).toMatchObject({ reset: "screen detail" });
+      expect(await text(level.id)).not.toMatch(/\[style\./);
+      expect((await act("tune.undo")).words).toBe("reset of screen detail");
+      expect(await text(level.id)).toContain("[style.list.gap::2]");
+      // Revert all, after a save: every note this session wrote as it was when it started.
+      await act("tune.level", { level: "page" });
+      await act("tune.nudge", { row: "list.gap", by: 1 });
+      await act("tune.save");
+      expect(await text(target)).toContain("[style.list.gap::");
+      expect(await act("tune.revert")).toMatchObject({ armed: true });
+      expect(await act("tune.revert", { confirm: true })).toMatchObject({ reverted: true });
+      expect(await text(target)).not.toContain("[style.list.gap::");
+      expect(await text(target)).toContain("[style.measure::60]");
+      expect(await text(level.id)).toContain("[style.list.gap::2]");
+      // Taken back too, as one step.
+      expect((await act("tune.undo")).words).toBe("revert of the session");
+      expect(await text(target)).toContain("[style.list.gap::");
+      // A note changed since by someone else: revert refuses, naming it, and writes nothing.
+      const m = (await b3.get(level.id))!;
+      await b3.update(level.id, m.text + " (edited elsewhere)", m.revision!);
+      await expect(act("tune.revert", { confirm: true })).rejects.toThrow(new RegExp(`note ${level.id.slice(0, 8)} changed since you started`));
+      expect(await text(target)).toContain("[style.list.gap::");
+    } finally { d.close(); b3.close(); }
+  }, 60_000);
 
   test("ep0ch export leaves the look out: the note's source, whatever the style notes say", async () => {
     const { byId } = await readRecords(board, [note.id], false);
