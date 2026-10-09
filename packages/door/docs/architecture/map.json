@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "8c654d92", "outliner": "8c654d92", "on": "2026-10-09" },
+  "verified": { "door": "cf5d612b", "outliner": "cf5d612b", "on": "2026-10-09" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -362,7 +362,7 @@
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
         { "r": "door", "p": "src/app.ts", "l": 871, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 576, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1559, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1609, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -470,9 +470,9 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 128, "m": "export class Desk" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 457, "m": "private apply(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 432, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1761, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 815, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4288, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1811, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 837, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4404, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 97, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 296, "m": "\"tile.widen\": def({" }
       ],
@@ -484,10 +484,10 @@
       "built": "An open registry (PIE-505): one TileKind entry per kind (make, ^W o keys, actions, default policy, accepts, save, revive, holdsWork, shows, follows, start, describe, view, previewSource). The built-ins register at startup; serviceKind makes an entry whose tile the service draws. Tile sources register the same way (PIE-511: tiles, affects, key); the desk fills columns from them and keeps each tile by its key. The desk never switches on a kind's name. A source says what a tile dropped on its columns does (drop, #105).",
       "refs": [
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 43, "m": "export interface TileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 169, "m": "export function registerTileKind" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 240, "m": "export interface TileSource" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 252, "m": "readonly drop?: string;" },
-        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 431, "m": "export function serviceKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 171, "m": "export function registerTileKind" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 242, "m": "export interface TileSource" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 254, "m": "readonly drop?: string;" },
+        { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 433, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 63, "m": "export class QueryPane" },
         { "r": "door", "p": "src/desk/lanes.ts", "l": 1556, "m": "export const HUB_SOURCE" },
         { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 199, "m": "export function registerBuiltinTiles" },
@@ -526,7 +526,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 504, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 943, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 965, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -576,7 +576,7 @@
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 55, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 181, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 159, "m": "export class AgentDrawer" },
-        { "r": "door", "p": "src/drawer.ts", "l": 1108, "m": "export const DRAWER_ACTIONS" },
+        { "r": "door", "p": "src/drawer.ts", "l": 1127, "m": "export const DRAWER_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1565, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
@@ -588,7 +588,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 159, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4520, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4636, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 873, "m": "private take(id: I, heir?" }
       ]
     },
@@ -948,8 +948,8 @@
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 630, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 673, "m": "extTarget(id: number)" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 645, "m": "pathTo(pane: Pane)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 690, "m": "extTarget(id: number)" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 656, "m": "pathTo(pane: Pane)" }
       ]
     },
     {
