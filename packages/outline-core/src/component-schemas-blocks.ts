@@ -53,7 +53,7 @@ const BOX: ComponentSchema = {
     { key: "list.zebra", where: "line", type: "enum", token: "list.zebra={value}", meaning: "every other list item on a quiet tint", default: "false", values: enumOf({ false: "no tint", true: "every other item tinted" }) },
     { key: "list.divider", where: "line", type: "enum", token: "list.divider={value}", meaning: "a line between a list's items", default: "none", values: enumOf({ none: "no line", line: "a ruled line", dots: "a line of dots" }) },
   ],
-  source: { use: "::box{margin.x={margin.x} pad.y={pad.y} list.gap={list.gap} list.zebra={list.zebra} list.divider={list.divider}}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::" },
+  source: { use: "::box{margin.x={margin.x} pad.x={pad.x} margin.y={margin.y} pad.y={pad.y} list.gap={list.gap} list.zebra={list.zebra} list.divider={list.divider}}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::" },
   example: { "list.gap": "1" },
   sweep: ["margin.x", "pad.x", "margin.y", "pad.y", "list.gap", "list.zebra", "list.divider"],
   grids: [["list.gap", "list.divider"]],

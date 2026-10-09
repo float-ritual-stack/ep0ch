@@ -4,12 +4,13 @@
 // here, and the component library cannot lack it. Each schema is also drawn by the figure drawer as the library draws
 // it: a variation that comes out as an error is a schema that lies about its component. Pure: no host.
 import { describe, expect, test } from "bun:test";
-import { BUILTIN_COMPONENT_SCHEMAS, componentBrief, componentSchemaProblem, sweep, variation } from "@ep0ch/outline-core/component-schema";
+import { BUILTIN_COMPONENT_SCHEMAS, componentBrief, componentSchemaProblem, sweep, variation, variationText } from "@ep0ch/outline-core/component-schema";
 import { MEDIA_ATTRS } from "@ep0ch/outline-core/media-line";
 import { STYLE_TOKEN_NAMES } from "@ep0ch/outline-core/style-cascade";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureSource, GRAPH_KINDS, graphKind, renderGraph } from "../src/graphs";
 import { LINK_BLOCK_KINDS } from "../src/links";
+import { drawVariation } from "../src/library/draw";
 import { visible } from "../src/style";
 
 const ids = new Set(BUILTIN_COMPONENT_SCHEMAS.map(s => s.id));
@@ -24,6 +25,8 @@ describe("a component without a schema fails here", () => {
   test("the box documents its style tokens, the media line its attributes, and the forms a note writes are listed", () => {
     // `::box{…}` takes the style tokens; every property the schema names is a token the cascade knows.
     for (const p of schema("box").props) expect(STYLE_TOKEN_NAMES as readonly string[]).toContain(p.key);
+    // …and the ones a box honours (its spacing and list looks) are all there.
+    expect(schema("box").props.map(p => p.key).sort()).toEqual(["list.divider", "list.gap", "list.zebra", "margin.x", "margin.y", "pad.x", "pad.y"]);
     // The media line's attributes are documented between the picture's and the header image's schemas.
     const documented = new Set([...schema("image").props, ...schema("hero-image").props].map(p => p.key));
     expect(MEDIA_ATTRS.filter(a => !documented.has(a))).toEqual([]);
@@ -35,6 +38,22 @@ describe("a component without a schema fails here", () => {
     expect(ids.size).toBe(BUILTIN_COMPONENT_SCHEMAS.length);
     // A brief for each, the way an agent reads it.
     for (const s of BUILTIN_COMPONENT_SCHEMAS) expect(componentBrief(s)).toContain(`## ${s.id}\n`);
+  });
+});
+
+describe("a schema says what its properties do", () => {
+  test("every swept property changes the source it writes, and every example draws something", () => {
+    const flat: string[] = [];
+    for (const s of BUILTIN_COMPONENT_SCHEMAS) {
+      for (const axis of s.sweep) {
+        const sources = new Set(sweep(s, axis).map(variationText));
+        const values = sweep(s, axis).length;
+        if (values > 1 && sources.size < 2) flat.push(`${s.id}: sweeping ${axis} writes the same source for all ${values} values`);
+      }
+      const drawn = drawVariation(variation(s, {}), 60, null).map(visible).join("\n");
+      if (!drawn.trim() || /couldn't draw/.test(drawn)) flat.push(`${s.id}: its minimal example draws ${JSON.stringify(drawn)}`);
+    }
+    expect(flat).toEqual([]);
   });
 });
 
