@@ -158,6 +158,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     await mine("tile.focus", {}, g.tile);
     const o = await mine("open", { id: seeded.cards[1]!.id });
     expect(o.reader).toStartWith(`${g.tile}/`);
+    await mine("tile.focus", {}, focus);                         // the keys back where they were: an agent never spills the person's tile
     // What its layout says of a tile in it comes back out with it (an agent's limit, tightened by an agent).
     await act("tile.agent", { policy: "edit" }, `${g.tile}/${others[0]}`);
     const s = await act("tile.group", { on: false }, g.tile);
