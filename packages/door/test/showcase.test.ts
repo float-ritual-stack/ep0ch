@@ -1055,7 +1055,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "blank.fill", tile: "blank", args: { kind: "tree" }, as: "test-agent" });
     await app.act({ action: "tile.open", tile: "tree", args: { kind: "detail", where: "right" }, as: "test-agent" });
     await app.act({ action: "tile.link", tile: "tree", args: { to: "detail" }, as: "test-agent" });
-    expect(tiles().map(t => t.kind)).toEqual(["tree", "detail"]);
+    expect(tiles().map(t => t.kind)).toEqual(["tree", "reader"])   // kind=detail opens a held reader (PIE-705); the tile keeps the name "detail";
     const saved = await app.act({ action: "screen.save", args: { name: "Allotment work" }, as: "test-agent" }) as any;
     // Named the way it is typed: the title is kept, the answer says the slug it saved under.
     expect(saved).toMatchObject({ screen: "allotment-work", title: "Allotment work", slug: "allotment-work", created: true, tiles: ["tree", "detail"] });
