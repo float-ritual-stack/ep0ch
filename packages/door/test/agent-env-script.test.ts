@@ -2,7 +2,7 @@
 // outline host was once killed by the kernel during an agent's whole-suite run: every run started through agent-env
 // has oom_score_adj 1000, inherited by what it starts, and a --test run is capped (MemoryMax) in a systemd user scope.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,6 +48,31 @@ describe("scripts/agent-env", () => {
     expect(printed).toContain(`export XDG_CONFIG_HOME=${d}/xdg/config`);
     for (const v of ["RESTIC_PASSWORD", "RESTIC_REPOSITORY", "LITESTREAM_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) expect(printed).toContain(`unset ${v}`);
     expect(printed).not.toContain(home);
+  });
+
+  // PIE-736: a --test run once printed the person's real XDG folders and so read their ~/.config/ep0ch/mcp.env and backup.env.
+  // Both forms are built from one settings list in the script; this holds them to the same environment and shows the
+  // person's config file out of sight of the --test one.
+  test("a --test run sees the same private XDG folders as the plain form, and none of the person's ~/.config/ep0ch", () => {
+    const home = join(root, "owner-test");
+    mkdirSync(join(home, ".config/ep0ch"), { recursive: true });
+    writeFileSync(join(home, ".config/ep0ch/mcp.env"), "EP0CH_MCP_PERSONAS=claude-code@float-2=loki\n");
+    writeFileSync(join(home, ".config/ep0ch/backup.env"), "RESTIC_REPOSITORY=s3:owner\n");
+    const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local/share"), XDG_STATE_HOME: join(home, ".local/state"), XDG_CACHE_HOME: join(home, ".cache"),
+      RESTIC_PASSWORD: "owner-secret", EP0CH_AGENT_ROOT: root };
+    const probe = ['env | grep -E "^(XDG_(CONFIG|DATA|STATE|CACHE)_HOME|AWS_[A-Z_]*FILE|RESTIC_[A-Z_]*|EP0CH_[A-Z_]*)=" | sort',
+      'ls "$XDG_CONFIG_HOME/ep0ch" 2>&1 | head -1; echo "config:$XDG_CONFIG_HOME"'].join("; ");
+    const seen = (...flags: string[]) => Bun.spawnSync([script, "xdgtest", ...flags, "--", "sh", "-c", probe], { env, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+    const plain = seen(), tested = seen("--test");
+    expect(tested).toBe(plain);
+    const d = join(root, "xdgtest", "xdg");
+    expect(tested).toContain(`XDG_CONFIG_HOME=${d}/config`);
+    expect(tested).toContain(`XDG_STATE_HOME=${d}/state`);
+    expect(tested).not.toContain(home);
+    expect(tested).not.toContain("RESTIC");
+    // The person's files are not where this run looks.
+    expect(existsSync(join(d, "config/ep0ch/mcp.env"))).toBe(false);
+    expect(existsSync(join(d, "config/ep0ch/backup.env"))).toBe(false);
   });
 
   test("its temp folder is outside the home folder: a scratch folder there has no ~/.ep0ch above it", () => {

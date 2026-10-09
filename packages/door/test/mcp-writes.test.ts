@@ -15,11 +15,18 @@ import { Netmail, pullNetmail } from "../src/mcp-netmail";
 import { incidents, type BackupState } from "../src/backup/alert";
 import { readQueues } from "../src/backup/netmail";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { clientName, actorOf, levelFor, personaClaim, principalOf, STDIO_SUBJECT } from "../src/mcp-writes";
+import { clientName, actorOf as actorOfIn, levelFor, personaClaim, principalOf, STDIO_SUBJECT } from "../src/mcp-writes";
 import { remoteWrite } from "../src/app";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
+
+// A persona is read from the environment given, else ~/.config/ep0ch/mcp.env under its HOME (XDG_CONFIG_HOME first). A call with
+// an environment of its own would otherwise fall through to the person's real home, and a persona of theirs would leak into
+// the actor id (agent-env's XDG folders don't reach it: the environment is the test's own). Every call here gets an empty HOME.
+const emptyHome = scratchDir("ep0ch-nohome-");
+afterAll(() => rmSync(emptyHome, { recursive: true, force: true }));
+const actorOf: typeof actorOfIn = (caller, env, machine) => actorOfIn(caller, { HOME: emptyHome, ...env }, machine);
 
 const ISSUER = "https://fake-clerk.example.test";
 const RESOURCE = "https://mcp.example.test/mcp";
