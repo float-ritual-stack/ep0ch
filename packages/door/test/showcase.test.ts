@@ -947,6 +947,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     let b = (await blocks())[0];
     expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=letter mail=waiting", groups: ["matches"], entered: false });
     expect(b.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
+    // A query it can't read (PIE-729) shows the service's whole refusal in its frame: the query, what was read, a fix.
+    await until(() => /Invalid property filter key/.test(screen()), "the unreadable query's refusal drawn", 8000);
+    const refused = screen().replace(/\x1b\[[\d;]*m/g, "");
+    expect(refused).toContain("query: type!=letter");
+    expect(refused).toContain("Did you mean NOT type=letter");
+    expect(refused).toContain("Example: type=thread");
+    expect(refused).not.toContain("Invalid property fi…");
     // The first row is selected and previewed beside the list, drawn as an embed of it is.
     const first = b.rows.find((r: any) => r.selected);
     expect(first.n).toBe(1);
