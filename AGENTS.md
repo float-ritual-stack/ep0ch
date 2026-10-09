@@ -133,7 +133,8 @@ So no client or component hard-codes which properties can be filtered, grouped o
 
 Which outline a client opens (PIE-530, `outline-core/src/outline-location.ts`), first match wins: `--ws
 <name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder. It holds names only:
-`ws = "<name>"`, and `machine = "<ssh-name>"` for an outline on another machine. Nothing else names one: a
+`ws = "<name>"`, `machine = "<ssh-name>"` for an outline on another machine, and `agent = "<persona>"`, the name an
+agent working in this folder writes as (ADR 0003: recorded, never a permission). Nothing else names one: a
 folder that names none gets the home base (the door's `home` screen: open, new or import, here or on a machine),
 never a guess taken silently and never a default. Outlines are
 `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it; the host's socket
