@@ -38,6 +38,7 @@ import { sizedPlacement } from "../text-sizing";
 import { theme, type Rgb } from "../theme";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
+import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -615,7 +616,7 @@ export class NoteSurface {
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
   private digested: { m: Msg; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
-  private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string } | null = null;
+  private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string; focus?: Focus } | null = null;
   /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
   raw = false;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
@@ -904,8 +905,25 @@ export class NoteSurface {
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    if (shade.grid) for (let r = 0; r < lines.length; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    this.headerSurface(lines, lines.length, w, shade);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
+  }
+
+  /**
+   * The header's rows over their backdrop and their surface (PIE-675): the look's `header.bg` at `header.bg.opacity`
+   * over the ground, or over the backdrop's colours (cells); a backdrop Kitty draws shows only through cells on the
+   * default background, so there the surface yields to it. Capped dark either way (theme.ts surfaceMix).
+   */
+  private headerSurface(lines: string[], rows: number, w: number, shade: { placements: Placement[]; grid: CellGrid | null }) {
+    const v = this.lastLook?.values, role = v?.["header.bg"] ?? "none", share = (v?.["header.bg.opacity"] ?? 0) / 100;
+    const own = role !== "none" && share > 0 && !shade.placements.length;
+    if (!own && !shade.grid) return;
+    const ground = own ? surfaceMix(role, share) : null;
+    for (let r = 0; r < rows; r++) {
+      const under = shade.grid?.[r];
+      const row = under ? (own ? under.map(c => surfaceMix(role, share, c) ?? c) : under) : ground ? [ground] : null;
+      if (row?.length) lines[r] = overColours(lines[r]!, w, row);
+    }
   }
 
   /**
@@ -937,7 +955,7 @@ export class NoteSurface {
     const name = (x: { path: string }) => x.path.split("/").pop() ?? x.path;
     this.backdropShown = {
       image: name(pick), line: pick.line + 1, step, of: HERO_STEPS, mode, drawn: !step && !under ? null : !shade && !under ? "making" : graphics ? "kitty" : "cells",
-      ...(before && under ? { over: name(before) } : {}),
+      ...(before && under ? { over: name(before) } : {}), ...(pick.focus ? { focus: pick.focus } : {}),
     };
     if (!graphics) return { placements: [], grid: shade && "grid" in shade ? shade.grid : under && "grid" in under ? under.grid : null };
     return { placements: [under, shade].flatMap(b => (b && "placement" in b ? [b.placement] : [])), grid: null };
@@ -951,10 +969,33 @@ export class NoteSurface {
    * image, then every image in the body.
    */
   private heroSources(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
+    const all0 = this.heroPictures(m, doc, noteLines, mode, scroll);
+    // The look's `header.image.x` and `.y` (PIE-675): the crop moved across and down, in % of the picture, from the
+    // focus it has (its `[hero-focus::…]`, else its middle), where the default pick shows the wrong part of it.
+    const v = this.lastLook?.values, dx = (v?.["header.image.x"] ?? 0) / 100, dy = (v?.["header.image.y"] ?? 0) / 100;
+    if (!dx && !dy) return all0;
+    const clamp = (x: number) => Math.max(0, Math.min(1, x));
+    return all0.map(x => ({ ...x, focus: { x: clamp((x.focus?.x ?? 0.5) + dx), y: clamp((x.focus?.y ?? 0.5) + dy) } }));
+  }
+
+  /** heroSources' pictures, before the look's offsets: the look's `header.image` first when it names one, else the hero. */
+  private heroPictures(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
     const look = (spec: MediaSpec) => ({ ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) });
     const out: ReturnType<NoteSurface["heroSources"]> = [];
-    if (this.hero) {
+    // `header.image` (PIE-675): one of the note's pictures (by its path or its file's name), taken in as it scrolls under
+    // like the hero; or a picture of its own, the header's from the start (muted and dark-capped as every backdrop is).
+    const named = this.lastLook?.values["header.image"]?.trim();
+    if (named) {
+      const base = (p: string) => p.split("/").pop() ?? p;
+      const ref = this.imagesIn(m).find(x => x.path === named || base(x.path) === named);
+      const im = ref && doc.media.find(x => noteLines[x.line] === ref.line);
+      const at = im?.image !== undefined ? doc.images[im.image] : undefined;
+      const gone = !ref ? 1 : ref.line === this.hero?.line ? scroll / Math.max(1, this.hero.full) : at ? (scroll - at.line) / Math.max(1, at.rows) : im ? (scroll - im.row) / HERO_RAMP_ROWS : 1;
+      out.push({ path: ref?.path ?? named, kind: ref?.spec.kind === "video" ? "video" : "img", ...(ref ? look(ref.spec) : {}), line: ref?.line ?? 0, gone: clamp(gone) });
+      if (mode === "first") return out;
+    }
+    if (this.hero && !named) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
       if (ref) out.push({ path: ref.path, kind: ref.spec.kind, ...look(ref.spec), line: ref.line, gone: clamp(scroll / Math.max(1, this.hero.full)) });
       if (mode === "first") return out;
@@ -964,7 +1005,7 @@ export class NoteSurface {
     const body = mode === "follow" ? doc.media : [doc.media.find(x => x.spec.layout === "hero") ?? firstBlock].filter(x => x !== undefined);
     for (const x of body) {
       const line = noteLines[x.line];
-      if (line === undefined || x.spec.kind !== "img" || line === this.hero?.line) continue;
+      if (line === undefined || x.spec.kind !== "img" || line === this.hero?.line || out.some(o => o.line === line && o.path === x.path)) continue;
       const im = x.image !== undefined ? doc.images[x.image] : undefined;
       const gone = im ? (scroll - im.line) / Math.max(1, im.rows) : (scroll - x.row) / HERO_RAMP_ROWS;
       out.push({ path: x.path, kind: x.spec.kind, ...look(x.spec), line, gone: clamp(gone) });
@@ -1130,13 +1171,18 @@ export class NoteSurface {
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
     const inQuote = (row: number) => quoted.some(([a, b]) => row >= a && row < b);
-    // The look's zebra (list.zebra): every other list item on a quiet tint, under the ruler and a thread's.
-    const zebraRows = doc.zebra ?? [];
-    const striped = (row: number) => zebraRows.some(([a, b]) => row - top >= a && row - top < b);
+    // The look's backgrounds (PIE-673, PIE-675): every other list item's zebra stripe, a box's surface, each across its
+    // cells, under the ruler and a thread's tint (which take the whole row).
+    const tints = doc.tints ?? [];
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
       const row = i < top ? i : i + this.scroll;
-      const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : row >= top && striped(row) ? ZEBRA_BG : null;
-      return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
+      const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
+      if (tint) return this.paintSelection(paintRange(pad(l, w), 0, w, tint), row);
+      const under = row >= top ? tints.filter(t => row - top >= t.rows[0] && row - top < t.rows[1]) : [];
+      if (!under.length) return this.paintSelection(l, row);
+      let painted = pad(l, w);
+      for (const t of under) painted = t.cols ? paintRange(painted, Math.max(0, t.cols[0] + bx), Math.min(w, t.cols[1] + bx), t.bg) : paintRange(painted, 0, w, t.bg);
+      return this.paintSelection(painted, row);
     });
     // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
     // block holds the `[ ]` position. A click is block.copy, as y is. Not drawn over a code cell it would hide.
@@ -1163,7 +1209,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    if (shade.grid) for (let r = 0; r < headerRows; r++) lines[r] = overColours(lines[r]!, w, shade.grid[r] ?? []);
+    this.headerSurface(lines, headerRows, w, shade);
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
@@ -4345,7 +4391,7 @@ export class NoteSurface {
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
       focus: this.focusMark ? { by: whoOf(this.focusMark.by), marked: this.focusMark.label, ...this.focusMark.spec } : null,
       // The look it was drawn with (PIE-673): reported here, never put into the text it reads back.
-      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.divider"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
+      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.image", "header.image.x", "header.image.y"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
       properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,

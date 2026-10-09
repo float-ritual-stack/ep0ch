@@ -12,7 +12,10 @@ import {
   fieldKey, nudgeStyleValue, parseStyleValue, SAVE_LEVELS, STYLE_TOKENS, styleValueText, type Breakpoint, type SaveLevel, type StyleSource,
   type StyleToken, type StyleValue, parseStyleAttrs, resolveStyle,
 } from "@ep0ch/outline-core/style-cascade";
-import { saveTuning, sourceTarget, targetWords, tuneTarget, tuningOf, type Look, type TuneTarget } from "../look";
+import { lookFor, saveTuning, sourceTarget, targetWords, tuneTarget, tuningOf, UNSET, type Look, type TuneTarget } from "../look";
+import { SURFACE_STEPS, type Surface } from "@ep0ch/outline-core/style-cascade";
+import { surfaceMix } from "../theme";
+import { bgRgb } from "../style";
 import { USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
 import { C, chip, ellipsize, fg, pad, RESET, selected, width } from "../style";
@@ -36,7 +39,21 @@ export const TUNE_ROWS: readonly TuneRow[] = [
   { name: "margin.y", tokens: ["margin.y"] },
   { name: "list.gap", tokens: ["list.gap"] },
   { name: "list.zebra", tokens: ["list.zebra"] },
+  { name: "list.zebra.bg", tokens: ["list.zebra.bg"] },
+  { name: "list.zebra.strength", tokens: ["list.zebra.strength"] },
   { name: "list.divider", tokens: ["list.divider"] },
+  { name: "list.divider.glyph", tokens: ["list.divider.glyph"] },
+  { name: "list.divider.align", tokens: ["list.divider.align"] },
+  { name: "bg", tokens: ["bg"] },
+  { name: "bg.strength", tokens: ["bg.strength"] },
+  { name: "border", tokens: ["border"] },
+  { name: "edge", tokens: ["edge"] },
+  { name: "tone", tokens: ["tone"] },
+  { name: "header.bg", tokens: ["header.bg"] },
+  { name: "header.bg.opacity", tokens: ["header.bg.opacity"] },
+  { name: "header.image", tokens: ["header.image"] },
+  { name: "header.image.x", tokens: ["header.image.x"] },
+  { name: "header.image.y", tokens: ["header.image.y"] },
   { name: "heading.margin", tokens: ["heading.margin"] },
   { name: "heading.padding", tokens: ["heading.padding"] },
   { name: "bp.narrow", tokens: ["bp.narrow"] },
@@ -45,7 +62,14 @@ export const TUNE_ROWS: readonly TuneRow[] = [
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 
 /** What the inspector sees of the tile it tunes (DeskApi.tileLook). */
-export interface TuneTargetInfo { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null }
+export interface TuneTargetInfo {
+  look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null;
+  /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
+  pictures?: string[];
+}
+
+/** The rows that are a surface (PIE-675): drawn with a swatch of it beside the value, at the strength they're shown at. */
+const SWATCH: Partial<Record<StyleToken, StyleToken>> = { "bg": "bg.strength", "list.zebra.bg": "list.zebra.strength", "header.bg": "header.bg.opacity" };
 
 /** Where a value came from, in a few words: `tile detail`, `page · tuning`, `built-in`, with its width variant. */
 export const sourceWords = (s: StyleSource) => `${s.label}${s.variant ? ` · ${s.variant}` : ""}`;
@@ -77,7 +101,7 @@ export class TunePane implements Pane {
   constructor(public source: string) {}
 
   title() { return `tune · ${this.source}`; }
-  hint() { return "j k pick · + − nudge · v level · w width · s save · u undo · x reset"; }
+  hint() { return "j k pick · + − nudge · v level · w width · s save · u undo · x reset row · X reset all"; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -122,24 +146,28 @@ export class TunePane implements Pane {
     lines.push("");
     this.head = lines.length;
     const { values, sources } = this.values(t);
-    const nameW = 16, valW = 9, ctl = 8;
+    const nameW = 20, valW = 12, ctl = 10;
     const room = Math.max(1, h - this.head - 2);
     this.view.place(this.sel, TUNE_ROWS.length, room);
     for (let i = this.view.top; i < Math.min(TUNE_ROWS.length, this.view.top + room); i++) {
       const row = TUNE_ROWS[i]!, on = i === this.sel;
-      const shown = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
+      const text = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
+      const shown = text === "" ? "(the hero)" : text;
+      // A surface's row shows it: a swatch of the colour it draws, at the strength (or opacity) it's drawn at.
+      const sw = SWATCH[row.tokens[0]!], swatch = sw ? swatchOf(values[row.tokens[0]!] as Surface, values[sw] as number, row.tokens[0] === "header.bg") : "";
       const src = sources[row.tokens[row.tokens.length - 1]!];
       // Tuned here, not yet saved: the value is the inspector's nudge, drawn over the outline's (●).
       const at = sourceTarget(src, t.look.place), mark = at ? tuning.get(at, fieldKey(row.tokens[row.tokens.length - 1]!, src.variant ?? null)) : undefined;
       const tuned = !!mark && !mark.saved;
       const srcW = Math.max(0, w - nameW - valW - ctl - 1);
       const y = lines.length;
-      const name = pad(row.name, nameW), value = pad(shown, valW);
+      const name = pad(row.name, nameW), value = swatch ? pad(shown, valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(shown, valW);
       const body = (on ? selected(focused) : "") + fg(on ? C.white : C.grey) + name + (on ? "" : fg(tuned ? C.yellow : C.white)) + value + (on ? "" : fg(C.dark)) + pad(`${tuned ? "● " : "← "}${sourceWords(src)}`, srcW) + RESET;
       this.rowAt.set(y, { row: i, valueFrom: nameW, valueTo: nameW + valW });
-      const minus = nameW + valW + srcW + 1;
-      this.controls.push({ y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
-      lines.push(body + " " + fg(C.cyan) + "[−] [+]" + RESET);
+      // × takes this row's value back to the level under it (tune.unset, as x); − and + nudge it.
+      const unset = nameW + valW + srcW + 1, minus = unset + 2;
+      this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: row.name } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
+      lines.push(body + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
     }
     // What the tile's look couldn't use (a value out of range, a style no note declares), then the help.
     const problems = t.look.problems;
@@ -159,7 +187,8 @@ export class TunePane implements Pane {
     if (c === "w") return this.run(desk, "tune.width", { scope: this.scope === "all" ? "this" : "all" }), true;
     if (c === "s") return this.run(desk, "tune.save", {}), true;
     if (c === "u") return this.run(desk, "tune.undo", {}), true;
-    if (c === "x") return this.run(desk, "tune.reset", {}), true;
+    if (c === "x") return this.run(desk, "tune.unset", {}), true;
+    if (c === "X") return this.run(desk, "tune.reset", { all: true }), true;
     return false;
   }
 
@@ -259,7 +288,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       let shadowed: string | null = null;
       for (const tk of r.tokens) {
         const a = aim(pane, desk, tk, lv, scope);
-        const next = nudgeStyleValue(tk, values[tk] as StyleValue, Math.sign(by) || 0);
+        const next = tk === "header.image" ? stepPicture(values[tk] as string, t0.pictures ?? [], Math.sign(by) || 0) : nudgeStyleValue(tk, values[tk] as StyleValue, Math.sign(by) || 0);
         tuning.set(a.target, a.field, styleValueText(next), actor);
         shown.push(styleValueText(next));
         at = `${targetWords(a.target)}${a.variant ? `, ${a.variant} only` : ""}`;
@@ -294,6 +323,36 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       desk.redraw();
       if (actor.kind === "agent") desk.ctx.flash(says(actor, `set ${tk} to ${styleValueText(ok.value)} (${targetWords(a.target)}) · s saves`));
       return { row: tk, value: styleValueText(ok.value), at: targetWords(a.target) };
+    },
+  }),
+  "tune.unset": def({
+    summary: "take a row's value back to the level under it: a nudge not yet saved is let go (the outline's value shows again); a value the outline sets at a level (global, the tile's kind, the screen, the page, a named style) is taken away from it, in memory until s saves (which removes the property from its note). A built-in, a heading style's or a box's is edited where it's written",
+    keys: "x, a click on a row's ×",
+    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from})`,
+    args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
+    run({ row }, { pane, desk }, actor) {
+      const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
+      if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
+      const t = pane.info(desk);
+      if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
+      const tuning = tuningOf(desk.ctx.board);
+      for (const tk of r.tokens) {
+        const src = pane.values(t).sources[tk], target = sourceTarget(src, t.look.place), field = fieldKey(tk, src.variant ?? null);
+        if (!target) {
+          throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
+        }
+        const mine = tuning.get(target, field);
+        if (mine && !mine.saved) { tuning.drop(target, field, actor); continue; }
+        if (src.line !== undefined) throw new ActionRefused(`${tk} is set on line ${src.line + 1} of note ${src.block?.slice(0, 8)}: take it away there`);
+        tuning.set(target, field, UNSET, actor);
+      }
+      desk.redraw();
+      // What shows now, resolved again (the tile's look as drawn is the frame before this one).
+      const look = lookFor({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place, t.look.width);
+      const now = pane.values({ ...t, look }), last = r.tokens[r.tokens.length - 1]!;
+      const value = now ? r.tokens.map(tk => styleValueText(now.values[tk] as StyleValue)).join(" ") : "", from = now ? sourceWords(now.sources[last]) : "";
+      if (actor.kind === "agent") desk.ctx.flash(says(actor, `took ${r.name} back to ${value} (${from}) · s saves`));
+      return { row: r.name, value, from, unsaved: tuning.unsavedCount() };
     },
   }),
   "tune.level": def({
@@ -365,7 +424,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.reset": def({
     summary: "let go of the nudges: the level picked's, or every level's (all=true, or the level is auto): the outline's values stand again",
-    keys: "x, a click on [reset]",
+    keys: "X, a click on [reset]",
     touches: "nothing", replay: "ask",
     args: { all: { type: "boolean", optional: true, about: "every level's" } },
     run({ all }, { pane, desk }) {
@@ -389,3 +448,17 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
 });
 
+
+/** A swatch of surface `role` (two cells) at `n` (a strength, 1 to SURFACE_STEPS; an opacity, 0 to 100); a dim dash for none. */
+function swatchOf(role: Surface, n: number, opacity: boolean): string {
+  const c = surfaceMix(role, opacity ? n / 100 : n / SURFACE_STEPS);
+  return c ? bgRgb(c) + "  " + RESET : fg(C.dark) + "--" + RESET;
+}
+
+/** The next of the header's pictures by `by`: the hero (empty) first, then the note's pictures in order. */
+function stepPicture(now: string, pictures: readonly string[], by: number): string {
+  const all = ["", ...pictures.filter((p, i) => p && pictures.indexOf(p) === i)];
+  if (all.length < 2 || by === 0) return now;
+  const i = all.indexOf(now);
+  return all[i < 0 ? (by > 0 ? 1 : all.length - 1) : (((i + by) % all.length) + all.length) % all.length]!;
+}

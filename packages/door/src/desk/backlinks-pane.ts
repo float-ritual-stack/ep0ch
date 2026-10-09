@@ -333,7 +333,7 @@ export class BacklinksPane implements Pane {
     this.view.place(at[this.sel] ?? 0, slots.length, fit);
     for (const slot of slots.slice(this.view.top, this.view.top + fit)) {
       if ("item" in slot) { const selected = slot.item === this.sel; lines.push(zebraRow(linkRowLine(rows[slot.item]!, { selected, focused, cols: w }), slot.item, w, v, selected)); }
-      else lines.push("divider" in slot ? dividerLine(v["list.divider"], w) : "");
+      else lines.push("divider" in slot ? dividerLine(v, w) : "");
     }
     if (!rows.some(isLinkEntry) && this.opts().filter) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };

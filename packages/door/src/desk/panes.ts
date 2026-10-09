@@ -29,7 +29,7 @@ export interface DeskApi {
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
   /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
-  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null } | null;
+  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null; pictures?: string[] } | null;
   /** The screens held one inside the next down to this desk (a mount is checked against it). */
   mountChain?(): string[];
   current: Msg | null;

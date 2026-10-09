@@ -57,6 +57,11 @@ export function sourceTarget(src: { level: string; label: string; block?: string
   return null;
 }
 
+/**
+ * A tuned field's value that takes the level's own away (the inspector's `x` on a row, PIE-675): the value shows from the
+ * level below it, and a save removes the property from the note.
+ */
+export const UNSET = "\u0000unset";
 interface Tuned { value: string; by: Actor; saved?: boolean }
 interface Undo { target: TuneTarget; field: FieldKey; before: Tuned | undefined; by: Actor }
 
@@ -116,6 +121,17 @@ export class Tuning {
     this.gen++;
   }
 
+  /** Lets go of `target`'s nudge of `field` (undoable: its undo puts it back); whether there was one. */
+  drop(target: TuneTarget, field: FieldKey, by: Actor): boolean {
+    const at = this.layers.get(target), had = at?.get(field);
+    if (!at || !had) return false;
+    this.undos.push({ target, field, before: had, by });
+    at.delete(field);
+    if (!at.size) this.layers.delete(target);
+    this.gen++;
+    return true;
+  }
+
   /** Lets go of every nudge (`all`) or `target`'s: the outline's values stand again. */
   clear(target?: TuneTarget) {
     if (target === undefined) this.layers.clear(); else this.layers.delete(target);
@@ -128,7 +144,7 @@ export class Tuning {
     const at = this.layers.get(target);
     if (!at) return;
     let changed = false;
-    for (const [f, t] of at) if (t.saved && outline?.[f] === t.value) { at.delete(f); changed = true; }
+    for (const [f, t] of at) if (t.saved && (t.value === UNSET ? outline?.[f] === undefined : outline?.[f] === t.value)) { at.delete(f); changed = true; }
     if (!at.size) this.layers.delete(target);
     if (changed) this.gen++;
   }
@@ -188,11 +204,15 @@ export function lookFor(src: ListSource | null | undefined, place: StylePlace, w
     };
     // The tuning goes into the outline's layer it tunes (its newest declaration), as a save would write it, so a width
     // variant there keeps its precedence live as after the save; a level with no declaration gets a layer of its own.
+    // A field taken away (UNSET) leaves the layer: every declaration of it at that level, so the level below shows.
     const put = (level: StyleLayer["level"], label: string, at: Map<FieldKey, { value: string }>) => {
-      const fields = Object.fromEntries([...at].map(([k, v]) => [k, v.value]));
+      const set = [...at].filter(([, v]) => v.value !== UNSET), gone = [...at].filter(([, v]) => v.value === UNSET).map(([k]) => k);
+      const fields = Object.fromEntries(set.map(([k, v]) => [k, v.value]));
+      const without = (f: Readonly<Record<FieldKey, string>>) => Object.fromEntries(Object.entries(f).filter(([k]) => !gone.includes(k)));
+      if (gone.length) layers.forEach((l, k) => { if (l.label === label) layers[k] = { ...l, fields: without(l.fields) }; });
       const i = layers.findLastIndex(l => l.label === label);
       if (i >= 0) layers[i] = { ...layers[i]!, fields: { ...layers[i]!.fields, ...fields } };
-      else layers.push({ level, label, fields });
+      else if (set.length) layers.push({ level, label, fields });
     };
     for (const level of ["global", "tile", "screen", "page"] as const) {
       const target = tuneTarget(level, place);
@@ -256,6 +276,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
   const t = tuningOf(src.board), entry = t.unsaved().find(u => u.target === target);
   if (!entry) return null;
   const props = entry.fields.map(([k, v]) => { const f = parseFieldKey(k)!; return { key: styleProperty(f.token, f.variant), value: v }; });
+  const kept = props.filter(p => p.value !== UNSET);
   const board = src.board;
   // Every token read at one revision (asked again when the note moved between the reads), and the patch names it: a
   // note changed since is refused by the service, never patched at ordinals that moved.
@@ -264,10 +285,13 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
       const reads = await Promise.all(props.map(p => board.propertyTokens(id, p.key)));
       const revision = reads[0]!.revision;
       if (reads.some(r => r.revision !== revision)) continue;
-      const ops: PropertyPatch[] = props.map((p, k) => {
-        const own = reads[k]!.tokens.find(x => x.scope === "block");
-        return own ? { op: "replace", ordinal: own.ordinal, value: p.value } : { op: "append", key: p.key, value: p.value };
+      // A field taken away removes every one of the note's own (a value written twice would show again).
+      const ops: PropertyPatch[] = props.flatMap((p, k): PropertyPatch[] => {
+        const mine = reads[k]!.tokens.filter(x => x.scope === "block");
+        if (p.value === UNSET) return mine.map(x => ({ op: "remove", ordinal: x.ordinal }));
+        return mine[0] ? [{ op: "replace", ordinal: mine[0].ordinal, value: p.value }] : [{ op: "append", key: p.key, value: p.value }];
       });
+      if (!ops.length) return null;
       return board.patchProperties(id, revision, ops, actor);
     }
     throw new Error("the style note kept changing while it was read: s again saves");
@@ -282,16 +306,19 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     // line, a new style note (newer still) holds the values, so what's saved is what shows.
     const own = sheets.filter(s => s.for === target).at(-1);
     if (own && own.line === undefined) { note = own.block; await patchOnto(note); }
-    else {
+    else if (!kept.length) {
+      // Only fields taken away, and no note of the level's own to take them from: a line declares them, edited there.
+      throw new Error(`${targetWords(target)}'s values are on a line of note ${own?.block.slice(0, 8) ?? "?"}: take them away there`);
+    } else {
       const parent = await styleHome(board, sheets, actor);
-      const text = `Style · ${targetWords(target)} [style-for::${target}] ${props.map(p => `[${p.key}::${p.value}]`).join(" ")}`;
+      const text = `Style · ${targetWords(target)} [style-for::${target}] ${kept.map(p => `[${p.key}::${p.value}]`).join(" ")}`;
       note = (await board.createBlock(parent, text, actor)).id;
       created = true;
     }
   }
   t.markSaved(target, entry.fields);
   SHEETS.stale(board);
-  return { target, note, fields: props.map(p => `${p.key}=${p.value}`), created };
+  return { target, note, fields: props.map(p => (p.value === UNSET ? `${p.key} removed` : `${p.key}=${p.value}`)), created };
 }
 
 export type { ResolvedStyle };

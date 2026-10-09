@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -14,6 +14,10 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
+import { BORDER_BOXES } from "./canvas";
+import { dividerLine, gapSlots } from "./list-look";
+import { zebraBg } from "./surface/selection";
+import { theme } from "./theme";
 import { headingComponentLayer, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 
 export interface DocEnv {
@@ -145,8 +149,11 @@ export interface Doc {
   blocks: DocBlock[];
   /** The header image (`env.hero`): the first `[layout::hero]` image, drawn by the reader above the title. */
   hero?: DocMedia & { media: Media };
-  /** Rows on the look's quiet zebra tint (every other list item, `list.zebra`): [from, to) ranges. */
-  zebra?: [number, number][];
+  /**
+   * Backgrounds the look draws under rows (PIE-673, PIE-675): every other list item's zebra stripe, a box's surface.
+   * Painted in order (a later one over an earlier), under the ruler and a thread's tint.
+   */
+  tints?: DocTint[];
   /**
    * Rows that carry on the row before them (a paragraph or list item soft-wrapped), each with what joins it to that row:
    * the whitespace the wrap took, or "" where it cut a word (src/text.ts wrap's `joins`). A copy joins by it, so the text
@@ -154,6 +161,9 @@ export interface Doc {
    */
   wraps?: Map<number, string>;
 }
+
+/** A background under rows [from, to) of `lines`, across cells [from, to) (`cols`; the whole row without), in `bg` (an SGR). */
+export interface DocTint { rows: [number, number]; cols?: [number, number]; bg: string }
 
 /**
  * Drawing that is not the note's text, in a row's cells: `cuts` are cell ranges [from, to) (`to` may be Infinity) a
@@ -341,8 +351,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   if (env.after) inserted = -1;
   const look = env.look;
   let run: { n: number } | null = null, zebraFrom: number | null = null;
-  const zebra: [number, number][] = [];
-  const endZebra = () => { if (zebraFrom !== null && out.length > zebraFrom) zebra.push([zebraFrom, out.length]); zebraFrom = null; };
+  const tints: DocTint[] = [];
+  const stripe = look ? zebraBg(look.values) : "";
+  const endZebra = () => { if (zebraFrom !== null && out.length > zebraFrom && stripe) tints.push({ rows: [zebraFrom, out.length], bg: stripe }); zebraFrom = null; };
   for (let i = 0; i < src.length; i++) {
     mark();
     insert(i);
@@ -355,9 +366,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (ITEM.test(line)) {
         if (run) {
           endZebra();
-          for (let g = 0; g < look.values["list.gap"]; g++) { edge(out.length); out.push(""); }
-          const d = look.values["list.divider"];
-          if (d !== "none") { edge(out.length); out.push(fg(C.dark) + (d === "dots" ? "· ".repeat(Math.ceil(W / 2)).slice(0, W) : "─".repeat(W)) + RESET); }
+          // list-look's one painter: the gap's rows, the divider at the top, centre or bottom of them, in its style.
+          for (const slot of gapSlots(look.values, true)) { edge(out.length); out.push("divider" in slot ? dividerLine(look.values, W, (env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY).style("fade")) : ""); }
           run.n++;
         } else run = { n: 0 };
         if (look.values["list.zebra"] && run.n % 2 === 1) zebraFrom = out.length;
@@ -376,8 +386,18 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // A box's own margin and padding are its own (as CSS's aren't inherited); the list tokens carry on from the page.
       const own = resolveStyle([{ level: "block", label: "box", fields: attrs.fields }], at);
       const mine = (t: "margin.x" | "pad.x" | "margin.y" | "pad.y") => (own.sources[t].level === "block" ? own.values[t] : 0);
-      const ix = Math.max(0, Math.min(Math.floor((W - 10) / 2), mine("margin.x") + mine("pad.x"))), iy = mine("margin.y") + mine("pad.y");
-      const inner = Math.max(8, W - 2 * Math.max(0, ix)), off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
+      // Its surface and frame are its own too (PIE-675): a box's `bg`, `border` and `edge`; its tone and strength carry on.
+      const bgRole = own.sources.bg.level === "block" ? own.values.bg : "none", accent = own.sources.edge.level === "block" ? own.values.edge : "none";
+      const lineSet = own.sources.border.level === "block" ? own.values.border : "auto";
+      const glyphs = lineSet !== "auto" && lineSet !== "none" ? BORDER_BOXES[lineSet] : accent === "box" ? BORDER_BOXES.line : null;
+      // Margin outside the frame (or the bar, and a space after it), padding inside it; none where less than 8 columns of text would be left.
+      const mx = mine("margin.x"), px = mine("pad.x"), my = mine("margin.y"), py = mine("pad.y");
+      const framed = !!glyphs && W - 2 * (mx + 1 + px) >= 8, bar = !framed && accent === "bar" && W - 2 * (mx + px) - 2 >= 8;
+      const left = framed ? mx + 1 + px : bar ? mx + 2 + px : Math.max(0, Math.min(Math.floor((W - 10) / 2), mx + px));
+      const inner = framed ? W - 2 * left : bar ? W - left - mx - px : Math.max(8, W - 2 * left);
+      // The frame and the bar in the tone (theme.edge.tile for neutral): lines, never words.
+      const ink = v.tone === "neutral" ? fgRgb(theme().edge.tile) : fg(TONE[v.tone]);
+      const off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
       const sub = renderDoc(src.slice(i + 1, end).join("\n"), {
         ...env, nested: true, width: inner, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined, look: { values: v, layers, width: at },
         literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
@@ -385,18 +405,33 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       });
       endZebra(); run = null;
       mark();
-      for (let g = 0; g < iy; g++) { edge(out.length); out.push(""); source.push(i); }
-      const base = out.length, lead = " ".repeat(Math.max(0, ix));
-      sub.lines.forEach((l, r) => { out.push(lead + l); source.push(off + (sub.source[r] ?? 0)); });
+      const g = glyphs ?? BORDER_BOXES.line;
+      // A row of the box: its text (or nothing, a padding row) between its frame's sides, after its bar, or inset.
+      const row = (l: string) => framed ? " ".repeat(mx) + ink + g.side + RESET + " ".repeat(px) + pad(l, inner) + " ".repeat(px) + ink + g.side + RESET
+        : bar ? " ".repeat(mx) + ink + "▎" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
+      // Drawing only (margins, the frame's edges, padding): edge rows, never copied.
+      const drawn = (text: string, n: number, at: number) => { for (let k = 0; k < n; k++) { edge(out.length); out.push(text); source.push(at); } };
+      const frameEdge = (l: string, r: string) => " ".repeat(mx) + ink + l + g.top.repeat(Math.max(0, W - 2 * mx - 2)) + r + RESET;
+      drawn("", my, i);
+      if (framed) drawn(frameEdge(g.tl, g.tr), 1, i);
+      const surfaceFrom = out.length;
+      drawn(framed || bar ? row("") : "", py, i);
+      const base = out.length;
+      sub.lines.forEach((l, r) => { out.push(row(l)); source.push(off + (sub.source[r] ?? 0)); });
       for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
-      adopt(sub, base, ix, off);
-      sub.lines.forEach((_, r) => { if (ix > 0 && !trims.get(base + r)?.edge) cut(base + r, [0, ix]); });
-      for (const [a, b] of sub.zebra ?? []) zebra.push([base + a, base + b]);
+      adopt(sub, base, left, off, framed ? { inner } : undefined);
+      if (!framed) sub.lines.forEach((_, r) => { if (left > 0 && !trims.get(base + r)?.edge) cut(base + r, [0, left]); });
+      drawn(framed || bar ? row("") : "", py, end);
+      // Its surface, inside its frame (from after its bar) and its margin, over its padding and its text.
+      const surface = bgRole !== "none" ? surfaceBg(bgRole, v["bg.strength"]) : "";
+      if (surface) tints.push({ rows: [surfaceFrom, out.length], cols: [mx + (framed || bar ? 1 : 0), W - mx - (framed ? 1 : 0)], bg: surface });
+      for (const t of sub.tints ?? []) tints.push({ rows: [base + t.rows[0], base + t.rows[1]], cols: t.cols ? [t.cols[0] + left, t.cols[1] + left] : [left, left + inner], bg: t.bg });
       // Its pictures and media lines, moved to where the box put its rows (an image's index kept to its record).
       const imageBase = images.length;
-      for (const im of sub.images) images.push({ ...im, line: im.line + base, col: im.col + Math.max(0, ix) });
+      for (const im of sub.images) images.push({ ...im, line: im.line + base, col: im.col + left });
       for (const x of sub.media) mediaRefs.push({ ...x, row: x.row + base, line: x.line + off, ...(x.image !== undefined ? { image: x.image + imageBase } : {}) });
-      for (let g = 0; g < iy; g++) { edge(out.length); out.push(""); source.push(end); }
+      if (framed) drawn(frameEdge(g.bl, g.br), 1, end);
+      drawn("", my, end);
       i = end;
       continue;
     }
@@ -675,7 +710,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const finish = (lines: string[]) => { blocks.push(...codeSpans(lines, source)); blocks.sort((a, b) => a.row - b.row || a.col - b.col); return blocks; };
   // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
   out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
-  const z = { ...(zebra.length ? { zebra } : {}), ...(wraps.size ? { wraps } : {}) };
+  const z = { ...(tints.length ? { tints } : {}), ...(wraps.size ? { wraps } : {}) };
   if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
   return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z };

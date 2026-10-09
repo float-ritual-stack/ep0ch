@@ -10,7 +10,8 @@
 import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { subject, type Msg } from "../board";
-import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
+import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
+import { TONE } from "../callouts";
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
@@ -29,7 +30,7 @@ import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
+import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
@@ -234,7 +235,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   tileLook(name: string) {
     const id = this.idNamed(name), p = id !== undefined ? this.panes.get(id) : undefined, look = p && this.looks.get(p);
     if (id === undefined || !p || !look) return null;
-    return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: p instanceof ReaderPane ? p.surface.boxAt() : null };
+    const reader = p instanceof ReaderPane ? p : null, shown = reader?.surface.msg;
+    return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, ...(reader && shown ? { pictures: reader.surface.imagesIn(shown).filter(x => x.spec.kind === "img").map(x => x.path) } : {}) };
   }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
@@ -2442,9 +2444,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.boxOf(id, r0);
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
     // or a float's on the black it slides over).
-    canvas.clear(r, dock || float ? bg(C.black) : "");
     const framed: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
-    const look = this.lookAt(pane, framed.cols);
+    const look = this.lookAt(pane, framed.cols), lv = look.values;
+    // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
+    const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : "";
+    canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
     const inner = contentRect(framed, look, !!pane.measured);
     this.contents.set(id, inner);
@@ -2467,7 +2471,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Tiles picked to gather into a group (tile.select): the person's own in bright cyan, an agent's dimmer, each said in the title.
     const pickedMe = this.selected.get("person")?.has(id) ?? false;
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
-    const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : "tile");
+    // At rest, its frame in the look's tone when its `edge` asks for one (PIE-675); every state above keeps its own colour.
+    const toned = lv.edge !== "none" && lv.tone !== "neutral" ? TONE[lv.tone] : null;
+    const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
     const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // A float's long subject is cut so what it holds and how far down it is still show.
     const tail = (held ? fg(C.dark) + " (e enters)" : "") + more + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
@@ -2499,8 +2505,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
     // around this screen (the showcase's index beside its stage).
-    const glyphs = keys ? FOCUS_BOX : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
-    canvas.box(r, (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : ""), armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
+    // At rest, the lines its look's `border` names (auto: the screen's frame; none: blank edges, the title kept).
+    const lines = lv.border === "none" ? NO_BOX : lv.border !== "auto" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
+    const glyphs = keys ? FOCUS_BOX : lines;
+    const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
+    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
+    // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
+    if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
     // ⧉, before its title, puts it back.
     // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
@@ -2537,6 +2548,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    // The surface under what it drew and its padding, never over a picture drawn under the text (a header's backdrop:
+    // Kitty shows it only through cells on the default background, so the surface yields there).
+    if (surface && !dock && !float && !(pane instanceof PtyPane)) {
+      const under = (view.placements ?? []).filter(p => (p.z ?? 0) < 0).map(p => ({ c0: inner.col + p.col, c1: inner.col + p.col + p.cols, r0: inner.row + p.row, r1: inner.row + p.row + p.rows }));
+      canvas.under(framed, surface, under.length ? (x, y) => under.some(u => x >= u.c0 && x < u.c1 && y >= u.r0 && y < u.r1) : undefined);
+    }
     for (const s of view.spots ?? []) if (s.row < inner.rows && s.from < inner.cols) this.tileSpots.push({ y: inner.row + s.row, from: inner.col + s.from, to: inner.col + Math.min(s.to, inner.cols), key: s.key, tile: id });
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
     for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });

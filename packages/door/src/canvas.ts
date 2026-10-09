@@ -32,9 +32,36 @@ export function withSgr(sgr: string, code: string): string {
   return sgr ? sgr.split(SGR).filter(p => p && !same.test(p)).join("") + code : code;
 }
 
+/**
+ * Whether a line has a background of its own after SGR sequence `sgr`, given whether it had one before: its
+ * parameters in order, a reset (0, or none) or 49 letting it go, 40–48 and 100–107 setting one, a colour's own
+ * numbers after 38, 48 or 58 skipped.
+ */
+export function backgroundAfter(sgr: string, own: boolean): boolean {
+  const ps = sgr.slice(2, -1).split(";").map(p => (p === "" ? 0 : Number(p)));
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i]!;
+    if (p === 38 || p === 48 || p === 58) { if (p === 48) own = true; i += ps[i + 1] === 2 ? 4 : 2; continue; }
+    if (p === 0 || p === 49) own = false;
+    else if ((p >= 40 && p <= 47) || (p >= 100 && p <= 107)) own = true;
+  }
+  return own;
+}
+/** Whether a cell's style (its SGRs run together) leaves it on a background of its own. */
+const hasBackground = (sgr: string) => [...sgr.matchAll(/\x1b\[[\d;]*m/g)].reduce((own, m) => backgroundAfter(m[0], own), false);
+
 /** The characters a box is drawn with. */
 export interface BoxGlyphs { top: string; bottom: string; side: string; tl: string; tr: string; bl: string; br: string }
 export const LINE_BOX: BoxGlyphs = { top: "─", bottom: "─", side: "│", tl: "┌", tr: "┐", bl: "└", br: "┘" };
+/** The frames a look's `border` names (PIE-675): a tile's and a `::box`'s. */
+export const BORDER_BOXES: Readonly<Record<"line" | "round" | "heavy" | "double", BoxGlyphs>> = {
+  line: LINE_BOX,
+  round: { top: "─", bottom: "─", side: "│", tl: "╭", tr: "╮", bl: "╰", br: "╯" },
+  heavy: { top: "━", bottom: "━", side: "┃", tl: "┏", tr: "┓", bl: "┗", br: "┛" },
+  double: { top: "═", bottom: "═", side: "║", tl: "╔", tr: "╗", bl: "╚", br: "╝" },
+};
+/** A frame that draws nothing: a tile with `border=none` keeps its title and hint on blank edges. */
+export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr: " ", bl: " ", br: " " };
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
 
@@ -104,6 +131,23 @@ export class Canvas {
       for (let x = Math.max(0, r.col); x < r.col + r.cols && x < this.cols; x++) {
         const c = line[x]!;
         c.sgr = /\x1b\[38;2;/.test(c.sgr) ? scale(c.sgr) : c.sgr + plain;
+      }
+    }
+  }
+
+  /**
+   * A surface under a rectangle (PIE-675, a tile's `bg`): every cell in it without a background of its own gets `sgr`'s
+   * (a selection, a ruler, a chip keep theirs), except where `skip` says (a picture drawn under the text: Kitty shows
+   * it only through cells on the default background, so a surface yields there).
+   */
+  under(r: Rect, sgr: string, skip?: (x: number, y: number) => boolean): void {
+    if (!sgr) return;
+    for (let y = Math.max(0, r.row); y < r.row + r.rows && y < this.rows; y++) {
+      const line = this.cells[y]!;
+      for (let x = Math.max(0, r.col); x < r.col + r.cols && x < this.cols; x++) {
+        const c = line[x]!;
+        if (skip?.(x, y) || hasBackground(c.sgr)) continue;
+        c.sgr = withSgr(c.sgr, sgr);
       }
     }
   }

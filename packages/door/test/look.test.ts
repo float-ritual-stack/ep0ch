@@ -13,6 +13,8 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { renderDoc } from "../src/doc";
 import { rowsOf, Selection } from "../src/surface/selection";
+import { bgRgb, fg, surfaceBg } from "../src/style";
+import { surfaceMix } from "../src/theme";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -37,10 +39,46 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     const text = d.lines.map(plain);
     const at = (s: string) => text.findIndex(l => l.includes(s));
     expect(at("Turn the left") - at("Net the brassicas")).toBe(4);      // 2 blank rows and a divider between
-    expect(text[at("Net the brassicas") + 3]).toMatch(/^(· )+·?$/);
+    // Centred in the gap by default (list.divider.align).
+    expect(text[at("Net the brassicas") + 2]).toMatch(/^(· )+·?$/);
     // The zebra tints the second item's own rows, not the gap or divider under it.
-    expect(d.zebra).toEqual([[at("Turn the left"), at("Turn the left") + 1]]);
+    expect(d.tints?.map(t => t.rows)).toEqual([[at("Turn the left"), at("Turn the left") + 1]]);
     expect(copy(d, 40)).toBe(BODY);
+  });
+
+  test("a divider's style, glyph and place in the gap (PIE-675): all drawing, never copied", () => {
+    const rowAfter = (look: Record<string, unknown>, k: number) => {
+      const d = renderDoc(BODY, env({ "list.gap": 2, ...look }));
+      const text = d.lines.map(plain), from = text.findIndex(l => l.includes("Net the brassicas"));
+      expect(copy(d, 40)).toBe(BODY);
+      return text[from + k]!;
+    };
+    expect(rowAfter({ "list.divider": "line", "list.divider.align": "top" }, 1)).toMatch(/^─+$/);
+    expect(rowAfter({ "list.divider": "double", "list.divider.align": "bottom" }, 3)).toMatch(/^═+$/);
+    expect(rowAfter({ "list.divider": "dashed" }, 2)).toMatch(/^╌+$/);
+    expect(rowAfter({ "list.divider": "glyph", "list.divider.glyph": "✦" }, 2)).toMatch(/^(✦ )+✦?$/);
+    expect(rowAfter({ "list.divider": "glyph", "list.divider.glyph": "┄" }, 2)).toMatch(/^┄+$/);
+    // fade: the rule's track (PIE-599) where it fits; at 40 columns (narrow) a plain line.
+    expect(rowAfter({ "list.divider": "fade" }, 2)).toMatch(/^─+$/);
+    const wide = renderDoc(BODY, { ...env({ "list.gap": 0, "list.divider": "fade" }), width: 80 }).lines.map(plain);
+    expect(wide.some(l => /^▓+▒+░+/.test(l))).toBe(true);
+  });
+
+  test("a box's surface, frame and bar (PIE-675): drawn round its text, the text copies as written", () => {
+    const BOX = ["::box{bg=amber border=round tone=amber pad=1}", "- Net the brassicas", "- Oil the shed hinge", "::"].join("\n");
+    const d = renderDoc(BOX, { ...env({}), width: 40 });
+    const text = d.lines.map(plain);
+    expect(text[0]).toMatch(/^╭─+╮$/);
+    expect(text.at(-1)).toMatch(/^╰─+╯$/);
+    expect(text.find(l => l.includes("Net the"))).toMatch(/^│ {2}∙ Net the brassicas +│$/);
+    // Its surface: inside the frame, over its padding rows and its text's.
+    expect(d.tints).toEqual([{ rows: [1, d.lines.length - 1], cols: [1, 39], bg: expect.stringMatching(/^\x1b\[48;2;/) }]);
+    expect(copy(d, 40)).toBe("- Net the brassicas\n- Oil the shed hinge");
+    const barred = renderDoc(["::box{edge=bar tone=green}", "Keep the gate shut.", "::"].join("\n"), { ...env({}), width: 40 });
+    expect(barred.lines.map(plain)[0]).toBe("▎ Keep the gate shut.");
+    expect(copy(barred, 40)).toBe("Keep the gate shut.");
+    // Too narrow for a frame: inset, as before.
+    expect(renderDoc(BOX, { ...env({}), width: 12 }).lines.map(plain).some(l => l.includes("╭"))).toBe(false);
   });
 
   test("a wrapped paragraph copies to its one source line at every width", () => {
@@ -59,7 +97,7 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
 
   test("without a look, nothing changes: no gap rows, no zebra", () => {
     const d = renderDoc(BODY, env());
-    expect(d.zebra).toBeUndefined();
+    expect(d.tints).toBeUndefined();
     expect(d.lines.map(plain).filter(l => /Net|Turn|Oil/.test(l))).toHaveLength(3);
     expect(d.lines.length).toBe(renderDoc(BODY, env({})).lines.length);
   });
@@ -227,6 +265,55 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await until(() => gap() < before, "the gap gone", 10_000);
     } finally { d.close(); }
   }, 30_000);
+
+  test("PIE-675: x and a row's × take one value back to the level under it (by key, by click, through act), and a save removes it from its note; a tile's border, surface and header surface draw from the look", async () => {
+    const d = await door(140);
+    try {
+      expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
+      const tune = () => [...(d.desk as any).panes.values()].find((p: any) => p.kind === "tune");
+      const value = (t: string) => tune().describe(d.desk).values[t];
+      await until(() => d.lines().some(l => /measure +56 +← screen detail/.test(l)), "the inspector", 5000);
+      const textX = () => d.where("Sow the broad").x;
+      const before = textX();
+      // A click on the measure row's ×: the screen's 56 is taken away, the detail tile's own 88 shows, drawn at once.
+      const y = d.lines().findIndex(l => /measure +56 +← screen detail/.test(l)), x = d.lines()[y]!.indexOf("× [−]");
+      d.mouse("down", x, y); d.mouse("up", x, y);
+      await until(() => value("measure")?.value === "88", "the measure back to the tile's own", 5000);
+      expect(value("measure")).toMatchObject({ from: "built-in detail" });
+      expect(textX()).toBeLessThan(before);
+      expect(tuningOf(board).unsavedCount()).toBe(1);
+      // u puts it back (the person's keys: 2 is the inspector); x on the picked row takes it away again.
+      d.key({ kind: "char", ch: "2" });
+      await until(() => (d.desk as any).focusName?.() === "tune" || tune() === (d.desk as any).panes.get((d.desk as any).focus), "the inspector focused", 5000);
+      d.key({ kind: "char", ch: "u" });
+      await until(() => value("measure")?.value === "56", "taken back", 5000);
+      // (An agent can't act in the inspector while it has the person's keys: 1 gives them back to the reader.)
+      d.key({ kind: "char", ch: "x" });
+      await until(() => value("measure")?.value === "88", "x took it away", 5000);
+      d.key({ kind: "char", ch: "1" });
+      // Saved: the property is gone from the screen's style note, attributed; the outline's answer settles the tuning.
+      expect(await d.app.act({ action: "tune.save", tile: "tune", as: "look-agent" })).toMatchObject({ saved: true, at: "screen detail", fields: "style.measure removed" });
+      expect((await board.get(style.id))!.text).not.toContain("[style.measure::");
+      await until(() => tuningOf(board).unsavedCount() === 0, "nothing unsaved", 5000);
+      // A built-in can't be taken further back.
+      await expect(d.app.act({ action: "tune.unset", args: { row: "measure" }, tile: "tune", as: "look-agent" })).rejects.toThrow(/built-in already/);
+      // Frames, surfaces and the header's surface, set globally in memory: the inspector's frame at rest, the reader's surfaces.
+      for (const [row, v] of [["border", "round"], ["bg", "raised"], ["header.bg", "blue"], ["header.bg.opacity", "60"], ["edge", "box"], ["tone", "amber"]] as const)
+        expect(await d.app.act({ action: "tune.set", args: { row, value: v, level: "global" }, tile: "tune", as: "look-agent" })).toMatchObject({ value: v, at: "global" });
+      await until(() => d.lines().some(l => /╭─.*tune/.test(l)), "the inspector's frame round, at rest", 5000);
+      const raw = () => d.desk.render((d.desk as any).ctx).lines;
+      const titleRow = d.lines().findIndex(l => l.includes("Bean row"));
+      expect(raw()[titleRow]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
+      const bodyRow = d.where("Net the brassicas").y;
+      expect(raw()[bodyRow]).toContain(surfaceBg("raised", 2));
+      // The inspector's frame in the tone (edge=box, amber) at rest.
+      expect(raw().find(l => plain(l).includes("╭─") && plain(l).includes("tune"))).toContain(fg(14));
+      // X lets every nudge go: nothing was written.
+      d.key({ kind: "char", ch: "2" });
+      d.key({ kind: "char", ch: "X" });
+      await until(() => tuningOf(board).unsavedCount() === 0 && !d.lines().some(l => l.includes("╭─")), "the nudges let go", 5000);
+    } finally { d.close(); }
+  }, 40_000);
 
   test("ep0ch export leaves the look out: the note's source, whatever the style notes say", async () => {
     const { byId } = await readRecords(board, [note.id], false);
