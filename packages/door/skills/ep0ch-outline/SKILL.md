@@ -52,6 +52,22 @@ belong to the block; text after a chip makes it an inline aside.
   --limit 1`, refuse to write from an empty read, pass `--expected <revision>` and `--author agent --actor
   <id>`. Prefer the tools; never wrap `update` in a script.
 
+### Orienting at the start of a session (MCP)
+
+Arriving cold, read the outline's recent changes, not a context store. Per outline:
+
+1. `outline_query` with `query: "updated >= -1d"`, `sort: "updated desc"`, `fields: "id,title,updated,actor,path"`,
+   `fold: true` (or the outline's saved orient view, by `view`: its own `[sort::]` orders it). The service sorts; a
+   projected row is a title, never a body. With `fold`, a note's proposals, comments and deliveries are one row with
+   `changes` ("4 changes (1 proposal, 2 comments, 1 delivery)"). `under` limits it to a note's subtree.
+2. `outline_read` (by `ref`) only the rows that are new to you. A proposal or a comment reads as a pointer
+   (`target: id@revision`, the diff or the anchored span), not a copy of its note; `raw: true` gives it as stored.
+3. On every later read, query or find, pass `seen: ["<id>@<revision>", …]` for what you already hold. A block still at
+   that revision comes back `{id, revision, unchanged: true}`; a changed one comes back whole. A repeat in the same
+   response is `{id, revision, see}`: look where it points.
+
+A wrong argument is answered with the tool's arguments and a call that works; use `ref` for a block, as everywhere.
+
 ### Refining a draft with another agent: comment threads
 
 When a draft (an email, a post) is refined between agents, say claude.ai over the MCP gateway and Claude Code with the

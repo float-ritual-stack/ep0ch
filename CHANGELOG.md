@@ -35,6 +35,20 @@ are its record. The outliner's entries from then are kept below, under
   Run `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for float-hub): it restarts the host on the
   new code; until then a door on this code refuses the old host and says to run it.
 
+### Orient from an outline: `outline_query` sorts, projects, folds, and no read re-sends what the caller has (PIE-674)
+
+- **New:** an agent arriving cold can orient from the outlines' recent changes in a few KB instead of a separate context
+  store. `outline_query` takes `sort` (`updated desc`; the service orders, not the client), `fields` (`id,title,updated,actor,path`
+  or any property key; a projected row never carries the body, and `outline_read` fetches it), `under` (a note's subtree;
+  `subtreeRootId` works too) and `fold: true` (proposals, comments and deliveries collapse into their note with a count:
+  `4 changes (1 proposal, 2 comments, 1 delivery)`). `updated >= -1d` on a busy outline was 25 rows and 74k to 230k
+  characters, unsorted; the orient form is titles only.
+- **New:** no body is sent twice. Within one response (a batch is one response) a later hit is `{id, revision, see}`.
+  A proposal reads as its diff and the target's `id@revision`, not the note again; a comment as its own words and the
+  span it is about (`raw: true` gives either as stored). `seen: ["id@rev", …]` on `outline_read`, `outline_query` and
+  `outline_find` returns `{id, revision, unchanged: true}` for any block the caller holds at that revision, like
+  If-None-Match; a block that changed since comes back whole. No wire change, no `PROTOCOL` bump.
+
 ### The MCP gateway reads and writes the laptop's live outline when the laptop answers; stdio writes by the same grant (PIE-661)
 
 - **Changed:** the local stdio server (`ep0ch mcp`) is no longer always read-only. It honours the same access levels as

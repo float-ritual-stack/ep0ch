@@ -18,6 +18,7 @@ import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
+import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
 import { actorOf, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
@@ -143,7 +144,7 @@ export function boundOutlines(board: Board): McpOutlines {
   };
 }
 
-const toolText = (value: unknown): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
+const toolText = (value: unknown, compact = false): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, compact ? undefined : 2) }] });
 const toolError = (message: string): ToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 /** The block a tool names: its `uri`, or `ref`. (`id`, `reference` and the other aliases became `ref` in checkToolArgs, which callTool runs first; a call naming two different blocks never gets here.) */
@@ -297,7 +298,7 @@ async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown
   return target;
 }
 
-async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
   const ref = refArg(args);
   if (ref && await isResourceRef(ref)) {
     const target = await resourceBoard(outlines, args);
@@ -307,6 +308,8 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
+  const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
+  if (seen && "error" in seen) return toolError(seen.error);
   const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
   // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
@@ -321,14 +324,23 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
     ? { revision: newest.revision, at: newest.at, queueId: newest.id, said: `this mirror copy is at revision ${read.record.revision}; a write made through this server already made revision ${newest.revision} on ${target.home!.machine} (${newest.live ? "live" : "applied by its pull"}), so the note is newer than this answer` }
     : null;
   // The note's comment threads, compact: a reply is how an agent learns it was answered. A board that can't list them still reads.
+  // What the caller holds at this revision isn't sent again (`seen`), nor is a body this response already sent (`see`). Neither
+  // while a queued write is laid over the text, or the mirror is behind: that answer is news. Threads are other blocks: outline_threads.
+  const news = !!pending || !!staleSince;
+  if (!news && seen?.has(pairOf(read.record.id, read.record.revision))) return toolText({ uri: target.uri, ...unchangedStub(read.record.id, read.record.revision), reachability: read.access });
+  // A proposal or a comment points at its note (id@revision) instead of copying it; raw: true sends the block as stored.
+  const pointer = args.raw === true ? null : await derivedPointer(target.board, read.record).catch(() => null);
+  const first = !news && scope ? scope.claim(target.board.address.outline, read.record.id, read.record.revision, pointer ? "pointer" : "full", "record") : null;
+  if (first) return toolText({ uri: target.uri, ...seeStub(read.record.id, read.record.revision, first), reachability: read.access });
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
-  return toolText({ ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
+  const env = envelope(target.board, target.uri, read.access, read.record, read.record.revision);
+  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
 
 /** outline_query: the views' grammar, or a saved view, over one outline; the service answers, records come back. */
-async function queryTool(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, scope?: ResponseScope): Promise<ToolResult> {
   const query = stringField(args, "query")?.trim(), view = stringField(args, "view")?.trim();
   if (!query === !view) return toolError("Give query (the views' grammar: type=ticket NOT work-stage=done) or view (a saved view's block id), one of them.");
   const limit = limitOf(args.limit, QUERY_LIMIT_RULE);
@@ -343,14 +355,43 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>): 
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
   const { board, served } = target;
-  const answer = await queryPage(board, { ...(query ? { query } : {}), ...(view ? { view } : {}), limit, offset });
+  const sort = args.sort === undefined ? undefined : parseSort(args.sort);
+  if (sort && "error" in sort) return toolError(sort.error);
+  if (sort && view) return toolError("sort orders a query (or under); a saved view has its own order (its [sort::]). Give query, or drop sort.");
+  const fields = args.fields === undefined ? undefined : parseFields(args.fields);
+  if (fields && "error" in fields) return toolError(fields.error);
+  const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
+  if (seen && "error" in seen) return toolError(seen.error);
+  if (args.fold !== undefined && typeof args.fold !== "boolean") return toolError("fold is true or false: true folds proposals, comments and deliveries into the note they belong to, with a count.");
+  let under: string | undefined;
+  if (args.under !== undefined) {
+    if (typeof args.under !== "string" || !args.under.trim()) return toolError("under is a note: its id, ((id)), [[page]] or Work ID (PIE-123), as ref is; the query then covers that note's subtree.");
+    try { under = (await resolveBoardRef(board, args.under.trim())).id; }
+    catch (e) { return toolError(`under: ${(e as Error).message} (in ${board.address.outline}@${board.address.machine})`); }
+  }
+  const answer = await queryPage(board, {
+    ...(query ? { query } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
+    ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
+  });
   if ("error" in answer) return toolError(answer.error);
-  const { records, ...page } = answer;
+  const { rows, ...page } = answer;
+  const matches: unknown[] = [];
+  for (const [i, { record: r, changes, path }] of rows.entries()) {
+    const uri = blockUri(board, r.id), extra = changes ? { changes } : {};
+    // A stub keeps what the revision doesn't vouch for: a path moves when an ancestor is renamed, a fold's count when a comment is added.
+    if (seen?.has(pairOf(r.id, r.revision))) { matches.push({ ...unchangedStub(r.id, r.revision, uri), ...(fields?.fields.includes("path") && path !== undefined ? { path: pathOf(path) } : {}), ...extra }); continue; }
+    if (fields) { matches.push({ ...projectRecord(r, fields.fields, { uri, ...(path !== undefined ? { path: pathOf(path) } : {}) }), ...extra }); continue; }
+    const pointer = args.raw === true ? null : await derivedPointer(board, r).catch(() => null);
+    const first = scope?.claim(board.address.outline, r.id, r.revision, pointer ? "pointer" : "full", `matches[${i}]`);
+    if (first) { matches.push({ ...seeStub(r.id, r.revision, first, uri), ...extra }); continue; }
+    matches.push({ uri, revision: r.revision, record: pointer ?? mcpRecord(r), ...extra });
+  }
+  // A projected answer is for orienting: compact, since its size is the point.
   return toolText({
     outline: board.address.outline, machine: board.address.machine, ...served, access: { level: status.level }, ...page,
     completeness: { kind: page.more || page.truncated ? "truncated" : "complete", limit, more: page.more, total: page.total },
-    matches: records.map(r => ({ uri: blockUri(board, r.id), revision: r.revision, record: mcpRecord(r) })),
-  });
+    matches,
+  }, !!fields);
 }
 
 /** A proposal as the (mirror's) outline shows it: open, or applied or dismissed (which goes to the Trash, so its text is read there); missing when the copy doesn't hold it yet. */
@@ -462,6 +503,8 @@ const semanticSays = (asked: boolean, semantic: { status: string; message?: stri
 };
 
 async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+  const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
+  if (seen && "error" in seen) return toolError(seen.error);
   const named = namedOutline(args.outline);
   if (named && "error" in named) return toolError(named.error);
   if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
@@ -476,10 +519,12 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const askSemantic = args.semantic === true;
   // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
   // already cut at the service's own limit).
-  let rows: Found[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
+  let rows: (Found & { revision?: number })[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
   if (query) {
     const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id) }));
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision }));
+    // A hit the caller holds at this revision is a stub: its title and path are what they already have.
+    if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
     search = semanticSays(askSemantic, found.semantic);
   } else {
@@ -606,6 +651,11 @@ function toolsFor(outlines: McpOutlines) {
     additionalProperties: false,
     oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
   };
+  const seenProperty = {
+    type: "array", items: { type: "string" }, maxItems: 1000,
+    description: `Blocks you already hold, as "id@revision" (the id and revision of an earlier answer). One at that revision comes back as {id, revision, unchanged: true} instead of its body, like If-None-Match; one that changed since comes back whole.`,
+  };
+  const rawProperty = { type: "boolean", default: false, description: "Send a proposal or a comment as the block is stored. By default it points at its note (id@revision): a proposal as its diff, a comment as its own words and the span it is about." };
   return [
     {
       name: "list_outlines",
@@ -617,8 +667,10 @@ function toolsFor(outlines: McpOutlines) {
       name: "outline_read",
       description: `Read the block \`ref\` in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
         `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
-        `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it.`,
-      inputSchema: addressSchema,
+        `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it. ` +
+        `A proposal or a comment reads as a pointer to the note it is on (its diff, or its words and the span), not a copy of the note (raw: true for the block as stored). ` +
+        `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}.`,
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty } },
     },
     {
       name: "outline_threads",
@@ -641,16 +693,25 @@ function toolsFor(outlines: McpOutlines) {
         query: { type: "string" },
         limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
         semantic: { type: "boolean", default: false, description: "Ask for a semantic re-ranking (Jev) of the lexical candidates; the answer's search says whether it happened" },
+        seen: seenProperty,
         outline: outlineProperty(outlines),
       }, additionalProperties: false },
     },
     {
       name: "outline_query",
       description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, or a saved view by its block id. ` +
-        `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view.`,
+        `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
+        `To orient (what changed lately, in a few KB): query "updated >= -1d", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
+        `The service sorts, so limit takes the newest first. A projected row (fields) never carries the body. fold collapses the proposals, comments and deliveries into their note: "PIE-637 · 3 changes (1 proposal, 2 comments)".`,
       inputSchema: { type: "object", properties: {
         query: { type: "string", description: "A query in the views' grammar: type=ticket NOT work-stage=done" },
         view: { type: "string", description: "A saved view's block id (or ((id)))" },
+        sort: { type: "string", description: `The order, by the service: "updated desc", "created", or "<property key> asc" (direction asc by default). Not with view: a saved view has its own order.` },
+        fields: { type: ["string", "array"], items: { type: "string" }, description: `The columns of each row instead of the whole record: ${FIELD_NAMES.join(", ")}, or any property key ("id,title,updated,actor,path"). id and revision are always there; the body never is (outline_read).` },
+        under: { type: "string", description: "Only blocks under this note (its subtree): its id, ((id)), [[page]] or Work ID, as ref names a block" },
+        fold: { type: "boolean", default: false, description: "Fold proposals, comments and deliveries into the note they belong to, with a count (changes: {count, proposals, comments, deliveries, summary, ids}); total counts folded rows" },
+        seen: seenProperty,
+        raw: rawProperty,
         limit: limitSchema(QUERY_LIMIT_RULE, "Records per page"),
         offset: { type: "integer", minimum: 0, default: 0, description: "Where this page starts: a previous answer's nextOffset" },
         outline: outlineProperty(outlines),
@@ -703,7 +764,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_read: { ref: "PIE-123" },
   outline_threads: { ref: "PIE-123" },
   outline_find: { query: "seed swap" },
-  outline_query: { query: "type=roadmap-item AND work-stage=doing" },
+  outline_query: { query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true },
   outline_links: { ref: "PIE-123" },
   outline_components: { components: ["callout"] },
   outline_create: { ref: "PIE-123", text: "Bring labels" },
@@ -729,20 +790,20 @@ function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown,
   // `limit` keeps limitOf's own answer, which names the tool's default and maximum.
   const schema = definition.inputSchema as ToolSchema;
   const { limit, ...others } = schema.properties ?? {};
-  const checked = checkToolArgs({ name, schema: limit ? { ...schema, properties: { ...others, limit: { description: limit.description } } } : schema, example: MCP_EXAMPLES[name] ?? {} }, argsValue);
+  const checked = checkToolArgs({ name, schema: limit ? { ...schema, properties: { ...others, limit: { description: limit.description } } } : schema, example: MCP_EXAMPLES[name] ?? {}, ...(name === "outline_query" ? { aliases: { under: ["subtreeRootId", "subtree", "root"], fields: ["columns", "project"] } } : {}) }, argsValue);
   return checked.ok ? { args: checked.args } : { error: checked.error };
 }
 
-async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller): Promise<ToolResult> {
+async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const checked = checkedMcpArgs(outlines, params.name, params.arguments, caller);
   if (checked && "error" in checked) return toolError(checked.error);
   const args = checked?.args ?? objectFields(params.arguments) ?? {};
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
-  if (params.name === "outline_read") return readRecord(outlines, args, caller);
+  if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
-  if (params.name === "outline_query") return queryTool(outlines, args);
+  if (params.name === "outline_query") return queryTool(outlines, args, scope);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
@@ -829,7 +890,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   }
 }
 
-function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller): Promise<unknown> | unknown {
+function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, scope?: ResponseScope): Promise<unknown> | unknown {
   switch (req.method) {
     case "initialize":
       return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: {}, resources: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" } };
@@ -838,7 +899,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller): 
     case "tools/list":
       return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])] }));
     case "tools/call":
-      return callTool(outlines, req.params, caller);
+      return callTool(outlines, req.params, caller, scope);
     case "resources/list":
       return componentResources(outlines).then(resources => ({ resources }));
     case "resources/templates/list": {
@@ -886,10 +947,11 @@ function parseRequest(line: string): ParsedMessage[] | { parseError: string } | 
 
 const responseError = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: McpCaller): Promise<unknown | null> {
+async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: McpCaller, scope?: ResponseScope): Promise<unknown | null> {
   if ("invalidRequest" in req) return responseError(req.id, -32600, req.invalidRequest);
   if (req.id === undefined) return null;
-  try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req, caller) }; }
+  if (scope) scope.rpc = req.id;
+  try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req, caller, scope) }; }
   catch (e) {
     if (e instanceof RpcError) return responseError(req.id, e.code, e.message);
     return responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
@@ -914,7 +976,9 @@ export async function answerMcp(outlines: McpOutlines, text: string, caller?: Mc
   if (parsed.length > MAX_BATCH) return { reply: responseError(null, -32600, `A batch carries at most ${MAX_BATCH} messages.`), methods: [], malformed: true };
   const methods = parsed.flatMap(req => "method" in req && req.method ? [req.method === "tools/call" ? `tools/call ${String(objectFields(req.params)?.name ?? "")}` : req.method] : []);
   const responses: unknown[] = [];
-  for (const req of parsed) { const r = await responseFor(outlines, req, caller); if (r !== null) responses.push(r); }
+  // One reply, one memory: a body a batch sent once is not sent again by a later call in it.
+  const scope = new ResponseScope();
+  for (const req of parsed) { const r = await responseFor(outlines, req, caller, scope); if (r !== null) responses.push(r); }
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 

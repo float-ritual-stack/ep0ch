@@ -10,6 +10,7 @@
   "type": "module",
   "exports": {
     "./agent-tools": "./src/agent-tools.ts",
+    "./draft-patch": "./src/draft-patch.ts",
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",
