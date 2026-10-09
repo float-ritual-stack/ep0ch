@@ -153,6 +153,11 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(tile(g.tile)).toMatchObject({ kind: "screen", mount: { group: true, layout: { tree: { split: "col" } } } });
     expect(tile("shell")).toBeUndefined();
     expect(await act("tile.type", { text: "true" }, `${g.tile}/shell`)).toMatchObject({ tile: `${g.tile}/shell` });
+    // The person's open naming no tile, their keys on the group (/ and the power bar there): its reader takes it, never
+    // "the screen has no reader tile" for the desk around it.
+    await mine("tile.focus", {}, g.tile);
+    const o = await mine("open", { id: seeded.cards[1]!.id });
+    expect(o.reader).toStartWith(`${g.tile}/`);
     // What its layout says of a tile in it comes back out with it (an agent's limit, tightened by an agent).
     await act("tile.agent", { policy: "edit" }, `${g.tile}/${others[0]}`);
     const s = await act("tile.group", { on: false }, g.tile);

@@ -1712,6 +1712,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The request as the mounted screen reads it: the rest of the path names its tile. */
   private pathRest(req: ActRequest): ActRequest { const rest = req.tile!.slice(req.tile!.indexOf("/") + 1); return { ...req, ...(rest ? { tile: rest } : { tile: undefined }) }; }
+  /** The screen mounted in the tile with the keys (a group, a board in a tile), when it takes an open: the person's open naming no tile lands in there, as its own reader's would (PIE-651). */
+  focusedMount(): { name: string; dispatch: Dispatcher } | null {
+    const p = this.panes.get(this.focus), dsp = p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
+    return dsp?.has("open") ? { name: this.nameOf(this.focus), dispatch: dsp } : null;
+  }
   /** The dispatcher of the whole screen in the tile a request names (a board in a tile), if it names one. */
   private screenIn(req: ActRequest): Dispatcher | null {
     // By the dispatcher's grammar (a name, an id, a number, an alias, a block id), as every other tile= is read.
@@ -5598,6 +5603,11 @@ function openNote({ id, from, fresh }: { id: string; from?: string; fresh?: bool
   // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
   // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
   if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
+  // The person's open naming no tile with their keys in a mounted screen (a group, a board in a tile): its readers take it,
+  // so / and the power bar there open where that screen's own opens go, never refused for the screen around it having none.
+  const mount = from === undefined && reader === undefined && actor.kind !== "agent" ? d.focusedMount() : null;
+  if (mount) return (mount.dispatch.press("open", { id, ...(fresh ? { fresh } : {}) }) as Promise<{ reader: string | null; id: string }>)
+    .then(r => ({ ...r, reader: r.reader ? `${mount.name}/${r.reader}` : null }));
   // fresh=true naming neither (the power bar's alt+⏎): a new detail beside the tile with the keys, as alt+⏎ on a link opens one.
   if (fresh && from === undefined && reader === undefined) return d.openFresh(id, actor);
   // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
