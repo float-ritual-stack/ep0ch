@@ -39,8 +39,9 @@ function hintFor(error: string): string {
 }
 
 /** The plain progress line for an outline that went through the hub instead of straight to the repository. */
-export function relayedLine(name: string, seq: number | null | undefined, hub: string, why: string, uploaded: boolean, o: { repo?: string } = {}): string {
-  return `✓ ${name} (change ${seq ?? "?"}) backed up via ${hub}: ${plainReason(why, { ...o, hub })}, so it went through ${hub}${uploaded ? " and is in the repository" : `, which couldn't upload it yet. Next: ${RUN} when ${repoHost(o.repo ?? why)} answers`}`;
+export function relayedLine(name: string, seq: number | null | undefined, hub: string, why: string, uploaded: boolean, o: { repo?: string; uploadError?: string } = {}): string {
+  const held = `, which couldn't upload it yet (${plainReason(o.uploadError ?? "?", { ...o, hub })}). Next: ${RUN} once that is fixed`;
+  return `✓ ${name} (change ${seq ?? "?"}) backed up via ${hub}: ${plainReason(why, { ...o, hub })}, so it went through ${hub}${uploaded ? " and is in the repository" : held}`;
 }
 
 export interface VerdictContext { machine: string; repo: string; hub?: string | null }
@@ -76,7 +77,7 @@ export function verdict(s: BackupState, a: Alert | null, now: number, c: Verdict
   }
   const mark = alertMark(a, now);
   if (mark && mark.text === "? backup") problems.push({ level: "warn", text: mark.say.replace(/ · .*$/, ""), fix: "ep0ch doctor" });
-  if (!problems.length && s.lastRun && !s.lastRun.ok && !s.lastRun.detail.includes("unreadable")) {
+  if (!problems.length && s.lastRun && !s.lastRun.ok) {
     problems.push({ level: "bad", text: `the last run failed (${moment(s.lastRun.at)}): ${s.lastRun.detail}`, fix: RUN });
   }
   problems.sort((x, y) => (x.level === y.level ? 0 : x.level === "bad" ? -1 : 1));

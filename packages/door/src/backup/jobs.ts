@@ -156,7 +156,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
           Object.assign(st, { seq: x.seq, schema: x.schema, at, relayed: { via: c.hub, at, why, uploaded: !!r.snapshot, ...(r.snapshot ? {} : { uploadError: r.uploadError ?? "?" }) } });
           delete st.snapshot; delete st.pendingSince; delete st.error;
           relayed.push(x.name);
-          say(relayedLine(x.name, x.seq, c.hub, why!, !!r.snapshot, { repo }));
+          say(relayedLine(x.name, x.seq, c.hub, why!, !!r.snapshot, { repo, ...(r.uploadError ? { uploadError: r.uploadError } : {}) }));
           continue;
         }
         st.error = `${why}; relaying through ${c.hub} failed: ${r.error ?? "?"}`;

@@ -17,10 +17,10 @@ export function plainReason(raw: string, o: { repo?: string; hub?: string | null
   if (/\bdoesn'?t answer over ssh\b/.test(text)) return `${o.hub ?? "the other machine"} didn't answer over ssh`;
   if (/no ep0ch on a login shell/.test(text)) return `${o.hub ?? "the other machine"} has no ep0ch on its login shell's PATH`;
   if (/wrong password|Fatal: .*(decrypt|key)|unable to open config file.*(denied|forbidden)|AccessDenied|InvalidAccessKey|SignatureDoesNotMatch|\b40[13]\b/i.test(text)) return `${repo} refused the keys`;
-  if (SILENT.test(text)) return `${repo} didn't answer (probably the VPN, or no network)`;
   if (/no space left|ENOSPC/i.test(text)) return "the disk is full";
   if (/integrity|malformed|corrupt/i.test(text)) return "the copy failed its integrity check";
   if (/\bdamaged\b/.test(text)) return "the copy arrived damaged";
+  if (SILENT.test(text)) return `${repo} didn't answer (probably the VPN, or no network)`;
   // Never pass a fetch hint through; one short first line at most.
   const line = (text.split("\n")[0] ?? "").replace(/\s*\(?For more information, pass `verbose: true`[^)]*\)?/i, "").replace(/\s+/g, " ").trim();
   return line && line.length <= 90 ? line : "it failed for a reason --verbose shows";
