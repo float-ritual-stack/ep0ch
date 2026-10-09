@@ -14,7 +14,7 @@ import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -88,7 +88,8 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(now.text).toContain(REMOTE_LINE);
     const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
     expect(proposal?.text).toContain("from @mcp:chat.example.test: not applied, because its writer may propose changes here, not make them");
-    expect(now.text).toContain(`!((${proposal!.id}))`);
+    // Beside the note (PIE-725): its text names no proposal.
+    expect(now.text).not.toContain(proposal!.id);
     expect((await board.comments(note.id))).toEqual([expect.objectContaining({ body: "Was that the peat-free kind?", quote: "two bags of compost", open: true })]);
   });
 
@@ -409,6 +410,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
     kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
+    // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
+    proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
     // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
     undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
     panes: ["outline", "children", "│ 4 activity", "Kitchen sink"],
@@ -1277,6 +1280,32 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
   }, 20_000);
+
+  test("the proposals section (PIE-725): the race's loser is a proposal beside the guide, a retry is deduped, and its agent dismisses it by act", async () => {
+    const guide = (await board.get(seeded.notes.race.id))!;
+    // @fern won: the guide reads as @fern left it, and @moss's patch wrote nothing into it.
+    expect(guide.text).toContain(RACE_LINE.replace(RACE_PATCH.winner.observed, RACE_PATCH.winner.replacement));
+    expect(guide.text).not.toContain(seeded.race.proposal);
+    const proposal = (await board.get(seeded.race.proposal))!;
+    expect(proposal).toMatchObject({ parentId: guide.id, props: { type: "draft-proposal", "proposal-status": "open" } });
+    expect(seeded.race.retry).toEqual({ proposalId: seeded.race.proposal, deduped: true });
+    expect((await board.proposalsBeside(guide.id)).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
+
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "proposals" }, as: "test-agent" });
+    await until(() => marks.proposals!.every(m => screen().includes(m)), "the proposals section");
+    // Another retry now, at the revision @moss read: the same proposal back, still one beside the guide, the guide untouched.
+    const at = RACE.indexOf(RACE_PATCH.loser.observed);
+    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
+      patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
+    expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
+    expect((await board.get(guide.id))!.revision).toBe(guide.revision);
+    // Through act, in the guide's reader: another agent can't dismiss it; @moss can, and it's gone from beside the guide.
+    await expect(app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.winner })).rejects.toThrow("an agent dismisses only its own");
+    expect(await app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.loser })).toMatchObject({ outcome: "dismissed", embedRemoved: null });
+    await until(() => !screen().includes("proposed edit from @moss"), "the proposal gone from beside the guide");
+    expect((await board.get(guide.id))!).toMatchObject({ text: guide.text, revision: guide.revision });
+  }, 30_000);
 
   test("the refusals section (PIE-727): a key the spine refuses says why on its frame, loud the second time, gone on another key; the status bar keeps its copy", async () => {
     (app as any).lastInput = 0;

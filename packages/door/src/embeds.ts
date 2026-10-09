@@ -15,7 +15,7 @@ import { subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, shortId, type LinkTarget } from "./refs";
-import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
+import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } from "./socket";
 import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
@@ -145,6 +145,34 @@ export function embedState(id: string, fragment: string | undefined, src: Source
     (e: Error) => { done(); c.set(k, { state: { kind: "failed", error: e.message }, at, asking: false, deps: [id], volatile: false }); src.redraw(); },
   );
   return hit?.state ?? { kind: "loading" };
+}
+
+// ── proposals beside a note (PIE-725) ─────────────────────────────────────────────────────────────────
+
+/** One open proposal beside a note: the note line it is drawn after. */
+export type ProposalBeside = ProposalsBeside["proposals"][number];
+interface BesideEntry { list: readonly ProposalBeside[]; at: number; asking: boolean }
+const besideBy = new WeakMap<object, Map<string, BesideEntry>>();
+
+/**
+ * The open proposals beside note `m` (a patch that didn't apply sits beside its note, never in its text), from the
+ * last answer; asked again in the background when the note, one of them, or what was made under it changes. The
+ * reader draws each as an embed of it after its line, where its embed line used to go.
+ */
+export function proposalsBeside(m: Msg, src: Source | null | undefined): readonly ProposalBeside[] {
+  if (!src || m.partial || m.deleted) return [];
+  let cache = besideBy.get(src.board);
+  if (!cache) besideBy.set(src.board, (cache = new Map()));
+  const hit = cache.get(m.id);
+  if (hit && (hit.asking || !changedSince(hit.at, [m.id, ...hit.list.map(p => p.id)]))) return hit.list;
+  const at = changeClock(), c = cache;
+  c.set(m.id, { list: hit?.list ?? [], at, asking: true });
+  if (c.size > 200) c.delete(c.keys().next().value!);
+  Promise.resolve().then(() => src.board.proposalsBeside(m.id)).then(
+    r => { const was = c.get(m.id)?.list ?? []; c.set(m.id, { list: r.proposals, at, asking: false }); if (r.proposals.length || was.length) src.redraw(); },
+    () => { c.set(m.id, { list: hit?.list ?? [], at, asking: false }); },
+  );
+  return hit?.list ?? [];
 }
 
 // ── drawing ───────────────────────────────────────────────────────────────────────────────────────────

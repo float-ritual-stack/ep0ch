@@ -897,7 +897,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
     try {
       const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actorOf(caller));
-      return toolText({ outcome: done.outcome, uri: done.uri, outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, detail: done.detail });
+      return toolText({ outcome: done.outcome, uri: done.uri, outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
     } catch (e) { return toolError((e as Error).message); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
@@ -948,7 +948,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     }
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
-    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
+    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);

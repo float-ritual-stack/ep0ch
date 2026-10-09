@@ -62,6 +62,7 @@ export const SEED = {
   swap: "Seed swap thread",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  race: "Seed sowing guide",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -415,6 +416,24 @@ export const KEPT = {
  * shows. Under it, at seed time, a remote client's patch at `propose` (a proposal) and its comment, made through the
  * gateway's own write path (src/mcp-writes.ts).
  */
+/**
+ * The proposals section's guide (PIE-725): two agents patch its sowing line at one revision. @fern's lands; @moss's
+ * loses the race and becomes a proposal beside the guide, and @moss's retry of the same patch returns that proposal.
+ */
+export const RACE_LINE = "Sow the beans   in May, two to a pot.";
+export const RACE_AGENTS = { winner: "fern", loser: "moss" } as const;
+export const RACE_PATCH = { winner: { observed: "beans   in May", replacement: "beans in late May" }, loser: { observed: "beans   in May", replacement: "beans in May" } } as const;
+export const RACE = [
+  SEED.race,
+  "",
+  `Two agents tidied this guide at the same moment. @${RACE_AGENTS.winner}'s patch landed first. @${RACE_AGENTS.loser}'s, read at the same revision, changed the same words, so it became a proposal beside the guide, drawn after its last line with [apply] and [dismiss]. The guide's text and revision stayed as @${RACE_AGENTS.winner} left them, so the next writer doesn't lose too.`,
+  "",
+  `@${RACE_AGENTS.loser} then sent the same patch again. The service returned the open proposal (deduped), not a second copy.`,
+  "",
+  RACE_LINE,
+  "Water the seed trays from below.",
+].join("\n");
+
 /** The notes the what-changed section's scripted agent edits, with the line it writes (a round number follows). */
 export const LOGS = [["logBeans", "Staked and tied, round"], ["logCompost", "Turned the heap, round"], ["logShed", "Oiled the hinges, round"]] as const;
 
@@ -779,6 +798,8 @@ const RULES_NOTE = [
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
+  /** The proposals section's race (PIE-725): the loser's proposal, and whether its retry was returned as that one. */
+  race: { proposal: string; retry: { proposalId: string; deduped?: boolean } };
   lanes: Msg[];
   cards: Msg[];
   chores: Msg[];
@@ -789,6 +810,23 @@ export interface Seeded {
  * Write the showcase outline into an empty workspace. Refuses when one is already there (`findShowcase`),
  * so a half-finished run is never seeded on top of: reset the workspace instead.
  */
+/**
+ * The race (PIE-725): @fern and @moss read the guide at one revision and patch the same words. @fern's applies; @moss's
+ * becomes a proposal beside the guide; @moss's retry of the same patch returns that proposal (deduped).
+ */
+export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: Msg; race: Seeded["race"] }> {
+  const at = note.text.indexOf(RACE_PATCH.winner.observed);
+  const patch = (actorId: string, span: { observed: string; replacement: string }) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
+    blockId: note.id, revision: note.revision, mutation: { author: "agent", actorId },
+    patches: [{ ...span, range: { start: at, end: at + span.observed.length }, unit: "utf16" }],
+  });
+  await patch(RACE_AGENTS.winner, RACE_PATCH.winner);
+  const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);
+  const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
+}
+
 export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
@@ -905,6 +943,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     resourceThread = (await board.commentOnResource("showcase-resource", note.resource!, note.revision!, "Netting goes on before the first leaves show, or the pigeons get there first.", { quote: quoted, start: note.text.indexOf(quoted) }, SEED_AGENT)).id;
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
+  const race = await seedRace(board, await make(notes.root.id, RACE));
+  notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
   const labels = await make(notes.root.id, LABELS_BEFORE);
@@ -964,7 +1004,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];
-  return { notes, lanes, cards, chores, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
+  return { notes, lanes, cards, chores, race: race.race, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
 }
 
 /** The showcase's root on this outline, or null when the outline has none. */

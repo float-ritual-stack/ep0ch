@@ -36,7 +36,7 @@ import {
   proposalShowsPatch,
   embedLine,
   embedLineSpan,
-  insertAfterMark,
+  DRAFT_PROPOSAL_APPLIES,
   parseProposal,
   proposalChanges,
   proposalStatus,
@@ -52,6 +52,7 @@ import {
   type DraftPatchInput,
   type DraftPatchPolicyName,
   type DraftPatchProposed,
+  type DraftProposalsBeside,
   type DraftPatchResult,
   type DraftPatchRoute,
   type DraftProposal,
@@ -67,8 +68,7 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 export type DraftHolderAsk =
   | { kind: "read" }
   | { kind: "patch"; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; mark?: string; force?: boolean; proposal?: DraftHolderProposal }
-  | { kind: "revert"; patchId: string }
-  | { kind: "embed"; line: string; mark?: string; mutation: MutationProvenance };
+  | { kind: "revert"; patchId: string };
 
 export interface DraftPatchRouterDeps {
   store: OutlinerStore;
@@ -372,7 +372,7 @@ export class DraftPatchRouter {
   }
 
   /**
-   * Dismiss a proposal without applying it: its embed line comes out of the note it was proposed under (its
+   * Dismiss a proposal without applying it: an older proposal's embed line comes out of the note it was proposed under (its
    * live draft when a door holds one), it is marked `dismissed` and goes to the Trash, all as `mutation`. The
    * embed's removal and the status are one step: if the line can't come out, nothing changes. An agent
    * dismisses only its own proposals; the person, any.
@@ -643,13 +643,20 @@ export class DraftPatchRouter {
     };
   }
 
-  /** The patch as a reply block, embedded under the mark (or at the note's end), attributed to its proposer. */
+  /**
+   * The patch as a proposal block beside the note it targets (a child of the mark's note, or of the first note
+   * it patches), attributed to its proposer. The note's text and revision stay as they were: readers draw the
+   * proposal after the mark line, or at the note's end (`proposalsBeside`). The same open patch from the same
+   * actor already beside it is returned instead of a second copy (`deduped`).
+   */
   private async propose(
     reason: string, edits: DraftPatchEdit[], mutation: MutationProvenance, mark: { text: string; blockId: string } | undefined,
     sent: { policy: DraftPatchPolicyName; allowStructural?: boolean },
   ): Promise<DraftPatchProposed> {
     const { store } = this.deps;
     const hostId = mark?.blockId ?? edits[0]!.blockId;
+    const same = this.openProposalLike(hostId, edits, mutation, mark);
+    if (same) return { outcome: "proposed", reason, proposalId: same, beside: hostId, deduped: true };
     const kept: DraftPatchEdit[] = [];
     // Whether "apply anyway" could place it now: a passage already gone when it is proposed never comes back
     // by itself, so the proposal says it can only be dismissed (PIE-510).
@@ -681,31 +688,68 @@ export class DraftPatchRouter {
       const block = store.get(blockId);
       return block ? blockDisplayTitle(block) : blockId;
     };
-    const created = mutation.author === "agent"
-      ? store.create(proposalText(proposal, names, { applies }), hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
-      : store.create(proposalText(proposal, names, { applies }), hostId, "user");
-    const line = embedLine(created.id);
-    let embedded: DraftPatchRoute | null = null;
-    const { hold, many } = this.routeOf(hostId);
-    if (many) {
-      // Several doors hold drafts of it: the proposal stays a reply under the note, and no draft or saved text changes.
-    } else if (hold) {
-      const answer = await this.deps.ask(hold, { kind: "embed", line, ...(mark ? { mark: mark.text } : {}), mutation }).catch(() => null);
-      if (answer && "applied" in answer && answer.applied) embedded = "draft";
-      // A draft that didn't take it keeps its note: writing the saved note under it would refuse the person's save.
-    } else {
-      const block = store.get(hostId);
-      if (block && !block.effectiveDeletedRootId) {
-        try {
-          store.update(hostId, insertAfterMark(block.text, line, mark?.text), block.revision, mutation);
-          embedded = "saved";
-        } catch {
-          // Saved by someone else meanwhile: the proposal stays a reply under the note.
-        }
-      }
-    }
-    return { outcome: "proposed", reason, proposalId: created.id, embedded, embeddedIn: hostId };
+    // Checked again inside the write: two racing retries of one patch leave one proposal.
+    const created = store.database.transaction(() => {
+      const raced = this.openProposalLike(hostId, edits, mutation, mark);
+      if (raced) return { id: raced, deduped: true };
+      const block = mutation.author === "agent"
+        ? store.create(proposalText(proposal, names, { applies }), hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
+        : store.create(proposalText(proposal, names, { applies }), hostId, "user");
+      return { id: block.id, deduped: false };
+    })();
+    return { outcome: "proposed", reason, proposalId: created.id, beside: hostId, ...(created.deduped ? { deduped: true as const } : {}) };
   }
+
+  /** The open proposal beside `hostId` from the same actor holding the same patch (same notes, passages, replacements and mark), or null. */
+  private openProposalLike(hostId: string, edits: DraftPatchEdit[], mutation: MutationProvenance, mark: { text: string; blockId: string } | undefined): string | null {
+    const wanted = proposalKey(edits, mutation, mark);
+    for (const child of this.deps.store.children(hostId)) {
+      if (child.effectiveDeletedRootId || !isDraftProposal(child) || proposalStatus(child.properties) !== "open") continue;
+      const held = parseProposal(child.text);
+      if (held && proposalKey(held.edits, held.actor, held.mark) === wanted) return child.id;
+    }
+    return null;
+  }
+
+  /**
+   * The open proposals beside note `blockId`, oldest first, each with the note line it is drawn after: its mark's
+   * line when the note still has it, else the last line. One whose embed line the note's text still carries (a
+   * proposal from before PIE-725) is left out: its embed draws it already.
+   */
+  proposalsBeside(blockId: string): DraftProposalsBeside {
+    const host = this.deps.store.requireActive(blockId);
+    const lines = host.text.split("\n");
+    const proposals: DraftProposalsBeside["proposals"] = [];
+    for (const child of this.deps.store.children(blockId)) {
+      if (child.effectiveDeletedRootId || !isDraftProposal(child) || proposalStatus(child.properties) !== "open") continue;
+      if (embedLineSpan(host.text, embedLine(child.id))) continue;
+      const held = parseProposal(child.text);
+      const mark = held?.mark && (held.mark.blockId === undefined || held.mark.blockId === blockId) ? held.mark.text.trim() : "";
+      const at = mark ? lines.findIndex(line => line.trim() === mark) : -1;
+      proposals.push({
+        id: child.id,
+        afterLine: at >= 0 ? at : lines.length - 1,
+        author: child.author,
+        ...(child.actorId ? { actorId: child.actorId } : {}),
+        applies: !child.properties.some(property => property.key === DRAFT_PROPOSAL_APPLIES && property.value === "no"),
+      });
+    }
+    return { blockId, revision: host.revision, proposals };
+  }
+}
+
+/** Whether a block is a draft proposal by its type. */
+function isDraftProposal(block: { properties: readonly { key: string; value: string }[] }): boolean {
+  return block.properties.some(property => property.key === "type" && property.value === DRAFT_PROPOSAL_TYPE);
+}
+
+/** What makes two proposals the same: who sent it, the notes and spans it changes (passage and replacement), and its mark. */
+function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; actorId?: string } | undefined, mark: { text: string; blockId?: string } | undefined): string {
+  return JSON.stringify([
+    actor?.author ?? null, actor?.actorId ?? null,
+    mark ? [mark.text.trim(), mark.blockId ?? null] : null,
+    edits.map(edit => [edit.blockId, (edit.patches ?? []).map(span => [span.observed, span.replacement])]),
+  ]);
 }
 
 export type { DraftHolderRequest };

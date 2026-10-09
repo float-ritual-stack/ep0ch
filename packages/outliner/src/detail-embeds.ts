@@ -18,6 +18,7 @@ import {
 import { checkServiceCompatibility } from "./service-compatibility";
 import { outlinerLinkUri } from "./outliner-links";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
+import type { DraftProposalsBeside } from "./draft-patch";
 import type {
   Block,
   BlockCollectionCompleteness,
@@ -623,20 +624,35 @@ interface ProjectedBase {
 }
 
 /**
- * Inserts each projection after its anchor line, one range per projection.
+ * A generated region drawn after an authored line: a resource projection, or a proposal beside the note
+ * (PIE-725). `line` is the authored line it follows; `indent` puts its lines under that line's indent.
+ */
+interface InsertedRegion {
+  line: number;
+  lines: string[];
+  indent: boolean;
+  /** Its own provenance (an embedded proposal's); generated text when absent. */
+  provenance?: MappedDocument;
+  /** What the region's range carries besides its lines: a resource's focus, or the embedded block. */
+  range: (startLine: number) => Pick<DetailEmbedRange, "resource" | "source">;
+  reason: string;
+}
+
+/**
+ * Inserts each region after its authored line, one range per region.
  * `embedSourceLines[i]` is the authored line of `embedRanges[i]`, so anchors
  * map through expanded embeds.
  */
-function insertResourceProjections(
+function insertRegions(
   base: ProjectedBase,
   embedSourceLines: readonly number[],
-  projections: readonly ResourceProjection[],
+  regions: readonly InsertedRegion[],
 ): ProjectedBase {
-  const byLine = new Map<number, ResourceProjection[]>();
-  for (const projection of projections) {
-    const group = byLine.get(projection.anchor.line) ?? [];
-    group.push(projection);
-    byLine.set(projection.anchor.line, group);
+  const byLine = new Map<number, InsertedRegion[]>();
+  for (const region of regions) {
+    const group = byLine.get(region.line) ?? [];
+    group.push(region);
+    byLine.set(region.line, group);
   }
   let { text, provenance } = base;
   let ranges = [...base.embedRanges];
@@ -656,15 +672,18 @@ function insertResourceProjections(
     const newline = text.indexOf("\n", lineStart);
     const lineEnd = newline < 0 ? text.length : newline > lineStart && text[newline - 1] === "\r" ? newline - 1 : newline;
     const indent = /^[ \t]*/.exec(text.slice(lineStart, lineEnd))![0];
-    const layouts = group.map(projection => ({ projection, layout: resourceProjectionLayout(projection) }));
-    const regionLines = layouts.flatMap(({ layout }) => layout.lines.map(line => indent + line));
     // A blank separator keeps the next authored line out of the generated list item.
     const separated = newline >= 0 && text.slice(newline + 1).split("\n", 1)[0]!.trim().length > 0;
-    const inserted = `\n${regionLines.join("\n")}${separated ? "\n" : ""}`;
-    const lineCount = regionLines.length + (separated ? 1 : 0);
+    const parts = group.map(region => {
+      const lines = region.indent ? region.lines.map(line => indent + line) : region.lines;
+      return { region, lines, document: region.provenance && !region.indent ? region.provenance : generatedDocument(lines.join("\n"), region.reason) };
+    });
+    const regionCount = parts.reduce((count, part) => count + part.lines.length, 0);
+    const lineCount = regionCount + (separated ? 1 : 0);
     provenance = concatDocuments([
       sliceDocument(provenance, 0, lineEnd),
-      generatedDocument(inserted, "resource projection"),
+      ...parts.flatMap(part => [generatedDocument("\n", part.region.reason), part.document]),
+      ...(separated ? [generatedDocument("\n", "inserted region separator")] : []),
       sliceDocument(provenance, lineEnd),
     ]);
     text = provenance.text;
@@ -674,19 +693,50 @@ function insertResourceProjections(
         ...(range.sources ? { sources: range.sources.map(source => ({ ...source, contentStartLine: source.contentStartLine + lineCount })) } : {}) }
       : range);
     let next = outputLine + 1;
-    layouts.forEach(({ projection, layout }, index) => {
-      const last = index === layouts.length - 1;
-      ranges.push({ startLine: next, endLine: next + layout.lines.length - 1,
-        inserted: { afterSourceLine: sourceLine, lineCount: layout.lines.length + (last && separated ? 1 : 0) },
-        resource: {
-          ...(projection.resourceId ? { resourceId: projection.resourceId } : {}),
-          ...(projection.fetchedAt && layout.fetchedLine !== undefined
-            ? { fetchedAt: projection.fetchedAt, fetchedLine: layout.fetchedLine } : {}),
-        } });
-      next += layout.lines.length;
+    parts.forEach(({ region, lines }, index) => {
+      const last = index === parts.length - 1;
+      ranges.push({ startLine: next, endLine: next + lines.length - 1,
+        inserted: { afterSourceLine: sourceLine, lineCount: lines.length + (last && separated ? 1 : 0) },
+        ...region.range(next) });
+      next += lines.length;
     });
   }
   return { text, provenance, embedRanges: ranges.sort((left, right) => left.startLine - right.startLine) };
+}
+
+/** Each resource projection as a region after its anchor line, under that line's indent. */
+function resourceRegions(projections: readonly ResourceProjection[]): InsertedRegion[] {
+  return projections.map(projection => {
+    const layout = resourceProjectionLayout(projection);
+    return {
+      line: projection.anchor.line, lines: layout.lines, indent: true, reason: "resource projection",
+      range: () => ({ resource: {
+        ...(projection.resourceId ? { resourceId: projection.resourceId } : {}),
+        ...(projection.fetchedAt && layout.fetchedLine !== undefined ? { fetchedAt: projection.fetchedAt, fetchedLine: layout.fetchedLine } : {}),
+      } }),
+    };
+  });
+}
+
+/**
+ * The open proposals beside the note (PIE-725, `draft.proposals.list`), each drawn as an embed of it after its line,
+ * where its embed line went before proposals moved out of the note's text. Any failure (an older service) shows none.
+ */
+async function readProposalsBeside(requester: DetailEmbedRequester, blockId: string, revision: number | undefined): Promise<DraftProposalsBeside["proposals"]> {
+  try {
+    const read = await requester.request<DraftProposalsBeside>({ action: "draft.proposals.list", blockId } as RequestInput);
+    return revision === undefined || read.revision === revision ? read.proposals : [];
+  } catch {
+    return [];
+  }
+}
+
+function proposalRegions(beside: readonly { afterLine: number; projected: ProjectedEmbed }[]): InsertedRegion[] {
+  return beside.map(({ afterLine, projected }) => ({
+    line: afterLine, lines: projected.text.split("\n"), indent: false, reason: "proposal beside the note",
+    ...(projected.provenance ? { provenance: projected.provenance } : {}),
+    range: (startLine: number) => projected.source ? { source: { ...projected.source, contentStartLine: startLine + 1 } } : {},
+  }));
 }
 
 export function detailEmbedIds(text: string): string[] {
@@ -705,15 +755,9 @@ export async function projectDetailRead(
   const pendingProjections = options.hostBlockId
     ? readDetailResourceProjections(requester, text, options.hostBlockId, options.hostRevision)
     : Promise.resolve(null);
-  const matches = embedMatches(projectedSource, text);
-  if (matches.length === 0 && !isChecklistView(text)) {
-    const projections = await pendingProjections;
-    if (!projections?.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [] };
-    const inserted = insertResourceProjections({ text: projectedSource, provenance: source, embedRanges: [] }, [],
-      projections);
-    return { ...inserted, embeds: [], resourceProjections: projections };
-  }
-
+  const pendingBeside = options.hostBlockId
+    ? readProposalsBeside(requester, options.hostBlockId, options.hostRevision)
+    : Promise.resolve([]);
   const targetCache = new Map<string, Promise<Block>>();
   const loadTarget = (blockId: string): Promise<Block> => {
     let pending = targetCache.get(blockId);
@@ -730,6 +774,23 @@ export async function projectDetailRead(
     }).then((snapshot) => snapshot.physical.blocks);
     return pendingPhysicalBlocks;
   };
+  // Resource projections and the proposals beside the note: regions after authored lines.
+  const insertedRegions = async (): Promise<{ regions: InsertedRegion[]; projections: readonly ResourceProjection[] | null }> => {
+    const [projections, beside] = await Promise.all([pendingProjections, pendingBeside]);
+    const proposals = await Promise.all(beside.map(async proposal => ({
+      afterLine: proposal.afterLine,
+      projected: await projectEmbed(requester, proposal.id, undefined, options.hostBlockId, () => loadTarget(proposal.id), loadTarget, loadPhysicalBlocks),
+    })));
+    return { regions: [...resourceRegions(projections ?? []), ...proposalRegions(proposals)], projections };
+  };
+  const matches = embedMatches(projectedSource, text);
+  if (matches.length === 0 && !isChecklistView(text)) {
+    const { regions, projections } = await insertedRegions();
+    if (!regions.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [] };
+    const inserted = insertRegions({ text: projectedSource, provenance: source, embedRanges: [] }, [], regions);
+    return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}) };
+  }
+
   const cache = new Map<string, Promise<ProjectedEmbed>>();
   for (const match of matches.slice(0, MAX_DETAIL_EMBEDS)) {
     const blockId = match[1]!;
@@ -801,10 +862,10 @@ export async function projectDetailRead(
   }
   output += projectedSource.slice(consumed);
   mappedParts.push(sliceDocument(source, consumed));
-  const projections = await pendingProjections;
-  if (projections?.length) {
-    const inserted = insertResourceProjections({ text: output, provenance: concatDocuments(mappedParts), embedRanges },
-      embedSourceLines, projections);
+  const { regions, projections } = await insertedRegions();
+  if (regions.length) {
+    const inserted = insertRegions({ text: output, provenance: concatDocuments(mappedParts), embedRanges },
+      embedSourceLines, regions);
     output = inserted.text;
     mappedParts = [inserted.provenance];
     embedRanges = inserted.embedRanges;

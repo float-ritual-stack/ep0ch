@@ -11,8 +11,10 @@
  *   `allowStructural`. `prose` (opt-in, for tidying text the person is typing)
  *   keeps every structural token (`draftPatchPolicy`, `draftPatchTextPolicy`).
  *   Either way the spans end above the mark;
- * - failure: the proposal lands as a reply block embedded under the mark or the
- *   note (`proposalText`), and "apply anyway" applies it as an ordinary edit.
+ * - failure: the patch lands as a proposal block beside the note (`proposalText`,
+ *   a child of it), never in the note's text, and "apply anyway" applies it as
+ *   an ordinary edit. Readers draw it after the mark line or at the note's end
+ *   (`draft.proposals.list`, PIE-725).
  *
  * Routing is the service's: a door that holds a live draft of the note
  * (`DraftHolds`, a lease it renews) gets the patch; with none, the saved block
@@ -104,17 +106,34 @@ export interface DraftPatchProposed {
   outcome: "proposed";
   /** Why it didn't apply, in words. */
   reason: string;
-  /** The reply block holding the proposal. */
+  /** The proposal block, beside the note: a new one, or the same open one this actor proposed before (`deduped`). */
   proposalId: string;
-  /** Where its embed line went: into a live draft, the saved note, or nowhere (the note changed under it). */
-  embedded: DraftPatchRoute | null;
-  embeddedIn: string;
+  /** The note it sits beside (a child of it), whose text and revision it left as they were. */
+  beside: string;
+  /** Set when the same actor's same patch was already open beside the note: `proposalId` is that one, and nothing was written. */
+  deduped?: true;
+}
+
+/** The open proposals beside a note (`draft.proposals.list`, PIE-725), oldest first. */
+export interface DraftProposalsBeside {
+  blockId: string;
+  /** The note's revision the lines are counted in. */
+  revision: number;
+  proposals: Array<{
+    id: string;
+    /** The note line (from 0, in its whole text) the proposal is drawn after: its mark's line, else the last line. */
+    afterLine: number;
+    author: string;
+    actorId?: string;
+    /** False when its passage was already gone when it was proposed: only dismiss is offered. */
+    applies: boolean;
+  }>;
 }
 
 export type DraftPatchResult = DraftPatchApplied | DraftPatchProposed;
 
 /** What the service asks the door holding a draft; the door answers with `drafts.answer`. */
-/** The proposal a patch sent to a holding door settles: `apply` (apply anyway) or `dismiss` (its embed line out). */
+/** The proposal a patch sent to a holding door settles: `apply` (apply anyway) or `dismiss` (an older proposal's embed line out). */
 export interface DraftHolderProposal { id: string; op: "apply" | "dismiss" }
 
 export type DraftHolderRequest =
@@ -126,11 +145,7 @@ export type DraftHolderRequest =
       /** Set when the patch applies or dismisses a proposal, so the door says which it was, not guessing from the patch. */
       proposal?: DraftHolderProposal;
     }
-  | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string }
-  | {
-      kind: "embed"; requestId: string; holdId: string; blockId: string; targetClientId: string;
-      line: string; mark?: string; mutation: MutationProvenance;
-    };
+  | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string };
 
 export type DraftHolderAnswer =
   | { text: string; revision: number }
@@ -463,7 +478,7 @@ export function withProposalStatus(text: string, status: DraftProposalStatus): s
     .replace(/^(To .*?: one edit, its \d+ changes applied together or not at all)\. A applies all of them anyway, as one ordinary edit\.$/m, "$1.");
 }
 
-/** The embed line a proposal gets under the mark or at the end of the note. */
+/** The embed line a proposal from before PIE-725 left in its note (`!((id))`): dismiss takes it out, and readers don't draw that proposal twice. */
 export function embedLine(proposalId: string): string {
   return `!((${proposalId}))`;
 }
@@ -486,19 +501,4 @@ export function embedLineSpan(text: string, line: string): DraftPatchSpan | null
   }
   const at = text.indexOf(line);
   return at < 0 ? null : { observed: line, replacement: "", range: { start: at, end: at + line.length }, unit: "utf16" };
-}
-
-/**
- * `text` with `line` inserted after the mark line (the first line whose text,
- * trimmed, is the mark), or at the end when there is no mark or it isn't there.
- */
-export function insertAfterMark(text: string, line: string, mark?: string): string {
-  const lines = text.split("\n");
-  const wanted = mark?.trim();
-  const at = wanted ? lines.findIndex(candidate => candidate.trim() === wanted) : -1;
-  if (at >= 0) {
-    lines.splice(at + 1, 0, line);
-    return lines.join("\n");
-  }
-  return text.endsWith("\n") || !text ? `${text}${line}` : `${text}\n${line}`;
 }

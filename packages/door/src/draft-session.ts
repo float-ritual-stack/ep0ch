@@ -373,7 +373,8 @@ export class DraftSession {
 
   /**
    * The service asks about the held draft: its text now, an agent's patch (compared against the text as
-   * typed; the cursor, selection and view shift with it), a revert of one, or a proposal's embed line.
+   * typed; the cursor, selection and view shift with it), or a revert of one. A patch that doesn't apply becomes a
+   * proposal beside the note, never a line in the draft (PIE-725).
    * Never the person's keys: nothing here moves focus or ends the draft.
    */
   answer(r: DraftRequest): DraftAnswer {
@@ -383,9 +384,9 @@ export class DraftSession {
     const redraw = () => this.env.redraw?.();
     if (r.kind === "revert") { const reverted = d.revertPatch(r.patchId); redraw(); return { reverted }; }
     const by = patchActor(r.mutation);
-    const a = r.kind === "patch" ? d.applyPatch(r, by) : d.insertLine(r.line, r.mark, by);
+    const a = d.applyPatch(r, by);
     if (a.applied) {
-      this.env.agentDid?.(by, r.kind === "patch" ? (r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor") : "put a proposal under the mark");
+      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }

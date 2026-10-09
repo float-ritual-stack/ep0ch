@@ -304,10 +304,14 @@ test("patch is an edit by default: a dropped [[link]] applies, a linked ^anchor 
   expect(refused.stderr).toContain("^beds (1 note links to it)");
   expect(store.get(note.id)!.text).toBe(current.text);
   const proposed = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
-  // Not applied: the proposal is a reply block, embedded under the note for the person to apply or not.
+  // Not applied: the proposal is a block beside the note for the person to apply or not; the note is untouched (PIE-725).
   expect(proposed.json.outcome).toBe("proposed");
   expect(proposed.json.reason).toContain("^beds");
-  expect(store.get(note.id)!.text).toBe(`${current.text}\n!((${proposed.json.proposalId}))`);
+  expect(proposed.json).toMatchObject({ beside: note.id });
+  expect(store.get(note.id)!).toMatchObject({ text: current.text, revision: current.revision });
+  // The same patch again from the same agent returns that proposal, not a second copy.
+  const again = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
+  expect(again.json).toMatchObject({ outcome: "proposed", proposalId: proposed.json.proposalId, deduped: true });
   const allowed = await agent("patch", { ref: note.id, revision: store.get(note.id)!.revision, allowStructural: true, patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
   expect(allowed.json.outcome).toBe("applied");
 });
