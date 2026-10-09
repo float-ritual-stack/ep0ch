@@ -129,7 +129,9 @@ export class TunePane implements Pane {
       const row = TUNE_ROWS[i]!, on = i === this.sel;
       const shown = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
       const src = sources[row.tokens[row.tokens.length - 1]!];
-      const tuned = src.label.endsWith("tuning");
+      // Tuned here, not yet saved: the value is the inspector's nudge, drawn over the outline's (●).
+      const at = sourceTarget(src, t.look.place), mark = at ? tuning.get(at, fieldKey(row.tokens[row.tokens.length - 1]!, src.variant ?? null)) : undefined;
+      const tuned = !!mark && !mark.saved;
       const srcW = Math.max(0, w - nameW - valW - ctl - 1);
       const y = lines.length;
       const name = pad(row.name, nameW), value = pad(shown, valW);
@@ -354,7 +356,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     touches: "nothing", replay: "ask",
     args: {},
     run(_, { desk }, actor) {
-      const u = tuningOf(desk.ctx.board).undo(actor);
+      let u;
+      try { u = tuningOf(desk.ctx.board).undo(actor); } catch (e) { throw new ActionRefused((e as Error).message); }
       if (!u) throw new ActionRefused("nothing to take back");
       desk.redraw();
       return { undone: u.field, at: targetWords(u.target) };

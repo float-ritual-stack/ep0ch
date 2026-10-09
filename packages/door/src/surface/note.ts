@@ -249,19 +249,6 @@ interface HeaderBlock {
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
-/**
- * What joins body row `r` to the next in a copy (SelectRows.joins): when the next carries it on (a soft wrap), a space
- * unless the wrap cut a word (src/text.ts wrap: only a word longer than the row is cut, so its rows are full and have no
- * space); else undefined, a line break.
- */
-function softJoin(doc: Doc, r: number, w: number): string | undefined {
-  if (!doc.wraps?.has(r + 1)) return undefined;
-  const a = cellsOf(doc.lines[r] ?? ""), b = cellsOf(doc.lines[r + 1] ?? "");
-  // The wrap breaks at a space, and cuts only a word longer than the row: such a row is full and has no space in it.
-  const text = a.join("").trim(), first = b.find(c => c !== " ");
-  return a.length >= w && !!text && !text.includes(" ") && first !== undefined ? "" : " ";
-}
-
 interface Laid {
   m: Msg; key: string; doc: Doc; drawn: Link[]; picks: { at: number; lines: number; rows: number[] } | null;
   controls: Control[]; body: string[]; marks: Mark[]; lines: number[]; elems: Element[];
@@ -1206,7 +1193,7 @@ export class NoteSurface {
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight);
     const look = this.lastLook;
-    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers } } : {}) };
+    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -3995,7 +3982,7 @@ export class NoteSurface {
       // A row that is only drawing (a frame's edge; the look's gap, divider and margin rows) is left out whole.
       edge: r => (r >= d.top ? !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
       // A paragraph wrapped over rows is one line of text: its rows join with a space where the wrap took one, nothing where it cut a word.
-      joins: r => (r >= d.top && r + 1 < d.top + d.body.length ? softJoin(d.doc, r - d.top, d.w - d.bx - this.bxRight) : undefined),
+      joins: r => (r >= d.top ? d.doc.wraps?.get(r - d.top + 1) : undefined),
     };
   }
 

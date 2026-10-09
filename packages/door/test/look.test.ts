@@ -8,7 +8,7 @@ import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { exportFiles, readRecords } from "../src/export";
-import { lookFor, tuningOf } from "../src/look";
+import { lookFor, sheetsReady, Tuning, tuningOf } from "../src/look";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { renderDoc } from "../src/doc";
@@ -25,11 +25,11 @@ const BODY = [PARA, "", ...ITEMS].join("\n");
 
 describe("the doc renderer's list rows and soft wraps (no service)", () => {
   const values = (o: Record<string, unknown>) => ({ ...lookFor(null, {}, 80).values, ...o }) as any;
-  const env = (look?: Record<string, unknown>) => ({ width: 40, cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: false, ...(look ? { look: { values: values(look), layers: [] } } : {}) });
+  const env = (look?: Record<string, unknown>) => ({ width: 40, cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: false, ...(look ? { look: { values: values(look), layers: [], width: 80 } } : {}) });
   /** The whole document selected and copied, as a reader's rows give it (its trims are the drawing; its wraps join). */
   const copy = (d: ReturnType<typeof renderDoc>, w: number) => {
     const rows = rowsOf(d.lines, () => 0, r => d.trims.get(r));
-    return new Selection({ row: 0, col: 0 }, { row: d.lines.length - 1, col: 999 }).text({ ...rows, joins: r => (d.wraps?.has(r + 1) ? " " : undefined) });
+    return new Selection({ row: 0, col: 0 }, { row: d.lines.length - 1, col: 999 }).text({ ...rows, joins: r => d.wraps?.get(r + 1) });
   };
 
   test("gap and divider rows sit between items, and are edge rows: a copy joins the items with one newline", () => {
@@ -50,6 +50,13 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     }
   });
 
+  test("a copy joins a wrap by what the wrap took: a word that fills its row and the next aren't run together; a word cut across rows is", () => {
+    const e = { ...env(), width: 10 };
+    expect(copy(renderDoc("abcdefghij next", e), 10)).toBe("abcdefghij next");
+    expect(copy(renderDoc("abcdefghijklmnopqrstuv end", e), 10)).toBe("abcdefghijklmnopqrstuv end");
+    expect(copy(renderDoc("- one two three four five six", e), 10)).toBe("- one two three four five six");
+  });
+
   test("without a look, nothing changes: no gap rows, no zebra", () => {
     const d = renderDoc(BODY, env());
     expect(d.zebra).toBeUndefined();
@@ -64,6 +71,42 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     expect(text.find(l => l.includes("one"))).toStartWith("    ");
     expect(text.findIndex(l => l.includes("two")) - text.findIndex(l => l.includes("one"))).toBe(1);
     expect(copy(d, 40)).toBe("Before\n- one\n- two\nAfter");
+  });
+});
+
+describe("the tuning (no service)", () => {
+  const A = { kind: "agent" as const, id: "agent-a" }, B = { kind: "agent" as const, id: "agent-b" }, YOU = { kind: "user" as const };
+  test("an agent undoes only its own, and not once someone changed that value again", () => {
+    const t = new Tuning();
+    t.set("global", "list.gap", "1", A);
+    t.set("global", "list.gap", "2", B);
+    expect(() => t.undo(A)).toThrow("list.gap was changed again since (by agent-b)");
+    expect(t.get("global", "list.gap")?.value).toBe("2");
+    expect(t.undo(B)?.field).toBe("list.gap");
+    expect(t.get("global", "list.gap")?.value).toBe("1");
+    // The person's undo takes back the last change, whoever made it.
+    t.set("global", "measure", "72", A);
+    expect(t.undo(YOU)?.field).toBe("measure");
+  });
+  test("a save marks saved only the values it wrote: one nudged again meanwhile stays unsaved", () => {
+    const t = new Tuning();
+    t.set("tile:detail", "measure", "72", YOU);
+    const written = t.unsaved()[0]!.fields;
+    t.set("tile:detail", "measure", "76", YOU);
+    t.markSaved("tile:detail", written);
+    expect(t.unsavedCount()).toBe(1);
+    expect(t.get("tile:detail", "measure")).toMatchObject({ value: "76" });
+  });
+  test("a nudge goes into the declaration it tunes: its width variant keeps winning, live as after the save", async () => {
+    const sheets = [{ for: "global", block: "g", fields: { "list.gap": "1", "narrow.list.gap": "0" } }];
+    const src = { board: { styleSheets: async () => ({ sheets, problems: [] }) }, redraw() {} };
+    await sheetsReady(src);
+    const t = tuningOf(src.board);
+    t.set("global", "list.gap", "2", YOU);
+    // Narrow, the declaration's own narrow.list.gap still wins (as it will once saved there); normal width takes the nudge.
+    expect(lookFor(src, {}, 40).values["list.gap"]).toBe(0);
+    expect(lookFor(src, {}, 80).values["list.gap"]).toBe(2);
+    expect(lookFor(src, {}, 80).sources["list.gap"]).toMatchObject({ level: "global", block: "g" });
   });
 });
 

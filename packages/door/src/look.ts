@@ -78,11 +78,16 @@ export class Tuning {
     this.gen++;
   }
 
-  /** Takes back the last change `by` made (an agent only its own); what it took back, or null. */
+  /**
+   * Takes back the last change `by` made (the person: the last change; an agent: only its own); what it took back, or
+   * null. An agent's change someone changed again since is theirs now: refused (an Error saying so), nothing undone.
+   */
   undo(by: Actor): Undo | null {
     const mine = (u: Undo) => (by.kind === "user" ? true : u.by.kind === "agent" && u.by.id === by.id);
     const at = this.undos.findLastIndex(mine);
     if (at < 0) return null;
+    const later = this.undos.slice(at + 1).find(x => x.target === this.undos[at]!.target && x.field === this.undos[at]!.field);
+    if (later) throw new Error(`${this.undos[at]!.field} was changed again since (${later.by.kind === "user" ? "by you" : `by ${later.by.kind === "agent" ? later.by.id : "someone"}`}): it's theirs to take back`);
     const [u] = this.undos.splice(at, 1);
     const layer = this.layers.get(u!.target) ?? new Map<FieldKey, Tuned>();
     if (u!.before) layer.set(u!.field, u!.before); else layer.delete(u!.field);
@@ -100,11 +105,14 @@ export class Tuning {
   }
   unsavedCount(): number { return this.unsaved().reduce((n, u) => n + u.fields.length, 0); }
 
-  /** Marks `target`'s fields written: they stay over the outline until its answer says the same (no flicker). */
-  markSaved(target: TuneTarget, fields: readonly FieldKey[]) {
+  /**
+   * Marks `target`'s fields written with the values written: they stay over the outline until its answer says the same
+   * (no flicker). A field nudged again while the save was out keeps its newer value, unsaved.
+   */
+  markSaved(target: TuneTarget, written: readonly (readonly [FieldKey, string])[]) {
     const at = this.layers.get(target);
     if (!at) return;
-    for (const f of fields) { const t = at.get(f); if (t) at.set(f, { ...t, saved: true }); }
+    for (const [f, v] of written) { const t = at.get(f); if (t && t.value === v) at.set(f, { ...t, saved: true }); }
     this.gen++;
   }
 
@@ -178,11 +186,13 @@ export function lookFor(src: ListSource | null | undefined, place: StylePlace, w
       for (const s of sheets) if (s.for === target) Object.assign(merged, s.fields);
       return merged;
     };
-    // Each tuning layer goes right after the outline's layer it tunes (or last at its level), so it wins there and only there.
+    // The tuning goes into the outline's layer it tunes (its newest declaration), as a save would write it, so a width
+    // variant there keeps its precedence live as after the save; a level with no declaration gets a layer of its own.
     const put = (level: StyleLayer["level"], label: string, at: Map<FieldKey, { value: string }>) => {
       const fields = Object.fromEntries([...at].map(([k, v]) => [k, v.value]));
-      const after = layers.findLastIndex(l => l.label === label);
-      layers.splice(after >= 0 ? after + 1 : layers.length, 0, { level, label: `${label} · tuning`, fields });
+      const i = layers.findLastIndex(l => l.label === label);
+      if (i >= 0) layers[i] = { ...layers[i]!, fields: { ...layers[i]!.fields, ...fields } };
+      else layers.push({ level, label, fields });
     };
     for (const level of ["global", "tile", "screen", "page"] as const) {
       const target = tuneTarget(level, place);
@@ -247,17 +257,20 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
   if (!entry) return null;
   const props = entry.fields.map(([k, v]) => { const f = parseFieldKey(k)!; return { key: styleProperty(f.token, f.variant), value: v }; });
   const board = src.board;
+  // Every token read at one revision (asked again when the note moved between the reads), and the patch names it: a
+  // note changed since is refused by the service, never patched at ordinals that moved.
   const patchOnto = async (id: string) => {
-    const ops: PropertyPatch[] = [];
-    let revision = 0;
-    for (const p of props) {
-      const r = await board.propertyTokens(id, p.key);
-      revision = r.revision;
-      const own = r.tokens.find(x => x.scope === "block");
-      ops.push(own ? { op: "replace", ordinal: own.ordinal, value: p.value } : { op: "append", key: p.key, value: p.value });
+    for (let tries = 0; tries < 3; tries++) {
+      const reads = await Promise.all(props.map(p => board.propertyTokens(id, p.key)));
+      const revision = reads[0]!.revision;
+      if (reads.some(r => r.revision !== revision)) continue;
+      const ops: PropertyPatch[] = props.map((p, k) => {
+        const own = reads[k]!.tokens.find(x => x.scope === "block");
+        return own ? { op: "replace", ordinal: own.ordinal, value: p.value } : { op: "append", key: p.key, value: p.value };
+      });
+      return board.patchProperties(id, revision, ops, actor);
     }
-    const m = await board.patchProperties(id, revision, ops, actor);
-    return m;
+    throw new Error("the style note kept changing while it was read: s again saves");
   };
   let note: string, created = false;
   if (target.startsWith("page:")) {
@@ -265,8 +278,10 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     await patchOnto(note);
   } else {
     const sheets = sheetsOf(src);
-    const own = sheets.filter(s => s.for === target && s.line === undefined).at(-1);
-    if (own) { note = own.block; await patchOnto(note); }
+    // The newest declaration for it wins in the cascade: written there when it's a note's own properties; when it's a
+    // line, a new style note (newer still) holds the values, so what's saved is what shows.
+    const own = sheets.filter(s => s.for === target).at(-1);
+    if (own && own.line === undefined) { note = own.block; await patchOnto(note); }
     else {
       const parent = await styleHome(board, sheets, actor);
       const text = `Style · ${targetWords(target)} [style-for::${target}] ${props.map(p => `[${p.key}::${p.value}]`).join(" ")}`;
@@ -274,7 +289,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
       created = true;
     }
   }
-  t.markSaved(target, entry.fields.map(([k]) => k));
+  t.markSaved(target, entry.fields);
   SHEETS.stale(board);
   return { target, note, fields: props.map(p => `${p.key}=${p.value}`), created };
 }

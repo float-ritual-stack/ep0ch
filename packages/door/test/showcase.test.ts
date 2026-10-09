@@ -570,7 +570,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // An agent's nudge goes where the value is set (the lab style), drawn in the next frame, said on the screen.
     expect(await app.act({ action: "tune.nudge", args: { row: "list.gap", by: 1 }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "2", at: expect.stringContaining("style lab") });
     expect(gap()).toBe(before + 1);
-    expect(screen()).toMatch(/list\.gap +2 +● style lab · tuning/);
+    expect(screen()).toMatch(/list\.gap +2 +● style lab/);
     // Saved: onto the Looks lab note, which every door reads; then put back, so the outline is as seeded.
     expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
     expect((await board.get(seeded.notes.looksLab.id))!.text).toMatch(/\[style\.(narrow\.)?list\.gap::2\]/);
@@ -581,7 +581,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     ch("2");
     ch("+");
-    await until(() => /measure +68 +● style lab · tuning/.test(screen()), "the measure nudged by the person's +", 5000);
+    await until(() => /measure +68 +● style lab/.test(screen()), "the measure nudged by the person's +", 5000);
     ch("u");
     await until(() => /measure +64 +← style lab/.test(screen()), "the nudge taken back", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
