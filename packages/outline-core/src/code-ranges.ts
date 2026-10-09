@@ -236,10 +236,10 @@ export function structuralLiteralLines(lines: readonly string[]): { start: numbe
   return spans;
 }
 
-/** `structuralLiteralLines` by offsets: whole lines, line breaks included. */
-function structuralLiteralRanges(text: string, lines: SourceLine[]): SourceRange[] {
+/** `structuralLiteralLines` by offsets: whole lines, line breaks included unless `withBreak` is false. */
+function structuralLiteralRanges(text: string, lines: SourceLine[], withBreak = true): SourceRange[] {
   const texts = lines.map(line => text.slice(line.start, line.contentEnd));
-  return structuralLiteralLines(texts).map(span => ({ start: lines[span.start]!.start, end: lines[span.end]!.end }));
+  return structuralLiteralLines(texts).map(span => ({ start: lines[span.start]!.start, end: withBreak ? lines[span.end]!.end : lines[span.end]!.contentEnd }));
 }
 
 function mergeRanges(ranges: SourceRange[]): SourceRange[] {
@@ -281,7 +281,7 @@ export function protectedCodeRanges(text: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   for (const block of fences) for (let i = block.start; i <= block.end; i++) ranges.push(lineRange(i));
   for (const i of indented) ranges.push(lineRange(i));
-  for (const range of structuralLiteralRanges(text, sourceLines(text))) ranges.push({ start: range.start, end: Math.max(range.start, range.end - 1) });
+  ranges.push(...structuralLiteralRanges(text, sourceLines(text), false));
   ranges.push(...codeSpanRanges(text));
   return ranges;
 }

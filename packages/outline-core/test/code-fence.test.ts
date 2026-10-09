@@ -77,6 +77,8 @@ test("a component's YAML and a fence inside a quote are literal; an unclosed com
     expect(inside("#y")).toBe(true);
     expect(inside("z")).toBe(false);
   }
+  const eof = "> ```\n> x";
+  expect(protectedCodeRanges(eof).some(r => r.start <= eof.length - 1 && eof.length - 1 < r.end)).toBe(true);
   const open = "::graph-stat\n---\nq: #x\n\n## Next\n#after";
   expect(scanPropertyLiteralRanges(open)).toEqual([]);
   expect(scanPropertyLiteralRanges("> ```\n> #y\n\n#free").some(r => r.end > "> ```\n> #y\n\n".length)).toBe(false);
