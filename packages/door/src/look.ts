@@ -309,29 +309,47 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     throw new Error("the style note kept changing while it was read: s again saves");
   };
   let note = "", created = false;
+  // Each note written is marked saved as soon as it is (its fields stay over the outline until its answer agrees), so a
+  // save that fails part way leaves only what wasn't written unsaved, and s again writes just that.
+  const written = (keys: readonly string[]) => {
+    t.markSaved(target, entry.fields.filter(([k]) => keys.includes(prop(k))));
+    SHEETS.stale(board);
+  };
   // What's taken away, from the note each was taken from (the one the inspector showed it came from).
   const byNote = new Map<string, string[]>();
   for (const g of gone) byNote.set(g.from, [...(byNote.get(g.from) ?? []), g.key]);
+  const setKeys = sets.map(p => p.key);
   if (target.startsWith("page:")) {
     note = target.slice(5);
-    await patchOnto(note, sets, byNote.get(note) ?? []);
+    const off = byNote.get(note) ?? [];
+    await patchOnto(note, sets, off);
     byNote.delete(note);
+    written([...setKeys, ...off]);
   } else if (sets.length) {
     const sheets = sheetsOf(src);
     // The newest declaration for it wins in the cascade: written there when it's a note's own properties; when it's a
     // line, a new style note (newer still) holds the values, so what's saved is what shows.
     const own = sheets.filter(s => s.for === target).at(-1);
-    if (own && own.line === undefined) { note = own.block; await patchOnto(note, sets, byNote.get(note) ?? []); byNote.delete(note); }
-    else {
+    if (own && own.line === undefined) {
+      note = own.block;
+      const off = byNote.get(note) ?? [];
+      await patchOnto(note, sets, off);
+      byNote.delete(note);
+      written([...setKeys, ...off]);
+    } else {
       const parent = await styleHome(board, sheets, actor);
       const text = `Style · ${targetWords(target)} [style-for::${target}] ${sets.map(p => `[${p.key}::${p.value}]`).join(" ")}`;
       note = (await board.createBlock(parent, text, actor)).id;
       created = true;
+      written(setKeys);
     }
   }
-  for (const [id, keys] of byNote) { if (!id) throw new Error("a value taken away doesn't say which note it came from: x again"); await patchOnto(id, [], keys); note ||= id; }
-  t.markSaved(target, entry.fields);
-  SHEETS.stale(board);
+  for (const [id, keys] of byNote) {
+    if (!id) throw new Error("a value taken away doesn't say which note it came from: x again");
+    await patchOnto(id, [], keys);
+    written(keys);
+    note ||= id;
+  }
   return { target, note, fields: [...sets.map(p => `${p.key}=${p.value}`), ...gone.map(g => `${g.key} removed`)], created };
 }
 

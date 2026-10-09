@@ -424,7 +424,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       drawn(framed || bar ? row("") : "", py, end);
       // Its surface, inside its frame (from after its bar) and its margin, over its padding and its text.
       const surface = bgRole !== "none" ? surfaceBg(bgRole, v["bg.strength"]) : "";
-      if (surface) tints.push({ rows: [surfaceFrom, out.length], cols: [mx + (framed || bar ? 1 : 0), W - mx - (framed ? 1 : 0)], bg: surface });
+      // (Inset only, the margin is what's left of the inset after the padding: a narrow tile clamps it.)
+      const outside = framed || bar ? mx : Math.max(0, left - px);
+      if (surface) tints.push({ rows: [surfaceFrom, out.length], cols: [outside + (framed || bar ? 1 : 0), Math.max(outside + 1, W - outside - (framed ? 1 : 0))], bg: surface });
       for (const t of sub.tints ?? []) tints.push({ rows: [base + t.rows[0], base + t.rows[1]], cols: t.cols ? [t.cols[0] + left, t.cols[1] + left] : [left, left + inner], bg: t.bg });
       // Its pictures and media lines, moved to where the box put its rows (an image's index kept to its record).
       const imageBase = images.length;

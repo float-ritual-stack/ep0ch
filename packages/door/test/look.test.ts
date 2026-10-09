@@ -77,6 +77,12 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     const barred = renderDoc(["::box{edge=bar tone=green}", "Keep the gate shut.", "::"].join("\n"), { ...env({}), width: 40 });
     expect(barred.lines.map(plain)[0]).toBe("▌ Keep the gate shut.");
     expect(copy(barred, 40)).toBe("Keep the gate shut.");
+    // Inset clamped in a narrow tile: its surface is where its text is drawn, never past either edge.
+    const narrow = renderDoc(["::box{margin.x=24 bg=raised}", "Keep the gate shut.", "::"].join("\n"), { ...env({}), width: 12 });
+    const [t0] = narrow.tints!;
+    expect(t0!.cols![0]).toBeGreaterThanOrEqual(0);
+    expect(t0!.cols![1]).toBeLessThanOrEqual(12);
+    expect(t0!.cols![0]).toBeLessThanOrEqual(narrow.lines.map(plain).find(l => l.trim())!.search(/\S/));
     // Too narrow for a frame: inset, as before.
     expect(renderDoc(BOX, { ...env({}), width: 12 }).lines.map(plain).some(l => l.includes("╭"))).toBe(false);
   });

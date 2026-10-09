@@ -2550,7 +2550,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
     // The surface under what it drew and its padding, never over a picture drawn under the text (a header's backdrop:
     // Kitty shows it only through cells on the default background, so the surface yields there).
-    if (surface && !dock && !float && !(pane instanceof PtyPane)) {
+    if (surface && !(pane instanceof PtyPane)) {
       const under = (view.placements ?? []).filter(p => (p.z ?? 0) < 0).map(p => ({ c0: inner.col + p.col, c1: inner.col + p.col + p.cols, r0: inner.row + p.row, r1: inner.row + p.row + p.rows }));
       canvas.under(framed, surface, under.length ? (x, y) => under.some(u => x >= u.c0 && x < u.c1 && y >= u.r0 && y < u.r1) : undefined);
     }
