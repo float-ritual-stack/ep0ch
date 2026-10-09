@@ -37,6 +37,8 @@ export interface WKey {
   label?: string;
   /** In the short keys box, under this word (keys with the same word share one entry). Absent: only in the popup. */
   short?: string;
+  /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
+  sticky?: true;
 }
 
 const run = (action: string, args?: Record<string, unknown>, tile?: "n" | "-"): WHow => ({ k: "run", action, ...(args ? { args } : {}), ...(tile ? { tile } : {}) });
@@ -56,11 +58,11 @@ export const W_KEYS = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", short: "size" },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", short: "size" },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", short: "size" },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", short: "size" },
-  { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split" },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", short: "size", sticky: true },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", short: "size", sticky: true },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", short: "size", sticky: true },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", short: "size", sticky: true },
+  { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
   { key: "z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", {}, "n"), short: "zoom" },
   { key: "c", group: "size & shape", action: "tile.collapse", how: run("tile.collapse"), short: "spine" },
   { key: "W", group: "size & shape", action: "tile.widen", how: run("tile.widen") },

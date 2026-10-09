@@ -15,6 +15,7 @@ import { ActionRefused, declaredKeys, type ActionInfo } from "../surface/actions
 import { USER } from "../socket";
 import { ago } from "../text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
+import { hyperKeysOf, hyperOn } from "../hyper";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
@@ -206,13 +207,15 @@ const ACTIONS: BarSource = {
     const w = W_QUERY.exec(q);
     if (w) { const desk = tilesOf(top); return desk ? wKeyRows(desk, w[1]!, host) : []; }
     const menu = (() => { try { return top?.dispatch?.menu("focused", USER) ?? []; } catch { return []; } })();
-    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, detail: `${m.group} · ${m.action}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
+    // While the hyper layer is on (PIE-699) each action that has a chord shows it, as ✦-, beside its other keys.
+    const hy = (action: string) => (hyperOn() ? hyperKeysOf(action) : []);
+    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
     const seen = new Set(menu.map(m => m.action));
     for (const a of host.dispatch.list().actions) {
       if (seen.has(a.name) || !bare(a)) continue;
       seen.add(a.name);
       const k = firstKey(a.keys);
-      rows.push({ key: a.name, label: a.name, detail: a.summary.split(/[.:;(]/)[0]!.slice(0, 80), ...(k ? { keycap: k } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
+      rows.push({ key: a.name, label: a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
     }
     return filtered(rows, q, r => [r.label, r.detail ?? ""]);
   },
@@ -220,7 +223,7 @@ const ACTIONS: BarSource = {
     const d = row.data as { action: string; summary?: string; keys?: string };
     const info = host.dispatch.list().actions.find(a => a.name === d.action);
     const args = Object.entries(info?.args ?? {});
-    return { markdown: [`**${row.label}** \`${d.action}\``, "", info?.summary ?? d.summary ?? "", "", ...(info?.keys ?? d.keys ? [`Keys: ${info?.keys ?? d.keys}`] : []), ...(args.length ? ["", "Arguments:", ...args.map(([n, s]) => `- \`${n}\`${s.optional ? "" : " (needed)"}: ${s.about ?? s.type}`)] : []), ...(row.refused ? ["", `Not now: ${row.refused}`] : [])].join("\n") };
+    return { markdown: [`**${row.label}** \`${d.action}\``, "", info?.summary ?? d.summary ?? "", "", ...(info?.keys ?? d.keys ? [`Keys: ${info?.keys ?? d.keys}${hyperOn() && hyperKeysOf(d.action).length ? `, ${hyperKeysOf(d.action).join(" ")} (hyper)` : ""}`] : []), ...(args.length ? ["", "Arguments:", ...args.map(([n, s]) => `- \`${n}\`${s.optional ? "" : " (needed)"}: ${s.about ?? s.type}`)] : []), ...(row.refused ? ["", `Not now: ${row.refused}`] : [])].join("\n") };
   },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);

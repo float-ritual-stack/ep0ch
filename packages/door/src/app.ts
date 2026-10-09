@@ -37,6 +37,8 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
+import { hyperBinding, hyperLabel, hyperOn, HYPER_KEYS } from "./hyper";
+import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
@@ -56,7 +58,7 @@ export interface Frame { lines: string[]; placements?: Placement[] }
  * client with the person's keys).
  */
 export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "invalidate" | "stop" | "resume">
-  & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink">>
+  & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink" | "lastSeq">>
   & {
     /** Let go of the terminal the person is typing on (a session's), or the one `from` names: true when one was attached. */
     detachActive?(from?: unknown): boolean;
@@ -136,6 +138,11 @@ export interface Ctx {
    */
   copy?(text: string | Uncopied, from?: string): boolean;
   cycleVideo(): void;
+  /**
+   * `keys.probe` (PIE-699): the next keys are described instead of run (the bytes they arrived as, the modifiers, what the
+   * door reads them as); esc, or the action again, ends it. `on` left out toggles. The new state.
+   */
+  probeKeys?(on?: boolean): boolean;
   /** Draw in this theme from now on (`theme.set`): every screen at once, the terminal's ground too, and kept for next time. */
   setTheme?(name: ThemeName): void;
   /**
@@ -241,6 +248,12 @@ export interface Screen {
   keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
   holdsKeys?(): boolean;
+  /**
+   * The person is typing in something here (an edit, a comment, a panel) and a hyper chord (PIE-699) is about to move the
+   * keys to another tile: leave it as a click elsewhere leaves it (saved, or kept as unsent). False when it can't be left
+   * (said), and the chord does nothing.
+   */
+  leaveTyping?(): boolean;
   /**
    * Where the person's keys are on this screen (PIE-514), by the names `tile=` uses: the tile with their focus, the
    * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
@@ -441,7 +454,7 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
     useCompletion(board, () => this.redraw());
@@ -952,6 +965,13 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private route(k: Key) {
+    // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
+    if (this.probing && k.kind !== "mouse") {
+      if (k.kind === "esc") this.probeKeys(false);
+      else if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
+      else { this.flash(describeKey(k, (this.term as { lastSeq?: string }).lastSeq ?? ""), 60_000); this.redraw(); }
+      return;
+    }
     // An armed edit (e in a reader, src/arm.ts) takes the next key first: ⏎ or the arming key again opens it; any
     // other key (a click too) lets it go, then does what it does, wherever it goes.
     const armed = this.armedNow?.a;
@@ -980,6 +1000,9 @@ export class App implements Ctx {
         return;
       }
     }
+    // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
+    // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
+    if (k.kind === "hyper") { this.hyper(k.ch); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
@@ -1019,6 +1042,23 @@ export class App implements Ctx {
       return;
     }
     top?.key(k, this);
+  }
+
+  private probing = false;
+  probeKeys(on = !this.probing): boolean {
+    this.probing = on;
+    this.flash(on ? `key probe · press a chord (hyper is ⌃⌥⇧⌘ and a key): it is described, not run · esc ends it · layer ${hyperOn() ? "on" : "off"}` : "key probe ended", on ? 60_000 : undefined);
+    this.redraw();
+    return on;
+  }
+
+  /** A hyper chord: its binding's action as the person, after leaving an edit when it moves the keys. */
+  private hyper(key: string) {
+    const b = hyperBinding(key), top = this.stack.at(-1);
+    if (top?.noDrawer) return;
+    if (!b) return void this.flash(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
+    if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
+    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.flash(e instanceof Error ? e.message : String(e)));
   }
 
   /**

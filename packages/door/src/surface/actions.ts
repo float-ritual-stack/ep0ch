@@ -261,7 +261,7 @@ const NAMED: Record<string, string> = {
 };
 /** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
 export const isKeyName = (s: unknown): s is string =>
-  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
+  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
 /** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
 const MOUSE = new Set(["click", "drag", "wheel"]);
 
@@ -272,6 +272,7 @@ export function keyName(k: Key): string | null {
     case "char": return k.ctrl ? `ctrl+${k.ch.toLowerCase()}` : k.ch === " " ? "space" : k.ch;
     case "alt": return `alt+${k.ch}`;
     case "super": return `super+${k.ch}`;
+    case "hyper": return `hyper+${k.ch}`;
     case "enter": return "shift" in k && k.shift ? "shift+enter" : "ctrl" in k && k.ctrl ? "ctrl+enter" : "enter";
     case "alt-enter": return "alt+enter";
     case "backtab": return "shift+tab";
@@ -378,8 +379,8 @@ const NAMED_KEY: Record<string, Key> = {
 /** The key a key name stands for (`keyName`'s inverse); null for a mouse gesture. */
 export function keyOfName(n: string): Key | null {
   if ([...n].length === 1) return { kind: "char", ch: n };
-  const m = /^(ctrl|alt|super)\+(.)$/u.exec(n);
-  if (m) return m[1] === "ctrl" ? { kind: "char", ch: m[2]!, ctrl: true } : { kind: m[1] as "alt" | "super", ch: m[2]! };
+  const m = /^(ctrl|alt|super|hyper)\+(.)$/u.exec(n);
+  if (m) return m[1] === "ctrl" ? { kind: "char", ch: m[2]!, ctrl: true } : { kind: m[1] as "alt" | "super" | "hyper", ch: m[2]! };
   return NAMED_KEY[n] ?? (PLAIN.has(n) ? { kind: n } as Key : null);
 }
 

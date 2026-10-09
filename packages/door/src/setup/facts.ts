@@ -209,6 +209,20 @@ async function lsRemote(url: string, ref: string, env: Env): Promise<{ commit: s
   return commit ? { commit } : { commit: null, error: `${ref} isn't a branch or tag of ${url}` };
 }
 
+/** Chords in Herdr's config.toml that hold ctrl, alt, shift and cmd (or super) together, which Herdr takes before a pane sees them. */
+export function herdrHyperChords(configPath: string): string[] {
+  let text = "";
+  try { text = readFileSync(configPath, "utf8"); } catch { return []; }
+  const found = new Set<string>();
+  for (const m of text.matchAll(/"([^"\n]*\+[^"\n]*)"/g)) {
+    for (const chord of m[1]!.split(/\s*,\s*/)) {
+      const parts = chord.toLowerCase().split("+").filter(p => p !== "prefix");
+      if (["ctrl", "alt", "shift"].every(x => parts.includes(x)) && (parts.includes("cmd") || parts.includes("super"))) found.add(chord);
+    }
+  }
+  return [...found];
+}
+
 /** The key bound to each of the plugin's keyed actions in Herdr's config.toml. */
 export function herdrKeys(configPath: string): Record<string, string> {
   let text = "";
@@ -587,7 +601,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   return {
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
-    herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath) },
+    herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath), hyperChords: herdrHyperChords(configPath) },
     plugin,
     repo,
     ep0ch: { found, target, pointsHere: target === real(repo.entry) },
