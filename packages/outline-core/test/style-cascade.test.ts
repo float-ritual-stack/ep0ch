@@ -198,6 +198,16 @@ describe("surfaces, frames and the header (PIE-675)", () => {
     expect(at(80)).toMatchObject({ "pad.y": 1, "pad.x": 3, bg: "raised" });
     expect(at(160)).toMatchObject({ "pad.y": 1, "pad.x": 6, bg: "amber" });
     expect(styleSheetsFromBlocks([{ id: "tttt0002", properties: props({ "style-for": "global", "style.list.gap": "0 | 1" }) }]).problems[0]).toContain("three values");
+    // Written out beats a shorthand beats a tier's written out beats a tier's shorthand, in either order on the note.
+    for (const order of [0, 1]) {
+      const fields = [["style.pad", "0 1 | 1 3 | 1 6"], ["style.wide.pad", "2 9"], ["style.pad.x", "5 | 7 | 8"], ["style.narrow.pad.y", "3"]] as [string, string][];
+      const sheet = styleSheetsFromBlocks([{ id: "tttt0003", properties: [{ key: "style-for", value: "global" }, ...(order ? fields.reverse() : fields).map(([key, value]) => ({ key, value }))] }]);
+      expect(sheet.problems).toEqual([]);
+      const v = (w: number) => resolveStyle(styleLayers(sheet.sheets, {}), w).values;
+      expect(v(160)).toMatchObject({ "pad.y": 2, "pad.x": 9 });
+      expect(v(80)).toMatchObject({ "pad.y": 1, "pad.x": 7 });
+      expect(v(40)).toMatchObject({ "pad.y": 3, "pad.x": 5 });
+    }
   });
 
   test("a reader, wide, gets padding 1 4 by its kind's own default; narrower, none", () => {

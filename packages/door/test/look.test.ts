@@ -8,7 +8,7 @@ import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { exportFiles, readRecords } from "../src/export";
-import { lookFor, sheetsReady, Tuning, tuningOf } from "../src/look";
+import { lookFor, sheetsReady, Tuning, tuningOf, UNSET } from "../src/look";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { renderDoc } from "../src/doc";
@@ -145,6 +145,26 @@ describe("the tuning (no service)", () => {
     expect(lookFor(src, {}, 40).values["list.gap"]).toBe(0);
     expect(lookFor(src, {}, 80).values["list.gap"]).toBe(2);
     expect(lookFor(src, {}, 80).sources["list.gap"]).toMatchObject({ level: "global", block: "g" });
+  });
+});
+
+describe("taking a value away (PIE-675, no service)", () => {
+  const YOU = { kind: "user" as const };
+  test("it leaves only the declaration it came from: an older one still shows, as it will after the save; the outline's answer settles it", async () => {
+    const sheets = [{ for: "global", block: "g1", fields: { bg: "blue" } as Record<string, string> }, { for: "global", block: "g2", fields: { bg: "raised" } as Record<string, string> }];
+    const src = { board: { styleSheets: async () => ({ sheets, problems: [] }) }, redraw() {} };
+    await sheetsReady(src);
+    const t = tuningOf(src.board);
+    expect(lookFor(src, {}, 80).values.bg).toBe("raised");
+    t.set("global", "bg", UNSET, YOU, "g2");
+    expect(lookFor(src, {}, 80).values.bg).toBe("blue");
+    expect(lookFor(src, {}, 80).sources.bg).toMatchObject({ level: "global", block: "g1" });
+    // Saved, it stays over the outline until the note it came from no longer sets it; then it's let go.
+    t.markSaved("global", t.unsaved()[0]!.fields);
+    expect(lookFor(src, {}, 80).values.bg).toBe("blue");
+    delete sheets[1]!.fields.bg;
+    expect(lookFor(src, {}, 80).values.bg).toBe("blue");
+    expect(t.get("global", "bg")).toBeUndefined();
   });
 });
 
@@ -295,6 +315,8 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(await d.app.act({ action: "tune.save", tile: "tune", as: "look-agent" })).toMatchObject({ saved: true, at: "screen detail", fields: "style.measure removed" });
       expect((await board.get(style.id))!.text).not.toContain("[style.measure::");
       await until(() => tuningOf(board).unsavedCount() === 0, "nothing unsaved", 5000);
+      // A value a shorthand gives (the screen's [style.pad::1]) can't be taken away alone: the note is edited.
+      await expect(d.app.act({ action: "tune.unset", args: { row: "pad.x" }, tile: "tune", as: "look-agent" })).rejects.toThrow(/also set by style\.pad|shorthand/);
       // A built-in can't be taken further back.
       await expect(d.app.act({ action: "tune.unset", args: { row: "measure" }, tile: "tune", as: "look-agent" })).rejects.toThrow(/built-in already/);
       // Frames, surfaces and the header's surface, set globally in memory: the inspector's frame at rest, the reader's surfaces.

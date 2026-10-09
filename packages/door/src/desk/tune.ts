@@ -9,10 +9,10 @@
 // Every key and click is an action (TUNE_ACTIONS), so an agent tunes the same way, said on the screen and never with
 // the person's keys.
 import {
-  fieldKey, nudgeStyleValue, parseStyleValue, SAVE_LEVELS, STYLE_TOKENS, styleValueText, type Breakpoint, type SaveLevel, type StyleSource,
+  fieldKey, nudgeStyleValue, parseStyleValue, SAVE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText, type Breakpoint, type SaveLevel, type StyleSource,
   type StyleToken, type StyleValue, parseStyleAttrs, resolveStyle,
 } from "@ep0ch/outline-core/style-cascade";
-import { lookFor, saveTuning, sourceTarget, targetWords, tuneTarget, tuningOf, UNSET, type Look, type TuneTarget } from "../look";
+import { lookFor, saveTuning, sourceTarget, targetWords, tuneTarget, tuningOf, UNSET, type Look, type StyleWriteBoard, type TuneTarget } from "../look";
 import { SURFACE_STEPS, type Surface } from "@ep0ch/outline-core/style-cascade";
 import { surfaceMix } from "../theme";
 import { bgRgb } from "../style";
@@ -330,22 +330,39 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "x, a click on a row's ×",
     touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from})`,
     args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
-    run({ row }, { pane, desk }, actor) {
+    async run({ row }, { pane, desk }, actor) {
       const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       const t = pane.info(desk);
       if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
-      const tuning = tuningOf(desk.ctx.board);
+      const tuning = tuningOf(desk.ctx.board), board = desk.ctx.board as unknown as StyleWriteBoard;
+      // Decided for every token before any is changed: a pair (pad) is taken back whole or not at all.
+      const plan: (() => void)[] = [];
       for (const tk of r.tokens) {
         const src = pane.values(t).sources[tk], target = sourceTarget(src, t.look.place), field = fieldKey(tk, src.variant ?? null);
         if (!target) {
           throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
         }
         const mine = tuning.get(target, field);
-        if (mine && !mine.saved) { tuning.drop(target, field, actor); continue; }
-        if (src.line !== undefined) throw new ActionRefused(`${tk} is set on line ${src.line + 1} of note ${src.block?.slice(0, 8)}: take it away there`);
-        tuning.set(target, field, UNSET, actor);
+        if (mine && !mine.saved) { plan.push(() => tuning.drop(target, field, actor)); continue; }
+        const at = src.block;
+        if (src.line !== undefined || !at) throw new ActionRefused(`${tk} is set on line ${(src.line ?? 0) + 1} of note ${at?.slice(0, 8) ?? "?"}: take it away there`);
+        // Only a field the note writes out can be taken away as it shows: one a shorthand (style.pad) or a tier
+        // (a | b | c) gives would take more with it, or come back from the other.
+        const own = async (k: string) => (await board.propertyTokens(at, k)).tokens.filter(x => x.scope === "block");
+        const written = await own(styleProperty(tk, src.variant ?? null));
+        const base = tk.split(".")[0]!, pair = /^(pad|margin)\.[xy]$/.test(tk);
+        const also = [
+          ...(pair ? await own(`style.${src.variant ? `${src.variant}.` : ""}${base}`) : []),
+          ...(pair ? (await own(`style.${base}`)).filter(x => x.value.includes("|")) : []),
+          ...(src.variant ? (await own(styleProperty(tk, null))).filter(x => x.value.includes("|")) : []),
+        ];
+        if (!written.length || written.some(x => x.value.includes("|")) || also.length) {
+          throw new ActionRefused(`${tk} on note ${at.slice(0, 8)} is ${also[0] ? `also set by ${also[0].key}` : written[0] ? `a tier of ${written[0].key}` : "set by a shorthand or a tier"}: edit the note (or set it here with + −)`);
+        }
+        plan.push(() => tuning.set(target, field, UNSET, actor, at));
       }
+      for (const f of plan) f();
       desk.redraw();
       // What shows now, resolved again (the tile's look as drawn is the frame before this one).
       const look = lookFor({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place, t.look.width);

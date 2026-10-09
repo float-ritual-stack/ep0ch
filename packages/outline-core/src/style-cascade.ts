@@ -343,8 +343,9 @@ function shorthand(key: string, value: string, variant: string): Record<FieldKey
  * `heading-*` spellings too (a style note does; a heading line's own are its style's, read by heading-styles.ts).
  */
 export function styleFieldsOf(props: readonly { key: string; value: string }[], where: string, problems: string[], aliases = true): Record<FieldKey, string> {
-  // A field written out (`style.pad.x`) beats a shorthand's (`style.pad`) wherever each is on the note.
-  const fields: Record<FieldKey, string> = {}, short: Record<FieldKey, string> = {}, tiered: Record<FieldKey, string> = {};
+  // Precedence within a note, highest first: a field written out (`style.wide.pad.x`), a shorthand's (`style.wide.pad`),
+  // a tier's written out (`style.pad.x::… | … | …`), a tier's shorthand (`style.pad::… | … | …`); the first of each wins.
+  const fields: Record<FieldKey, string> = {}, short: Record<FieldKey, string> = {}, tiered: Record<FieldKey, string> = {}, tieredShort: Record<FieldKey, string> = {};
   const put = (into: Record<FieldKey, string>, k: FieldKey, v: string) => { if (!(k in into)) into[k] = v; };
   for (const p0 of props) {
     const k = p0.key.toLowerCase();
@@ -358,14 +359,13 @@ export function styleFieldsOf(props: readonly { key: string; value: string }[], 
     const each: [string, string][] = tiers ? [["narrow.", tiers[0]!], ["", tiers[1]!], ["wide.", tiers[2]!]] : [[vm[1] ?? "", p0.value]];
     for (const [variant, value] of each) {
       const both = shorthand(vm[2]!, value, variant);
-      if (both) { for (const [sk, sv] of Object.entries(both)) put(tiers && variant ? tiered : short, sk, sv); continue; }
+      if (both) { for (const [sk, sv] of Object.entries(both)) put(tiers ? tieredShort : short, sk, sv); continue; }
       const f = parseFieldKey(variant + vm[2]!);
       if (!f) { problems.push(`${where}: ${k} isn't a style token (${STYLE_TOKEN_NAMES.join(", ")}, or pad and margin for both axes; narrow. or wide. before one for a width)`); break; }
-      put(tiers && variant ? tiered : fields, fieldKey(f.token, f.variant), value);
+      put(tiers ? tiered : fields, fieldKey(f.token, f.variant), value);
     }
   }
-  for (const [k, v] of Object.entries(tiered)) put(fields, k, v);
-  for (const [k, v] of Object.entries(short)) put(fields, k, v);
+  for (const from of [short, tiered, tieredShort]) for (const [k, v] of Object.entries(from)) put(fields, k, v);
   return fields;
 }
 
