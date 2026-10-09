@@ -132,8 +132,8 @@ async function runOne(cfg: Config, o: { span: number; hz: number; frames: boolea
     const L = (kind: string, name: string, more: Record<string, unknown> = {}) => ({ t: "leaf", kind, name, ...more });
     const root = {
       t: "split", dir: "row", weights: [0.3, 0.25, 0.25, 0.2], kids: [
-        L("detail", "hero", { note: n.hero.id }),
-        { t: "split", dir: "col", weights: [0.4, 0.35, 0.25], kids: [L("detail", "pictures", { note: n.images.id }), L("detail", "figures", { note: n.figures.id }), L("pty", "wide", { cmd: ["sh", "-c", WIDE] })] },
+        L("reader", "hero", { mode: "held", note: n.hero.id }),
+        { t: "split", dir: "col", weights: [0.4, 0.35, 0.25], kids: [L("reader", "pictures", { mode: "held", note: n.images.id }), L("reader", "figures", { mode: "held", note: n.figures.id }), L("pty", "wide", { cmd: ["sh", "-c", WIDE] })] },
         { t: "flow", key: "river", kids: [L("river.column", "library", { source: "roots" })] },
         { t: "split", dir: "col", weights: [0.6, 0.4], kids: [L("board", "board", { preview: false }), L("pty", "term", { cmd: ["sh", "-c", "ls -la /usr/bin | head -200; exec sleep 3600"] })] },
       ],

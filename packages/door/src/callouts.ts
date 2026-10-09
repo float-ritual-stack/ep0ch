@@ -4,6 +4,7 @@
 import { BUILTIN_CALLOUT_REGISTRY, calloutRegistry, type CalloutRegistry, type CalloutTone, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { outlineList } from "./outline-lists";
 import { C } from "./style";
+import { TONE_INDEX } from "./theme";
 
 /** What a connection can be asked (SocketBoard has it; a test double may not). */
 type CalloutBoard = { calloutTypes?: () => Promise<{ types: CalloutType[]; problems: string[] }> };
@@ -26,4 +27,4 @@ export const calloutsReady = CALLOUTS.ready;
 export const calloutProblems = CALLOUTS.problems;
 
 /** A tone in the door's 16 colours. */
-export const TONE: Readonly<Record<CalloutTone, number>> = { blue: C.lcyan, green: C.lgreen, violet: C.lmagenta, amber: C.yellow, coral: C.lred, neutral: C.grey };
+export const TONE: Readonly<Record<CalloutTone, number>> = TONE_INDEX;

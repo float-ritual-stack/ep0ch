@@ -63,6 +63,17 @@ export function whereText(summary: string): string {
 }
 
 /**
+ * The context block for a Claude that is not in a tile but whose folder's outline (or the only one) has a running
+ * door (PIE-715): which rule matched, and that it acts there as an agent, never as the person's keys.
+ */
+export function reachText(reach: { rule: string; text: string; control: string | null }): string {
+  return [
+    `A door is running that this Claude can reach: ${oneLine(reach.text).slice(0, 600)}.`,
+    "The door tools (door_where, door_peek, door_act, door_open) act there as an agent, attributed, and never take the person's focus, selection or keys.",
+  ].join('\n')
+}
+
+/**
  * The tile `door-open --from` names: EP0CH_TILE, the name the door's links and
  * the daily layout use (it survives a door restart for an agent kept in its
  * Herdr pane), else the tile's id (`t<n>`) when the name is empty. The door

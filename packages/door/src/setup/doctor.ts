@@ -129,6 +129,9 @@ export function doctorChecks(f: Facts): Check[] {
     else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);
   }
 
+  // The door a Claude started here would reach (`ep0ch where` says the same), and when there is none, the command that starts one.
+  if (f.door) add("ep0ch", "door", f.door.rule === "none" ? "info" : "ok", f.door.text);
+
   // other machines: each one's forward, as it is (doctor starts none)
   for (const m of f.machines ?? []) {
     const what = `${m.socket}${m.here ? " (this folder's)" : ""}`;

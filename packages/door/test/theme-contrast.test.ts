@@ -19,7 +19,8 @@ import { SEED } from "../src/showcase/seed";
 import { SocketBoard, type Actor } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { rowBytes, type Key } from "../src/term";
-import { contrast, groundSeq, luminance, setTheme, THEME_NAMES, THEMES, type Rgb, type ThemeName } from "../src/theme";
+import { contrast, groundSeq, luminance, setTheme, SURFACE_MAX_LUMINANCE, surfaceMix, surfaceRgb, TEXT_INKS, THEME_NAMES, THEMES, type Rgb, type ThemeName } from "../src/theme";
+import { SURFACE_STEPS, SURFACES } from "@ep0ch/outline-core/style-cascade";
 import { outliner, Scratch, until } from "./scratch";
 
 /** The glyphs that draw lines and areas, not words: box drawing (U+2500-257F) and block elements (U+2580-259F). */
@@ -236,6 +237,30 @@ describe("the palettes themselves (every background, not only the ones these scr
       // Never a light colour: capped as the bright text is.
       expect(luminance(t.edge.focus), t.name).toBeLessThan(luminance([240, 240, 240]));
     }
+  });
+  test("surfaces (PIE-675): every role at every strength, and a header's at every opacity, is dark, under the brightness cap, and every word reads on it", () => {
+    const low: string[] = [];
+    for (const t of Object.values(THEMES)) for (const role of SURFACES) {
+      if (role === "none") { expect(surfaceRgb(role, 3, t)).toBeNull(); continue; }
+      const shades: [string, Rgb][] = [
+        ...Array.from({ length: SURFACE_STEPS }, (_, k) => [`${role} ${k + 1}`, surfaceRgb(role, k + 1, t)!] as [string, Rgb]),
+        ...Array.from({ length: 11 }, (_, k) => [`${role} at ${k * 10}%`, surfaceMix(role, k / 10, undefined, t)!] as [string, Rgb]),
+        // Over a header's backdrop colours (cells): the brightest a backdrop is allowed to be, and a dark one.
+        [`${role} over a bright backdrop`, surfaceMix(role, 0.6, [80, 72, 64], t)!], [`${role} over a dark backdrop`, surfaceMix(role, 0.6, [12, 14, 16], t)!],
+      ];
+      for (const [what, c] of shades) {
+        expect(luminance(c), `${t.name} ${what}`).toBeLessThanOrEqual(SURFACE_MAX_LUMINANCE);
+        expect(contrast(c, [0, 0, 0]), `${t.name} ${what}`).toBeLessThan(3);
+        const lim = LIMITS[t.name];
+        if (lim) for (const i of TEXT_INKS) if (contrast(t.palette[i]!, c) < lim.min) low.push(`${t.name} ${i} on ${what}: ${contrast(t.palette[i]!, c).toFixed(2)}`);
+      }
+      // Stronger is never lighter than weaker, and full strength is off the ground (a role you can see).
+      const ls = Array.from({ length: SURFACE_STEPS }, (_, k) => luminance(surfaceRgb(role, k + 1, t)!));
+      if (role !== "sunken") { for (let k = 1; k < ls.length; k++) expect(ls[k]!, `${t.name} ${role}`).toBeGreaterThanOrEqual(ls[k - 1]!); expect(surfaceRgb(role, SURFACE_STEPS, t)!.join(), `${t.name} ${role}`).not.toBe((t.ground ?? t.palette[0]!).join()); }
+    }
+    expect(low).toEqual([]);
+    // The zebra stripe's built-in (raised at 2) is what the door drew before PIE-675 made it a choice, within a step.
+    expect(surfaceRgb("raised", 2, THEMES.calm)).toEqual([22, 26, 35]);
   });
   test("all three are dark: no theme's ground, bars or tints is light", () => {
     for (const t of Object.values(THEMES)) for (const c of [t.ground ?? [0, 0, 0], t.palette[0]!, t.palette[1]!, ...Object.values(t.tint)] as Rgb[]) expect(contrast(c, [0, 0, 0])).toBeLessThan(3);

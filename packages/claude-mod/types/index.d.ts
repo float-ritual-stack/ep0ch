@@ -80,6 +80,13 @@ export type DetailSource =
 /** What the card reads from `ep0ch where --json`; null fields: not known. */
 export type WhereFacts = {
   inDoor: boolean
+  /**
+   * Which door this Claude reaches and by which rule (`ep0ch where`, PIE-715): `control` (EP0CH_CONTROL or its outline's
+   * session), `folder` (the door of the outline this folder names, for a Claude that does not descend from a tile) or
+   * `only` (the one door running). `none`: no door, `text` says why and the command that starts one. `control` is the
+   * socket, only when a door answers there.
+   */
+  reach?: { rule: 'control' | 'folder' | 'only' | 'none'; text: string; control: string | null }
   /** The machine Claude runs on (its hostname) and its folder. */
   here: { machine: string | null; folder: string | null }
   /** The innermost Herdr pane: its label when Herdr gave one, and whether it is the door agent's own pane. */
