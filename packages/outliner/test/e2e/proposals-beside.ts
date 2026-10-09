@@ -29,7 +29,7 @@ const result=await runHerdrScenario({name:'proposals-beside',async prepare(){},a
  assert.ok(rows.some(line=>line.includes('beans in late May')),'the winner\'s words are in the guide');
  assert.ok(!shown.includes('draft-patch::'),'the hidden patch is never shown');
  await s.checkpoint('proposal-beside');
- await s.client.request({action:'draft.proposal.dismiss',proposalId:lost.proposalId,mutation:{author:'agent',actorId:'moss'}});
+ await s.client.request({action:'draft.proposal.dismiss',proposalId:lost.proposalId!,mutation:{author:'agent',actorId:'moss'}});
  await s.waitFor('the dismissed proposal is gone from Detail',()=>s.visible(s.panes.detail),text=>text.includes('host-marker-line')&&!text.includes('proposed edit from @moss'));
  await s.checkpoint('proposal-dismissed');
  const after=await s.client.request<Block>({action:'get',blockId:note.id});

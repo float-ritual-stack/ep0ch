@@ -340,6 +340,12 @@ export interface DraftProposal {
   actor: { author: MutationProvenance["author"]; actorId?: string };
   /** The rule the patch was sent under; a proposal without one predates `edit` and was `prose`. */
   policy?: DraftPatchPolicyName;
+  /**
+   * What makes a retry the same patch (PIE-725): a hash of who sent it, its mark and each note's spans as sent (passage,
+   * replacement, range and context). An open proposal with the same one is returned instead of a second. A proposal
+   * from before PIE-725 has none, and is never matched.
+   */
+  dedupe?: string;
   allowStructural?: boolean;
 }
 

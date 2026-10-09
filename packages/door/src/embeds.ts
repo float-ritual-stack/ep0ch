@@ -151,7 +151,8 @@ export function embedState(id: string, fragment: string | undefined, src: Source
 
 /** One open proposal beside a note: the note line it is drawn after. */
 export type ProposalBeside = ProposalsBeside["proposals"][number];
-interface BesideEntry { list: readonly ProposalBeside[]; at: number; asking: boolean }
+/** `failed`: the last ask failed; any change asks again (as a failed embed is), and the list shown meanwhile is the last one read. */
+interface BesideEntry { list: readonly ProposalBeside[]; at: number; asking: boolean; failed?: boolean }
 const besideBy = new WeakMap<object, Map<string, BesideEntry>>();
 
 /**
@@ -164,13 +165,13 @@ export function proposalsBeside(m: Msg, src: Source | null | undefined): readonl
   let cache = besideBy.get(src.board);
   if (!cache) besideBy.set(src.board, (cache = new Map()));
   const hit = cache.get(m.id);
-  if (hit && (hit.asking || !changedSince(hit.at, [m.id, ...hit.list.map(p => p.id)]))) return hit.list;
+  if (hit && (hit.asking || !(changedSince(hit.at, [m.id, ...hit.list.map(p => p.id)]) || (hit.failed && anyChangeSince(hit.at))))) return hit.list;
   const at = changeClock(), c = cache;
   c.set(m.id, { list: hit?.list ?? [], at, asking: true });
   if (c.size > 200) c.delete(c.keys().next().value!);
   Promise.resolve().then(() => src.board.proposalsBeside(m.id)).then(
     r => { const was = c.get(m.id)?.list ?? []; c.set(m.id, { list: r.proposals, at, asking: false }); if (r.proposals.length || was.length) src.redraw(); },
-    () => { c.set(m.id, { list: hit?.list ?? [], at, asking: false }); },
+    () => { c.set(m.id, { list: hit?.list ?? [], at, asking: false, failed: true }); },
   );
   return hit?.list ?? [];
 }

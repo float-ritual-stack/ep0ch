@@ -58,7 +58,9 @@ import {
   type DraftProposal,
   type DraftProposalStatus,
 } from "./draft-patch";
+import { createHash } from "node:crypto";
 import { requestLines } from "./agent-requests";
+import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
 import type { MutationProvenance } from "./types";
@@ -655,7 +657,8 @@ export class DraftPatchRouter {
   ): Promise<DraftPatchProposed> {
     const { store } = this.deps;
     const hostId = mark?.blockId ?? edits[0]!.blockId;
-    const same = this.openProposalLike(hostId, edits, mutation, mark);
+    const dedupe = proposalKey(edits, mutation, mark);
+    const same = this.openProposalLike(hostId, dedupe);
     if (same) return { outcome: "proposed", reason, proposalId: same, beside: hostId, deduped: true };
     const kept: DraftPatchEdit[] = [];
     // Whether "apply anyway" could place it now: a passage already gone when it is proposed never comes back
@@ -680,7 +683,7 @@ export class DraftPatchRouter {
       });
     }
     const proposal: DraftProposal = {
-      version: 1, edits: kept, reason, ...sent,
+      version: 1, edits: kept, reason, ...sent, dedupe,
       ...(mark ? { mark } : {}),
       actor: { author: mutation.author, ...(mutation.actorId ? { actorId: mutation.actorId } : {}) },
     };
@@ -690,7 +693,7 @@ export class DraftPatchRouter {
     };
     // Checked again inside the write: two racing retries of one patch leave one proposal.
     const created = store.database.transaction(() => {
-      const raced = this.openProposalLike(hostId, edits, mutation, mark);
+      const raced = this.openProposalLike(hostId, dedupe);
       if (raced) return { id: raced, deduped: true };
       const block = mutation.author === "agent"
         ? store.create(proposalText(proposal, names, { applies }), hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
@@ -700,13 +703,11 @@ export class DraftPatchRouter {
     return { outcome: "proposed", reason, proposalId: created.id, beside: hostId, ...(created.deduped ? { deduped: true as const } : {}) };
   }
 
-  /** The open proposal beside `hostId` from the same actor holding the same patch (same notes, passages, replacements and mark), or null. */
-  private openProposalLike(hostId: string, edits: DraftPatchEdit[], mutation: MutationProvenance, mark: { text: string; blockId: string } | undefined): string | null {
-    const wanted = proposalKey(edits, mutation, mark);
+  /** The open proposal beside `hostId` holding the same patch from the same actor (`proposalKey`), or null. */
+  private openProposalLike(hostId: string, dedupe: string): string | null {
     for (const child of this.deps.store.children(hostId)) {
       if (child.effectiveDeletedRootId || !isDraftProposal(child) || proposalStatus(child.properties) !== "open") continue;
-      const held = parseProposal(child.text);
-      if (held && proposalKey(held.edits, held.actor, held.mark) === wanted) return child.id;
+      if (parseProposal(child.text)?.dedupe === dedupe) return child.id;
     }
     return null;
   }
@@ -719,10 +720,12 @@ export class DraftPatchRouter {
   proposalsBeside(blockId: string): DraftProposalsBeside {
     const host = this.deps.store.requireActive(blockId);
     const lines = host.text.split("\n");
+    // Embeds the note's text draws (never inside code, by the service's one embed grammar).
+    const embedded = new Set(embedMatches(host.text).map(match => match[1]!));
     const proposals: DraftProposalsBeside["proposals"] = [];
     for (const child of this.deps.store.children(blockId)) {
       if (child.effectiveDeletedRootId || !isDraftProposal(child) || proposalStatus(child.properties) !== "open") continue;
-      if (embedLineSpan(host.text, embedLine(child.id))) continue;
+      if (embedded.has(child.id)) continue;
       const held = parseProposal(child.text);
       const mark = held?.mark && (held.mark.blockId === undefined || held.mark.blockId === blockId) ? held.mark.text.trim() : "";
       const at = mark ? lines.findIndex(line => line.trim() === mark) : -1;
@@ -743,13 +746,18 @@ function isDraftProposal(block: { properties: readonly { key: string; value: str
   return block.properties.some(property => property.key === "type" && property.value === DRAFT_PROPOSAL_TYPE);
 }
 
-/** What makes two proposals the same: who sent it, the notes and spans it changes (passage and replacement), and its mark. */
-function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; actorId?: string } | undefined, mark: { text: string; blockId?: string } | undefined): string {
-  return JSON.stringify([
-    actor?.author ?? null, actor?.actorId ?? null,
-    mark ? [mark.text.trim(), mark.blockId ?? null] : null,
-    edits.map(edit => [edit.blockId, (edit.patches ?? []).map(span => [span.observed, span.replacement])]),
+/**
+ * What makes a retry the same patch: who sent it, its mark, and each note's spans as sent: passage, replacement and
+ * where it said they are (range, unit, context), so two patches of the same words at different places stay two.
+ * Hashed: it rides in the proposal's payload.
+ */
+function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; actorId?: string }, mark: { text: string; blockId: string } | undefined): string {
+  const key = JSON.stringify([
+    actor.author, actor.actorId ?? null,
+    mark ? [mark.text.trim(), mark.blockId] : null,
+    edits.map(edit => [edit.blockId, edit.patches.map(span => [span.observed, span.replacement, span.range?.start ?? null, span.range?.end ?? null, span.unit ?? null, span.before ?? null, span.after ?? null])]),
   ]);
+  return createHash("sha256").update(key).digest("base64url");
 }
 
 export type { DraftHolderRequest };

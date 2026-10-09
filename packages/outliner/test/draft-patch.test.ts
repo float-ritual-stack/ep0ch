@@ -284,6 +284,24 @@ describe("draft.patch over the protocol", () => {
     expect(beside.proposals.map(proposal => proposal.id)).not.toContain(first);
   });
 
+  test("the same words patched at two places are two proposals; a proposal's id shown in code is no embed of it (PIE-725)", async () => {
+    const { store, client } = await service();
+    const note = store.create("Beds\nbeans by the fence\nbeans by the shed");
+    const one = spanOf(note.text, "beans by the fence", "x").range!, two = { start: note.text.lastIndexOf("beans"), end: note.text.lastIndexOf("beans") + 5 };
+    const send = (range: { start: number; end: number }) => client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision,
+      patches: [{ observed: "beans", replacement: "peas", range: { start: range.start, end: range.start + 5 }, unit: "utf16" }], mutation: TIDY, propose: "always" });
+    const first = await send(one), second = await send(two);
+    expect(second).not.toHaveProperty("deduped");
+    expect((second as { proposalId: string }).proposalId).not.toBe((first as { proposalId: string }).proposalId);
+    expect(await send(two)).toMatchObject({ deduped: true, proposalId: (second as { proposalId: string }).proposalId });
+    // The note quotes one proposal's embed in a code fence: that is text, so the proposal is still drawn beside it.
+    const id = (first as { proposalId: string }).proposalId;
+    const now = store.require(note.id);
+    store.update(note.id, `${now.text}\n\n\`\`\`\n!((${id}))\n\`\`\``, now.revision, { author: "user" });
+    const beside = await client.request<{ proposals: Array<{ id: string }> }>({ action: "draft.proposals.list", blockId: note.id });
+    expect(beside.proposals.map(proposal => proposal.id)).toContain(id);
+  });
+
   test("apply anyway never replaces what the person wrote since: a changed passage is refused, and its proposal offers only dismiss (PIE-510 B1, B16)", async () => {
     const { store, client } = await service();
     // The person rewrites the note's last line before the patch lands, then keeps writing under the proposal.
