@@ -724,6 +724,8 @@ function resourceRegions(projections: readonly ResourceProjection[]): InsertedRe
  */
 async function readProposalsBeside(requester: DetailEmbedRequester, blockId: string, revision: number | undefined): Promise<DraftProposalsBeside["proposals"]> {
   try {
+    // A service that speaks another protocol is asked nothing more, as for projections.
+    if (await serviceIncompatibility(requester)) return [];
     const read = await requester.request<DraftProposalsBeside>({ action: "draft.proposals.list", blockId } as RequestInput);
     return revision === undefined || read.revision === revision ? read.proposals : [];
   } catch {
