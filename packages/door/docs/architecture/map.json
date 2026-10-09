@@ -872,7 +872,7 @@
     },
     {
       "id": "svc.styles", "name": "Style cascade", "group": "service", "chapter": "look", "ladder": "provisional", "dependsOn": ["svc.grammar", "svc.store"],
-      "does": "Spacing and list density declared in the outline's own notes ([style-for::…]) and resolved the same way by every renderer: the nearest level that sets a value wins, base, component, global, tile kind, screen, page, block, with a narrow and a wide variant. Editing a style note restyles every door on the outline.",
+      "does": "Spacing and list density declared in the outline's own notes ([style-for::…]) and meant to be resolved the same way by every renderer (the door's so far): the nearest level that sets a value wins, base, component, global, tile kind, screen, page, block, with a narrow and a wide variant. Editing a style note restyles every door on the outline.",
       "built": "outline-core's style-cascade.ts is the one resolver and the tokens (STYLE_TOKENS, STYLE_LEVELS, parseStyleValue); the service answers the declarations (styles.list); the door resolves a look for where something is drawn (look.ts). Detail and the publisher read it next, the publisher as real CSS.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 95, "m": "export const STYLE_LEVELS" },

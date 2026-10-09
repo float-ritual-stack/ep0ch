@@ -192,7 +192,7 @@ export function syncCitations(d: MapData, checkout = CHECKOUT, text?: { value: s
     if (!text.value.includes(from) && !text.value.includes(to)) throw new Error(`can't find ${from} to patch`);
     text.value = text.value.split(from).join(to);
   };
-  const cited = (ref: Ref, l: number) => `"p": ${JSON.stringify(ref.p)}, "l": ${l}, "m": ${JSON.stringify(ref.m)}`;
+  const cited = (ref: Ref, l: number) => `"r": ${JSON.stringify(ref.r)}, "p": ${JSON.stringify(ref.p)}, "l": ${l}, "m": ${JSON.stringify(ref.m)}`;
   const ref = (where: string, r: Ref) => sync(where, r, l => { patch(cited(r, r.l), cited(r, l)); r.l = l; });
   for (const s of d.structures) for (const r of s.refs) ref(s.id, r);
   for (const st of d.trace.steps) ref(`trace "${st.label}"`, st.ref);
@@ -697,13 +697,15 @@ if (import.meta.main) {
   if (args.includes("--sync")) {
     const text = { value: readFileSync(MAP, "utf8") };
     const { moved, lost } = syncCitations(d, CHECKOUT, text);
-    const head = git(ROOT, "rev-parse", "--short=8", "HEAD");
-    if (head) {
-      text.value = text.value.replace(/"verified": \{[^}]*\}/, `"verified": { "door": "${head}", "outliner": "${head}", "on": "${new Date().toISOString().slice(0, 10)}" }`);
-    }
     writeFileSync(MAP, text.value);
-    console.log(`architecture map: ${moved} citation(s) moved${lost.length ? `, ${lost.length} for a person to fix:\n${lost.map(p => `  ${p}`).join("\n")}` : ""}`);
-    process.exit(lost.length ? 1 : 0);
+    // The stamp says "checked at this commit": only a map that now passes both checks gets it.
+    const after = [...shapeProblems(loadMap()), ...citationProblems(loadMap())];
+    const head = git(ROOT, "rev-parse", "--short=8", "HEAD");
+    if (!after.length && head) {
+      writeFileSync(MAP, text.value.replace(/"verified": \{[^}]*\}/, `"verified": { "door": "${head}", "outliner": "${head}", "on": "${new Date().toISOString().slice(0, 10)}" }`));
+    }
+    console.log(`architecture map: ${moved} citation(s) moved${after.length ? `, not stamped: ${after.length} problem(s) for a person to fix:\n${[...lost, ...after.filter(p => !lost.some(l => l.startsWith(p.split(":")[0]!)))].map(p => `  ${p}`).join("\n")}` : `; stamped ${head}`}`);
+    process.exit(after.length ? 1 : 0);
   }
   const problems = [...shapeProblems(d), ...(noCheck ? [] : citationProblems(d))];
   if (problems.length) {
