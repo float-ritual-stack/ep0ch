@@ -216,9 +216,10 @@ MacBook). It does not support every version a client ever connected with.
   didn't launch: a pattern matches other agents' runs (one `pkill -f "box-test door"` killed several agents' suites).
   Stop your own by the pid you were given (or `scripts/agent-env <name> --clean`), after checking `pstree` for what
   it owns.
-- **Merge with `gh pr merge <n> --squash`, then delete only the remote branch,** after `gh pr view <n> --json state`
-  says `MERGED` (`gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). Never `gh pr merge -d`/`--delete-branch`: it also deletes the
-  local branch and its worktree, which can be another agent's.
+- **Merge with `gh pr merge <n> --squash`,** and check `gh pr view <n> --json state` says `MERGED`. GitHub deletes the
+  remote branch itself (the repo's "automatically delete head branches") and retargets any PR stacked on it to main; never
+  delete a merged branch by hand (`gh api -X DELETE …/refs/heads/…` closed a stacked PR instead of retargeting it). Never
+  `gh pr merge -d`/`--delete-branch`: it also deletes the local branch and its worktree, which can be another agent's.
 - **A roadmap item's title is plain words.** No `[key::value]` property syntax in it: the title is read as the
   block's text, and the header parser takes the brackets as properties.
 - **Scratch files are yours alone.** A session's tmp folder is shared by every agent in it: write PR bodies and
