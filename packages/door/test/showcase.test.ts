@@ -945,7 +945,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const blocks = async () => ((await app.act({ action: "links.blocks", tile: "reader", as: "test-agent" })) as any).blocks;
     await until(() => reader()?.surface.linkBlocksDrawn[0]?.rows.length === 3, "the outbox's three waiting letters", 8000);
     let b = (await blocks())[0];
-    expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=outbox-item outbox=waiting", groups: ["matches"], entered: false });
+    expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=letter mail=waiting", groups: ["matches"], entered: false });
     expect(b.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
     // The first row is selected and previewed beside the list, drawn as an embed of it is.
     const first = b.rows.find((r: any) => r.selected);

@@ -841,16 +841,16 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   // A day's plan with its outbox in it (PIE-693): a ::links block over a query, the waiting letters listed beside a
   // preview of the one selected; the letters themselves live under a note of their own.
   notes.outbox = await make(notes.root.id, `${SEED.outbox}\nWhat's written and waiting to go, one note a letter.`);
-  await make(notes.outbox.id, "Ask Ana about the bean seed [type::outbox-item] [outbox::waiting]\nTwo jars of runner beans for the swap. She said Thursday, so ask by Wednesday night.");
-  await make(notes.outbox.id, "Write to the allotment society about the gate [type::outbox-item] [outbox::waiting]\nThe latch drops when the wind gets up. Ask whether they'll pay for a new spring, or if we buy it.");
-  await make(notes.outbox.id, "Order the fruit-cage netting [type::outbox-item] [outbox::waiting]\n- [ ] measure the cage\n- [ ] 2 cm mesh, not 4");
-  await make(notes.outbox.id, "Thank the swap hosts [type::outbox-item] [outbox::done]\nSent on Monday.", SEED_AGENT);
+  await make(notes.outbox.id, "Ask Ana about the bean seed [type::letter] [mail::waiting]\nTwo jars of runner beans for the swap. She said Thursday, so ask by Wednesday night.");
+  await make(notes.outbox.id, "Write to the allotment society about the gate [type::letter] [mail::waiting]\nThe latch drops when the wind gets up. Ask whether they'll pay for a new spring, or if we buy it.");
+  await make(notes.outbox.id, "Order the fruit-cage netting [type::letter] [mail::waiting]\n- [ ] measure the cage\n- [ ] 2 cm mesh, not 4");
+  await make(notes.outbox.id, "Thank the swap hosts [type::letter] [mail::done]\nSent on Monday.", SEED_AGENT);
   notes.dayPlan = await make(notes.root.id, [
     `${SEED.dayPlan} [type::daily-plan]`,
     "Morning on the plot, then the letters that are waiting.",
     "",
     "## Outbox",
-    '::links{query="type=outbox-item outbox=waiting" preview=right title="Outbox"}',
+    '::links{query="type=letter mail=waiting" preview=right title="Outbox"}',
     "::",
     "",
     "[ ] steps onto a letter and the preview beside the list shows it; ⏎ on a letter opens it, ⏎ on the frame's ⏎ in goes into the list (j k, / to filter, esc out).",
