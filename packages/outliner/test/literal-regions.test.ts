@@ -153,7 +153,7 @@ test("saves, blocks.query, views.read and properties.preview agree on a literal 
   expect(preview.tokens.map(token => token.key)).toEqual(["type", "owner"]);
 
   const query = async (expression: string) => (await client.request<VisibleBlockCollection>({
-    action: "blocks.query", query: { expression, limit: 100 },
+    action: "blocks.query", query: { where: expression, limit: 100 },
   })).blocks.map(block => block.id);
   expect(await query("stage=queued")).toEqual([real.id]);
   expect(await query("stage")).toEqual([real.id]);

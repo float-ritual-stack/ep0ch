@@ -2,7 +2,7 @@
 // its members, in branch order, within its limit. The door shows that answer and never evaluates a
 // view itself. What a write into a view must change is the service's answer too (`views.planWrite`, src/move.ts).
 import type { Msg } from "./board";
-import type { SocketBoard } from "./socket";
+import type { SavedViewRead, SocketBoard } from "./socket";
 
 export interface ViewRead {
   status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
@@ -19,6 +19,11 @@ const DEFAULT_LIMIT = 200;
 export async function readView(board: SocketBoard, def: Msg): Promise<ViewRead> {
   const served = await board.readSavedView(def.id).catch((e: Error) => ({ failed: e.message }));
   if ("failed" in served) return { status: "failed", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: [served.failed] };
+  return viewReadOf(served);
+}
+
+/** A `views.read` answer (its blocks already rows) as the door reads a view. */
+export function viewReadOf(served: SavedViewRead): ViewRead {
   return {
     status: served.status,
     items: served.blocks,

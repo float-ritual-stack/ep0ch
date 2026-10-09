@@ -840,7 +840,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       action: "tree.index",
       view: activeFilter && !branchFilter
         ? {
-            query: { ...parseSearchExpression(activeFilter), limit: 500 },
+            query: (({ filters, where }) => ({ filters, ...(where ? { predicate: where } : {}), limit: 500 }))(parseSearchExpression(activeFilter)),
           }
         : undefined,
     });

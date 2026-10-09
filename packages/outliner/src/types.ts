@@ -1,4 +1,4 @@
-import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, OutlineAbout } from "@ep0ch/outline-core/protocol";
+import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, OutlineAbout, QueryChange, QuestionAnswerFields } from "@ep0ch/outline-core/protocol";
 export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
@@ -1322,29 +1322,55 @@ export type QueryExpression =
    */
   | { kind: "property"; key: string; value?: string; relation?: "child" }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
-  /** `#tag`, `links:`, `under:`, `title~` and `text~` (outline-core `query-atoms.ts`); the service evaluates them. */
+  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~` and `call:` (outline-core `query-atoms.ts`); the service evaluates them. */
   | QueryAtom
   | { kind: "not"; operand: QueryExpression }
   | { kind: "and" | "or"; operands: QueryExpression[] };
 
+/**
+ * `blocks.query`'s question. `where` (the views' grammar), `this`, `group`, `sort`, `limit` and `facets` are the
+ * question every client writes (outline-core's `QuestionFields`, ADR 0004); `filters`, `predicate`, `text`,
+ * `subtreeRootId`, `rankViewId`, `includeDeleted` and `propertyScope` narrow it the way Tree and the CLI need.
+ * Normalized (`normalizeBlockSearchQuery`), `where` is parsed into `predicate`, `this` is bound, `sort` is an object
+ * and `limit` is set.
+ */
 export interface BlockSearchQuery {
   filters?: PropertyFilter[];
-  /** Structured predicate, ANDed with filters. */
-  where?: QueryExpression;
-  /** Query text in the documented grammar, parsed by the service and ANDed with where. */
-  expression?: string;
+  /** Structured predicate, ANDed with filters and `where`. */
+  predicate?: QueryExpression;
+  /** Query text in the documented grammar, parsed by the service and ANDed with predicate. */
+  where?: string;
+  /** The block `this` stands for in `where` (a component's note, a tile's aim). */
+  this?: string;
   text?: string;
   subtreeRootId?: string;
   rankViewId?: string;
   includeDeleted?: "roots" | "all";
   propertyScope?: PropertyQueryScope;
+  /** An object, or `"<field>[ asc|desc]"` (asc unless said). */
+  sort?: BlockQuerySort | string;
+  /** Rows returned: 200 when left out, at most 1000. */
+  limit?: number;
+  /** A property name, or created:day|week|month, updated:day|week|month: the answer's `groups`, over every match. */
+  group?: string;
+  /** `true`: value counts for every key the matches carry; or these keys. */
+  facets?: true | string[];
+}
+
+/** A watched read (outline-core `WATCHABLE_ACTIONS`): kept on the connection under `watch`; `generation` is answered from what's kept. */
+export interface WatchFields { watch?: string; generation?: number }
+
+/** A normalized query: its sort an object and its limit set. */
+export type NormalizedBlockSearchQuery = Omit<BlockSearchQuery, "sort" | "limit" | "where" | "this" | "facets"> & {
   sort?: BlockQuerySort;
   limit: number;
-}
+  facets?: true | string[];
+};
 
 export type BlockCollectionCompleteness =
   | { kind: "complete" }
-  | { kind: "truncated"; limit: number };
+  /** `matched`: how many blocks matched in all, when the service counted every match (a sort, a group or facets). */
+  | { kind: "truncated"; limit: number; matched?: number };
 
 export interface VisibleBlock extends Block {
   depth: number;
@@ -1354,7 +1380,7 @@ export interface VisibleBlock extends Block {
   propertyMatches?: PropertyMatchContext[];
 }
 
-export interface VisibleBlockCollection {
+export interface VisibleBlockCollection extends QuestionAnswerFields {
   blocks: VisibleBlock[];
   completeness: BlockCollectionCompleteness;
 }
@@ -1416,7 +1442,7 @@ export interface ProjectedVisibleBlock extends ProjectedBlock {
   deletedDescendantCount?: number;
 }
 
-export interface ProjectedBlockCollection {
+export interface ProjectedBlockCollection extends QuestionAnswerFields {
   blocks: ProjectedVisibleBlock[];
   completeness: BlockCollectionCompleteness;
   fields: BlockReadField[];
@@ -1752,7 +1778,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "outlines.archive"; name: string }
   | { id: string; action: "outlines.unarchive"; name: string }
-  | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
+  | ({ id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] } & WatchFields)
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
@@ -1762,15 +1788,15 @@ export type OutlinerRequestAction =
   /** Per-outline local MCP access. Default is none; read/propose/full allow local MCP reads, and propose/full also the write tools (as proposals, or applied). */
   | { id: string; action: "mcp.access.status" }
   | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }
-  | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
+  | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions & WatchFields)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */
   | ({ id: string; action: "views.planWrite" } & ViewWritePlanRequest)
   /**
    * Capability `query.matches`: which of `blockIds` a query holds for (the saved-view grammar), narrowed by `text` and
    * `subtreeRootId` as `blocks.query` narrows (either lets the expression be left out). Reads only.
    */
-  | { id: string; action: "query.matches"; expression?: string; blockIds: string[]; text?: string; subtreeRootId?: string }
-  | { id: string; action: "blocks.authored-links"; ownerBlockId: string }
+  | ({ id: string; action: "query.matches"; expression?: string; blockIds: string[]; text?: string; subtreeRootId?: string; this?: string } & WatchFields)
+  | ({ id: string; action: "blocks.authored-links"; ownerBlockId: string } & WatchFields)
   /** Capability `resources.projection`. Stored ticket details for provider lines; never fetches. */
   | {
       id: string;
@@ -2238,7 +2264,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "components.schemas" }
   /** What a rule note (its text, not saved) draws on a sample note's text: a component page's rule variations (PIE-618). */
   | { id: string; action: "rules.preview"; note: string; text: string }
-  | { id: string; action: "references.backlinks"; query: BacklinkQuery }
+  | ({ id: string; action: "references.backlinks"; query: BacklinkQuery } & WatchFields)
   | { id: string; action: "pages.resolve"; address: string }
   | {
       id: string;
@@ -2420,7 +2446,9 @@ export type OutlinerEventDomain =
   /** A request to the door holding a live draft (`draft`), sent only to that client. */
   | "draft"
   /** The extension registry changed (`extensions.changed`): read `extensions.list` again. */
-  | "extensions";
+  | "extensions"
+  /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004). */
+  | "queries";
 
 export interface OutlinerEvent {
   id: string;
@@ -2437,6 +2465,8 @@ export interface OutlinerEvent {
   attentionInstruction?: AttentionInstruction;
   /** On a `draft` event: what the service asks the door holding the draft (PIE-501). */
   draft?: DraftHolderRequest;
+  /** On a `queries.changed` event: the watches whose answer changed, or that were dropped. */
+  changes?: QueryChange[];
   /**
    * The committed change this event reports, identical to its `changes.since`
    * entry: one event per change (`view` for branch-local ranks). Absent on a

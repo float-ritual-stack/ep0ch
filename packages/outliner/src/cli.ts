@@ -694,7 +694,7 @@ switch (command) {
     const limit = parseLimit(values.limit, 500);
     const query: BlockSearchQuery = {
       filters,
-      ...(values.query === undefined ? {} : { expression: values.query }),
+      ...(values.query === undefined ? {} : { where: values.query }),
       text: values.text,
       subtreeRootId: values.subtree,
       propertyScope: values["property-scope"] === undefined
@@ -702,8 +702,8 @@ switch (command) {
         : normalizePropertyQueryScope(values["property-scope"]),
       limit,
     };
-    // An older service ignores `expression` and would return unfiltered results.
-    if (query.expression !== undefined) await client.requireCompatibleService();
+    // An older service ignores `where` and would return unfiltered results.
+    if (query.where !== undefined) await client.requireCompatibleService();
     request = {
       action: "blocks.query",
       query,

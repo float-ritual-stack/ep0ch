@@ -56,6 +56,7 @@ import {
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
 import { actionOf, loopWatched, noteWork, STALL_REPORT_MS, Turns } from "./loop-watch";
+import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
 import {
@@ -293,6 +294,8 @@ export class OutlinerServer {
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
   private readonly turns = new Turns();
+  /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
+  readonly watches: QueryWatches;
 
   constructor(
     readonly store: OutlinerStore,
@@ -303,6 +306,11 @@ export class OutlinerServer {
   ) {
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
+    this.watches = new QueryWatches({
+      answer: request => this.handle(request as unknown as OutlinerRequest),
+      sequence: () => this.store.sequence,
+      timed: ms => noteWork("queries.changed", ms),
+    });
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
@@ -451,6 +459,7 @@ export class OutlinerServer {
   async close(): Promise<void> {
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
+    this.watches.stop();
     this.extensionSync.stop();
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
@@ -560,6 +569,7 @@ export class OutlinerServer {
   }
 
   private removeSubscriber(socket: Socket): void {
+    this.watches.closed(socket);
     const removed = this.subscribers.get(socket);
     this.subscribers.delete(socket);
     if (removed?.clientId === this.captureOwner?.clientId) {
@@ -1535,7 +1545,12 @@ export class OutlinerServer {
   async handleAsync(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
+    connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    // A watched read is kept on the connection that asked (ADR 0004); without one (in-process) it is just answered.
+    if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
+      return this.watches.ask(connection, request as unknown as Parameters<QueryWatches["ask"]>[1]);
+    }
     if(request.action==="resources.describe"){
       try {
         // This built-in only reads an immutable Inbox before-image. It cannot
@@ -1883,7 +1898,7 @@ export class OutlinerServer {
           break;
         }
         case "query.matches":
-          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId });
+          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId, this: request.this });
           break;
         case "blocks.authored-links":
           result = readAuthoredLinks(this.store, request.ownerBlockId);
@@ -3160,6 +3175,8 @@ export class OutlinerServer {
   }
 
   private broadcast(event: OutlinerEvent): void {
+    // What a write tells subscribers may change a watched answer.
+    if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") this.watches.changed();
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
     const line = `${JSON.stringify(envelope)}\n`;
@@ -3226,7 +3243,7 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient, socket));
       // What ran before the handler first waited held the loop; the waits after it didn't.
       loopMs = performance.now() - started;
       response = await pending;

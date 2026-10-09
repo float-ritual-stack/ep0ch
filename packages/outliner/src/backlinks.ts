@@ -219,6 +219,23 @@ export function backlinkSourceIds(
   return out;
 }
 
+/**
+ * The active blocks `source` links to (`linkedfrom:`, ADR 0004): the same occurrences the backlink relation reads, from
+ * the source's side, so `links:` and `linkedfrom:` agree. A link to nothing in this outline, or to a block in the Trash,
+ * isn't a block it links to.
+ */
+export function linkTargetIds(
+  input: Pick<BacklinkRelationInput, "blocksById" | "addressTargets" | "workIdPrefix">,
+  source: Block,
+): Set<string> {
+  const out = new Set<string>();
+  for (const { target } of sourceOccurrences(source, input.addressTargets, input.workIdPrefix)) {
+    const block = target ? input.blocksById.get(target) : undefined;
+    if (block && !block.effectiveDeletedRootId) out.add(block.id);
+  }
+  return out;
+}
+
 export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkCollection {
   const query = normalizeBacklinkQuery(input.query);
   if (input.target.id !== query.targetBlockId) {

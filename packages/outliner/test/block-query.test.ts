@@ -155,24 +155,27 @@ describe("block query normalization", () => {
   });
 
   test("rejects malformed timestamp sort payloads explicitly", () => {
+    // A sort is an object or words: "updated" is updated ascending, a list is neither.
+    expect(normalizeBlockSearchQuery({ sort: "updated", limit: 20 }).sort).toEqual({ field: "updated", direction: "asc" });
     expect(() => normalizeBlockSearchQuery({
-      sort: "updated" as never,
+      sort: ["updated"] as never,
       limit: 20,
-    })).toThrow("Block search sort must be an object");
+    })).toThrow("Block search sort must be an object or");
+    expect(() => normalizeBlockSearchQuery({ sort: "updated sideways", limit: 20 })).toThrow("Sort direction is asc or desc");
     expect(() => normalizeBlockSearchQuery({
       sort: { field: "[rank::]", direction: "desc" },
       limit: 20,
-    })).toThrow("Sort by rank, not [rank::]: a sort is created, updated or a property key");
+    })).toThrow("Sort by rank, not [rank::]: a sort is created, updated, title or a property key");
     expect(() => normalizeBlockSearchQuery({ sort: { field: "property:", direction: "desc" }, limit: 20 }))
-      .toThrow("Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not property:");
+      .toThrow("Sort is created, updated, title or a property key (a letter, then letters, digits, _ . or -), not property:");
     expect(() => normalizeBlockSearchQuery({ sort: { field: "due date", direction: "desc" }, limit: 20 }))
-      .toThrow("Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not due date");
+      .toThrow("Sort is created, updated, title or a property key (a letter, then letters, digits, _ . or -), not due date");
     expect(() => normalizeBlockSearchQuery({ sort: { field: "property:[due::]", direction: "desc" }, limit: 20 }))
       .toThrow("Sort by property:due, not property:[due::]");
     expect(() => normalizeBlockSearchQuery({
       sort: { field: 3, direction: "desc" } as never,
       limit: 20,
-    })).toThrow("Sort is created, updated or a property key");
+    })).toThrow("Sort is created, updated, title or a property key");
     expect(() => normalizeBlockSearchQuery({
       sort: { field: "updated", direction: "newest" } as never,
       limit: 20,

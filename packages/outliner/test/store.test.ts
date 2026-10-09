@@ -469,7 +469,7 @@ describe("OutlinerStore", () => {
       limit: 2,
     });
     expect(newestCreated.blocks.map((block) => block.id)).toEqual([third.id, second.id]);
-    expect(newestCreated.completeness).toEqual({ kind: "truncated", limit: 2 });
+    expect(newestCreated.completeness).toEqual({ kind: "truncated", limit: 2, matched: 3 });
 
     const oldestUpdated = store.readWorkspaceSnapshot({
       query: {
@@ -1280,9 +1280,8 @@ Second paragraph`;
         "Block search limit must be an integer from 1 through 1000",
       );
     }
-    expect(() =>
-      store.queryBlocks({ text: "matching" } as Parameters<OutlinerStore["queryBlocks"]>[0]),
-    ).toThrow("Block search limit must be an integer from 1 through 1000");
+    // A question that names no limit answers 200 rows at most.
+    expect(store.queryBlocks({ text: "matching" }).completeness).toEqual({ kind: "complete" });
   });
 
   test("reads complete visible and physical snapshots without a row cap", () => {
