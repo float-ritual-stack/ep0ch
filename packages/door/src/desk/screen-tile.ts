@@ -125,7 +125,7 @@ export class ScreenTile implements Pane {
     if (this.follows) return;
     let s: Screen;
     try {
-      s = specs().mountDesk({ ...this.mount, saved: this.saved, ...(this.label ? { label: this.label } : {}), ...(this.given ? { given: this.given } : {}) }, {
+      s = specs().mountDesk({ ...this.mount, chain: desk.mountChain?.() ?? [], saved: this.saved, ...(this.label ? { label: this.label } : {}), ...(this.given ? { given: this.given } : {}) }, {
         onSave: () => this.desk?.keepLayout?.(),
         outward: (m, by, fresh) => this.openOut(m, by, fresh),
       });

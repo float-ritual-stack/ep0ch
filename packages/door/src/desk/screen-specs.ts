@@ -11,7 +11,7 @@ import { BLANK_KIND, blankSpec } from "./blank";
 import { LIBRARY_KIND, librarySpec } from "../library/library";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec, type DeskOpts } from "./desk";
-import { groupSpec, partSpec, registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
+import { groupSpec, mountProblem, partSpec, registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
 import type { Pane } from "./panes";
 import { outlineState, readState } from "../state";
 import { registerTileKind, tileKind } from "./tile-kinds";
@@ -67,14 +67,18 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
  * screen holding the mount saving (`onSave`). A whole screen's first mount starts as its full screen was last left
  * (its file read, never written); a part's takes only what its models kept (the hub the board remembers).
  */
-export function mountDesk(m: { screen: string | null; args?: Record<string, unknown>; part?: string | null; saved?: unknown; label?: string; given?: ReadonlyMap<string, Pane> },
+export function mountDesk(m: { screen: string | null; args?: Record<string, unknown>; part?: string | null; saved?: unknown; label?: string; given?: ReadonlyMap<string, Pane>; chain?: readonly string[] },
   opts: Pick<DeskOpts, "onSave" | "outward">): Desk {
+  const chain = m.chain ?? [];
   if (!m.screen) {
     const root = (m.saved as { root?: unknown } | undefined)?.root;
     if (!root) throw new Error("a group with no tiles in it");
-    return new Desk(groupSpec(root, m.label), { saved: m.saved, ...(m.given ? { given: m.given, adopt: true } : {}), writes: false, ...opts });
+    return new Desk(groupSpec(root, m.label), { saved: m.saved, ...(m.given ? { given: m.given, adopt: true } : {}), writes: false, chain, ...opts });
   }
   if (m.screen === "desk") throw new Error("the desk holds mounts; it isn't mounted in itself");
+  // Refused here, so a saved screen that holds itself comes back with this mount a place holder that says why.
+  const loop = mountProblem(chain, m.screen, !!m.part);
+  if (loop) throw new Error(loop);
   const full = screenSpec(m.screen, m.args);
   if (!full) throw new Error(`no screen ${m.screen}; screens: ${screenNames().join(", ")}`);
   const spec = m.part ? partSpec(full, m.part) : full;
@@ -84,5 +88,5 @@ export function mountDesk(m: { screen: string | null; args?: Record<string, unkn
     saved = m.part ? (s?.models ? { models: s.models } : undefined) : s ?? undefined;
   }
   const arg = screenTargetArg(m.screen), target = arg ? m.args?.[arg] : undefined;
-  return new Desk(spec, { writes: false, ...(saved !== undefined ? { saved } : {}), ...(typeof target === "string" && target ? { openArgs: { target } } : {}), ...opts });
+  return new Desk(spec, { writes: false, chain, ...(saved !== undefined ? { saved } : {}), ...(typeof target === "string" && target ? { openArgs: { target } } : {}), ...opts });
 }

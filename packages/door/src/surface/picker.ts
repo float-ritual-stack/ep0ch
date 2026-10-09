@@ -157,13 +157,16 @@ export const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.flo
  * One line to type in a box over the screen (a layout's name, a new outline's name, a file): the line, then the one
  * row that does it once something is typed (`doing` says what), so ⏎ or a click on that row runs `done`.
  */
-export function linePrompt<H>(o: { name: string; title: string; text: string; prefilled?: boolean; doing: (t: string) => string; done: (t: string, host: H) => void; head?: string[]; w?: number }): ListPicker<string, H> {
+export function linePrompt<H>(o: { name: string; title: string; text: string; prefilled?: boolean; doing: (t: string) => string; hint?: (t: string) => { text: string; warn?: boolean }; done: (t: string, host: H) => void; head?: string[]; w?: number }): ListPicker<string, H> {
   const input = new LineInput(o.text, o.prefilled ?? true, { complete: false });   // a name or a path, never outline text
   return new ListPicker<string, H>({
-    name: o.name, input, items: () => (input.text.trim() ? [o.doing(input.text.trim())] : []),
+    name: o.name, input, items: () => { const t = input.text.trim(); return t && !o.hint?.(t).warn ? [o.doing(t)] : []; },
     row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
     choose: (_it, _i, host) => o.done(input.text.trim(), host),
-    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc closes", head: [" " + input.show(w - 4), ...head] }; },
+    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? [], h = o.hint?.(input.text.trim());
+      // The hint under the input: dim, or in the warning colour when what's typed can't be used (⏎ then does nothing, so the prompt stays).
+      const hintLine = h ? [fg(h.warn ? C.yellow : C.dark) + " " + h.text + RESET] : [];
+      return { rect: centred(a, w, 4 + head.length + hintLine.length), title: o.title, foot: "⏎ or a click · esc closes", head: [" " + input.show(w - 4), ...hintLine, ...head] }; },
   });
 }
 

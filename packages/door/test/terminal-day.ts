@@ -10,6 +10,6 @@ export function terminalDay(cmd = (process.env.EP0CH_DAILY_AGENT || "sh").split(
   const root = JSON.parse(JSON.stringify(d.root));
   root.kids[0] = { t: "split", dir: "col", kids: [{ t: "leaf", kind: "pty", name: "claude", cmd, link: "middle" }, root.kids[0]], weights: [0.6, 0.4] };
   const { policy: _policy, ...rest } = d;
-  register({ name: "terminal-day", id: "00000000-0000-4000-8000-00000000da11", revision: 1, spec: { name: "terminal-day", title: "terminal-day", layouts: true, layout: { ...rest, name: "terminal-day", root } } });
+  register({ name: "terminal-day", title: "terminal-day", id: "00000000-0000-4000-8000-00000000da11", revision: 1, spec: { name: "terminal-day", title: "terminal-day", layouts: true, layout: { ...rest, name: "terminal-day", root } } });
   return "terminal-day";
 }

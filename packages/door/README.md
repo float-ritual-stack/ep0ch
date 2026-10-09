@@ -996,7 +996,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Esc` | closes the innermost thing (a picker, the tile menu, a chord, link mode, a dock, a zoom, a float's keys); never leaves the desk: with nothing left it says `nothing to close · q leaves` |
 
 **Layouts** are screens saved by name: `^W w` (`act screen.save name=…`) writes the screen as a screen note in the
-outline ([Screens you make](#screens-you-make)), and `^W r`, `alt+d` for `daily`, or `act layout.load name=…` lays the
+outline (name it the way you'd say it: `daily test` is kept as typed and opened as `daily-test` or "daily test") ([Screens you make](#screens-you-make)), and `^W r`, `alt+d` for `daily`, or `act layout.load name=…` lays the
 desk out as one. Built in: `daily` (an agent
 terminal over the "now" detail; the outline over its preview, above the middle detail; the editor on the
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
@@ -1010,7 +1010,7 @@ running programs or unsaved edits the new layout has no place for go in one shut
 offers the first step as rows, each a key, a click and an action (`blank.fill`): `t` the outline, `r` a reader, `d` a
 detail, `s` a terminal, `Q` a query lane (you pick the saved view) in its place, or `o` a screen to open. Build the rest
 with the desk's keys (`^W o`, `^W v`, `alt+l`, drag a header), then `^W w` (or the `⋯` menu's *save this screen as…*,
-or `act screen.save name=<name>`) saves it as a **screen note**: a note `<name> [type::screen] [screen::<name>]` in the
+or `act screen.save name=<name>`) saves it as a **screen note** (the prompt shows the name it saves as, or why it can't): a note `<title> [type::screen] [screen::<slug>]` in the
 outline whose `json` code fence holds the screen's spec (what `screen.spec` answers). It travels with the outline: every
 door on it lists it (`screen.list`, the blank tile's `o`, `^W r`) and opens it (`ep0ch --screen <name>`,
 `act screen.open name=<name>`), and an agent can read it. `^W w` on it again saves over the same note, checked against
