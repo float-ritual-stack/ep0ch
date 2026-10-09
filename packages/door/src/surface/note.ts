@@ -55,6 +55,8 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
+import type { LinkBlockInfo } from "../links";
+import { RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
@@ -89,6 +91,11 @@ export interface SurfaceHost {
   readonly look?: Look;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
+  /**
+   * The click being handled is an alt-, ctrl- or middle-click, which the host opens fresh (its `navigate` for this
+   * click opens a new detail): a list's row opens at once rather than being selected (an inline `::links`, PIE-693).
+   */
+  freshClick?: boolean;
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
   summaryKeys?(m: Msg): readonly string[] | null | undefined;
   /**
@@ -415,6 +422,7 @@ interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, Surfa
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
+type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -533,6 +541,21 @@ export class NoteSurface {
   figureUI = new Map<string, FigureChoice>();
   /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
   figuresDrawn: FigureInfo[] = [];
+  /**
+   * Each inline `::links` component's selected row and kept filter (PIE-693), by the component's key: like
+   * `figureUI`, this reader's reading state, never written into the note, cleared when the reader shows another note.
+   */
+  linkBlockUI = new Map<string, { sel?: string; filter?: string }>();
+  /** The inline components the last layout drew (their rows, the selection, the preview): what `links.*` name. */
+  linkBlocksDrawn: LinkBlockInfo[] = [];
+  /** The filter being typed (`/`) in the component the person went into, or null. */
+  private linksTyping: LineInput | null = null;
+  /** Presses on an inline component's rows: a second soon after on the same row opens it (RowPresses). */
+  private linkPresses = new RowPresses();
+  /** The key of the inline component the person went into (`links.enter`), or null. */
+  /** The person is typing a filter into an inline `::links` list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
+  get typingFilter(): boolean { return !!this.linksTyping; }
+  get linksIn(): string | null { return (this.modes.get("links") as LinksMode | null)?.block ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
   private replyOn: string | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
@@ -784,7 +807,7 @@ export class NoteSurface {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -1364,8 +1387,22 @@ export class NoteSurface {
     // The live figures this layout draws, each told here; a tab or the density drawn as a control.
     const figures: FigureInfo[] = [];
     this.figuresDrawn = figures;
+    // The inline ::links components this layout draws (PIE-693), each told here.
+    const blocks: LinkBlockInfo[] = [];
+    this.linkBlocksDrawn = blocks;
+    const { preview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
-      ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
+      ...env, literal, ...hooks,
+      linkBlocks: this.printed ? undefined : {
+        ui: key => {
+          const u = this.linkBlockUI.get(key), typing = this.linksIn === key && this.linksTyping ? this.linksTyping.text : u?.filter;
+          return { ...(u?.sel ? { sel: u.sel } : {}), entered: this.linksIn === key, ...(typing ? { typing } : {}) };
+        },
+        row: (key, row, to, x) => tagged(drawn, { ...to, linksBlock: { key, row } }, x),
+        control: (key, x) => tagged(drawn, { role: "control", label: key, linksBlock: { key } }, x),
+        ...(preview ? { preview } : {}),
+        seen: info => blocks.push(info),
+      },
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
@@ -1430,7 +1467,7 @@ export class NoteSurface {
    * judged by its own text, PIE-422); each of the note's own steps a control where the service reads one
    * at this revision (PIE-472).
    */
-  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task"> {
+  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task"> & { preview?: (id: string, width: number) => string[] } {
     const inner: EmbedBody = (target, part, width, hooks) => {
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
@@ -1454,6 +1491,8 @@ export class NoteSurface {
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
       ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
+      // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
+      ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
@@ -2129,6 +2168,113 @@ export class NoteSurface {
     };
   }
 
+  // ── an inline ::links component (PIE-693): its rows, its selection, the person in it ─────────────────
+
+  /** The inline components as drawn, for `links.blocks` and agents: numbered, each row numbered, the selection said. */
+  describeLinkBlocks() {
+    return this.linkBlocksDrawn.map(b => ({
+      n: b.n, title: b.title, ...(b.query ? { query: b.query } : {}), groups: b.groups, entered: b.entered, ...(b.typing ? { filter: b.typing } : {}),
+      preview: b.preview, rows: b.rows.map((r, i) => ({ n: i + 1, kind: r.kind, text: r.text, ...(r.id ? { id: r.id } : {}), ...(r.key === b.sel ? { selected: true } : {}) })),
+    }));
+  }
+
+  /**
+   * An inline component by `named`: its number among the note's (links.blocks), its title, or its key; left out, the
+   * one the person is in, else the one the [ ] position is in, else the note's only one.
+   */
+  linkBlockNamed(named?: string): LinkBlockInfo {
+    const all = this.linkBlocksDrawn;
+    if (!all.length) throw new ActionRefused("this note draws no ::links component (a ::links block with query: lists a query's matches)");
+    if (named !== undefined) {
+      const v = named.trim(), found = /^\d+$/.test(v) ? all[Number(v) - 1] : all.find(b => b.key === v || b.title.toLowerCase() === v.toLowerCase());
+      if (!found) throw new ActionRefused(`no ::links component ${named}; this note's: ${all.map(b => `${b.n} ${b.title}`).join(", ")}`);
+      return found;
+    }
+    const key = this.linksIn ?? this.inView()?.link?.linksBlock?.key;
+    const b = key ? all.find(x => x.key === key) : all.length === 1 ? all[0] : undefined;
+    if (!b) throw new ActionRefused(`say which ::links component: block= its number or title (${all.map(x => `${x.n} ${x.title}`).join(", ")})`);
+    return b;
+  }
+
+  /** The element drawn for row `row` of component `key`, and its number among the elements (from 1), or null. */
+  linkRowElement(key: string, row: string): { e: Element; n: number } | null {
+    const i = this.elems.findIndex(e => e.link?.linksBlock?.key === key && e.link.linksBlock.row === row);
+    return i < 0 ? null : { e: this.elems[i]!, n: i + 1 };
+  }
+
+  /** The person's selection in component `b` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
+  selectLinkRow(b: LinkBlockInfo, row: string) {
+    this.linkBlockUI.set(b.key, { ...this.linkBlockUI.get(b.key), sel: row });
+    const at = this.linkRowElement(b.key, row);
+    if (at) this.setElem(at.e);
+    this.reveal = true;
+  }
+
+  /** The person goes into component `b` (its list takes j k ⏎ / esc), or comes out of it. */
+  enterLinks(b: LinkBlockInfo, on: boolean) {
+    if (!on) { this.leaveLinks(b.key); return; }
+    this.modes.push(this.linksMode(b.key, b.title));
+    if (b.sel) this.selectLinkRow(b, b.sel);
+    else if (b.rows[0]) this.selectLinkRow(b, b.rows[0].key);
+  }
+  /** Out of the component the person is in (all of them, or only `key`): its typed filter goes with it. */
+  private leaveLinks(key?: string) {
+    const was = this.linksIn;
+    if (!was || (key && key !== was)) return;
+    this.modes.drop("links");
+    this.linksTyping = null;
+    const u = this.linkBlockUI.get(was);
+    if (u?.filter) this.linkBlockUI.set(was, { ...u, filter: undefined });
+  }
+
+  /** The list of an inline component the person went into: j k Home End move, ⏎ opens, / filters, esc comes out; any other key leaves it and goes on. */
+  private linksMode(block: string, title: string): LinksMode {
+    return {
+      name: "links", of: { block }, block, word: "links list",
+      // Not a session: it holds no note. Its keys come first while it's open; the screen's (Tab, ^W, digits) stay the screen's.
+      holdsKeys: false, editing: () => false, covers: () => false,
+      key: (k, host) => this.linksKey(block, k, host),
+      click: (x, y) => {
+        const h = this.hitAt(x, y);
+        // A click in its own rows or its control is reading's (a row selects, the control comes out); anywhere else leaves it.
+        if (!(h && "link" in h && h.link.linksBlock?.key === block)) this.leaveLinks();
+        return undefined;
+      },
+      rows: () => null,
+      leave: async () => { this.leaveLinks(); return { left: "nothing" }; },
+      hint: () => this.linksTyping ? "type to filter the list · ⏎ keep · esc clear" : `${title} · j k row · ⏎ open · alt+⏎ new detail · / filter · esc out`,
+      state: () => "in a list",
+      describe: () => ({ block, title, selected: this.linkBlocksDrawn.find(b => b.key === block)?.sel ?? null, typing: this.linksTyping?.text ?? null }),
+    };
+  }
+
+  private linksKey(block: string, k: Key, host: SurfaceHost): boolean {
+    const b = this.linkBlocksDrawn.find(x => x.key === block);
+    if (!b) { this.leaveLinks(); return this.key(k, host); }
+    const T = this.linksTyping;
+    if (T) {
+      // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc clears it.
+      if (k.kind === "enter") { this.linkBlockUI.set(block, { ...this.linkBlockUI.get(block), filter: T.text.trim() || undefined }); this.linksTyping = null; }
+      else if (k.kind === "esc") { this.linksTyping = null; const u = this.linkBlockUI.get(block); if (u?.filter) this.linkBlockUI.set(block, { ...u, filter: undefined }); }
+      else if (!T.key(k)) return true;
+      host.redraw();
+      return true;
+    }
+    const n = b.rows.length, at = b.rows.findIndex(r => r.key === b.sel), c = ch(k);
+    const to = (i: number) => { if (n && i >= 0 && i < n) void this.runKey("links.pick", { block: String(b.n), n: i + 1 }, host); return true; };
+    if (isDown(k)) return to(at + 1);
+    if (isUp(k)) return to(Math.max(0, at - 1));
+    if (k.kind === "home") return to(0);
+    if (k.kind === "end") return to(n - 1);
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) void this.runKey("links.open", { block: String(b.n), ...(k.kind === "alt-enter" ? { where: "new" } : {}) }, host); return true; }
+    if (c === "/") { this.linksTyping = new LineInput(this.linkBlockUI.get(block)?.filter ?? "", false, { complete: false }); host.redraw(); return true; }   // plain words over the rows
+    if (k.kind === "esc") { void this.runKey("links.enter", { block: String(b.n), on: false }, host); return true; }
+    // Any other key: out of the list, and the key does what it does in the reader.
+    this.leaveLinks();
+    host.redraw();
+    return this.key(k, host);
+  }
+
   /** A step's status choice (PIE-472), open under its box: its keys until a choice or esc; a click elsewhere closes it. */
   private pickerMode(p: Picker): PickerMode {
     return {
@@ -2612,6 +2758,9 @@ export class NoteSurface {
     this.cur = e.key;
     const l = e.link;
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
+    // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
+    const lb = l?.linksBlock;
+    if (lb?.row) this.linkBlockUI.set(lb.key, { ...this.linkBlockUI.get(lb.key), sel: lb.row });
   }
 
   /** The current element while the person can see it (or it's about to be brought into view). */
@@ -2666,6 +2815,11 @@ export class NoteSurface {
     // A live figure's tab shows it; its density control steps to the next density.
     // (element.open sends an agent's through figure.tab and figure.density itself, with their rules.)
     if (e.kind === "figure" && e.link?.figure) { this.pressFigure(e.link.figure, host); return null; }
+    // An inline ::links component's ⏎ in (PIE-693): the person goes into its list; an agent reads and opens its rows instead.
+    if (e.link?.linksBlock && !e.link.linksBlock.row) {
+      if (!select) throw new ActionRefused("going into a ::links list is the person's; an agent reads it with links.blocks and opens a row with links.open");
+      return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
+    }
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -3139,6 +3293,8 @@ export class NoteSurface {
       ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media ?? e.link.url } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
       ...(e.link?.proposal?.op ? { control: e.link.proposal.op, proposal: e.link.proposal.id } : {}),
       ...(e.link?.unsent ? { control: e.link.unsent.op, unsent: e.link.unsent.kind } : {}),
+      // An inline ::links component's (PIE-693): a row of it, or its ⏎ in control, and which component (links.blocks numbers them).
+      ...(e.link?.linksBlock ? { links: { block: (this.linkBlocksDrawn.find(b => b.key === e.link!.linksBlock!.key)?.n ?? null), [e.link.linksBlock.row ? "row" : "control"]: true } } : {}),
     }));
   }
 
@@ -3314,6 +3470,16 @@ export class NoteSurface {
     if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
     // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
     if (h.link.role === "image" && h.link.image) { this.pressImage(h.link.image, host); return true; }
+    // A row of an inline ::links that previews, or that the person is in (PIE-693), as a list's row: a click selects it
+    // (the [ ] position, its preview following), a second click on it soon after opens it (⏎), an alt-, ctrl- or
+    // middle-click opens it fresh (alt+⏎). A ::links with no preview opens a row on a click, as any link.
+    const lbk = h.link.linksBlock, lbi = lbk ? this.linkBlocksDrawn.find(b => b.key === lbk.key) : undefined;
+    if (e && lbk?.row && lbi && (lbi.previews || lbi.entered)) {
+      const i = this.elems.indexOf(e), g = this.linkPresses.press(i);
+      void this.runKey(g === "open" || host.freshClick ? "element.open" : "element.select", { n: i + 1 }, host);
+      host.redraw();
+      return true;
+    }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
     if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); host.redraw(); return true; }
@@ -5952,6 +6118,78 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, `drew ${f.title} ${d}`);
       host.redraw();
       return { figure: f.n, title: f.title, density: d };
+    },
+  }),
+  "links.blocks": def({
+    summary: "the note's inline ::links components (PIE-693): each one's number, title, query and groups, whether the person is in it, the row its preview shows, and every row numbered (kind, text, the block it stands for, the selected one). Reads only",
+    keys: "",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { surface }) { surface.requireNote(); return { blocks: surface.describeLinkBlocks() }; },
+  }),
+  "links.pick": def({
+    summary: "pick a row of an inline ::links component (PIE-693): n= its number from 1 (links.blocks lists them), id= the block it stands for (or its start), or by=1 / by=-1 from the selected one; block= which component (its number or title; left out, the one the person is in or the [ ] position is in, else the only one). The person's moves their selection and the [ ] position, and the preview follows; an agent's answers the row and moves nothing of the person's",
+    keys: "[ ] onto a row, a click on it; j k ↑ ↓ Home End in the list",
+    touches: "nothing", replay: "safe", says: r => (r.moved ? null : `read row ${r.row} of ${r.title}`),
+    args: {
+      block: { type: "string", optional: true, about: "which ::links component: its number (links.blocks), or its title" },
+      n: { type: "number", optional: true, about: "the row, from 1" },
+      id: { type: "string", optional: true, about: "the block the row stands for, or its first characters" },
+      by: { type: "number", optional: true, about: "1 the next row, -1 the one before" },
+    },
+    run({ block, n, id, by }, { surface, host }, actor) {
+      surface.requireNote();
+      if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a row from 1), id= (the block it stands for) or by=1|-1");
+      const b = surface.linkBlockNamed(block);
+      if (!b.rows.length) throw new ActionRefused(`${b.title} lists nothing yet`);
+      const at = Math.max(0, b.rows.findIndex(r => r.key === b.sel));
+      const i = id !== undefined ? b.rows.findIndex(r => !!r.id && r.id.startsWith(id)) : by !== undefined ? at + Math.trunc(by) : n! - 1;
+      const r = b.rows[i];
+      if (!r) throw new ActionRefused(id !== undefined ? `${b.title} has no row for ${id}` : `${b.title} has rows 1 to ${b.rows.length}`);
+      const person = actor.kind !== "agent";
+      if (person) { surface.selectLinkRow(b, r.key); host.redraw(); }
+      return { block: b.n, title: b.title, row: i + 1, text: r.text, ...(r.id ? { id: r.id } : {}), moved: person };
+    },
+  }),
+  "links.open": def({
+    summary: "open a row of an inline ::links component for real (PIE-693): n= its number, id= its block, default the selected one; block= as links.pick. where=origin (default) opens it where the reader's opens land, as ⏎ on it does; where=new in a new detail, as alt+⏎. The same open as element.open on the row: an agent's is refused in the reader the person has, and never moves their keys",
+    keys: "⏎ on a row or in the list, a double click (origin) · alt+⏎, an alt-, ctrl- or middle-click (new)",
+    touches: "tile", replay: "ask", way: "opening a row there would move what they're reading · an agent opens the row's note with open id= (links.blocks gives it), naming no tile",
+    args: {
+      block: { type: "string", optional: true, about: "which ::links component: its number (links.blocks), or its title" },
+      n: { type: "number", optional: true, about: "the row, from 1; default the selected one" },
+      id: { type: "string", optional: true, about: "the block the row stands for, or its first characters" },
+      where: { type: "string", optional: true, about: "origin (default): where the reader's opens land; new: a new detail" },
+    },
+    async run({ block, n, id, where }, on, actor): Promise<unknown> {
+      const { surface } = on;
+      surface.requireNote();
+      if (where !== undefined && where !== "origin" && where !== "new") throw new ActionRefused(`where is origin or new, not ${where}`);
+      if (n !== undefined && id !== undefined) throw new ActionRefused("say n= or id=, not both");
+      const b = surface.linkBlockNamed(block);
+      const r = id !== undefined ? b.rows.find(x => !!x.id && x.id.startsWith(id)) : n !== undefined ? b.rows[n - 1] : b.rows.find(x => x.key === b.sel);
+      if (!r) throw new ActionRefused(n === undefined && id === undefined ? `no row is selected in ${b.title}; say n=` : `${b.title} has no such row (rows 1 to ${b.rows.length})`);
+      const at = surface.linkRowElement(b.key, r.key);
+      if (!at) throw new ActionRefused(`${r.text} isn't drawn in ${b.title} now`);
+      const opened: unknown = await NOTE_ACTIONS.run("element.open", { n: at.n, ...(where === "new" ? { fresh: true } : {}) }, on, actor);
+      return opened;
+    },
+  }),
+  "links.enter": def({
+    summary: "go into an inline ::links component's list (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. block= as links.pick. The person's: an agent reads it with links.blocks and opens a row with links.open",
+    keys: "⏎ or a click on the frame's ⏎ in; esc, or a click outside it, comes out",
+    touches: "tile", replay: "safe", person: "going into a list is the person's; an agent reads it with links.blocks, picks with links.pick and opens a row with links.open",
+    args: {
+      block: { type: "string", optional: true, about: "which ::links component: its number (links.blocks), or its title" },
+      on: { type: "boolean", optional: true, about: "true goes in (the default), false comes out" },
+    },
+    run({ block, on }, { surface, host }) {
+      surface.requireNote();
+      const b = surface.linkBlockNamed(block);
+      const into = on ?? surface.linksIn !== b.key;
+      surface.enterLinks(b, into);
+      host.redraw();
+      return { block: b.n, title: b.title, entered: into };
     },
   }),
   "select": def({

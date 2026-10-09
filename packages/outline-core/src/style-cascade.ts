@@ -30,7 +30,7 @@
 // export leaves it out. Pure: no I/O. A change to what it matches or computes bumps PROTOCOL (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
-import { noteCodeFences } from "./component-block";
+import { componentAttrs, noteCodeFences } from "./component-block";
 import { BUILTIN_HEADING_STYLES, bandMarginText, bandPaddingText, liveTokensInLine, parseBandMargin, parseBandPadding, type BandMargin, type BandRoom } from "./heading-styles";
 
 /** How a token's value is written and kept. */
@@ -407,9 +407,6 @@ export function styleDeclarationLine(line: string): StyleSheet | null {
 
 // ── a box's attributes ────────────────────────────────────────────────────────
 
-/** One attribute token: `.class`, `key=value`, `key="value"`, or a bare `key` (on). */
-const ATTR = /\.([A-Za-z][\w-]*)|([A-Za-z][\w.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
-
 /**
  * A `{…}` attribute list (PIE-549: `{border=round bg=raised pad=1 .accent}`), read for the style fields it sets: `pad` and
  * `margin` set both axes (one number is rows, columns twice that; `"1 2"` both), a bare `list.zebra` is on, `narrow.`
@@ -417,12 +414,9 @@ const ATTR = /\.([A-Za-z][\w-]*)|([A-Za-z][\w.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^
  * said in `problems` and left out.
  */
 export function parseStyleAttrs(attrs: string, where = "box"): { fields: Record<FieldKey, string>; classes: string[]; problems: string[] } {
-  const classes: string[] = [], problems: string[] = [], props: { key: string; value: string }[] = [];
-  for (const m of attrs.matchAll(ATTR)) {
-    if (m[1]) { classes.push(m[1]); continue; }
-    if (!m[2]) continue;
-    props.push({ key: `style.${m[2].toLowerCase()}`, value: m[3] ?? m[4] ?? m[5] ?? "on" });
-  }
+  const problems: string[] = [];
+  const { classes, pairs } = componentAttrs(attrs);
+  const props = pairs.map(p => ({ key: `style.${p.key.toLowerCase()}`, value: p.value }));
   const fields = styleFieldsOf(props, where, problems, false);
   return { fields, classes, problems: problems.map(p => p.replace(/ \(.*$/, "").replace("style.", "")) };
 }

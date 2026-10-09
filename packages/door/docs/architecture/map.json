@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "8321edf5", "outliner": "8321edf5", "on": "2026-10-09" },
+  "verified": { "door": "631389df", "outliner": "631389df", "on": "2026-10-09" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -271,8 +271,8 @@
       "refs": [
         { "r": "door", "p": "src/socket.ts", "l": 382, "m": "export class SocketBoard" },
         { "r": "door", "p": "src/socket.ts", "l": 520, "m": "const mismatch = protocolMismatch" },
-        { "r": "door", "p": "src/socket.ts", "l": 1036, "m": "subscribe(onEvent" },
-        { "r": "door", "p": "src/socket.ts", "l": 1124, "m": "private async catchUp" },
+        { "r": "door", "p": "src/socket.ts", "l": 1046, "m": "subscribe(onEvent" },
+        { "r": "door", "p": "src/socket.ts", "l": 1134, "m": "private async catchUp" },
         { "r": "door", "p": "src/socket.ts", "l": 307, "m": "export class Offline" }
       ],
       "questions": []
@@ -303,13 +303,13 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 426, "m": "export class NoteSurface" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 102, "m": "export class ModeStack" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 20, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 82, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 5107, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 739, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 756, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 434, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/modes.ts", "l": 103, "m": "export class ModeStack" },
+        { "r": "door", "p": "src/surface/modes.ts", "l": 21, "m": "export const PRECEDENCE" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 84, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 5273, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 762, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 779, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -388,7 +388,7 @@
         { "r": "door", "p": "src/app.ts", "l": 643, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 340, "m": "if (said) (ctx?.refuse" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5429, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 5434, "m": "export function refusalHint" }
       ]
     },
     {
@@ -481,9 +481,9 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 123, "m": "export class Desk" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 470, "m": "private apply(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 445, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1835, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1840, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 855, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4524, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4529, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 97, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 297, "m": "\"tile.widen\": def({" }
       ],
@@ -599,7 +599,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 159, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4756, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4761, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 873, "m": "private take(id: I, heir?" }
       ]
     },
@@ -1085,13 +1085,13 @@
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 746, "m": "planMoves(this.host.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 841, "m": "\"views.planWrite\"" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 851, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
         "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 167, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 738, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 1003, "m": "\"properties.patch\", { blockId, expectedRevision" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 1013, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
         "ref": { "r": "outliner", "p": "src/store.ts", "l": 2491, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",

@@ -297,12 +297,12 @@ export interface BacklinkStatusPart { text: string; control?: BacklinkControl; s
 export interface BacklinkAcross {
   matching: number; total: number; filtered: number;
   /** Each group listed (a group the list doesn't show has no key): its counts, or null while it isn't read. */
-  by: Partial<Record<"outlinks" | "resources" | "backlinks" | "children", { matching: number; total: number; filtered: number } | null>>;
+  by: Partial<Record<"outlinks" | "resources" | "backlinks" | "children" | "matches", { matching: number; total: number; filtered: number } | null>>;
   kinds: Array<{ kind: string; label: string }>;
 }
 /** "→2/21 ♦0/2 ←3/8 ↓1/4": matching of all, per group listed (… while a group isn't read). */
 export function acrossWords(a: BacklinkAcross): string {
-  const marks = [["outlinks", "→"], ["resources", "♦"], ["backlinks", "←"], ["children", "↓"]] as const;
+  const marks = [["outlinks", "→"], ["resources", "♦"], ["backlinks", "←"], ["children", "↓"], ["matches", "≡"]] as const;
   return marks.filter(([g]) => g in a.by).map(([g, mark]) => { const x = a.by[g]; return `${mark}${x ? `${x.matching}/${x.total}` : "…"}`; }).join(" ");
 }
 

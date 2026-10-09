@@ -383,6 +383,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, matchesOf), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
+    aside: "the day's plan holds its outbox: `::links{query=\"type=letter mail=waiting\" preview=right}` lists the three waiting letters (the sent one isn't), the selected one drawn beside the list · [ ] onto a letter and the preview follows; your keys stay in the note · ⏎ opens it here, alt+⏎ in a new detail; a click selects, a double click opens · ⏎ on ⏎ in (or a click on it) goes in: j k move, / filters, esc comes out, any other key leaves and does what it does · `act links.blocks`, `links.pick n=2` (an agent's answers and moves nothing of yours), `links.open n=2`",
+    stage(n, show) {
+      const r = new ReaderPane(true);
+      return deskOf({ title: "showcase · links block", panes: [r] }, show, [[r, n.dayPlan]]);
+    },
+  },
+  {
     key: "presence", need: "show who's here or recent activity", part: "presence: WhoPane and ActivityPane over clients.list, activity.recent", files: "src/desk/panes.ts",
     stage(_n, show) {
       const who = new WhoPane(), act = new ActivityPane();

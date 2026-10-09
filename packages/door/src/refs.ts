@@ -194,6 +194,11 @@ export type LinkTarget = {
   /** A callout's icon or type (role "callout", PIE-538): ⏎ or a click opens its type choice. */
   callout?: CalloutRef;
   /**
+   * An inline `::links` component's (PIE-693): on a row (role "row"), the component (its key) and the row's key, so the
+   * `[ ]` position on it selects it there and its preview follows; alone (role "control"), its `⏎ in` control.
+   */
+  linksBlock?: { key: string; row?: string };
+  /**
    * An image (PIE-532): on its `[ ]` element (with `media`), the image the keys change; on a control of its caption
    * (role "image", with `control`), what a click on it changes.
    */

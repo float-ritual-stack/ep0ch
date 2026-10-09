@@ -57,7 +57,7 @@ const data = (): LinkData => ({
 const rows = (o: Partial<BacklinkViewOptions>, sortAll = true) =>
   linkRows(data(), { shut: new Set(), kinds: new Set(["outbox-item", "day-page"]), backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, ...o }, sortAll });
 const entries = (o: Partial<BacklinkViewOptions>) => {
-  const out: Record<"outlinks" | "resources" | "backlinks" | "children", string[]> = { outlinks: [], resources: [], backlinks: [], children: [] };
+  const out: Record<"outlinks" | "resources" | "backlinks" | "children" | "matches", string[]> = { outlinks: [], resources: [], backlinks: [], children: [], matches: [] };
   let g: keyof typeof out = "outlinks";
   for (const r of rows(o)) { if (r.kind === "group") g = r.group; else if (r.kind !== "kind") out[g].push(linkWords(r).text.replace(/ →.*/, "")); }
   return out;

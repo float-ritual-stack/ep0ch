@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import type { PreviewPane } from "../src/desk/preview";
 import type { ReaderPane } from "../src/desk/panes";
-import { linkBlockAt } from "../src/links";
+import { blockGroups, linkBlockAt } from "../src/links";
 import { presentLinks } from "../src/refs";
 import { DOUBLE_MS, RowPresses, SidewaysWheel, SWIPE_GAP_MS, SWIPE_REPORTS } from "../src/scroll";
 import { KeyDecoder } from "../src/term";
@@ -66,12 +66,15 @@ describe("the sideways wheel", () => {
   });
 });
 
+/** An inline component's spec with nothing written. */
+const BLOCK = { of: null, filter: "", title: null, groups: null, query: null, preview: "none" } as const;
+
 describe("the inline component's forms", () => {
   test("one line: the words after the name filter, a ((ref)) names whose", () => {
-    expect(linkBlockAt(["::resources jira"], 0)).toEqual({ spec: { kind: "resources", of: null, filter: "jira", title: null }, end: 0 });
+    expect(linkBlockAt(["::resources jira"], 0)).toEqual({ spec: { ...BLOCK, kind: "resources", filter: "jira" }, end: 0 });
     const id = "0b0c4d58-1a2b-4c3d-8e9f-001122334455";
     expect(linkBlockAt([`::backlinks ((${id}))`], 0)!.spec.of).toBe(id);
-    expect(linkBlockAt(["::links"], 0)).toEqual({ spec: { kind: "links", of: null, filter: "", title: null }, end: 0 });
+    expect(linkBlockAt(["::links"], 0)).toEqual({ spec: { ...BLOCK, kind: "links" }, end: 0 });
     expect(linkBlockAt(["::graph-check"], 0)).toBeNull();
     expect(linkBlockAt(["see ::links here"], 0)).toBeNull();
     expect(linkBlockAt(["::backlinks\r", "more"], 0)!.spec.kind).toBe("backlinks");
@@ -80,15 +83,32 @@ describe("the inline component's forms", () => {
   test("a block to its `::`: of, filter, title, groups, or bare words as the filter; Comark's --- lines are skipped", () => {
     const id = "0b0c4d58-1a2b-4c3d-8e9f-001122334455";
     const lines = ["intro", "::links", "---", `of: ((${id}|the plan))`, "title: Around the plan", "groups: resources", "---", "::", "after"];
-    expect(linkBlockAt(lines, 1)).toEqual({ spec: { kind: "resources", of: id, filter: "", title: "Around the plan" }, end: 7 });
-    expect(linkBlockAt(["::backlinks", "onion sets", "::"], 0)).toEqual({ spec: { kind: "backlinks", of: null, filter: "onion sets", title: null }, end: 2 });
+    expect(linkBlockAt(lines, 1)).toEqual({ spec: { ...BLOCK, kind: "links", groups: ["resources"], of: id, title: "Around the plan" }, end: 7 });
+    expect(linkBlockAt(["::backlinks", "onion sets", "::"], 0)).toEqual({ spec: { ...BLOCK, kind: "backlinks", filter: "onion sets" }, end: 2 });
     expect(linkBlockAt(["::links", "of: nowhere", "::"], 0)!.spec.problem).toContain("of: needs a ((block))");
     // Where it ends is outline-core's component-block rule: a blank line doesn't end it, a heading does (unclosed: the
     // first line alone, and what follows is the note's); with arguments, a blank line ends it.
     expect(linkBlockAt(["::links", "a paragraph", "", "::"], 0)!.end).toBe(3);
     expect(linkBlockAt(["::links", "a paragraph", "## Next", "::"], 0)!.end).toBe(0);
     expect(linkBlockAt(["::resources jira", "", "::"], 0)!.end).toBe(0);
-    expect(linkBlockAt(["::resources jira", "title: Around", "::"], 0)).toEqual({ spec: { kind: "resources", of: null, filter: "jira", title: "Around" }, end: 2 });
+    expect(linkBlockAt(["::resources jira", "title: Around", "::"], 0)).toEqual({ spec: { ...BLOCK, kind: "resources", filter: "jira", title: "Around" }, end: 2 });
+  });
+
+  test("a query and a preview (PIE-693): in braces or on lines; groups: takes several; a wrong key, value or group says why", () => {
+    const q = linkBlockAt(['::links{query="type=outbox-item status=waiting" preview=right title="Outbox"}', "::"], 0)!;
+    expect(q).toEqual({ spec: { ...BLOCK, kind: "links", query: "type=outbox-item status=waiting", preview: "right", title: "Outbox" }, end: 1 });
+    expect(blockGroups(q.spec)).toEqual(["matches"]);
+    // Unclosed, the braces' line alone is the component.
+    expect(linkBlockAt(["::links{query=type=errand}", "after"], 0)).toEqual({ spec: { ...BLOCK, kind: "links", query: "type=errand", preview: "right" }, end: 0 });
+    const lines = linkBlockAt(["::links", "query: type=errand", "groups: backlinks, children", "preview: below", "::"], 0)!.spec;
+    expect(lines).toMatchObject({ query: "type=errand", groups: ["backlinks", "children"], preview: "below" });
+    expect(blockGroups({ ...BLOCK, kind: "links" })).toEqual(["outlinks", "resources", "backlinks", "children"]);
+    expect(linkBlockAt(["::links", "groups: links, matches", "query: type=errand", "::"], 0)!.spec.groups).toEqual(["outlinks", "resources", "backlinks", "children", "matches"]);
+    expect(linkBlockAt(["::links{preview=sideways}", "::"], 0)!.spec.problem).toContain("preview: is right, below or none");
+    expect(linkBlockAt(["::links{colour=red}", "::"], 0)!.spec.problem).toContain("colour isn't one of ::links's keys");
+    expect(linkBlockAt(["::links", "groups: kids", "::"], 0)!.spec.problem).toContain("not kids");
+    expect(linkBlockAt(["::links", "groups: matches", "::"], 0)!.spec.problem).toContain("add query:");
+    expect(linkBlockAt(["::backlinks{query=type=errand}", "::"], 0)!.spec.problem).toContain("::links takes query:");
   });
 
   test("its lines are left as typed when links are presented: an of: ((id)) still names the id", () => {
@@ -230,5 +250,48 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => desk.current?.id === n.notes.id, "the backlink's note opened from the inline row");
+  }, 60_000);
+
+  test("::links with a query (PIE-693) by keys and mouse: [ ] onto a row previews it, the note keeps the keys; ⏎ on ⏎ in goes in: j k, / filter, esc out; a click selects, a double click opens", async () => {
+    const create = (parentId: string | null, text: string) => board.createBlock(parentId, text);
+    const kale = await create(null, "Sow the kale [type::seed-job] [stage::waiting]\nIn the cold frame, two rows.");
+    const peas = await create(null, "Stake the peas [type::seed-job] [stage::waiting]\nHazel sticks from the hedge.");
+    const plan = await create(null, "Sunday jobs\n::links{query=\"type=seed-job\" preview=right title=\"Seed jobs\"}\n::\nAfter the list.");
+    desk.setCurrent(plan);
+    D().focus = D().idNamed("reader");
+    const s = () => reader().surface, b = () => s().linkBlocksDrawn[0];
+    await until(() => b()?.rows.length === 2 && b()!.preview !== null, "the two jobs, the first previewed");
+    const firstId = b()!.rows[0]!.id;
+    // ] steps onto the first row of the list: it's the selection, and the reader keeps the keys (j scrolls the reader).
+    for (let i = 0; i < 10 && !s().inView()?.link?.linksBlock?.row; i++) key({ kind: "char", ch: "]" });
+    expect(s().inView()?.link?.linksBlock?.row).toBeDefined();
+    expect(s().linksIn).toBeNull();
+    // ] again onto the second row: the preview follows.
+    key({ kind: "char", ch: "]" });
+    await until(() => b()!.preview === b()!.rows[1]!.id, "the preview following [ ]");
+    // ⏎ on the frame's ⏎ in goes in.
+    const ctl = s().describeElements().find((e: any) => e.links?.control);
+    expect(ctl).toMatchObject({ links: { block: 1 } });
+    await D().dispatch.act({ action: "element.open", args: { n: ctl!.n }, tile: "reader" }, { kind: "user" });
+    expect(s().linksIn).toBe(b()!.key);
+    key({ kind: "char", ch: "k" });
+    await until(() => b()!.sel === b()!.rows[0]!.key, "k moves the selection up");
+    expect(b()!.preview).toBe(firstId);
+    // / filters the rows as it's typed; esc clears the filter, esc again comes out.
+    key({ kind: "char", ch: "/" });
+    for (const c of "peas") { key({ kind: "char", ch: c }); }
+    await until(() => { lines(); return b()!.rows.length === 1 && b()!.rows[0]!.id === peas.id; }, "the filter narrowing the list");
+    key({ kind: "esc" });
+    await until(() => { lines(); return b()!.rows.length === 2; }, "esc clears the typed filter", 1500);
+    key({ kind: "esc" });
+    expect(s().linksIn).toBeNull();
+    // Mouse: a click on a row selects it (its preview follows), a second click on it opens it in the reader.
+    const ls = lines(), y = ls.findIndex(l => l.includes("∙ Stake the peas")), x = ls[y]!.indexOf("Stake the peas") + 2;
+    key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => b()?.preview === peas.id, "a click selecting the row");
+    expect(desk.current?.id).toBe(plan.id);
+    key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => reader().msg?.id === peas.id, "a double click opening it");
+    expect([kale.id, peas.id]).toContain(firstId!);
   }, 60_000);
 });
