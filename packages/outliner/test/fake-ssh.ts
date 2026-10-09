@@ -22,7 +22,10 @@ colourOnlyToATerminal();
 
 const argv = process.argv.slice(2);
 // Never the person's machine: "the other machine" is a scratch HOME and outlines folder under the temp dir, or nothing.
-const scratch = (p: string | undefined) => !!p && resolve(p).startsWith(resolve(tmpdir()) + "/");
+// The temp folder, or /tmp/ep0ch-<uid>, where the door's tests put their scratch folders when the temp folder is too long for
+// a socket's path (scratchRoot in packages/door/test/scratch.ts: under agent-env, TMPDIR is /tmp/ep0ch-agent-<uid>/<name>).
+const scratchRoots = [resolve(tmpdir()), `/tmp/ep0ch-${process.getuid?.() ?? 0}`];
+const scratch = (p: string | undefined) => !!p && scratchRoots.some(root => resolve(p).startsWith(root + "/"));
 if (argv[0] !== "--serve" && !argv.includes("-O") && !(scratch(process.env.FAKE_SSH_HOME) && scratch(process.env.FAKE_SSH_OUTLINES))) {
   console.error("fake ssh: FAKE_SSH_HOME and FAKE_SSH_OUTLINES must be scratch folders under the temp dir");
   process.exit(255);
