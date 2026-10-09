@@ -238,7 +238,6 @@ function hunksBetween(base: string, current: string): Hunk[] {
       to = base.length;
       text = text.slice(0, -1);
     }
-    const old = base.slice(from, to);
     // Whole lines, not the characters that differ: a patch that rewrote a sentence of a line has no record here of
     // which words it meant, so a later patch to any other part of that line is not told apart from it.
     hunks.push({ start: from, end: to, replacement: text });
