@@ -231,7 +231,8 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1 && B().preview.msg?.id === target.id, "the card in the preview", 10_000);
     ch("b");
-    await until(() => !!B().linksTile.data && !!B().describe().backlinks, "the backlinks");
+    // The note's children (PIE-693) come in their own read, beside the backlinks.
+    await until(() => !!B().linksTile.data && B().linksTile.children.kind === "ready" && !!B().describe().backlinks, "the backlinks and the children");
   };
 
   beforeAll(async () => {
