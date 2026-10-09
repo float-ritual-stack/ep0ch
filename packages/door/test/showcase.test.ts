@@ -826,7 +826,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const childRows = (name: string) => (tile(name)?.backlinks?.rows ?? []).filter((r: any) => r.kind === "child");
     await until(() => tile("reader")?.showing?.id === seeded.notes.swap.id && childRows("replies").length === 4 && childRows("links").length === 4, "the swap thread, its links and its replies", 8000);
     // The replies tile lists Children alone; the links tile every group, the counters across all four.
-    expect(tile("replies").backlinks.groups).toEqual(["children"]);
+    expect(tile("replies").backlinks.linkGroups).toEqual(["children"]);
     expect(tile("replies").backlinks.rows.some((r: any) => r.kind === "outlink" || r.kind === "backlink")).toBe(false);
     expect(tile("links").backlinks.status).toMatch(/→\d+\/\d+ ♦\d+\/\d+ ←\d+\/\d+ ↓4\/4/);
     // Stage narrows the children as every group: open keeps Ana's (waiting) and Cal's (active).
@@ -840,7 +840,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(tile("links").backlinks.rows.some((r: any) => r.kind === "outlink")).toBe(false);
     expect(JSON.stringify(stage().layoutSpec())).toContain('"linkGroups":"backlinks,children"');
     await app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "outlinks" }, as: "test-agent" });
-    expect(tile("replies").backlinks.groups).toEqual(["outlinks", "children"]);
+    expect(tile("replies").backlinks.linkGroups).toEqual(["outlinks", "children"]);
     await app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "outlinks" }, as: "test-agent" });
     await expect(app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "children" }, as: "test-agent" })).rejects.toThrow(/only group/);
     await expect(app.act({ action: "backlinks.groups", tile: "replies", args: { show: "kids" }, as: "test-agent" })).rejects.toThrow(/isn't a group/);

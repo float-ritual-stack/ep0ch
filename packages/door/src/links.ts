@@ -117,6 +117,8 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       if (c.kind === "loading") note = "asking the service…";
       else if (c.kind === "error") note = c.message;
       else {
+        // No children: the group says nothing, as an empty Outlinks doesn't, unless it's all the list shows (the replies).
+        if (!c.value.length && !(view.only?.size === 1)) continue;
         const rows: LinkRow[] = c.value.map(child => ({ kind: "child", key: key + SEP + child.block.id, depth: depth + 1, child }));
         entries.push(...narrowRows(rows, view.backlinks, filter, !!view.sortAll));
         count = entries.length;

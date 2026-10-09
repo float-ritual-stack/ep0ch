@@ -65,27 +65,27 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
 
   test("a click on a float's ⧉ puts it back it where the containers take it", async () => {
     fresh();
-    await mine("tile.float", {}, "thread");
+    await mine("tile.float", {}, "replies");
     await mine("layout.policy", { accepts: "query" }, "activity");
     await mine("tile.focus", {}, "activity");
     render();
     const f = get().floats[0].rect;
     key({ kind: "mouse", action: "down", button: 0, x: f.col + 3, y: f.row }); key({ kind: "mouse", action: "up", button: 0, x: f.col + 3, y: f.row });
     expect(floats()).toEqual([]);
-    expect(treeNames()).toContain("thread");
+    expect(treeNames()).toContain("replies");
   });
 
   test("float → dock → float by keys: ^W f, ^W p on the float (one step into a dock), ^W f again", async () => {
     fresh();
-    await mine("tile.focus", {}, "thread");
+    await mine("tile.focus", {}, "replies");
     key(ctrl("w")); key(char("f"));
-    await until(() => floats().includes("thread"), "^W f floats it");
+    await until(() => floats().includes("replies"), "^W f floats it");
     key(ctrl("w")); key(char("p"));
-    await until(() => !floats().includes("thread") && !!get().tiles.find(t => t.name === "thread")?.dock, "^W p puts the float in a dock");
-    expect(treeNames()).toContain("thread");
+    await until(() => !floats().includes("replies") && !!get().tiles.find(t => t.name === "replies")?.dock, "^W p puts the float in a dock");
+    expect(treeNames()).toContain("replies");
     key(ctrl("w")); key(char("f"));
-    await until(() => floats().includes("thread"), "^W f floats it out of its dock");
-    expect(get().tiles.find(t => t.name === "thread")?.dock ?? null).toBeFalsy();
+    await until(() => floats().includes("replies"), "^W f floats it out of its dock");
+    expect(get().tiles.find(t => t.name === "replies")?.dock ?? null).toBeFalsy();
   });
 
   test("float ⇄ layout by mouse: the focused tile's ⧉ floats it; the float's ⧉ (or the cell beside it) puts it back; its other header controls fire, not a drag", async () => {
@@ -142,7 +142,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     // Drawn on the screen as it is (its own rectangle stays as it was put, for when the terminal grows again).
     const f = get().floats[0].rect;
     expect(f.col + f.cols).toBeLessThanOrEqual(14);
-    await mine("tile.focus", {}, "thread");
+    await mine("tile.focus", {}, "replies");
     render();
     const fr = D().rectsNow().get(D().focus);
     expect(fr === undefined || (fr.cols > 0 && fr.rows > 0)).toBe(true);

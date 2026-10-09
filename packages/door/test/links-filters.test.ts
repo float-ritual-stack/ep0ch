@@ -283,7 +283,7 @@ describe("a links tile with Children alone (PIE-693)", () => {
     await Bun.sleep(5);
     expect(backlinksAsked).toBe(0);
     expect(p.rows().filter(r => r.kind === "child").map(r => linkWords(r).text)).toEqual(["Ana: beans"]);
-    expect(p.describe()).toMatchObject({ groups: ["children"] });
+    expect(p.describe()).toMatchObject({ linkGroups: ["children"] });
     expect(p.spec()).toMatchObject({ linkGroups: "children" });
     expect(p.title()).toContain("1 reply");
   });

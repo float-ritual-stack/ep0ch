@@ -267,14 +267,17 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     await openDock();
     const p = peek();
     expect(p.faceted).toBe(true);
-    expect(p.status).toBe("7 of 9 match · →0/0 ♦0/0 ←7/9 · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(p.status).toBe("8 of 10 match · →0/0 ♦0/0 ←7/9 ↓1/1 · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
     // The links model's groups: no outlinks or resources here, so Backlinks alone, Detail's kind groups under it.
     expect(p.rows.map((r: any) => r.text)).toEqual([
       "← backlinks (7)", "Outbox item 4", "Offer spare onion sets", "Ask Ana about bean seed",   // open first, then updated ↓
       ...p.rows.slice(4).map((r: any) => r.text),
     ]);
     expect(p.rows[1].context).toBe("(1 waiting · 1 draft · 2 done)");
-    expect(p.rows.slice(4).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);   // the other kinds, folded (nothing open in them)
+    // the other kinds, folded (nothing open in them); then the note's children (PIE-693)
+    const kids = p.rows.findIndex((r: any) => r.kind === "group" && r.group === "children");
+    expect(p.rows.slice(4, kids).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);
+    expect(p.rows.slice(kids + 1).every((r: any) => r.kind === "child")).toBe(true);
     expect(p.rows.find((r: any) => r.selected).id).toBe(ids.draft);               // the first source, not a header
     const lines = dock();
     expect(parts(lines[0]!)).toEqual(parts(p.status));
@@ -312,13 +315,13 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
   test("the toggles by key: h resolved, n this note, K kind, w stage, s sort; . folds a group; each keeps the counts adding up", async () => {
     await openDock();
     ch("h");
-    expect(peek().status).toBe("8 of 9 match · →0/0 ♦0/0 ←8/9 · 1 this note hidden · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("9 of 10 match · →0/0 ♦0/0 ←8/9 ↓1/1 · 1 this note hidden · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
     ch("n");
-    expect(peek().status).toBe("9 of 9 match · →0/0 ♦0/0 ←9/9 · this note shown · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("10 of 10 match · →0/0 ♦0/0 ←9/9 ↓1/1 · this note shown · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
     ch("h"); ch("n");
     ch("K");
     expect(peek().options.kind).toBe("outbox-item");
-    expect(peek().status).toBe("4 of 9 match · →0/0 ♦0/0 ←4/9 · 3 filtered · 1 this note hidden · 1 resolved hidden · Kind: Outbox item · Stage: all · Sort: Updated ↓");
+    expect(peek().status).toBe("4 of 10 match · →0/0 ♦0/0 ←4/9 ↓0/1 · 4 filtered · 1 this note hidden · 1 resolved hidden · Kind: Outbox item · Stage: all · Sort: Updated ↓");
     expect(peek().rows.filter((r: any) => r.id).length).toBe(4);                     // narrowing opens the group
     ch("w"); ch("w");
     expect(peek().options.stage).toBe("waiting");
@@ -331,7 +334,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect(peek().status.endsWith("Sort: Title ↑")).toBe(true);
     // . on a source folds or opens its group; the selection stays on what it was on.
     ch("."); expect(peek().groups.find((g: any) => g.kind === "outbox-item").expanded).toBe(true);
-    expect(peek().rows.filter((r: any) => r.id).length).toBe(4);                     // all four outbox items, done ones too
+    expect(peek().rows.filter((r: any) => r.id && r.kind === "backlink").length).toBe(4);   // all four outbox items, done ones too
     ch("."); expect(peek().groups.find((g: any) => g.kind === "outbox-item").expanded).toBe(false);
   }, 20_000);
 
@@ -342,7 +345,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect(B().treeOpen).toBe(false);
     expect(peek().typing).toBe("rota");
     expect(peek().rows.map((r: any) => r.id).filter(Boolean)).toEqual([ids.rota]);
-    expect(parts(dock()[0]!)).toEqual(expect.arrayContaining(["Filter: rota▌", "1 of 9 match", "→0/0 ♦0/0 ←1/9", "6 filtered"]));
+    expect(parts(dock()[0]!)).toEqual(expect.arrayContaining(["Filter: rota▌", "1 of 10 match", "→0/0 ♦0/0 ←1/9 ↓0/1", "7 filtered"]));
     key({ kind: "esc" });
     expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the dock
     expect(peek().options.filter).toBe("");
@@ -353,7 +356,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     for (const c of "ana") ch(c);
     key({ kind: "enter" });
     expect(peek().options.filter).toBe("ana");
-    expect(peek().status).toStartWith("Filter: ana · 1 of 9 match");
+    expect(peek().status).toStartWith("Filter: ana · 1 of 10 match");
   }, 20_000);
 
   test("mouse: the status line's controls, a group's header, and a row (a detail); alt+⏎ opens a new detail", async () => {
