@@ -105,10 +105,12 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   test("the relation atoms: under:, NOT and title~ in a live figure's query (PIE-554)", async () => {
     const choresId = seeded.notes.chores.id;
     expect(seeded.notes.figures.text).toContain(`query: "under:((${choresId})) NOT stage=done NOT title~hob"`);
-    const titles = (await board.query(`under:((${choresId})) NOT stage=done NOT title~hob`)).map(b => b.text.split(" [")[0]);
+    // The service parses the expression, as a live figure asks it (src/live.ts); board.query splits plain clauses itself.
+    const ask = async (expression: string) => board.toMsgs((await board.request<{ blocks: any[] }>("blocks.query", { query: { expression, limit: 50 } })).blocks);
+    const titles = (await ask(`under:((${choresId})) NOT stage=done NOT title~hob`)).map(b => b.text.split(" [")[0]);
     expect(titles.sort()).toEqual(["Empty the food caddy", "Net the brassicas", "Turn the compost"]);
     // links: reads the reference index: the notebook links the shed page.
-    expect((await board.query(`links:[[${SEED.shed}]] #nothing OR links:[[${SEED.shed}]]`)).map(b => b.id)).toContain(seeded.notes.notebook.id);
+    expect((await ask(`links:[[${SEED.shed}]] #nothing OR links:[[${SEED.shed}]]`)).map(b => b.id)).toContain(seeded.notes.notebook.id);
   });
 
   test("the notebook: callouts, links and soft links, folds, a literal region, a tilde fence, a transclusion, properties in every scope", async () => {
