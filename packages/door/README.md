@@ -681,6 +681,24 @@ A write to an outline whose home is another machine answers `queued` with a `que
   outline's access like the other reads, on a live outline or a mirror. The outline evaluates it (`blocks.query`,
   `views.read`, through `ep0ch find`'s own selection) and the answer is block records with `uri` and `revision`, `limit`
   (1 to 50, default 20), `offset`, `more`, `nextOffset` and `total`. A read-only copy now answers those three actions.
+- **Orient (PIE-674).** An agent arriving cold reads the outline's recent changes, not a separate context store. The
+  recipe, per outline: (1) run the orient query,
+  `outline_query {query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true}` (or a
+  saved view's id: its own `[sort::]` orders it); a busy outline answers a few KB of titles. (2) `outline_read` the rows that
+  are new to you, by `ref`. (3) Pass `seen: ["<id>@<revision>", …]` (the id and revision of what you hold) on every later
+  read, query and find: a block you hold comes back `{id, revision, unchanged: true}` and only the changed ones are
+  sent whole. The arguments: `sort` is `<created|updated|property key> [asc|desc]` and the service applies it (not with
+  `view`); `fields` are `id, uri, title, revision, updated, created, author, actor, parent, path` or a property key
+  (`id` and `revision` always, never a body: asking for `body` is refused, pointing at `outline_read`); `under` is a note
+  as `ref` names one; `fold` folds a note's proposals, comments and deliveries into it as `changes: {count, proposals,
+  comments, deliveries, summary, ids}`, `total` counting folded rows and `foldedFrom` the blocks matched. A folded or
+  seen row still carries `changes`: a note's revision doesn't move when a comment is added to it.
+  Dedupe, cheapest first: a body goes once per response (a repeat is `{id, revision, see: "<rpc id>:<where>"}`); a proposal
+  reads as its diff and the target's `id@revision`, a comment as its words and `anchor: {start, end}` (`raw: true`
+  sends them as stored); `seen` stubs. Layer four, a content hash across outlines and mirrors (the same text in many
+  homes), is designed but not built: hash a body (`textHash`, as the netmail queue does), keep `hash → first
+  outline@id@revision` for the response, and answer a repeat in another outline as `{id, revision, same: "<outline>@<id>"}`;
+  it needs a mirror-wide index to pay off, so it waits for a real duplicate to measure.
 
 Without a note, `outline_threads` is the outline's inbox: the open threads anywhere in it, newest activity first, narrowed
 by `lastFrom` (who spoke last: `evan`, `daddy`; a gateway's `mcp:` prefix is optional), `mentions` (an `@name` in any

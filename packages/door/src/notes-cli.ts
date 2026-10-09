@@ -92,7 +92,7 @@ export const foundLine = (f: Found) => [f.id, field(f.title), field(f.path), ...
 
 /** Every note in the tree index, newest first: its title (the preview's first line) and its ancestors' titles as its path (` › `, as the service's). */
 /** A note's ancestors' titles as its path (` › `, as the service's), from the tree index by id. */
-function pathsOf(index: readonly IndexBlock[]): (b: IndexBlock) => string {
+export function pathsOf(index: readonly IndexBlock[]): (b: IndexBlock) => string {
   const by = new Map(index.map(b => [b.id, b]));
   return b => {
     const up: string[] = [];
