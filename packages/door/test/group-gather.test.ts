@@ -126,7 +126,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("picking tiles: shift+click on titles and ^W space pick, esc lets go; an agent's picks are its own; ^W G gathers the picked, in the arrangement they had", async () => {
     await fresh();
-    const tr = tile("tree").rect, rd = tile("reader").rect, th = tile("thread").rect;
+    const tr = tile("tree").rect, rd = tile("reader").rect;
     mouse("down", tr.col + 3, tr.row, 4); mouse("up", tr.col + 3, tr.row, 4);
     expect(tile("tree").picked).toBe(true);
     expect(get().focus).toBe("tree");
@@ -156,7 +156,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(tile("tree").picked).toBeUndefined();
     // esc lets go of the person's picks, and only the person's.
     await act("tile.select", {}, "thread");
-    mouse("down", tr.col + 3, tr.row, 4); mouse("up", tr.col + 3, tr.row, 4);
+    await mine("tile.focus", {}, "tree");
+    chord(" ");                                                // ^W space picks the focused tile too
     expect(tile("tree").picked).toBe(true);
     press({ kind: "esc" } as Key);
     expect(tile("tree").picked).toBeUndefined();
