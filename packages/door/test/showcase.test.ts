@@ -423,7 +423,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
-    "reader-modes": ["follows reader", "held detail", "pinned"],
+    "reader-modes": ["outline", "· held", "· pinned"],
     screen: ["board ·", "· lanes", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
