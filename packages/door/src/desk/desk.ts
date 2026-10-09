@@ -7,8 +7,9 @@
 //
 // Every change goes through a named action (TILE_ACTIONS, PANE_ACTIONS, DESK_ACTIONS): the keys, the mouse
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
-import { nothingToClose, shellKeyOf } from "../shell-keys";
-import type { Ctx, Frame, Screen, ViewState } from "../app";
+import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
+import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
+import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -30,7 +31,7 @@ import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, width } from "../style";
+import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
@@ -2481,6 +2482,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
     // The person's keys are in this tile (it's focused and they're on this desk): its frame and name wear the focus accent.
     const keys = focused && this.cover(id) !== "peek" && this.keysHere();
+    // A refusal of the person's key or click (PIE-727) is said here, on the tile they're looking at, over its hint: in
+    // the warning tone (amber), and loud (on its capped-dark amber surface, bold, the frame amber too) when the same key
+    // was refused again. A tile with a screen of its own in it (a group) leaves it to that screen's focused tile.
+    const no = keys && !pane.nestsTiles?.() ? this.ctx?.refusal?.() ?? null : null;
     const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, float ? 2 : 0);
     // A float's ⧉ puts it back: the cell either side counts too (a font that draws the glyph wide puts it under the pointer there).
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
@@ -2498,7 +2503,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
     // At rest, its frame in the look's tone when its `edge` asks for one (PIE-675); every state above keeps its own colour.
     const toned = lv.edge !== "none" && lv.tone !== "neutral" ? TONE[lv.tone] : null;
-    const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
+    const edgeC = no?.loud ? TONE.amber : this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
     const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // A float's long subject is cut so what it holds and how far down it is still show.
     const tail = (held ? fg(C.dark) + " (e enters)" : "") + more + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
@@ -2525,7 +2530,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
-    const hint = own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
+    const hint = no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -2899,6 +2904,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.area.row + this.area.rows }));
       return pad(t, room) + tail;
     };
+    // A refusal of the person's key on a tile folded to a spine (PIE-727): the spine has no edge to say it on, so the
+    // screen's hint row under it says it, as the tile's frame would.
+    const spineNo = this.collapsed.has(this.focus) && this.keysHere() ? this.ctx?.refusal?.() ?? null : null;
+    if (spineNo) return line(refusalHint(spineNo));
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
     const over = [...this.models.values()].map(m => m.hint?.() ?? null).find(h => h !== null) ?? null;
     if (over !== null) return line(over);
@@ -3108,7 +3117,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
       // - + = too (PIE-699): on a spine either one opens it.
       if (k.kind === "enter" || c0 === " " || c0 === "c" || FOLD_KEYS.has(c0)) return this.expandSpine(this.focus);
-      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { this.ctx.flash(`${this.readerLabel(this.focus)} is collapsed to a spine · c, - or ⏎ or a click opens it`); return; }
+      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { refused(this.ctx, `${this.readerLabel(this.focus)} is collapsed to a spine · c, - or ⏎ or a click opens it`); return; }
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.run("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));
@@ -5412,6 +5421,16 @@ const madeFor = (p: Pane | undefined): { id: string; context: string | null } | 
 
 /** How dim a peek column is drawn under its neighbour (the river's cover). */
 const PEEK_DIM = 0.55;
+
+/**
+ * A refusal as a tile's hint row says it (PIE-727): ✗ and why, in the warning tone; loud, on the warning surface at its
+ * full strength (capped dark by surfaceBg: no bright flash) and bold; it stays until another key.
+ */
+export function refusalHint(r: Refusal): string {
+  const ink = fg(TONE.amber);
+  if (!r.loud) return `${ink}✗ ${r.text}`;
+  return `${surfaceBg("amber", SURFACE_STEPS)}${ink}${BOLD} ✗ ${r.text} ${UNBOLD}${RESET}`;
+}
 /** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
 let MORE = "";
 themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });

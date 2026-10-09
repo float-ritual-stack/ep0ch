@@ -16,10 +16,11 @@
 //
 // Keys: the mounted screen's own keys work in it (the board's h l j k); 1-9, Tab, alt and ^W stay the screen holding it.
 // `^W e` (`mount.enter`) goes in: every key is the mounted screen's, its ^W and Tab too, until ctrl+] or an Esc with
-// nothing left to close in it. What the mounted screen selects (the board's card) is the tile's selection: a preview
+// nothing left to close in it. A q with nothing left to leave in it is the holding screen's q: it leaves that screen, as on
+// any desk (PIE-727), or, from inside, comes out. What the mounted screen selects (the board's card) is the tile's selection: a preview
 // tile can follow it. A screen made for the current note each time it moves (`Follows`: the showcase's BBS message
 // reader beside a reader) is drawn the same way.
-import { nothingToClose } from "../shell-keys";
+import { nothingToClose, refused } from "../shell-keys";
 import type { Screen } from "../app";
 import type { Msg } from "../board";
 import type { Placement } from "../kitty";
@@ -144,9 +145,18 @@ export class ScreenTile implements Pane {
     this.desk = desk;
     // The desk it's on is read each time, never kept from the first: a mount moved (into a group, your drawer, back) answers to its new one.
     const on = () => this.desk ?? desk;
-    this.framed = s && new FramedScreen(s, () => on().ctx, () => on().ctx.flash(`the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!on().hasFocus?.(this),
+    // q with nothing left in the screen: out of it when the person is in it, else the screen holding it goes back, as q
+    // does on any desk (PIE-727: it was refused here, so a desk holding only a group couldn't be left by q).
+    this.framed = s && new FramedScreen(s, () => on().ctx, () => this.left(on()), undefined, () => !!on().hasFocus?.(this),
       // Esc with nothing left in the screen: out of it when the person is in it, else the desk's own steps (a zoom, a dock, a float's keys).
       () => (this.inside ? this.goIn(false) : on().escaped ? on().escaped!() : nothingToClose(on().ctx)));
+  }
+
+  /** q with nothing left in its screen: out of it (the person was in it), else the screen holding it goes back. */
+  private left(desk: DeskApi) {
+    if (this.inside) return this.goIn(false);
+    if (desk.leave) return desk.leave();
+    refused(desk.ctx, `the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`);
   }
 
   /** An open its screen has no reader for (a mounted part: the lanes alone): where this tile's opens land, on the screen holding it. */
@@ -241,6 +251,8 @@ export class ScreenTile implements Pane {
     this.framed?.dispose();
     this.framed = null;
   }
+  /** Its desk's focused tile says a refusal of the person's key (Pane.nestsTiles): a followed screen isn't a desk, so this frame does. */
+  nestsTiles() { return !!this.inner; }
   /** Every key is its screen's now: it's in an edit, or the person went in. */
   holdsKeys() { return this.inside || !!this.framed?.top.holdsKeys?.(); }
   /** Programs run in it (a group's terminal): it holds work a new layout keeps. */

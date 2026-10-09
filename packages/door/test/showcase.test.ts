@@ -462,6 +462,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
     // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
     esc: ["Allotment notebook", "Bike shed"],
+    // The shed note folded to a spine (the keys on it) beside the notebook: a key the spine refuses says why on its frame.
+    refusals: ["Allotment notebook", "Bike shed"],
     // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
     headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
     // The Spacing lab page in its look, the tune inspector beside it, the links tile, the Looks lab note that declares it.
@@ -1227,6 +1229,65 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
+  }, 20_000);
+
+  test("the refusals section (PIE-727): a key the spine refuses says why on its frame, loud the second time, gone on another key; the status bar keeps its copy", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "refusals" }, as: "test-agent" });
+    await until(() => marks.refusals!.every(m => screen().includes(m)), "the refusals section");
+    const stage = () => S().stages.get(S().sel).top;
+    await until(() => stage().describe().panes.find((p: any) => p.name === "shed")?.collapsed === true, "the shed folded to a spine");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    expect(stage().layoutGet().focus).toBe("shed");
+    // x on the spine: refused, said on the spine's own frame (where the keys are) and on the status bar.
+    press({ kind: "char", ch: "x" });
+    const why = app.refusal()!;
+    expect(why).toMatchObject({ loud: false });
+    expect(why.text).toContain("is collapsed to a spine");
+    expect((app as any).message).toBe(why.text);
+    await until(() => screen().includes(`✗ ${why.text.slice(0, 12)}`), "the refusal on the spine's frame");
+    // x again: loud (bold, on the warning surface), and it stays.
+    press({ kind: "char", ch: "x" });
+    expect(app.refusal()).toEqual({ text: why.text, loud: true });
+    const raw = sc.render(app).lines.find(l => plain(l).includes(`✗ ${why.text.slice(0, 12)}`))!;
+    expect(raw).toContain("\x1b[1m");
+    expect(raw).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
+    // Another key (Tab, to the notebook): gone.
+    press({ kind: "tab" });
+    expect(app.refusal()).toBeNull();
+    expect(screen()).not.toContain(`✗ ${why.text.slice(0, 12)}`);
+    expect(stage().layoutGet().focus).toBe("reader");
+    // ^W x on the notebook's reader: the screen is locked, and the reader's own bottom edge says so; again, loud.
+    const close = () => { press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "x" }); };
+    close();
+    const locked = app.refusal()!;
+    expect(locked).toMatchObject({ loud: false });
+    const edge = () => screen().split("\n").find(l => l.includes(`✗ ${locked.text.slice(0, 12)}`)) ?? null;
+    await until(() => edge() !== null, "the refusal on the reader's frame");
+    expect(edge()).toMatch(/[╚└]/);
+    close();
+    expect(app.refusal()).toEqual({ text: locked.text, loud: true });
+    expect(stage().layoutGet().tiles.map((t: any) => t.name)).toEqual(expect.arrayContaining(["shed", "reader"]));
+    // A click (the mouse is first-class): the reader's ⋯, then its dimmed close row, says why the same way.
+    press({ kind: "char", ch: "j" });
+    expect(app.refusal()).toBeNull();
+    const at = S().stageRect;
+    sc.render(app);
+    const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    click(at.col + b.from, at.row + b.row);
+    await until(() => stage().overlays.top()?.name === "tile menu", "the reader's menu");
+    const row = (stage().overlays.top().items as any[]).find(r => r.action === "tile.close");
+    expect(row?.refused).toBeTruthy();
+    const lines = sc.render(app).lines.map(plain), y = lines.findIndex(l => l.includes(` ${row.label} `) && l.includes("^W x"));
+    expect(y).toBeGreaterThan(0);
+    const x = lines[y]!.indexOf(` ${row.label} `) + 2;
+    click(x, y);
+    expect(app.refusal()).toEqual({ text: row.refused, loud: false });
+    await until(() => screen().includes(`✗ ${String(row.refused).slice(0, 12)}`), "the click's refusal on the reader's frame");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("a screen in a tile (the screen section's board): Esc with nothing left in the board goes on to the desk's steps (its zoom), then back to the index", async () => {
