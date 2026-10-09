@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "0923b6f5", "outliner": "0923b6f5", "on": "2026-10-09" },
+  "verified": { "door": "821415a4", "outliner": "821415a4", "on": "2026-10-09" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -357,12 +357,12 @@
       "does": "One door every action goes through, one per screen host: the person's keys and clicks, an agent's act, a tile holding a whole screen. It reads tile= with one grammar, finds the set that owns a name, checks expected=, checks what the action declares it touches against where the person is (once, before it runs), runs it as the person (a refusal said, then a redraw) or as an agent (announced, refused with the reason, what it did said).",
       "built": "Dispatcher, TileRef and actorRule in surface/dispatch.ts; screens register their action sets (the desk, the board, the welcome, the brief, Waiting, the river, the BBS screens, the showcase, the App's shell, host layer and extensions). The shell's whereabouts query (whereabouts.ts, App.person) answers where the person's keys and focus are, which tile they type in, whether they're busy, how long idle; it feeds the actor rule, the layout engine's ctx.person and, through the dispatcher, the draft session's draftRule (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 208, "m": "export class Dispatcher" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 156, "m": "export function actorRule" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 213, "m": "export class Dispatcher" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 161, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
         { "r": "door", "p": "src/app.ts", "l": 884, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 576, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1625, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1631, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -375,7 +375,7 @@
       "refs": [
         { "r": "door", "p": "src/screens.ts", "l": 454, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 787, "m": "export const LIST_ACTIONS" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 156, "m": "export function actorRule" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 161, "m": "export function actorRule" },
         { "r": "door", "p": "src/app.ts", "l": 898, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 53, "m": "export async function runLoginShell" }
       ]
@@ -459,7 +459,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 99, "m": "id?: string" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 295, "m": "export function revisionRefusal" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 391, "m": "\"layout.resize\"" }
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 392, "m": "\"layout.resize\"" }
       ]
     },
     {
@@ -470,11 +470,11 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 122, "m": "export class Desk" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 468, "m": "private apply(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 443, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1827, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 852, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4498, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1833, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 853, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4514, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 97, "m": "export const TILE_ACTIONS" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 296, "m": "\"tile.widen\": def({" }
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 297, "m": "\"tile.widen\": def({" }
       ],
       "questions": []
     },
@@ -490,7 +490,7 @@
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 433, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 63, "m": "export class QueryPane" },
         { "r": "door", "p": "src/desk/lanes.ts", "l": 1556, "m": "export const HUB_SOURCE" },
-        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 205, "m": "export function registerBuiltinTiles" },
+        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 216, "m": "export function registerBuiltinTiles" },
         { "r": "door", "p": "src/desk/tune.ts", "l": 108, "m": "export class TunePane" },
         { "r": "door", "p": "src/library/library.ts", "l": 517, "m": "export const LIBRARY_KIND" }
       ],
@@ -501,8 +501,8 @@
       "does": "A layout saved by name (daily, river, your own), restored with its tiles, links and ids.",
       "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, a screen spec's layout (screen-spec.ts, plain data), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
       "refs": [
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 91, "m": "export interface LayoutSpec" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 203, "m": "export function layoutNamed" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 93, "m": "export interface LayoutSpec" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 185, "m": "export function layoutNamed" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 82, "m": "interface SavedDesk" },
         { "r": "door", "p": "src/river/column.ts", "l": 977, "m": "saves: \"river.json\"" }
       ],
@@ -526,7 +526,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 517, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 981, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 982, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -588,7 +588,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 159, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 4730, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 4746, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 873, "m": "private take(id: I, heir?" }
       ]
     },
@@ -640,7 +640,7 @@
       "built": "setup/: facts, model, plan, apply, doctor; backup/setup.ts is the backup job's place in install and doctor.",
       "refs": [
         { "r": "door", "p": "src/setup/facts.ts", "l": 46, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 233, "m": "MIN_BUN = \"1.3.0\"" },
+        { "r": "door", "p": "src/setup/model.ts", "l": 235, "m": "MIN_BUN = \"1.3.0\"" },
         { "r": "door", "p": "src/backup/setup.ts", "l": 1, "m": "// The backup job's place in `ep0ch install`" }
       ],
       "questions": [
@@ -654,11 +654,11 @@
       "does": "A screen as data on the one screen host, the desk: its containers and tiles by kind, a key map naming actions, a hint, a band drawn by a tile kind, where opens land. The desk, the welcome, the brief, Waiting and a pinned page are specs; what each does beyond layout is its tiles' kinds'.",
       "built": "ScreenSpec (plain data: specData writes it, readSpec reads it back checked) and the built-in screens registered by name (openScreen). The desk is final: nothing subclasses it. The welcome's list kind is its model and draws its band; the brief's and a pinned page's kinds open beside by policy (opens: beside).",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 54, "m": "export interface ScreenSpec" },
-        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 112, "m": "export function readSpec" },
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 55, "m": "export interface ScreenSpec" },
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 113, "m": "export function readSpec" },
         { "r": "door", "p": "src/desk/screen-specs.ts", "l": 54, "m": "export function openScreen" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 84, "m": "export function deskSpec" },
-        { "r": "door", "p": "src/hub/welcome.ts", "l": 633, "m": "export function welcomeSpec" },
+        { "r": "door", "p": "src/hub/welcome.ts", "l": 635, "m": "export function welcomeSpec" },
         { "r": "door", "p": "src/brief/brief.ts", "l": 270, "m": "export function briefSpec" }
       ],
       "questions": [
@@ -790,7 +790,7 @@
       "does": "Outliner tools inside Claude Code; `show` opens a note in the door from Claude's own tile, where that tile's opens land.",
       "built": "register.ts registers the tools; door-open --from $EP0CH_TILE.",
       "refs": [
-        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 1067, "m": "['--from', from]" },
+        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 1090, "m": "['--from', from]" },
         { "r": "outliner", "p": "src/door-control.ts", "l": 66, "m": "export async function openInDoor" }
       ]
     },
@@ -877,7 +877,7 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 141, "m": "export const STYLE_LEVELS" },
         { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 169, "m": "export function parseStyleValue" },
-        { "r": "door", "p": "src/look.ts", "l": 291, "m": "export function lookFor" }
+        { "r": "door", "p": "src/look.ts", "l": 283, "m": "export function lookFor" }
       ],
       "questions": [ { "text": "Only the door resolves it so far: Detail and the publisher still draw their own spacing.", "route": "PIE-493" } ]
     },
@@ -917,7 +917,7 @@
       "does": "Spacing and list density resolved for where something is drawn (PIE-673), and a tile beside the one it tunes, like devtools' computed styles: each value with where it comes from, nudged in memory so the tiles redraw in the next frame, and written with s to a level (global, the tile's kind, the screen, the page).",
       "built": "look.ts keeps the outline's style sheets per connection (asked again after the outline changes) and the tuning layer, and resolves through outline-core's cascade, never a rule of the door's own. The tune tile (TunePane, kind tune) is an ordinary tile kind with actions; saving writes the style note through the service.",
       "refs": [
-        { "r": "door", "p": "src/look.ts", "l": 291, "m": "export function lookFor" },
+        { "r": "door", "p": "src/look.ts", "l": 283, "m": "export function lookFor" },
         { "r": "door", "p": "src/look.ts", "l": 117, "m": "export class Tuning" },
         { "r": "door", "p": "src/desk/tune.ts", "l": 108, "m": "export class TunePane" }
       ]
@@ -939,7 +939,7 @@
       "built": "screen-notes.ts reads every screen note at start and when one changes and registers it (madeScreen); saving writes the same note at the revision this door read, trashing the note or screen.delete takes the screen away. A name that is a built-in's, or that two notes share, isn't registered, and the problem names the notes. The service needed nothing new.",
       "refs": [
         { "r": "door", "p": "src/desk/screen-notes.ts", "l": 27, "m": "export const SCREEN_TYPE" },
-        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 112, "m": "export function readSpec" }
+        { "r": "door", "p": "src/desk/screen-spec.ts", "l": 113, "m": "export function readSpec" }
       ]
     },
     {
@@ -947,9 +947,9 @@
       "does": "A tile's link (a reader beside its tree) may end on a tile of another desk of the family: inside a group, outside it, in the holder or the drawer (PIE-696). The link is drawn and followed the same; moving a tile in or out of a group keeps it.",
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 644, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 704, "m": "extTarget(id: number)" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 670, "m": "pathTo(pane: Pane)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 645, "m": "private readonly ext = new Map" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 705, "m": "extTarget(id: number)" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 671, "m": "pathTo(pane: Pane)" }
       ]
     },
     {
