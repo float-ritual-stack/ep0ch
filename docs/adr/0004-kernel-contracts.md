@@ -1,6 +1,7 @@
 # 0004: Kernel contracts: what every built-in and every extension is made of
 
-Status: accepted, 2026-10-09, with Evan's amendment: the door context for sources is in (contract 4).
+Status: accepted, 2026-10-09, with Evan's amendments: the door context for sources is in (contract 4), and highlights and
+margin notes are in (contract 6): years of stated need are evidence.
 
 ## Context
 
@@ -437,16 +438,39 @@ Passage = {
 
 **PROTOCOL.** Bumps: `Passage`, `on: "passage"`, the helper in outline-core.
 
+### 6. Highlights and margin notes: span decorations, a margin place, annotations with properties
+
+**Evidence.** This is the need the whole line of reasoning started from, stated for years: Evan's conversation exports
+and board notes on float-box (`/opt/float/data/floatctl-extract`, `/opt/float/bbs/boards`) mention Readwise or Reader
+about 38,000 times, and about 15,000 files there touch Readwise, Hypothesis, highlights or annotation. A decade of
+Readwise highlights and a 2,836-annotation Hypothesis archive are his. The marginalia prototype (Oct 9) is the shape.
+The annotation store, anchors and re-anchoring ladder are built (PIE-138, 210, 250 to 257); what's missing is the
+drawing and the properties. The second uses are already queued: the Readwise board (PIE-743), the browser and page
+overlay (PIE-735 C), the browser tile (PIE-742).
+
+- **A highlight is an annotation with no body.** Annotations carry ordinary properties: `kind` (highlight, note,
+  question, define, explain), `tags`, `color` (a theme tone name, never a raw colour). Properties are open: these are
+  conventions the kit writes and every query reads, not a closed list.
+- **Span decorations** (`place: "span"`): a rule or component marks characters, by an annotation's anchor or by a
+  passage target (contract 5). The door draws them in its renderer (a tone background, capped dark), the publisher as
+  `<mark>`; Detail as its comment marks do.
+- **A margin place** (`place: "margin"`): a card beside a passage, from an annotation thread or a component's view
+  spec. The door draws it in the comment gutter's column, widening into a side column when the tile is wide; narrow, it
+  folds under the passage (as the prototype does). The publisher and the page overlay draw an aside.
+- **Every terminal:** the door and Detail draw spans and margins; published pages draw them read-only now and take
+  them back with the one sign-in (PIE-735 C); MCP reads annotations with their properties (`outline_threads`), and an
+  agent writes one with a passage target.
+
+**PROTOCOL.** Bumps: the `span` and `margin` places, the annotation properties on the wire.
+
 ## Not yet: stays a convention or a kit
 
 Each of these was asked for. None has the evidence yet. Each says what would make it climb.
 
 | Part | Rung now | Stays as | Climbs when |
 |---|---|---|---|
-| **Span decorations and a margin place** (`place: span`, `place: margin`) | 1: marginalia is a mock | a kit's rule drawing `above`/`below` and a component in the note | marginalia's kit fails the cold-start test because a highlight can't be drawn on the words (PIE-735 F) |
 | **Component outputs and dataflow** (`((id^name)).field`, one-way, cycles refused) | 1: the showcase repeats queries | each component asks its own question (contract 1 makes that cheap: watched and coalesced) | two components in real notes need one value and their answers disagree, or `{{ }}` interpolation (PIE-533) lands and needs a value to read |
 | **Bindings** (a property whose value is a link reads that block's record, PIE-533) | 2: designed | properties as written | the same: PIE-533's first slice |
-| **Annotations' `kind`, `tags`, `color`; a highlight as an annotation with no body** | 2: a convention | ordinary properties on annotation blocks, queryable today (`parent:this type=annotation` after contract 1); written by a kit | the margin and span places climb, so an empty body has somewhere to draw |
 | **The bar's list and the completer's popup as `ListView`** | 4, separately | their own lists | a fix lands in one and is missed in the other |
 | **The bookkeeping fold** (PIE-731 item 4) | 2 | a saved view note Evan edits, used as a `where` (`::backlinks{where=((bookkeeping))}`), never a type list in code | it's written into a third preset by hand |
 
@@ -492,6 +516,7 @@ Each slice is one PR with a kitchen-sink section (`ep0ch --showcase`) and its te
 | 5 | PIE-749 | Live figures' data computed by the service; `expand` on reads (PIE-730) | 1 | a `::graph-tabs` read by `ep0ch show`, Detail and `outline_read` alike | `resolveLive` and its helpers leave the door for outline-core |
 | 6 | PIE-750 | One source row contract; completion asks sources by trigger; `sources[]` and contract 3 | 4 | an extension's `@` completion source and its bar scope | `lookupCompletion`'s branches, both trigger detectors, `BarRow` and `ExtensionBarRow` |
 | 7 | PIE-751 | The passage target, exact selection to source, one passage helper | 5 | a fictional "define on select" extension, from the door's selection and from an agent's `quote=` | the three passage builders' own matching |
+| 8 | PIE-753 | Highlights and margin notes: span decorations, the margin place, annotation properties (contract 6) | 5, 7 | marginalia's kit on a note and a file: select, highlight, ask; the notebook as a query | the gutter-only comment marks' own drawing |
 
 1–3 are PIE-731 and the base the rest use. 4–5 finish the figures. 6 is the bar and completion. 7 is PIE-735 B1 and
 B4; the rest of PIE-735 B and D waits in [Not yet](#not-yet-stays-a-convention-or-a-kit) for marginalia's kit.
