@@ -52,6 +52,19 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     args: {},
     run(_, { desk }) { return host(desk).leaveTerminal(); },
   }),
+  "terminal.copy": def({
+    summary: "copy the text selected in terminal tile=<tile> to the person's clipboard (OSC 52). A drag where the program hasn't asked for the mouse, or shift+drag (alt+drag) where it has, selects, and the release of it copies (copy on select; EP0CH_COPY_ON_SELECT=0 turns that off). The person's only: an agent's copy would be a selection of theirs",
+    keys: "the release of a drag in a terminal tile (shift+drag or alt+drag when its program has the mouse)",
+    touches: "nothing", replay: "safe", person: "the selection in a terminal tile is the person's, and so is their clipboard",
+    args: {},
+    run(_, { pane, tile }, actor) {
+      if (actor.kind === "agent") throw new ActionRefused(`${tile}'s selection is the person's: read the tile with peek instead`);
+      if (!pane.hasSelection) throw new ActionRefused(`nothing is selected in ${tile} · drag across its text`);
+      const text = pane.copySelection();
+      if (!text) throw new ActionRefused("only blanks are selected");
+      return { copied: [...text].length, text, clipboard: true };
+    },
+  }),
   "tile.herdr": def({
     summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the

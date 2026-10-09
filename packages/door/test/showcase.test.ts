@@ -885,6 +885,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Mulch the roses", "again") + "\\n" }, as: "test-agent" });
     await until(() => copies().length > 1, "the second copy written to the terminal", 8000);
     expect(copies().at(-1)).toBe(osc52("Mulch the roses"));
+    // A drag across the line it printed: the door selects it and copies on release (PIE-716).
+    const line = painted.map(plain).findIndex(l => l.includes("Plant out the courgettes")), x0 = painted.map(plain)[line]!.indexOf("Plant");
+    const n = copies().length;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y: line }); press({ kind: "mouse", action: "drag", button: 0, x: x0 + 4, y: line }); press({ kind: "mouse", action: "up", button: 0, x: x0 + 4, y: line });
+    await until(() => copies().length > n, "the drag's copy written to the terminal", 5000);
+    expect(copies().at(-1)).toBe(osc52("Plant"));
+    press({ kind: "char", ch: "]", ctrl: true });                // the press went into the tile, as a click does
     press({ kind: "esc" });
   }, 20_000);
 
