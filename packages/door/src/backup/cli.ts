@@ -2,7 +2,10 @@
 import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { isInside } from "../state";
-import { age, alertMark, hhmm, readAlert, readBackupState } from "./alert";
+import { age, hhmm, readAlert, readBackupState } from "./alert";
+import { plainReason } from "./plain";
+import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
+import { fg, RESET, width } from "../style";
 import { backupConfig, type BackupConfig, type Env } from "./config";
 import { blockCount, drill, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
 import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
@@ -32,28 +35,18 @@ function flag(args: readonly string[], name: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-export function statusLines(c: BackupConfig, now = Date.now()): string[] {
+/** `ep0ch backup status`: the verdict first, what is wrong now, then the outlines and the history (verdict.ts). Plain unless `colour`. */
+export function statusLines(c: BackupConfig, now = Date.now(), o: { verbose?: boolean; colour?: boolean } = {}): string[] {
   const s = readBackupState(c.state), a = readAlert(c.state);
-  const lines = [`backups on ${c.machine} (${c.machineFrom === "hostname" ? `from the host name; set EP0CH_BACKUP_MACHINE in ${c.file} to change it` : c.machineFrom === "file" ? c.file : "EP0CH_BACKUP_MACHINE"}) · ${c.repoOf(c.machine)}`];
-  if (s.lastRun) lines.push(`  last run ${hhmm(s.lastRun.at)} (${age(now - Date.parse(s.lastRun.at))} ago): ${s.lastRun.ok ? "ok" : "FAILED"}, ${s.lastRun.detail}`);
-  else lines.push("  the job hasn't run here yet (ep0ch backup run)");
-  for (const [name, o] of Object.entries(s.outlines).sort()) {
-    const newest = o.at ? `newest ${hhmm(o.at)} (${age(now - Date.parse(o.at))} ago, change ${o.seq ?? "?"})` : "never backed up";
-    const via = o.relayed ? `; relayed via ${o.relayed.via} at ${hhmm(o.relayed.at)} (the repository: ${o.relayed.why})${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either: ${o.relayed.uploadError ?? "?"}`}` : "";
-    lines.push(`  ${name}: ${newest}${via}${o.pendingSince ? `; changes waiting since ${hhmm(o.pendingSince)}` : ""}${o.error ? `; ${o.error}` : ""}`);
-  }
-  for (const [key, m] of Object.entries(s.mirrors).sort()) {
-    lines.push(`  mirror ${key}: ${m.at ? `${m.source} copy of ${hhmm(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${m.folder}${m.pendingSince ? `; its machine has changes since ${hhmm(m.pendingSince)} no backup holds` : ""}${m.error ? `; ${m.error}` : ""}`);
-  }
-  if (s.drill) lines.push(`  restore drill ${hhmm(s.drill.at)}: ${s.drill.ok ? "ok" : "FAILED"}, ${s.drill.detail}`);
+  const tint: Tint = o.colour ? (k, text) => `${fg(PALETTE[k])}${text}${RESET}` : noTint;
+  const netmail: string[] = [];
   for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
-    lines.push(`  netmail for ${m}: ${q.waiting} queued${q.oldest ? `, oldest ${hhmm(q.oldest)}` : ""}; its last pull ${q.lastPull ? hhmm(q.lastPull) : "never"}${q.lastSeen ? `, last seen ${hhmm(q.lastSeen)}` : ""}`);
+    netmail.push(`netmail for ${m}: ${q.waiting} queued${q.oldest ? `, oldest ${moment(q.oldest)}` : ""}; its last pull ${q.lastPull ? moment(q.lastPull) : "never"}${q.lastSeen ? `, last seen ${moment(q.lastSeen)}` : ""}`);
   }
-  if (s.netmail?.pull) { const p = s.netmail.pull; lines.push(`  netmail from ${p.hub}: pulled ${hhmm(p.at)}, ${p.ok ? "ok" : "FAILED"}: ${p.detail}`); }
-  else if (c.hub) lines.push(`  netmail from ${c.hub}: not pulled yet (ep0ch mcp pull)`);
-  const mark = alertMark(a, now);
-  lines.push(mark ? `  alert: ${mark.say}` : a ? "  alert: none" : "  alert: the job hasn't checked yet");
-  return lines;
+  if (s.netmail?.pull) { const p = s.netmail.pull; netmail.push(`netmail from ${p.hub}: pulled ${moment(p.at)}, ${p.ok ? "ok" : `failed: ${plainReason(p.detail, { hub: p.hub })}`}`); }
+  else if (c.hub) netmail.push(`netmail from ${c.hub}: not pulled yet (ep0ch mcp pull)`);
+  const note = c.machineFrom === "hostname" ? `from the host name; set EP0CH_BACKUP_MACHINE in ${c.file} to change it` : c.machineFrom === "file" ? c.file : "EP0CH_BACKUP_MACHINE";
+  return renderStatus({ s, a, now, machine: c.machine, repo: c.repoOf(c.machine), hub: c.hub, machineNote: note, age, tint, visible: width, ...(o.verbose ? { verbose: true } : {}), netmail });
 }
 
 async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
@@ -120,7 +113,10 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     }
     case "status": {
       if (args.includes("--json")) io.out(JSON.stringify({ machine: c.machine, repo: c.repoOf(c.machine), state: readBackupState(c.state), alert: readAlert(c.state) }, null, 2));
-      else statusLines(c).forEach(say);
+      else {
+        const terminal = io.terminal ?? (io.out === console.log ? process.stdout : undefined);
+        statusLines(c, Date.now(), { verbose: args.includes("--verbose"), colour: !!terminal?.isTTY && !env.NO_COLOR && env.TERM !== "dumb" }).forEach(say);
+      }
       return 0;
     }
     case "list": {

@@ -95,7 +95,7 @@ describe("the alert", () => {
     } });
     const found = incidents(s, "laptop", T0, CMD);
     expect(found.map(i => i.key)).toEqual(["outline:laptop/garden"]);
-    expect(found[0]!.detail).toContain("connection reset");
+    expect(found[0]!.detail).toContain("didn't answer");
     expect(found[0]!.fix).toContain("ep0ch backup run");
   });
 
@@ -268,7 +268,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     const late = await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(late.alert.incidents.map(i => i.key)).toEqual(["outline:shed/garden"]);
     expect(late.alert.incidents[0]!.fix).toContain("ep0ch backup run");
-    expect(late.alert.incidents[0]!.detail).toContain("connection reset by peer");
+    expect(late.alert.incidents[0]!.detail).toContain("didn't answer");
     now += 900_000;
     await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(announced).toEqual(["outline:shed/garden"]);
@@ -429,7 +429,7 @@ describe("install and doctor", () => {
       outlines: { garden: { seq: 3, at: iso(now - 600_000) }, pantry: { seq: 1, at: iso(now - 5 * 3_600_000), pendingSince: iso(now - 3 * 3_600_000) } },
       mirrors: {}, lastRun: { at: iso(now - 300_000), ok: false, detail: "failed: pantry" }, drill: { at: iso(now - 86_400_000), ok: true, detail: "restored 2 outlines" },
     }, alert: { machine: "garden-shed", checkedAt: iso(now), announced: [], incidents: [{ key: "outline:garden-shed/pantry", title: "t", detail: "pantry changed", fix: "ep0ch backup run", since: iso(now) }] } }), now);
-    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
+    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic verdict", "missing"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
     expect(checks.find(c => c.name === "restic pantry")!.fix).toBe("ep0ch backup run");
   });
 
@@ -439,7 +439,7 @@ describe("install and doctor", () => {
     const relayed = { via: "tool-shed", at: iso(now - 600_000), why: "Fatal: unable to open config file: context canceled", uploaded: true };
     const state = { outlines: { garden: { seq: 4, at: iso(now - 600_000), relayed } }, mirrors: {}, lastRun: { at: iso(now - 300_000), ok: true, detail: "relayed garden via tool-shed" } };
     const check = (st: typeof state) => resticChecks(facts({ units, loaded: true, state: st }), now).find(c => c.name === "restic garden");
-    expect(check(state)).toMatchObject({ status: "ok", detail: expect.stringContaining("relayed via tool-shed: the repository Fatal: unable to open config file: context canceled") });
+    expect(check(state)).toMatchObject({ status: "ok", detail: expect.stringContaining("relayed via tool-shed because ") });
     const stuck = { ...state, outlines: { garden: { ...state.outlines.garden, relayed: { ...relayed, uploaded: false, uploadError: "no route" } } } };
     expect(check(stuck)?.detail).toContain("tool-shed couldn't upload it either (no route)");
   });

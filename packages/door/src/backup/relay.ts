@@ -13,7 +13,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { lastJson, ssh } from "../mcp-netmail";
-import { type BackupState, hhmm, readBackupState, writeBackupState } from "./alert";
+import { type BackupState, readBackupState, writeBackupState } from "./alert";
 import { type BackupConfig, MACHINE_NAME } from "./config";
 import { changeSeq, copyDatabase, ensureRepo, integrity, mirrorFolder, newer, replaceMirror, schemaVersion, takeLock } from "./jobs";
 import { backupFile, forget, OUTLINE_NAME } from "./restic";
@@ -146,7 +146,3 @@ export async function receiveCommand(args: readonly string[], c: BackupConfig, i
   } catch (e) { return say({ ok: false, error: (e as Error).message }); }
   finally { rmSync(part, { force: true }); }
 }
-
-/** The relay's line for a person: what happened to a copy. */
-export const relaySaid = (hub: string, name: string, r: Received) =>
-  `${name} → ${hub} (${r.mirror === "installed" ? "its mirror here" : r.mirror === "current" ? "its mirror already had it" : "its mirror holds a newer schema"}${r.snapshot ? `; snapshot ${r.snapshot.slice(0, 8)} in its repository` : `; not uploaded there: ${r.uploadError ?? "?"}`}) at ${hhmm(Date.now())}`;

@@ -8,7 +8,9 @@ export const BACKUP_USAGE = `  ep0ch backup run [--drill]       the backup job, 
   ep0ch backup receive --machine <name> --outline <name> [--seq N] [--schema V] [--sha256 H]
                                    (run over ssh by a machine that can't reach the repository; the file on stdin) verifies
                                    the copy, installs it as that machine's mirror and uploads it to its repository
-  ep0ch backup status [--json]     each outline's newest backup, the mirrors, the drill and the alert (no network)
+  ep0ch backup status [--json|--verbose]
+                                   the verdict first (✓ all backed up, ! n problems, ✗ failing) and the command to run, then each
+                                   outline in a row, the mirrors and the history; --verbose adds the raw reasons, --json everything
   ep0ch backup list <outline> [--machine <name>]
                                    an outline's snapshots
   ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>

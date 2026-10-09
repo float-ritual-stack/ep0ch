@@ -16,6 +16,8 @@ import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { alive } from "../state";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
+import { plainReason } from "./plain";
+import { failedLine, relayedLine } from "./verdict";
 import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
@@ -119,7 +121,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   // The repository, or why not: a quick look at its host first when there's a hub to relay through (restic itself waits minutes).
   let direct: string | null = (c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null) ?? null;
   if (!direct) direct = await ensureRepo(c, repo, say);
-  if (direct) say(`can't reach ${repo}: ${direct}${c.hub ? `; relaying through ${c.hub}` : ""}`);
+  if (direct) say(`${plainReason(direct, { repo })}${c.hub ? `; sending the changes through ${c.hub} instead` : ""}`);
   const tmp = tempDir(c);
   try {
     for (const x of changed) {
@@ -146,7 +148,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       }
       if (c.hub) {
         o.step?.(`${x.name}: relaying through ${c.hub}`);
-        const { relay, relaySaid } = await import("./relay");
+        const { relay } = await import("./relay");
         const r = await relay(c, c.hub, copy, { outline: x.name, seq: x.seq, schema: x.schema });
         rmSync(copy, { force: true });
         if (r.ok) {
@@ -154,13 +156,13 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
           Object.assign(st, { seq: x.seq, schema: x.schema, at, relayed: { via: c.hub, at, why, uploaded: !!r.snapshot, ...(r.snapshot ? {} : { uploadError: r.uploadError ?? "?" }) } });
           delete st.snapshot; delete st.pendingSince; delete st.error;
           relayed.push(x.name);
-          say(`✓ ${x.name} (change ${x.seq ?? "?"}) relayed via ${c.hub}: ${relaySaid(c.hub, x.name, r)}; the repository: ${why}`);
+          say(relayedLine(x.name, x.seq, c.hub, why!, !!r.snapshot, { repo }));
           continue;
         }
         st.error = `${why}; relaying through ${c.hub} failed: ${r.error ?? "?"}`;
       } else { rmSync(copy, { force: true }); st.error = why!; }
       failed.push(x.name);
-      say(`✗ ${x.name}: ${st.error}`);
+      say(failedLine(x.name, st.error!, { repo, hub: c.hub }));
     }
   } finally { rmSync(tmp, { recursive: true, force: true }); }
   if (uploaded.length) {

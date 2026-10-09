@@ -78,7 +78,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(r).toEqual({ uploaded: [], failed: [], relayed: ["garden"] });
     expect(s.outlines.garden).toMatchObject({ seq: 2, schema: 3, relayed: { via: "hub-box", uploaded: true, why: expect.stringContaining("doesn't answer") } });
     expect(s.outlines.garden!.pendingSince).toBeUndefined();
-    expect(said.join("\n")).toContain("relayed via hub-box");
+    expect(said.join("\n")).toContain("via hub-box");
     // The hub holds it as its mirror, checked, and made the snapshot in the laptop's repository under the laptop's name.
     expect(changeSeq(hubCopy())).toBe(2);
     expect(schemaVersion(hubCopy())).toBe(3);
@@ -102,8 +102,9 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(s.lastRun?.detail).toContain("relayed garden via hub-box");
     expect(alertMark(readAlert(laptop.state), t + 3 * 3_600_000)?.text ?? null).not.toBe("✗ backup");
     const lines = statusLines(laptop).join("\n");
-    expect(lines).toContain("relayed via hub-box");
-    expect(lines).toContain("the repository: objects.example.test doesn't answer");
+    expect(lines).toContain("via hub-box");
+    expect(lines).toContain("went through hub-box");
+    expect(lines).toContain("didn't answer");
     expect(changeSeq(hubCopy())).toBe(3);
   }, 120_000);
 
@@ -195,7 +196,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
       expect(s.outlines.cellar!.relayed).toMatchObject({ uploaded: false, uploadError: expect.any(String) });
       expect(existsSync(join(hub.mirrorsDir, "laptop", "cellar.sqlite"))).toBe(true);
       writeBackupState(laptop.state, s);
-      expect(statusLines(laptop).join("\n")).toContain("couldn't upload it either");
+      expect(statusLines(laptop).join("\n")).toContain("not in the repository yet");
     } finally {
       hubEnv.EP0CH_RESTIC = saved!;
       writeFileSync(join(dir, "bin", "ep0ch"), `#!/bin/sh\nexec env ${Object.entries(hubEnv).map(([k, v]) => `${k}='${v}'`).join(" ")} ${process.execPath} ${join(DOOR, "src/main.ts")} "$@"\n`);

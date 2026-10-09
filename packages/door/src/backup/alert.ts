@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeState } from "../state";
+import { plainFailure } from "./plain";
 
 /** A backup behind its outline for longer than this, while the outline changed, is stale. */
 export const STALE_AFTER_MS = 2 * 3_600_000;
@@ -123,7 +124,7 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
     if (!late(o.pendingSince)) continue;
     const last = o.at ? `the newest backup is ${age(now - Date.parse(o.at))} old (${hhmm(o.at)})` : "it has never been backed up";
     out.push({ key: `outline:${machine}/${name}`, since: o.pendingSince!, title: `${name} on ${machine}: backup stale`,
-      detail: `${name} changed since ${hhmm(o.pendingSince!)} and ${last}${o.error ? `; the upload fails: ${o.error}` : ""}`,
+      detail: `${name} changed since ${hhmm(o.pendingSince!)} and ${last}${o.error ? `; the upload fails: ${plainFailure(o.error)}` : ""}`,
       fix: `${cmd.run}   (its log: ${cmd.log})` });
   }
   for (const [key, m] of Object.entries(s.mirrors).sort()) {
