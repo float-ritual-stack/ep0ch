@@ -183,7 +183,8 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
   try { for (const m of host.screens().at(-1)?.dispatch?.menu("focused", USER) ?? []) if (m.key && m.refused) refusals.set(m.key, m.refused); } catch { /* no menu here */ }
   const rows: BarRow[] = desk.wRows().map(r => ({
     key: `w:${r.key}`, label: r.label, detail: r.summary && r.summary !== r.label ? r.summary : r.action, keycap: r.chord, group: r.group,
-    ...(refusals.get(r.chord) ? { refused: refusals.get(r.chord)! } : {}),
+    // The menu's word on a plain action only: a key the desk reads itself (a dock's d, a direction) may reach another tile.
+    ...(r.how === "run" && refusals.get(r.chord) ? { refused: refusals.get(r.chord)! } : {}),
     data: { chord: r.key, action: r.action, args: r.args, how: r.how } satisfies WData,
   }));
   // The open keys: ^W o and then the kind's own.

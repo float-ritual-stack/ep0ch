@@ -85,6 +85,18 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   });
 
+  test("the keys the desk has always bound after ^W are all in the table, running what they ran", () => {
+    const was: Record<string, string> = {
+      h: "tile.focus", j: "tile.focus", k: "tile.focus", l: "tile.focus", m: "layout.move", t: "layout.move", T: "layout.move", H: "layout.move", J: "layout.move", K: "layout.move", L: "layout.move",
+      "[": "tab.select", "]": "tab.select", "<": "tile.resize", ">": "tile.resize", "+": "tile.resize", "-": "tile.resize", "=": "layout.even", z: "tile.zoom", o: "tile.open", O: "tile.open",
+      v: "tile.preview", V: "tile.preview", p: "tile.dock", d: "tile.slide", c: "tile.collapse", W: "tile.widen", f: "tile.float", P: "layout.policy", g: "tile.agent", r: "layout.load", w: "screen.save",
+      x: "tile.close", a: "tile.drawer", A: "tile.drawer", s: "layout.swap", ".": "tile.menu", "!": "screen.shell", G: "tile.group", e: "mount.enter", u: "mount.out", M: "screen.mount", I: "screen.part",
+    };
+    for (const [k, action] of Object.entries(was)) expect(wKey(k)?.action, `^W ${k}`).toBe(action);
+    // The keys the old hint list lacked.
+    for (const k of ["G", "e", "u", "M", "I", "?"]) expect(wKey(k), `^W ${k}`).toBeDefined();
+  });
+
   test("no key is bound after ^W that the table doesn't list, and every special key has its handler", () => {
     for (const e of W_KEYS as readonly WKey[]) if (e.how.k === "special") expect(typeof D().wSpecial[e.key]).toBe("function");
     // Every printable key that isn't in the table does nothing after ^W: no overlay, no prefix, no layout change.
@@ -188,6 +200,12 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     type("gather");
     await until(() => peek().bar.rows[0]?.keycap === "ctrl+w G", "gather into a group first");
     expect(peek().bar.rows[0].label).toMatch(/group/);
+    const tiles = D().all().length;
+    key({ kind: "enter" });
+    await until(() => D().all().some((id: number) => D().isGroup(D().nameOf(id))), "the focused tile gathered into a group by ⏎");
+    expect(D().all().length).toBe(tiles);
+    key(ctrlW); key(ch("G"));
+    await until(() => !D().all().some((id: number) => D().isGroup(D().nameOf(id))), "spilled by its key");
   });
 
   test("a key that waits for another leaves the desk waiting for it when picked", async () => {

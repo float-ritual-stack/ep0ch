@@ -2760,8 +2760,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Each key goes through `command`, the one place a ^W binding is read.
    */
   wChord(keys: string) {
+    this.prefix = "wm";                  // a chord left waiting (^W m) is dropped: this one starts afresh
     for (const c of keys.split(" ").filter(Boolean)) {
-      if (!this.prefix) this.prefix = "wm";
       this.command({ kind: "char", ch: c === "space" ? " " : c });
     }
   }
