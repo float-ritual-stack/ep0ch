@@ -692,7 +692,7 @@ A write to an outline whose home is another machine answers `queued` with a `que
   (`id` and `revision` always, never a body: asking for `body` is refused, pointing at `outline_read`); `under` is a note
   as `ref` names one; `fold` folds a note's proposals, comments and deliveries into it as `changes: {count, proposals,
   comments, deliveries, summary, ids}`, `total` counting folded rows and `foldedFrom` the blocks matched. A folded or
-  seen row still carries `changes`: a note's revision doesn't move when a comment is added to it.
+  seen row still carries `changes`: the revision doesn't vouch for the blocks folded into it (a delivery added under a note leaves its revision alone).
   Dedupe, cheapest first: a body goes once per response (a repeat is `{id, revision, see: "<rpc id>:<where>"}`); a proposal
   reads as its diff and the target's `id@revision`, a comment as its words and `anchor: {start, end}` (`raw: true`
   sends them as stored); `seen` stubs. Layer four, a content hash across outlines and mirrors (the same text in many
