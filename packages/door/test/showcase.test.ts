@@ -2252,7 +2252,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       expect((app as any).message).toContain("key probe ended");
       // An agent can't probe: it would swallow the person's keys.
       await expect(app.act({ action: "keys.probe", args: {}, as: "test-agent" })).rejects.toThrow(/person/);
-    } finally { useHyper(null); press({ kind: "esc" }); }
+    } finally { useHyper(null); press({ kind: "char", ch: "]", ctrl: true }); press({ kind: "esc" }); press({ kind: "esc" }); }
   }, 40_000);
 
   test("mounts (PIE-651): the board mounted live folds to a spine named for it and opens by click, alt+h and act; it pops out to the full board and back; its lanes alone; a tab holding a group", async () => {
