@@ -264,7 +264,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("locked screens refuse cross-group link creation, replacement, role changes and removal without changing saved links", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "thread" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
     await me("tile.open", { kind: "detail", name: "peer" }, `${g}/reader`);
     await me("tile.link", {}, "tree");
     for (const linked of [false, true]) {
@@ -289,18 +289,18 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("a locked group refuses links to its outside and preserves their role and target", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "thread" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
     await me("tile.open", { kind: "detail", name: "outside" }, "tree");
-    await me("tile.link", { to: "../outside" }, `${g}/thread`);
-    await me("layout.lock", { on: true }, `${g}/thread`);
+    await me("tile.link", { to: "../outside" }, `${g}/replies`);
+    await me("layout.lock", { on: true }, `${g}/replies`);
     const before = get();
     try {
       for (const args of [{ to: "../outside" }, { role: "target" }, {}]) {
-        await expect(me("tile.link", args, `${g}/thread`)).rejects.toThrow(/locked/);
+        await expect(me("tile.link", args, `${g}/replies`)).rejects.toThrow(/locked/);
         expect(get()).toEqual(before);
       }
     } finally {
-      await me("layout.lock", { on: false }, `${g}/thread`);
+      await me("layout.lock", { on: false }, `${g}/replies`);
     }
     await spill(g);
     await me("tile.close", {}, "outside");
