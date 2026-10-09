@@ -184,6 +184,8 @@ export interface Facts {
   machines?: MachineFacts[];
   /** Which outline the folder install runs in opens. */
   here?: HereFacts;
+  /** Which door a program started here reaches, and by which rule (door-resolve.ts, PIE-715): the same answer as `ep0ch where`. */
+  door?: { rule: string; text: string };
   /** What a door opened here gives its drawer as its own tab (src/desk/drawer-program.ts): the program, the folder, and why. */
   drawer?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string };
   /** Each outline session's drawer: what its own tab runs, where the choice came from, and its own Herdr pane when it runs there. */

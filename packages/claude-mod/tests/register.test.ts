@@ -499,6 +499,46 @@ describe('register', () => {
     expect(empty.deny).toContain('Give the ref')
   })
 
+  describe("a Claude that does not descend from a tile reaches its folder's door (PIE-715)", () => {
+    const SOCK = '/state/sessions/local/garden/door.sock'
+    const whereJson = (reach: object, door: object | null) => JSON.stringify({
+      inDoor: false, reach, here: { machine: 'garden-host', folder: WORKSPACE }, herdr: { pane: 'w1:p2P', label: null, agent: false }, door,
+    })
+    const FOLDER = whereJson(
+      { rule: 'folder', text: "reached garden's door session by folder; you are not in a tile of it, so your keys are not the person's" },
+      { answers: true, control: SOCK, outline: 'garden', machine: null, host: null, tile: null, stale: null },
+    )
+    const NONE = whereJson({ rule: 'none', text: 'no door runs on garden · `ep0ch --ws garden` starts one' }, null)
+    const answering = (where: string) => (run: Run) =>
+      run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, where, '') : succeeding(run)
+    // A stale Herdr pane id and no EP0CH_CONTROL: a background job from systemd.
+    const STALE = { HERDR_PANE_ID: 'w1:p2P', EP0CH_CONTROL: '' }
+
+    test('the door tools are offered, and act on the door `ep0ch where` found, in the session\'s folder', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(FOLDER), '', STALE)
+      const registered: string[] = []
+      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__pi-outliner__${e.name}` } } })
+      await session.begin(() => $.session.start(START))
+      expect(registered).toEqual(expect.arrayContaining(['door_where', 'door_peek', 'door_act', 'door_open']))
+
+      const peeked = await $.tool.call({ tool: 'mcp__pi-outliner__door_peek' })
+      expect(peeked.deny).toBeUndefined()
+      const run = session.runs.find(r => r.argv[1] === 'peek')!
+      expect(run.init?.env?.EP0CH_CONTROL).toBe(SOCK)
+      expect(run.init?.cwd).toBe(WORKSPACE)
+    })
+
+    test('with no door running the tools are not offered, and a call says why with the command that starts one', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(NONE), '', STALE)
+      const registered: string[] = []
+      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__pi-outliner__${e.name}` } } })
+      await session.begin(() => $.session.start(START))
+      expect(registered.some(name => name.startsWith('door_'))).toBe(false)
+      const called = await $.tool.call({ tool: 'mcp__pi-outliner__door_peek' })
+      expect(called.deny).toContain('`ep0ch --ws garden` starts one')
+    })
+  })
+
   describe('in neither a door nor Herdr: the note opens here, in the mentions pane (openNote\'s third case)', () => {
     const OTHER = '66666666-7777-4888-8999-aaaaaaaaaaaa'
     const CHILD = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
