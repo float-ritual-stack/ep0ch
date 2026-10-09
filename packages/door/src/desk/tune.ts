@@ -16,11 +16,12 @@
 // Every key and click is an action (TUNE_ACTIONS), so an agent tunes the same way, said on the screen and never with
 // the person's keys.
 import {
-  fieldKey, nudgeStyleValue, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText,
-  SURFACE_STEPS, type Breakpoint, type StyleSource, type StyleToken, type StyleValue, type Surface,
+  fieldKey, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText,
+  SURFACE_STEPS, type Breakpoint, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
+import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
 import {
-  clearNotes, levelNotes, lookFor, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
+  clearNotes, levelNotes, listTarget, lookFor, parseListTarget, writeLine, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
   type Look, type NoteWrite, type StyleWriteBoard, type TuneTarget,
 } from "../look";
 import { surfaceMix } from "../theme";
@@ -74,6 +75,8 @@ export interface TuneTargetInfo {
   look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null;
   /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
   pictures?: string[];
+  /** The list the reader's [ ] is in (`this list`): where its save goes, and its own layers. */
+  list?: { target: string | null; layers: StyleLayer[]; first: number } | null;
 }
 
 /** The rows that are a surface (PIE-675): drawn with a swatch of it beside the value, at the strength they're shown at. */
@@ -98,9 +101,9 @@ interface Shadow { why: string; kind: "level" | "variant"; src: StyleSource; can
 interface Armed { action: "tune.resetlevel" | "tune.revert"; words: string; target?: TuneTarget }
 
 /** The label of the outline's layer a target writes (look.ts's layers): `global`, `tile detail`, `page`, `style lab`. */
-const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
+const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("tile:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
 /** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
-const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" || src.level === "tile" || src.level === "screen" ? src.level : src.level === "page" && src.label === "page" ? "page" : "auto");
+const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" || src.level === "tile" || src.level === "screen" || src.level === "instance" ? src.level : src.level === "page" && src.label === "page" ? "page" : src.label === "this list" ? "list" : "auto");
 
 export class TunePane implements Pane {
   readonly kind = "tune";
@@ -132,9 +135,13 @@ export class TunePane implements Pane {
 
   /** The look a nudge is measured from: the tile's, or the box's in a reader. */
   values(t: TuneTargetInfo) {
-    if (!t.box) return { values: t.look.values, sources: t.look.sources };
-    const r = resolveStyle([...t.look.layers, { level: "block", label: "box", fields: parseStyleAttrs(t.box.attrs).fields }], t.cols);
+    if (!t.box && !t.list?.layers.length) return { values: t.look.values, sources: t.look.sources };
+    const r = resolveStyle([...this.layersOf(t)], t.look.width);
     return { values: r.values, sources: r.sources };
+  }
+  /** Every layer of the place the inspector looks at: the tile's, the box's around the [ ], the list's it's in (nearest). */
+  layersOf(t: TuneTargetInfo): StyleLayer[] {
+    return [...t.look.layers, ...(t.box ? [{ level: "block" as const, label: "box", fields: parseStyleAttrs(t.box.attrs).fields }] : []), ...(t.list?.layers ?? [])];
   }
 
   /**
@@ -145,7 +152,7 @@ export class TunePane implements Pane {
   aimAt(t: TuneTargetInfo, token: StyleToken, level: TuneLevel = this.level, scope: "all" | "this" = this.scope): { target: TuneTarget; field: string; variant: Breakpoint | null } | null {
     const src = this.values(t).sources[token];
     const from = level === "auto" ? sourceTarget(src, t.look.place) : null;
-    const target = from ?? tuneTarget(level === "auto" ? "tile" : level, t.look.place);
+    const target = from ?? tuneTarget(level === "auto" ? "tile" : level, t.look.place, t.list?.target ?? null);
     if (!target) return null;
     const varies = !token.startsWith("bp.");
     const variant = !varies ? null : scope === "this" ? t.look.breakpoint : from ? (src.variant ?? null) : null;
@@ -156,8 +163,8 @@ export class TunePane implements Pane {
   ownValue(t: TuneTargetInfo, token: StyleToken, level: TuneLevel = this.level, scope: "all" | "this" = this.scope): string | null {
     const a = this.aimAt(t, token, level, scope);
     if (!a) return null;
-    const label = layerLabel(a.target);
-    for (let i = t.look.layers.length - 1; i >= 0; i--) { const l = t.look.layers[i]!; if (l.label === label && l.fields[a.field] !== undefined) return l.fields[a.field]!; }
+    const label = layerLabel(a.target), layers = this.layersOf(t), list = a.target.startsWith("list:") ? Number(a.target.slice(a.target.lastIndexOf(":") + 1)) : null;
+    for (let i = layers.length - 1; i >= 0; i--) { const l = layers[i]!; if (l.label === label && (list === null || l.line === list) && l.fields[a.field] !== undefined) return l.fields[a.field]!; }
     return null;
   }
 
@@ -174,7 +181,7 @@ export class TunePane implements Pane {
       if (sv === a.variant || !sv || a.variant) return null;
       return { why: `${sv} overrides at this width`, kind: "variant", src, can: ["anyway", "instead", "clear"], instead: `nudge ${sv} instead`, clear: `clear ${sv} so every width shows it` };
     }
-    const mine = level === "auto" ? -1 : STYLE_LEVELS.indexOf(level), theirs = STYLE_LEVELS.indexOf(src.level);
+    const mine = level === "auto" ? -1 : STYLE_LEVELS.indexOf(levelOfSave(level)), theirs = STYLE_LEVELS.indexOf(src.level);
     if (mine < 0 || theirs <= mine) return null;
     // A box or a heading style is edited where it's written: only "anyway" is offered for those.
     const editable = !!at;
@@ -204,8 +211,8 @@ export class TunePane implements Pane {
     put([{ text: `${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · `, sgr: fg(C.grey) }, { text: widthWords(t.look), sgr: fg(C.lcyan) }, ...(t.box ? [{ text: " · in a box", sgr: fg(C.yellow) }] : [])]);
     // The levels a save goes to; the one picked lit. A level this tile hasn't (no page shown) is dim.
     put([{ text: "nudge ", sgr: fg(C.dark) }, ...TUNE_LEVELS.flatMap(l => {
-      const target = l === "auto" ? null : tuneTarget(l, t.look.place), on = l === this.level;
-      return [{ text: ` ${l === "auto" ? "where it's set" : target ? targetWords(target) : l} `, sgr: on ? chip(C.blue) : fg(l === "auto" || target ? C.cyan : C.dark), action: "tune.level", args: { level: l } }, sp];
+      const target = l === "auto" ? null : tuneTarget(l, t.look.place, t.list?.target ?? null), on = l === this.level;
+      return [{ text: ` ${l === "auto" ? "where it's set" : target ? targetWords(target) : l === "instance" ? "this tile" : l === "list" ? "this list" : l} `, sgr: on ? chip(C.blue) : fg(l === "auto" || target ? C.cyan : C.dark), action: "tune.level", args: { level: l } }, sp];
     })]);
     put([
       { text: this.scope === "all" ? " all widths " : ` ${t.look.breakpoint ?? "normal"} only `, sgr: chip(this.scope === "all" ? C.dark : C.magenta), action: "tune.width", args: { scope: this.scope === "all" ? "this" : "all" } }, sp,
@@ -385,6 +392,21 @@ async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: St
   const tuning = tuningOf(desk.ctx.board), target = sourceTarget(src, t.look.place), field = fieldKey(tk, src.variant ?? null);
   if (!target) throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
   const mine = tuning.get(target, field), at = src.block;
+  // This tile's own: taken out of its spec (a save writes the spec without it).
+  if (target.startsWith("tile:")) {
+    if (t.look.place.instance?.fields[field] !== undefined) return () => tuning.set(target, field, UNSET, actor, target);
+    if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
+    throw new ActionRefused(`${tk} isn't this tile's own`);
+  }
+  // This list's own: taken off its line (the line as written, read now).
+  if (target.startsWith("list:") && at && src.line !== undefined) {
+    const line = (await board(desk).get(at))?.text.split("\n")[src.line] ?? "";
+    const tokens = liveTokensInLine(line).filter(x => x.key.toLowerCase() === styleProperty(tk, src.variant ?? null));
+    if (tokens.some(x => x.value.includes("|"))) throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is a tier: edit the line (or set it here with + −)`);
+    if (tokens.length) return () => tuning.set(target, field, UNSET, actor, at);
+    if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
+    throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is set by a shorthand: edit the line`);
+  }
   if (at && src.line === undefined) {
     const own = async (k: string) => (await board(desk).propertyTokens(at, k)).tokens.filter(x => x.scope === "block");
     const written = await own(styleProperty(tk, src.variant ?? null));
@@ -426,7 +448,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
       row: { type: "string", optional: true, about: "the row (measure, pad, pad.x, margin, list.gap, …); default the picked one" },
-      level: { type: "string", optional: true, about: "global, tile, screen or page; default the inspector's" },
+      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list); default the inspector's" },
       width: { type: "string", optional: true, about: "all, or this (the tile's breakpoint now); default the inspector's" },
       shadow: { type: "string", optional: true, about: "where something nearer wins: anyway, instead or clear" },
     },
@@ -489,7 +511,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
       value: { type: "string", about: "its value" },
-      level: { type: "string", optional: true, about: "global, tile, screen or page; default the inspector's" },
+      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list); default the inspector's" },
       width: { type: "string", optional: true, about: "all, or this; default the inspector's" },
     },
     run({ row, value, level, width }, { pane, desk }, actor) {
@@ -532,10 +554,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.level": def({
-    summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, or page (the note it shows). Picked, each row shows what that level says itself, and a row where something nearer wins is marked",
+    summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, page (the note it shows), instance (this tile alone, kept in its tile spec) or list (the list the reader's [ ] is in, on its lead-in line or its section's heading). Picked, each row shows what that level says itself, and a row where something nearer wins is marked",
     keys: "v, a click on a level",
     touches: "tile", replay: "safe",
-    args: { level: { type: "string", about: "auto, global, tile, screen or page" } },
+    args: { level: { type: "string", about: "auto, global, tile, screen, page, instance (this tile) or list (this list)" } },
     run({ level }, { pane, desk }) {
       if (!TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       pane.level = level as TuneLevel;
@@ -563,7 +585,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     summary: "write the nudges to the outline: every level's this tile has (auto), or the level picked's: a page's onto its note, a named style's or a level's onto its style note (a new one when it has none, under the outline's Looks note), a value reset off the note it came from; attributed, checked against the revision it read. One step of the history: u takes it back",
     keys: "s, a click on [save]",
     touches: "nothing", replay: "ask", says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : "· nothing to save there"),
-    args: { level: { type: "string", optional: true, about: "auto, global, tile, screen or page; default the inspector's" } },
+    args: { level: { type: "string", optional: true, about: "auto, global, tile, screen, page, instance or list; default the inspector's" } },
     async run({ level }, { pane, desk }, actor) {
       const lv = (level ?? pane.level) as TuneLevel;
       if (!TUNE_LEVELS.includes(lv)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
@@ -572,14 +594,15 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const tuning = tuningOf(desk.ctx.board), place = t.look.place;
       // auto: each target this tile's look reads (global, its kind, its screen, its page and the style it names).
       const named = place.page?.properties.find(p => p.key.toLowerCase() === "style")?.value.trim().toLowerCase();
-      const reads = new Set([...SAVE_LEVELS.map(l => tuneTarget(l, place)), named].filter((x): x is string => !!x));
-      const targets = lv === "auto" ? tuning.unsaved().map(u => u.target).filter(x => reads.has(x)) : [tuneTarget(lv, place)].filter((x): x is string => !!x);
+      const list = t.list?.target ?? null, ownLists = new Set((t.list?.layers ?? []).flatMap(l => (l.block && l.line !== undefined ? [listTarget(l.block, l.line)] : [])));
+      const reads = new Set([...SAVE_LEVELS.map(l => tuneTarget(l, place, list)), named, ...ownLists].filter((x): x is string => !!x));
+      const targets = lv === "auto" ? tuning.unsaved().map(u => u.target).filter(x => reads.has(x)) : [tuneTarget(lv, place, list)].filter((x): x is string => !!x);
       if (lv !== "auto" && !targets.length) throw new ActionRefused(`${pane.source} has no ${lv} level`);
       const done: { at: string; fields: string[]; created: boolean; note: string }[] = [], writes: NoteWrite[] = [];
       const before = tuning.snapshot();
       try {
         for (const target of targets) {
-          const r = await refuseAsync(() => saveTuning({ board: desk.ctx.board, redraw: () => desk.redraw() } as Parameters<typeof saveTuning>[0], target, actor, writes));
+          const r = await refuseAsync(() => saveTuning({ board: desk.ctx.board, redraw: () => desk.redraw() } as Parameters<typeof saveTuning>[0], target, actor, writes, desk.tileLooks));
           if (r) done.push({ at: targetWords(target), fields: r.fields, created: r.created, note: r.note });
         }
       } finally {
@@ -601,7 +624,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     async run(_, { pane, desk }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextUndo(actor));
       if (!s) throw new ActionRefused("nothing to take back");
-      if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, true, actor));
+      if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, true, actor, desk.tileLooks));
       tuning.undone(s);
       if (actor.kind !== "agent") { pane.offer = null; pane.armed = null; }
       desk.redraw();
@@ -617,7 +640,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     async run(_, { pane, desk }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextRedo(actor));
       if (!s) throw new ActionRefused("nothing to redo");
-      if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, false, actor));
+      if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, false, actor, desk.tileLooks));
       tuning.redone(s);
       if (actor.kind !== "agent") { pane.offer = null; pane.armed = null; }
       desk.redraw();
@@ -633,14 +656,18 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     async run({ confirm }, { pane, desk }, actor) {
       const t = pane.info(desk);
       if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
-      if (pane.level === "auto") throw new ActionRefused("pick the level to reset first (v, or tune.level): global, tile, screen or page");
-      const target = tuneTarget(pane.level, t.look.place);
-      if (!target) throw new ActionRefused(`${pane.source} has no ${pane.level} level`);
+      if (pane.level === "auto") throw new ActionRefused("pick the level to reset first (v, or tune.level): global, tile, screen, page, instance (this tile) or list (this list)");
+      const target = tuneTarget(pane.level, t.look.place, t.list?.target ?? null);
+      if (!target) throw new ActionRefused(pane.level === "list" ? "the [ ] isn't in a list with a heading or a line above it" : `${pane.source} has no ${pane.level} level`);
       const tuning = tuningOf(desk.ctx.board), src = { board: desk.ctx.board, redraw: () => desk.redraw() };
-      const { notes, lines } = levelNotes(src, target, t.look.place), nudges = tuning.layers.get(target)?.size ?? 0;
-      const n = notes.reduce((k, x) => k + x.fields, 0);
+      // This tile's: its spec's look. This list's: the list tokens on its owner line. Else the level's style notes.
+      const tileOwn = target.startsWith("tile:") ? Object.keys(t.look.place.instance?.fields ?? {}) : [];
+      const listLine = parseListTarget(target), listOwn = listLine ? Object.keys(t.list?.layers.find(l => l.line === listLine.line)?.fields ?? {}) : [];
+      const { notes, lines } = tileOwn.length || listLine ? { notes: [] as { id: string; fields: number }[], lines: [] as string[] } : levelNotes(src, target, t.look.place), nudges = tuning.layers.get(target)?.size ?? 0;
+      const n = notes.reduce((k, x) => k + x.fields, 0) + tileOwn.length + listOwn.length;
       if (!n && !nudges) throw new ActionRefused(`${targetWords(target)} sets nothing here${lines.length ? ` (its values on lines of notes are edited there)` : ""}`);
-      const words = `reset ${targetWords(target)}: ${n} value${n === 1 ? "" : "s"} off ${notes.length} style note${notes.length === 1 ? "" : "s"}${nudges ? `, ${nudges} nudge${nudges === 1 ? "" : "s"} let go` : ""}${lines.length ? ` (not those on lines: edit those notes)` : ""}`;
+      const off = tileOwn.length ? "its tile spec" : listLine ? "its line" : `${notes.length} style note${notes.length === 1 ? "" : "s"}`;
+      const words = `reset ${targetWords(target)}: ${n} value${n === 1 ? "" : "s"} off ${off}${nudges ? `, ${nudges} nudge${nudges === 1 ? "" : "s"} let go` : ""}${lines.length ? ` (not those on lines: edit those notes)` : ""}`;
       // Asked in place: the person's inspector arms (X again, or [confirm]); an agent is told to send confirm=true, and the
       // person's inspector is left as it was.
       if (!confirm) {
@@ -652,7 +679,17 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       }
       if (actor.kind !== "agent") pane.armed = null;
       const before = tuning.snapshot(), writes: NoteWrite[] = [];
-      try { await refuseAsync(() => clearNotes(board(desk), tuning, notes.map(x => x.id), actor, writes)); tuning.clear(target); }
+      try {
+        await refuseAsync(async () => {
+          if (tileOwn.length) { const w = writeTile(desk.tileLooks, tuning, target, Object.fromEntries(tileOwn.map(k => [k, null]))); if (w) writes.push(w); }
+          else if (listLine) {
+            const keys = listOwn.map(k => { const f = parseFieldKey(k)!; return styleProperty(f.token, f.variant); });
+            const w = await writeLine(board(desk), tuning, listLine.note, listLine.line, Object.fromEntries(keys.map(k => [k, null])), null, actor);
+            if (w) writes.push(w);
+          } else await clearNotes(board(desk), tuning, notes.map(x => x.id), actor, writes);
+        });
+        tuning.clear(target);
+      }
       finally { if (writes.length || tuning.snapshot().size !== before.size) tuning.record({ kind: "write", what: `reset of ${targetWords(target)}`, writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor }); }
       desk.redraw();
       desk.ctx.flash(says(actor, `${words} · u takes it back`));
@@ -677,7 +714,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       }
       if (actor.kind !== "agent") pane.armed = null;
       const before = tuning.snapshot(), writes: NoteWrite[] = [];
-      try { await refuseAsync(() => revertAll(board(desk), tuning, actor, writes)); tuning.clear(); }
+      try { await refuseAsync(() => revertAll(board(desk), tuning, actor, writes, desk.tileLooks)); tuning.clear(); }
       finally { if (writes.length) tuning.record({ kind: "write", what: "revert of the session", writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor }); }
       desk.redraw();
       desk.ctx.flash(says(actor, `${words} · u takes it back`));

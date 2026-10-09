@@ -64,6 +64,8 @@ export interface TileSpec {
   collapsed?: true | "h";
   /** What an agent may do to this tile (PIE-639): `edit` or `off`; left out, the container's or the screen's `agents` says, else `free`. */
   agents?: "free" | "edit" | "off";
+  /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, over the page's, under a list's. */
+  look?: Record<string, string>;
   /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
   label?: string;
   /** A river column's filter (its clauses, as `/` takes them). */

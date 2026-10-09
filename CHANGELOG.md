@@ -24,6 +24,14 @@ are its record. The outliner's entries from then are kept below, under
 - **New:** a reader's sticky header (title, byline, crumbs) gets a surface of its own (`header.bg`, `header.bg.opacity`),
   and its picture can be chosen (`header.image`: one of the note's pictures by its file's name, or a path) and its crop
   moved (`header.image.x`, `header.image.y`, in % of the picture).
+- **New: a look per list and per tile, not for every list in the system.**
+  - **This list:** a list's own tokens go on the heading of its section or its lead-in line, by placement:
+    `## Seed trays [style.list.gap::1] [style.list.divider::dots]`. A sibling list stays as the page has it.
+  - **This tile:** one tile's own look is kept in its tile spec and saved with the layout, so one links tile or one
+    reader can be airy while the rest stay tight.
+  - **Order:** the nearest wins: built-in, global, the tile's kind, the screen, the page, this tile, this list (or a box).
+  - **In the inspector:** both are levels (`v`), and the source column names them. With the reader's `[ ]` on a list or
+    its heading, "this list" saves onto that line.
 - **New:** one field, three widths: `[style.pad::0 1 | 1 3 | 1 6]` is narrow, normal and wide. A reader in a wide tile
   gets padding 1 4 by default.
 - **Changed in the tune inspector, back to "as if I had done nothing":**
@@ -38,7 +46,7 @@ are its record. The outliner's entries from then are kept below, under
   itself beside the value in force, and a row something nearer wins is marked ⊘ ("page overrides", "narrow overrides
   at this width"). A nudge there asks first: `a` nudges anyway, `o` nudges what wins instead, `c` clears it. A surface's
   row shows a swatch of it, and `+ −` on `header.image` step through the note's pictures.
-- **Run:** PROTOCOL 124 (the cascade's tokens). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for
+- **Run:** PROTOCOL 125 (the cascade's tokens). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for
   float-hub) restarts the host on the new code. No schema change.
 
 ### A note's children join its links; the thread tile is a links tile with Children alone (PIE-693, slice 1)

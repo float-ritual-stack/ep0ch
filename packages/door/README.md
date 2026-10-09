@@ -1257,7 +1257,9 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   tile's yields under a header's picture. A list's divider is `line`, `dots`, `dashed`, `double`, `fade` or `glyph`
   (`list.divider.glyph`), at the top, centre or bottom of the gap (`list.divider.align`); the zebra stripe takes
   `list.zebra.bg` and `list.zebra.strength`. A reader's header takes `header.bg` at `header.bg.opacity`, and
-  `header.image` (one of the note's pictures, or a path) with `header.image.x` and `.y` moving its crop. Any field can
+  `header.image` (one of the note's pictures, or a path) with `header.image.x` and `.y` moving its crop. A list's own look goes on its section's heading or its lead-in line
+  (`## Seed trays [style.list.gap::1]`), and one tile's own is kept in its tile spec, so a single list or a single
+  links tile can be airy while the rest stay tight ("this list" and "this tile" in the inspector). Any field can
   give three widths at once: `[style.pad::0 1 | 1 3 | 1 6]` (narrow, normal, wide). (PIE-675)
 - **What changed.** The status bar's `+N new` is the notes an agent, another client or an extension changed since you last
   looked (your own edits aren't news), from the service's change feed. A click on it, or `alt+o`, opens the **what-changed

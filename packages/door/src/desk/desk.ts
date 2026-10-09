@@ -228,15 +228,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private lookAt(p: Pane, cols: number): Look {
     const board = this.ctx?.board;
     if (!this.lookSrc || this.lookSrc.board !== board) this.lookSrc = board ? { board, redraw: () => this.redraw() } : null;
-    const shows = (p as { msg?: Msg | null }).msg;
-    return lookFor(this.lookSrc, { tile: p.kind, screen: this.name, ...(shows ? { page: pageOf(shows) } : {}) }, cols);
+    const shows = (p as { msg?: Msg | null }).msg, id = this.idOf(p);
+    return lookFor(this.lookSrc, {
+      tile: p.kind, screen: this.name, ...(shows ? { page: pageOf(shows) } : {}),
+      ...(id !== undefined ? { instance: { id: this.tileId(id), fields: p.instanceLook ?? {} } } : {}),
+    }, cols);
   }
+  /** The tiles' own looks by tile id (`this tile`): read for the inspector, written by its save, kept in the layout. */
+  readonly tileLooks = {
+    get: (tid: string) => { const p = [...this.panes].find(([id]) => this.tileId(id) === tid)?.[1]; return p ? { ...(p.instanceLook ?? {}) } : null; },
+    set: (tid: string, fields: Record<string, string>) => {
+      const p = [...this.panes].find(([id]) => this.tileId(id) === tid)?.[1];
+      if (!p) return;
+      if (Object.keys(fields).length) p.instanceLook = { ...fields }; else delete p.instanceLook;
+      this.redraw();
+    },
+  };
   lookOf(p: Pane): Look | undefined { return this.looks.get(p); }
   tileLook(name: string) {
     const id = this.idNamed(name), p = id !== undefined ? this.panes.get(id) : undefined, look = p && this.looks.get(p);
     if (id === undefined || !p || !look) return null;
     const reader = p instanceof ReaderPane ? p : null, shown = reader?.surface.msg;
-    return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, ...(reader && shown ? { pictures: reader.surface.imagesIn(shown).filter(x => x.spec.kind === "img").map(x => x.path) } : {}) };
+    return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, list: reader ? reader.surface.listAt() : null, ...(reader && shown ? { pictures: reader.surface.imagesIn(shown).filter(x => x.spec.kind === "img").map(x => x.path) } : {}) };
   }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
@@ -502,6 +515,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (l.link) { wantLinks.push([id, l.link]); if (l.linkRole === "preview" || l.linkRole === "target") wantRoles.set(id, l.linkRole); }
       if (l.collapsed) folded.set(id, l.collapsed === "h" ? { dir: "h" } : {});
       if (isAgentLevel(l.agents)) agentsOf.set(id, l.agents);
+      // This tile's own look (PIE-675), as its spec kept it: string values only.
+      const ownLook = l.look && typeof l.look === "object" ? Object.fromEntries(Object.entries(l.look).filter(([, v]) => typeof v === "string")) as Record<string, string> : null;
+      if (ownLook && Object.keys(ownLook).length) this.panes.get(id)!.instanceLook = ownLook;
       return id;
     };
     const root = reviveTree(spec.root, tileOf);
@@ -772,6 +788,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...(this.linkRoleIsDefault(id, link) ? {} : { linkRole: this.layout.linkRoles.get(id)! }) } : this.extSpec(id)),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
+      ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
     };
   }
 

@@ -64,6 +64,19 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     expect(wide.some(l => /^▓+▒+░+/.test(l))).toBe(true);
   });
 
+  test("this list (PIE-675): a list's own tokens on its section's heading or its lead-in line; a sibling list stays tight; nothing of it copied", () => {
+    const body = ["## Climbers [style.list.gap::2] [style.list.divider::dots]", "- runner beans", "- sweet peas", "", "## Ground", "- clover", "- thyme", "", "Herbs: [style.list.zebra::on]", "- mint", "- sage"].join("\n");
+    const d = renderDoc(body, env({ "list.gap": 0 }));
+    const text = d.lines.map(plain), at = (x: string) => text.findIndex(l => l.includes(x));
+    expect(at("sweet peas") - at("runner beans")).toBe(4);           // 2 blank rows and a divider (centred)
+    expect(at("thyme") - at("clover")).toBe(1);                       // the page's: tight
+    expect(d.tints?.map(t => t.rows)).toEqual([[at("sage"), at("sage") + 1]]);   // the lead-in's zebra, on its own list only
+    // The tuning over a line's own (the reader's lists callback): Ground made airy in memory.
+    const tuned = renderDoc(body, { ...env({ "list.gap": 0 }), look: { ...env({ "list.gap": 0 }).look!, lists: (n: number, f: Readonly<Record<string, string>>) => (n === 4 ? { ...f, "list.gap": "1" } : { ...f }) } });
+    const t2 = tuned.lines.map(plain);
+    expect(t2.findIndex(l => l.includes("thyme")) - t2.findIndex(l => l.includes("clover"))).toBe(2);
+  });
+
   test("a box's surface, frame and bar (PIE-675): drawn round its text, the text copies as written", () => {
     const BOX = ["::box{bg=amber border=round tone=amber pad=1}", "- Net the brassicas", "- Oil the shed hinge", "::"].join("\n");
     const d = renderDoc(BOX, { ...env({}), width: 40 });
@@ -500,6 +513,59 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await expect(act("tune.revert", { confirm: true })).rejects.toThrow(new RegExp(`note ${level.id.slice(0, 8)} changed since you started`));
       expect(await text(target)).toContain("[style.list.gap::");
     } finally { d.close(); b3.close(); }
+  }, 60_000);
+
+  test("PIE-675: this tile: one links tile airy while another stays tight, saved in its tile spec and back with the layout; this list: one list airy while its sibling stays tight, saved on its heading", async () => {
+    const b4 = new SocketBoard(scratch.sock);
+    await b4.info();
+    const garden = await create(null, "Garden lists\n## Climbers\n- runner beans\n- sweet peas\n\n## Ground\n- clover\n- thyme");
+    const d = await door(160, b4, { id: garden.id, drawn: "thyme" });
+    try {
+      const desk = d.desk as any, act = (action: string, args: Record<string, unknown> = {}, tile = "tune") => d.app.act({ action, args, tile, as: "look-agent" }) as Promise<any>;
+      // Two links tiles on the reader.
+      await desk.openTile({ kind: "backlinks", source: "tile:detail" }, "detail", "right", { kind: "agent", id: "look-agent" });
+      await desk.openTile({ kind: "backlinks", source: "tile:detail" }, "detail", "down", { kind: "agent", id: "look-agent" });
+      d.lines();
+      const links = () => [...desk.panes.entries()].filter(([, p]: any) => p.kind === "backlinks").map(([id, p]: any) => ({ id, p, name: desk.nameOf(id) }));
+      expect(links()).toHaveLength(2);
+      const [a, b] = links();
+      expect(await act("tile.tune", {}, a!.name)).toBeTruthy();
+      await act("tune.aim", { tile: a!.name });
+      await act("tune.set", { row: "list.gap", value: "2", level: "instance" });
+      d.lines();
+      const gapOf = (x: { p: unknown }) => desk.lookOf(x.p).values["list.gap"];
+      expect(gapOf(a!)).toBe(2);
+      expect(desk.lookOf(a!.p).sources["list.gap"]).toMatchObject({ level: "instance", label: "this tile" });
+      expect(gapOf(b!)).not.toBe(2);
+      // Saved: into that tile's spec, nothing written to the outline; the layout keeps it, and it comes back.
+      expect(await act("tune.save", { level: "instance" })).toMatchObject({ saved: true, at: "this tile" });
+      expect(a!.p.instanceLook).toEqual({ "list.gap": "2" });
+      const saved = desk.layoutSpec();
+      expect(JSON.stringify(saved)).toContain('"look":{"list.gap":"2"}');
+      desk.build(saved, false);
+      d.lines();
+      const again = links();
+      expect(again.map(x => gapOf(x)).sort()).toEqual([gapOf(again.find(x => !x.p.instanceLook)!), 2].sort());
+      expect(again.filter(x => x.p.instanceLook?.["list.gap"] === "2")).toHaveLength(1);
+      // This list: the reader's [ ] on the Ground list; the inspector offers this list and saves onto its heading.
+      const reader = () => [...desk.panes.values()].find((p: any) => p.surface && p.kind !== "backlinks") as any;
+      await act("tune.aim", { tile: "detail" }).catch(() => {});
+      desk.run("tile.focus", {}, "detail");
+      d.lines();
+      for (let i = 0; i < 40 && reader().surface.listAt()?.first !== 6; i++) { d.key({ kind: "char", ch: "]" }); await Bun.sleep(5); d.lines(); }
+      expect(reader().surface.listAt()).toMatchObject({ target: `list:${garden.id}:5`, first: 6 });
+      const gap = (x: string, y: string) => d.where(y).y - d.where(x).y;
+      const climbers = gap("runner beans", "sweet peas"), ground = gap("clover", "thyme");
+      expect(await act("tune.set", { row: "list.gap", value: "2", level: "list" })).toMatchObject({ at: "this list" });
+      d.lines();
+      expect(gap("clover", "thyme")).toBeGreaterThan(ground);
+      expect(gap("runner beans", "sweet peas")).toBe(climbers);
+      expect(await act("tune.save", { level: "list" })).toMatchObject({ saved: true });
+      expect((await b4.get(garden.id))!.text.split("\n")[5]).toBe("## Ground [style.list.gap::2]");
+      // Undone: the heading as it was.
+      expect((await act("tune.undo")).words).toContain("save of style.list.gap");
+      expect((await b4.get(garden.id))!.text.split("\n")[5]).toBe("## Ground");
+    } finally { d.close(); b4.close(); }
   }, 60_000);
 
   test("ep0ch export leaves the look out: the note's source, whatever the style notes say", async () => {

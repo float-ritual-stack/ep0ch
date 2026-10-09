@@ -1,5 +1,6 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
-import type { Look } from "../look";
+import type { Look, TileLooks } from "../look";
+import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { RowView, type RowPress } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
@@ -29,7 +30,9 @@ export interface DeskApi {
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
   /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
-  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null; pictures?: string[] } | null;
+  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null; pictures?: string[]; list?: { target: string | null; layers: StyleLayer[]; first: number } | null } | null;
+  /** The tiles' own looks by tile id (PIE-675, "this tile"): what the tune inspector saves into and reads. */
+  tileLooks?: TileLooks;
   /** The screens held one inside the next down to this desk (a mount is checked against it). */
   mountChain?(): string[];
   current: Msg | null;
@@ -158,6 +161,8 @@ export interface Pane {
   followFile?(path: string | null | undefined, desk: DeskApi): void;
   /** What the tile needs to be built again (a layout saved by name): its note, command, source. */
   spec?(): Record<string, unknown>;
+  /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, saved in its tile spec as `look`. */
+  instanceLook?: Record<string, string>;
   /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
   dispose?(): void;
   /** What its header says after its name, already coloured (a lane: its count), instead of its title. */

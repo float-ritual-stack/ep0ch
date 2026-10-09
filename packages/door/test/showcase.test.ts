@@ -655,7 +655,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const before = written.length;
     const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
     await app.act({ action: "scroll", args: { to: "top" }, tile: "lab", as: "test-agent" });
-    await until(() => screen().includes("Broad beans"), "the box back in view", 5000);
+    // Down until the whole box is in view (the page is longer than the tile).
+    for (let i = 0; i < 20 && !(screen().includes("Broad beans") && screen().includes("Runner beans")); i++) await app.act({ action: "scroll", args: { by: 2 }, tile: "lab", as: "test-agent" });
+    await until(() => screen().includes("Broad beans") && screen().includes("Runner beans"), "the box in view", 5000);
     const now = screen().split("\n"), y0 = now.findIndex(l => l.includes("Broad beans")), y1 = now.findIndex(l => l.includes("Runner beans"));
     const x0 = now[y0]!.indexOf("∙ Broad"), x1 = now[y1]!.indexOf("Runner beans") + "Runner beans".length;
     press({ kind: "mouse", action: "down", button: 0, x: x0, y: y0 });

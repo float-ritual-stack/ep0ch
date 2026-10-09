@@ -18,7 +18,7 @@ import { BORDER_BOXES } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
-import { headingComponentLayer, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
+import { headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -26,7 +26,14 @@ export interface DocEnv {
    * The look (PIE-673): its list rows (gap, divider, zebra) and heading spacing, and the layers it came from, which a
    * heading's style and a `::box{…}` add theirs to. Without it the body is drawn as it always was.
    */
-  look?: { values: StyleValues; layers: readonly StyleLayer[]; width: number };
+  look?: {
+    values: StyleValues; layers: readonly StyleLayer[]; width: number;
+    /**
+     * A list's own fields (PIE-675, `this list`) on body line `line` (`written`: what the line says), with the tuning
+     * over them: the reader's, mapping its body line to the note's. Without it, the line as written.
+     */
+    lists?: (line: number, written: Readonly<Record<string, string>>) => Record<string, string>;
+  };
   /**
    * Why images aren't drawn (`graphics` off): said on each image's line ("no Kitty graphics in this terminal").
    * Without it (an embed, a draft's preview) the line names the image and says nothing about graphics.
@@ -350,10 +357,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   };
   if (env.after) inserted = -1;
   const look = env.look;
-  let run: { n: number } | null = null, zebraFrom: number | null = null;
+  // A list's run: how many items so far, and its look (the page's, with the list's own over it: PIE-675's `this list`).
+  let run: { n: number; v: StyleValues; stripe: string } | null = null, zebraFrom: number | null = null;
   const tints: DocTint[] = [];
-  const stripe = look ? zebraBg(look.values) : "";
-  const endZebra = () => { if (zebraFrom !== null && out.length > zebraFrom && stripe) tints.push({ rows: [zebraFrom, out.length], bg: stripe }); zebraFrom = null; };
+  const endZebra = () => { if (zebraFrom !== null && out.length > zebraFrom && run?.stripe) tints.push({ rows: [zebraFrom, out.length], bg: run.stripe }); zebraFrom = null; };
+  const runLook = (first: number): StyleValues => {
+    const own = listLayers(src, first).map(l => (look!.lists ? { ...l, fields: look!.lists(l.line!, l.fields) } : l));
+    return own.some(l => Object.keys(l.fields).length) ? resolveStyle([...look!.layers, ...own], look!.width).values : look!.values;
+  };
   for (let i = 0; i < src.length; i++) {
     mark();
     insert(i);
@@ -367,10 +378,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (run) {
           endZebra();
           // list-look's one painter: the gap's rows, the divider at the top, centre or bottom of them, in its style.
-          for (const slot of gapSlots(look.values, true)) { edge(out.length); out.push("divider" in slot ? dividerLine(look.values, W, (env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY).style("fade")) : ""); }
+          for (const slot of gapSlots(run.v, true)) { edge(out.length); out.push("divider" in slot ? dividerLine(run.v, W, (env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY).style("fade")) : ""); }
           run.n++;
-        } else run = { n: 0 };
-        if (look.values["list.zebra"] && run.n % 2 === 1) zebraFrom = out.length;
+        } else { const v = runLook(i); run = { n: 0, v, stripe: zebraBg(v) }; }
+        if (run.v["list.zebra"] && run.n % 2 === 1) zebraFrom = out.length;
       } else if (line.trim() && indentOf(line) === 0) { endZebra(); run = null; }
     }
 
@@ -399,7 +410,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const ink = v.tone === "neutral" ? fgRgb(theme().edge.tile) : fg(TONE[v.tone]);
       const off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
       const sub = renderDoc(src.slice(i + 1, end).join("\n"), {
-        ...env, nested: true, width: inner, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined, look: { values: v, layers, width: at },
+        ...env, nested: true, width: inner, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined, look: { values: v, layers, width: at, ...(look?.lists ? { lists: (n: number, f: Readonly<Record<string, string>>) => look.lists!(n + off, f) } : {}) },
         literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
         folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
       });

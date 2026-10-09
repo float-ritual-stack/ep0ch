@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { headingStylesFromBlocks } from "../src/heading-styles";
 import {
-  BASE_STYLE, headingComponentLayer, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
+  BASE_STYLE, headingComponentLayer, listLayers, listOwners, listStart, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
   styleLayers, styleProperty, styleSheetsFromBlocks, styleValueText, type StyleLayer,
 } from "../src/style-cascade";
 
@@ -214,5 +214,45 @@ describe("surfaces, frames and the header (PIE-675)", () => {
     expect(resolveStyle(styleLayers([], { tile: "detail" }), 160).values).toMatchObject({ "pad.y": 1, "pad.x": 4 });
     expect(resolveStyle(styleLayers([], { tile: "detail" }), 100).values).toMatchObject({ "pad.y": 0, "pad.x": 0 });
     expect(resolveStyle(styleLayers([], { tile: "backlinks" }), 160).values).toMatchObject({ "pad.y": 0, "pad.x": 0 });
+  });
+});
+
+describe("this tile and this list (PIE-675)", () => {
+  test("this tile is over the page, under a block; a list's own over this tile", () => {
+    const layers = styleLayers([], { tile: "backlinks", page: { id: "p", properties: props({ "style.list.gap": "0" }) }, instance: { id: "t4", fields: { "list.gap": "2" } } });
+    const r = resolveStyle(layers, 80);
+    expect(r.values["list.gap"]).toBe(2);
+    expect(r.sources["list.gap"]).toMatchObject({ level: "instance", label: "this tile" });
+    const lines = ["## Seed trays [style.list.gap::1]", "- Tomatoes", "- Chillies"];
+    const own = resolveStyle([...layers, ...listLayers(lines, 1, "n1")], 80);
+    expect(own.values["list.gap"]).toBe(1);
+    expect(own.sources["list.gap"]).toMatchObject({ level: "block", label: "this list", block: "n1", line: 0 });
+  });
+
+  test("a list's owners by placement: its lead-in line, else its section's heading; only its list fields count", () => {
+    const lines = [
+      "## Beds [style.list.divider::dots]",   // 0
+      "Climbers: [style.list.gap::2] [style.margin.x::9]", // 1
+      "- runner beans",                      // 2
+      "  up the canes",                      // 3
+      "",                                    // 4
+      "- sweet peas",                        // 5
+      "Ground cover",                        // 6
+      "",                                    // 7
+      "- clover",                            // 8
+    ];
+    expect(listStart(lines, 5)).toBe(2);
+    expect(listStart(lines, 3)).toBe(2);
+    expect(listStart(lines, 6)).toBeNull();
+    expect(listStart(lines, 8)).toBe(8);
+    expect(listOwners(lines, 2)).toEqual({ lead: 1, heading: 0 });
+    expect(listOwners(lines, 8)).toEqual({ lead: null, heading: 0 });
+    const climbers = resolveStyle(listLayers(lines, 2), 80), clover = resolveStyle(listLayers(lines, 8), 80);
+    expect(climbers.values).toMatchObject({ "list.gap": 2, "list.divider": "dots", "margin.x": 1 });
+    expect(clover.values).toMatchObject({ "list.gap": 0, "list.divider": "dots" });
+    // A box's list stops at its box; one after a box looks past it to the section's heading.
+    const boxed = ["## Shed [style.list.gap::2]", "::box{pad=1}", "- rake", "::", "- hoe"];
+    expect(listOwners(boxed, 2)).toEqual({ lead: null, heading: null });
+    expect(listOwners(boxed, 4)).toEqual({ lead: null, heading: 0 });
   });
 });

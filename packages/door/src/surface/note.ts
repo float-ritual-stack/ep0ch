@@ -8,7 +8,8 @@
 // agent driving the door through its control socket goes through the same code as the keys.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { lookFor, pageOf as lookPage, type Look } from "../look";
+import { listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
+import { LIST_ITEM, listLayers, listOwners, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
@@ -455,6 +456,30 @@ export class NoteSurface {
     if (line === undefined) return null;
     const b = componentBlocks(this.foldsIn(m).text.split("\n")).find(c => c.name === "box" && c.attrs !== undefined && line > c.start && line < c.end);
     return b ? { attrs: b.attrs!, line: b.start } : null;
+  }
+  /**
+   * The list the current element is in, or the one below the heading or lead-in line it's on (else the top row shown),
+   * for the tune inspector's `this list` (PIE-675): where a
+   * save goes (its lead-in line, else its section's heading: `list:<note>:<line>`, null when it has neither), its own
+   * layers (with the tuning over them), and its first item's line. Null outside a list.
+   */
+  listAt(): { target: string | null; layers: StyleLayer[]; first: number } | null {
+    const d = this.drawn, m = this.msg;
+    if (!d || !m) return null;
+    const cur = this.elems.find(e => e.key === this.cur);
+    const at = d.doc.source[cur ? cur.row - d.top : this.scroll];
+    if (at === undefined) return null;
+    const { text, lines } = this.foldsIn(m), body = text.split("\n");
+    // In a list; else on what owns one (its section's heading, or its lead-in line): the list below it.
+    let first = listStart(body, at);
+    if (first === null && LIST_ITEM.test(body[at + 1] ?? "")) first = at + 1;
+    if (first === null && /^ {0,3}#{1,6}\s/.test(body[at] ?? "")) {
+      for (let i = at + 1; i < body.length && !/^ {0,3}#{1,6}\s/.test(body[i]!); i++) if (LIST_ITEM.test(body[i]!) && !/^\s/.test(body[i]!)) { first = i; break; }
+    }
+    if (first === null) return null;
+    const { lead, heading } = listOwners(body, first), owner = lead ?? heading;
+    const layers = listLayers(body, first, m.id, n => lines[n] ?? n).map(l => ({ ...l, fields: listFieldsTuned(this.src, m.id, l.line!, l.fields) }));
+    return { target: owner === null || lines[owner] === undefined ? null : listTarget(m.id, lines[owner]!), layers, first: lines[first] ?? first };
   }
   /** The look for the note shown at `w`: the host's (the desk resolves its tile's), else the global and page levels. */
   private lookAt(m: Msg, w: number, host: SurfaceHost | undefined): Look {
@@ -1240,7 +1265,10 @@ export class NoteSurface {
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight);
     const look = this.lastLook;
-    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width } } : {}) };
+    // A list's own look (PIE-675): its lead-in or heading line's fields, with this connection's tuning over them, by the note's line.
+    const noteLine = this.foldsIn(m).lines;
+    const lists = (n: number, f: Readonly<Record<string, string>>) => (noteLine[n] === undefined ? { ...f } : listFieldsTuned(this.src, m.id, noteLine[n]!, f));
+    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket

@@ -2,7 +2,7 @@
 // way by every renderer (the door now; Detail and the publisher read it next, the publisher as real CSS). A value
 // comes from the nearest level that sets it, in this order, each over the one before:
 //
-//   base → component → global → tile kind → screen → page → block
+//   base → component → global → tile kind → screen → page → this tile → block (this list, a box)
 //
 // - base: these built-ins, and a tile kind's own defaults (a reader's measure, the links tile's group dividers).
 // - component: what a component's own style says for it (a heading style's `heading-margin`, PIE-599). One system:
@@ -12,7 +12,10 @@
 //   `Reading comfort [style-for::global] [style.measure::80]`, `[style-for::tile:detail] [style.pad::1 2]`,
 //   `[style-for::screen:desk] [style.list.gap::1]`. A `[style-for::airy]` that names no level is a named style.
 // - page: the note shown, by its own fields (`[style.margin.x::4]`) over the named style it uses (`[style::airy]`).
-// - block: a box written into the note, `::box{margin.x=2 list.gap=1}` … `::` (PIE-549's block attributes), and a
+// - this tile (PIE-675): one tile's own look, kept in its tile spec (`look`), so one links tile or one reader can be
+//   airy while the others of its kind stay tight.
+// - block: a box written into the note, `::box{margin.x=2 list.gap=1}` … `::` (PIE-549's block attributes); a list's own
+//   (PIE-675: `[style.list.gap::1]` on its lead-in line or the heading of its section, by placement, listLayers); and a
 //   heading line's own `heading-*` fields.
 //
 // Any field takes a width variant, `style.narrow.margin.x` (`narrow.margin.x=0` in a box): it applies while the tile
@@ -134,10 +137,15 @@ export const hasVariants = (t: StyleToken) => !NO_VARIANT.has(t);
 export const isStyleToken = (t: string): t is StyleToken => Object.hasOwn(STYLE_TOKENS, t);
 
 /** The levels, nearest last: a value set at a later one wins. */
-export const STYLE_LEVELS = ["base", "component", "global", "tile", "screen", "page", "block"] as const;
+export const STYLE_LEVELS = ["base", "component", "global", "tile", "screen", "page", "instance", "block"] as const;
 export type StyleLevel = (typeof STYLE_LEVELS)[number];
-/** The levels a value can be saved to from a tool (a block's box is edited in its note). */
-export const SAVE_LEVELS = ["global", "tile", "screen", "page"] as const satisfies readonly StyleLevel[];
+/**
+ * The levels a value can be saved to from a tool: the outline's, this tile's (its tile spec), and this list's (its
+ * lead-in or heading line). A box is edited in its note.
+ */
+export const SAVE_LEVELS = ["global", "tile", "screen", "page", "instance", "list"] as const;
+/** The cascade level a save level is (this list is a block's). */
+export const levelOfSave = (l: SaveLevel): StyleLevel => (l === "list" ? "block" : l);
 export type SaveLevel = (typeof SAVE_LEVELS)[number];
 
 /** A field's key in a layer: the token, or `narrow.token` / `wide.token` for its width variant. */
@@ -436,6 +444,8 @@ export interface StylePlace {
   screen?: string;
   /** The page's own properties (the note shown): its `style.*` fields and `[style::name]`. */
   page?: { id: string; properties: readonly { key: string; value: string }[] };
+  /** This tile (PIE-675): its id and its own look, as its tile spec keeps it (field key → value as written). */
+  instance?: { id: string; fields: Readonly<Record<FieldKey, string>> };
 }
 
 /**
@@ -462,6 +472,7 @@ export function styleLayers(sheets: readonly StyleSheet[], place: StylePlace, pr
     const fields = styleFieldsOf(page.properties, "page", problems, false);
     if (Object.keys(fields).length) out.push({ level: "page", label: "page", block: page.id, fields });
   }
+  if (place.instance && Object.keys(place.instance.fields).length) out.push({ level: "instance", label: "this tile", fields: place.instance.fields });
   return out;
 }
 
@@ -479,4 +490,71 @@ export function levelTarget(level: StyleLevel, place: StylePlace): string | null
   if (level === "tile") return place.tile ? `tile:${place.tile}` : null;
   if (level === "screen") return place.screen ? `screen:${place.screen}` : null;
   return null;
+}
+
+// ── a list's own look (PIE-675) ───────────────────────────────────────────────
+
+/** A list item's line: `- `, `* `, `+ `, `1. ` or `1) `, at any indent. */
+export const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
+const HEADING_LINE = /^ {0,3}#{1,6}\s/;
+const indentOf = (l: string) => l.length - l.trimStart().length;
+
+/** Whether a field is a list's (`list.gap`, `narrow.list.divider`): the only fields a list's own lines set. */
+export const isListField = (k: FieldKey) => { const f = parseFieldKey(k); return !!f && f.token.startsWith("list."); };
+
+/**
+ * The first item of the list line `at` is in (an item, or a line inside one), as a reader runs a list: blank lines
+ * and indented lines carry it on, an unindented line that isn't an item ends it. Null when `at` isn't in a list.
+ */
+export function listStart(lines: readonly string[], at: number): number | null {
+  let first: number | null = null;
+  for (let i = at; i >= 0; i--) {
+    const l = lines[i]!;
+    if (LIST_ITEM.test(l)) { if (indentOf(l) === 0) first = i; continue; }
+    if (!l.trim() || indentOf(l) > 0) continue;
+    break;
+  }
+  return first;
+}
+
+/**
+ * Where a list's own look is written, by placement (PIE-675): its lead-in, the line just above its first item when that
+ * line isn't blank, an item or a heading (the line the list belongs to), and the heading of the section it's in. Either
+ * can be null. A save goes to the lead-in when there is one, else the heading.
+ */
+export function listOwners(lines: readonly string[], first: number): { lead: number | null; heading: number | null } {
+  const above = first > 0 ? lines[first - 1]! : "";
+  const lead = first > 0 && above.trim() && !LIST_ITEM.test(above) && !HEADING_LINE.test(above) && !COMPONENT_FENCE.test(above) && indentOf(above) === 0 ? first - 1 : null;
+  // The section's heading, within the component it's in: a box's list doesn't reach past its `::box{…}`, and one after a
+  // box looks past the box's lines.
+  let heading: number | null = null, depth = 0;
+  for (let i = first - 1; i >= 0; i--) {
+    const l = lines[i]!.trim();
+    if (l === "::") { depth++; continue; }
+    if (COMPONENT_FENCE.test(l)) { if (depth) { depth--; continue; } break; }
+    if (!depth && HEADING_LINE.test(lines[i]!)) { heading = i; break; }
+  }
+  return { lead, heading };
+}
+/** A component's fence line (`::box{…}`, `::graph-meter`, `::`). */
+const COMPONENT_FENCE = /^::/;
+
+/** The list fields a line sets (`[style.list.gap::1]` on it), as written. */
+export function listFieldsOn(line: string): Record<FieldKey, string> {
+  const fields = styleFieldsOf(liveTokensInLine(line), "list", [], false);
+  return Object.fromEntries(Object.entries(fields).filter(([k]) => isListField(k)));
+}
+
+/**
+ * A list's own layers (block level, "this list"), the heading's then the lead-in's (nearer), for the list whose first
+ * item is line `first` of `lines`. `line(n)`: line n's number as the inspector names it (a reader's body line to the
+ * note's), for each layer's source; `block`: the note.
+ */
+export function listLayers(lines: readonly string[], first: number, block?: string, line: (n: number) => number = n => n): StyleLayer[] {
+  const { lead, heading } = listOwners(lines, first);
+  return [heading, lead].flatMap(n => {
+    if (n === null) return [];
+    const fields = listFieldsOn(lines[n]!);
+    return [{ level: "block" as const, label: "this list", ...(block ? { block } : {}), line: line(n), fields }];
+  });
 }
