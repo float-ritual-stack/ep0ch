@@ -176,7 +176,7 @@ const builtins = (): TileKind[] => [
     describe: p => (p as QueryPane).describe(),
   },
   {
-    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing and list values, where each comes from, nudged and saved (PIE-673)",
+    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",
     keys: [{ key: "y", label: "tune", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new TunePane(src && "tile" in src ? src.tile : "reader"); },
     actions: TUNE_ACTIONS,

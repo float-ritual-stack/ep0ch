@@ -517,7 +517,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ on, clear }, { d, reader }, actor) { return d.selectTile(reader, on, !!clear, actor); },
   }),
   "tile.tune": def({
-    summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
+    summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and picture, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
     keys: "alt+y; ^W o y; the tile menu's \"tune its look\"",
     touches: "shape", replay: "ask", says: r => `· tuning ${r.tunes}`,
     menu: { label: "tune its look", group: TILE, key: "alt+y", now: ({ d, reader }) => (d.tileLook(reader ?? "") ? null : { hide: true }) },
