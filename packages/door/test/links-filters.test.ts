@@ -265,3 +265,26 @@ describe("the service sends what an Outlink's target is", () => {
     expect(linkAcross(data, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }, new Set(["children"])).by.children).toMatchObject({ matching: 1, total: 2 });
   }, 20_000);
 });
+
+describe("a links tile with Children alone (PIE-693)", () => {
+  // A desk that answers children at once and backlinks never: the tile mustn't wait on (or ask) what it doesn't list.
+  const note = { id: "n1", text: "Swap thread", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", props: {} } as Msg;
+  const kid = { ...note, id: "k1", text: "Ana: beans", parentId: "n1" } as Msg;
+  test("lists its replies without asking for backlinks, and says its groups", async () => {
+    const { BacklinksPane } = await import("../src/desk/backlinks-pane");
+    let backlinksAsked = 0, redraws = 0;
+    const board = {
+      children: async () => [kid], facets: async () => ({ facets: {}, missing: [] }), authoredLinks: async () => ({ kind: "ready", ownerId: "n1", ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      backlinks: () => { backlinksAsked++; return new Promise(() => {}); },
+    };
+    const desk = { ctx: { board, flash() {} }, redraw() { redraws++; }, tileShowing: () => note } as any;
+    const p = new BacklinksPane("reader", false, ["children"]);
+    p.render(60, 20, false, desk);
+    await Bun.sleep(5);
+    expect(backlinksAsked).toBe(0);
+    expect(p.rows().filter(r => r.kind === "child").map(r => linkWords(r).text)).toEqual(["Ana: beans"]);
+    expect(p.describe()).toMatchObject({ groups: ["children"] });
+    expect(p.spec()).toMatchObject({ linkGroups: "children" });
+    expect(p.title()).toContain("1 reply");
+  });
+});

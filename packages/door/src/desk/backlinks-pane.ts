@@ -115,6 +115,8 @@ export class BacklinksPane implements Pane {
   groups: LinkGroupName[] = [...ALL_LINK_GROUPS];
   /** The notes under the target, with their facets, while Children is listed (read only then). */
   children: Load<ChildLink[]> = { kind: "loading" };
+  /** Children's own reads: only the latest one lands (it can be asked again without the rest, as its group comes on). */
+  private kidsAsked = 0;
   problem = "";
   /** The selected row, and the first row drawn. */
   sel = 0;
@@ -172,9 +174,11 @@ export class BacklinksPane implements Pane {
    */
   setGroups(groups: readonly LinkGroupName[], desk: DeskApi) {
     if (!groups.length) throw new ActionRefused("a links tile lists at least one group");
-    const was = this.groups.includes("children");
+    const had = new Set(this.groups);
     this.keepSel(() => { this.groups = ALL_LINK_GROUPS.filter(g => groups.includes(g)); });
-    if (!was && this.groups.includes("children") && this.target) void this.loadChildren(this.target, desk, this.asked);
+    // Backlinks coming on are read (a tile without them never asked); Children alone is read on its own.
+    if (this.target && !had.has("backlinks") && this.groups.includes("backlinks")) void this.load(this.target, desk, true);
+    else if (this.target && !had.has("children") && this.groups.includes("children")) void this.loadChildren(this.target, desk);
     desk.redraw();
   }
 
@@ -230,7 +234,7 @@ export class BacklinksPane implements Pane {
     if (!m) return Promise.resolve();
     const n = ++this.asked;
     if (!keepSel) this.children = { kind: "loading" };
-    if (this.groups.includes("children")) void this.loadChildren(m, desk, n);
+    if (this.groups.includes("children")) void this.loadChildren(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
     void desk.ctx.board.authoredLinks(m.id).then(v => {
       if (n !== this.asked) return;
@@ -241,7 +245,10 @@ export class BacklinksPane implements Pane {
       desk.redraw();
     },
       (e: Error) => { if (n === this.asked) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
-    return desk.ctx.board.backlinks(m.id).then(data => {
+    // A tile that doesn't list Backlinks doesn't ask for them: an empty collection stands in, so a slow or failed
+    // backlinks read never holds up (or hides) the groups it does list.
+    const backlinks = this.groups.includes("backlinks") ? desk.ctx.board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
+    return backlinks.then(data => {
       if (n !== this.asked) return;
       this.data = data;
       // Opened once per note (a later read keeps what the person folded).
@@ -256,12 +263,14 @@ export class BacklinksPane implements Pane {
   }
 
   /** The notes under `m` and their facets (the Children group), drawn as they land, the selection kept. */
-  private loadChildren(m: Msg, desk: DeskApi, n: number): Promise<void> {
+  private loadChildren(m: Msg, desk: DeskApi): Promise<void> {
+    const n = ++this.kidsAsked;
+    const current = () => n === this.kidsAsked && this.target?.id === m.id;
     return readChildren(desk.ctx.board, m.id).then(value => {
-      if (n !== this.asked) return;
+      if (!current()) return;
       this.keepSel(() => { this.children = { kind: "ready", value }; }, !this.data);
       desk.redraw();
-    }, (e: Error) => { if (n === this.asked) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
+    }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
   /** The tile was given the keys: the selected source shows where its selection goes, as moving to it would. */
@@ -426,7 +435,7 @@ export class BacklinksPane implements Pane {
 
   describe() {
     const brief = this.target ? { id: this.target.id, title: subject(this.target) } : null;
-    if (!this.data) return { source: this.source, target: brief, loading: !!this.target && !this.problem, problem: this.problem || undefined };
+    if (!this.data) return { source: this.source, target: brief, groups: [...this.groups], loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
     // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them.
     return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], groups: [...this.groups], typing: this.draft?.text ?? null };
