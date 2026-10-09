@@ -21,6 +21,7 @@ import {
   locateSpans,
   locateSpanForced,
   markStart,
+  rebaseSpans,
   spanContext,
   type DraftPatchSpan,
   type LocatedSpan,
@@ -165,19 +166,22 @@ function normalizePolicy(policy: unknown): DraftPatchPolicyName {
   return policy as DraftPatchPolicyName;
 }
 
+/** How a note's spans are placed in its text: as it is, or rebased from the revision they were read at. */
+type Locator = (text: string, spans: readonly DraftPatchSpan[]) => ReturnType<typeof locateSpans>;
+
 /**
  * Which change of a patch (1-based, counted across all its notes, in the order given) is the first whose
  * application makes `fails` true of the note's text, or null when none alone does. A refusal's reason names it,
  * so a patch of six changes reads as one edit with one change at fault.
  */
-function blame(edits: readonly DraftPatchEdit[], edit: DraftPatchEdit, text: string, fails: (after: string) => boolean): number | null {
+function blame(edits: readonly DraftPatchEdit[], edit: DraftPatchEdit, text: string, fails: (after: string) => boolean, locate: Locator = locateSpans): number | null {
   let offset = 0;
   for (const other of edits) {
     if (other === edit) break;
     offset += other.patches.length;
   }
   for (let count = 1; count <= edit.patches.length; count += 1) {
-    const located = locateSpans(text, edit.patches.slice(0, count));
+    const located = locate(text, edit.patches.slice(0, count));
     if (!located.ok) return null;
     if (fails(applyLocated(text, located.spans))) return offset + count;
   }
@@ -472,7 +476,7 @@ export class DraftPatchRouter {
       if (failure) return { ok: false, reason: failure };
       if (options.force) continue;
       const text = this.deps.store.requireActive(edit.blockId).text;
-      const refusal = await this.policyFailure(edits, edit, text, options);
+      const refusal = await this.policyFailure(edits, edit, text, options, this.savedLocator(edit, options));
       if (refusal) return refusal;
       checked.set(edit.blockId, text);
     }
@@ -533,11 +537,12 @@ export class DraftPatchRouter {
         if (failure) throw new Error(failure);
         const block = store.requireActive(edit.blockId);
         if (!options.force && block.text !== checked.get(edit.blockId)) throw new Error("the note changed while the patch was being checked");
-        const located = locateSpans(block.text, edit.patches, options.force);
+        const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
         if (!located.ok) throw new Error(located.reason);
-        return store.update(edit.blockId, applyLocated(block.text, located.spans), block.revision, options.mutation);
+        const rebased = this.rebasedFrom(edit, block.revision, options);
+        return { block: store.update(edit.blockId, applyLocated(block.text, located.spans), block.revision, options.mutation), rebased };
       }))();
-      for (const block of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision });
+      for (const { block, rebased } of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision, ...(rebased ? { rebasedFrom: rebased } : {}) });
     } catch (error) {
       await undo();
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -547,14 +552,39 @@ export class DraftPatchRouter {
     return { ok: true, applied };
   }
 
+  /** The revision a saved note's part was read at when it is applied at a newer one (a rebase), else null. */
+  private rebasedFrom(edit: DraftPatchEdit, revision: number, options: RunOptions): number | null {
+    return !options.force && !options.current && edit.revision !== revision ? edit.revision : null;
+  }
+
+  /**
+   * How a saved note's spans are placed: in the text as it is, or, when the note was saved since the patch's
+   * revision, rebased from the text of that revision (kept by the store): they apply at the newer revision only
+   * when every observed span is still there, once, and nobody rewrote it.
+   */
+  private savedLocator(edit: DraftPatchEdit, options: RunOptions): Locator {
+    const block = this.deps.store.get(edit.blockId);
+    if (!block || !this.rebasedFrom(edit, block.revision, options)) return (text, spans) => locateSpans(text, spans);
+    const saved = `the note was saved since it was read (revision ${edit.revision}, now ${block.revision})`;
+    let base: string | null = null;
+    try {
+      base = edit.revision < block.revision ? this.deps.store.revisionText(edit.blockId, edit.revision).text : null;
+    } catch {
+      base = null;
+    }
+    if (base === null) return () => ({ ok: false, index: 0, reason: `${saved}, and that revision isn't kept to rebase from` });
+    const from = base;
+    return (text, spans) => {
+      const placed = rebaseSpans(from, text, spans);
+      return placed.ok ? placed : { ...placed, reason: `${saved}, and ${placed.reason}` };
+    };
+  }
+
   /** Why a saved note's part can't apply now, or null. */
   private checkSaved(edit: DraftPatchEdit, options: RunOptions): string | null {
     const block = this.deps.store.get(edit.blockId);
     if (!block || block.effectiveDeletedRootId) return "the note is gone or in the Trash";
-    if (!options.force && !options.current && block.revision !== edit.revision) {
-      return `the note was saved since it was read (revision ${edit.revision}, now ${block.revision})`;
-    }
-    const located = locateSpans(block.text, edit.patches, options.force);
+    const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
     if (!located.ok) return located.reason;
     return this.pastMark(block.text, located.spans, edit.blockId, options);
   }
@@ -577,9 +607,9 @@ export class DraftPatchRouter {
    * `allowStructural`), and a refusal is final, never a proposal. `prose`: every structural token kept, and a
    * refusal becomes a proposal. Null when it passes.
    */
-  private async policyFailure(edits: DraftPatchEdit[], edit: DraftPatchEdit, text: string, options: RunOptions): Promise<Extract<Outcome, { ok: false }> | null> {
+  private async policyFailure(edits: DraftPatchEdit[], edit: DraftPatchEdit, text: string, options: RunOptions, locate: Locator = locateSpans): Promise<Extract<Outcome, { ok: false }> | null> {
     if (options.force) return null;
-    const located = locateSpans(text, edit.patches);
+    const located = locate(text, edit.patches);
     if (!located.ok) return { ok: false, reason: located.reason };
     const after = applyLocated(text, located.spans);
     const total = proposalChanges({ edits });
@@ -588,14 +618,14 @@ export class DraftPatchRouter {
     if (options.mutation.author === "agent") {
       const written = addedRequestLine(text, after);
       if (written !== null) {
-        const change = blame(edits, edit, text, next => addedRequestLine(text, next) !== null);
+        const change = blame(edits, edit, text, next => addedRequestLine(text, next) !== null, locate);
         return { ok: false, refused: true, reason: blamed(`it would write a request line (${written}); agents can't ask agents`, change, total) };
       }
     }
     if (options.policy === "prose") {
       const reason = draftPatchTextPolicy(text, after);
       if (!reason) return null;
-      return { ok: false, reason: blamed(reason, blame(edits, edit, text, next => draftPatchTextPolicy(text, next) !== null), total) };
+      return { ok: false, reason: blamed(reason, blame(edits, edit, text, next => draftPatchTextPolicy(text, next) !== null, locate), total) };
     }
     if (options.allowStructural) return null;
     const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after);
@@ -605,7 +635,7 @@ export class DraftPatchRouter {
     const change = blame(edits, edit, text, next => {
       const dropped = droppedStructure(text, next);
       return dropped.pages.some(named) || dropped.anchors.some(anchor => named(`^${anchor}`));
-    });
+    }, locate);
     return {
       ok: false,
       refused: true,

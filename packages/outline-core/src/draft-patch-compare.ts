@@ -162,6 +162,140 @@ export function locateSpans(text: string, spans: readonly DraftPatchSpan[], forc
   return { ok: true, spans: ordered };
 }
 
+/** A stretch of the base text that the newer text rewrote: `[start, end)` of the base became `replacement`. */
+interface Hunk {
+  start: number;
+  end: number;
+  replacement: string;
+}
+
+/** Longest line-by-line diff the rebase works out; a longer pair is compared as one rewritten window. */
+const REBASE_DIFF_CELLS = 4_000_000;
+
+/** What changed between two texts, as hunks of the old text: lines by LCS, then each hunk narrowed to the characters that differ. */
+function hunksBetween(base: string, current: string): Hunk[] {
+  if (base === current) return [];
+  // Each text ends in a sentinel newline for the diff, so every real line has one; it is taken off the hunks below.
+  const oldLines = `${base}\n`.split("\n");
+  const newLines = `${current}\n`.split("\n");
+  let head = 0;
+  while (head < oldLines.length && head < newLines.length && oldLines[head] === newLines[head]) head += 1;
+  let tail = 0;
+  while (tail < oldLines.length - head && tail < newLines.length - head && oldLines[oldLines.length - 1 - tail] === newLines[newLines.length - 1 - tail]) tail += 1;
+  const midOld = oldLines.slice(head, oldLines.length - tail);
+  const midNew = newLines.slice(head, newLines.length - tail);
+  const offsets = (lines: string[]) => {
+    const out = [0];
+    for (const line of lines) out.push(out[out.length - 1]! + line.length + 1);
+    return out;
+  };
+  const oldAt = offsets(oldLines);
+  const newAt = offsets(newLines);
+  // Line ranges [oldFrom, oldTo) -> [newFrom, newTo), in whole-array line numbers.
+  const ranges: Array<[number, number, number, number]> = [];
+  if (midOld.length * midNew.length > REBASE_DIFF_CELLS) {
+    ranges.push([head, oldLines.length - tail, head, newLines.length - tail]);
+  } else {
+    const rows = midOld.length;
+    const cols = midNew.length;
+    const lcs: Uint32Array[] = Array.from({ length: rows + 1 }, () => new Uint32Array(cols + 1));
+    for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let col = cols - 1; col >= 0; col -= 1) {
+        lcs[row]![col] = midOld[row] === midNew[col] ? lcs[row + 1]![col + 1]! + 1 : Math.max(lcs[row + 1]![col]!, lcs[row]![col + 1]!);
+      }
+    }
+    let row = 0;
+    let col = 0;
+    let open: [number, number] | null = null;
+    const close = (toRow: number, toCol: number) => {
+      if (open) ranges.push([head + open[0], head + toRow, head + open[1], head + toCol]);
+      open = null;
+    };
+    while (row < rows || col < cols) {
+      if (row < rows && col < cols && midOld[row] === midNew[col]) {
+        close(row, col);
+        row += 1;
+        col += 1;
+        continue;
+      }
+      open ??= [row, col];
+      if (col < cols && (row >= rows || lcs[row]![col + 1]! >= lcs[row + 1]![col]!)) col += 1;
+      else row += 1;
+    }
+    close(rows, cols);
+  }
+  const hunks: Hunk[] = [];
+  for (const [oldFrom, oldTo, newFrom, newTo] of ranges) {
+    // Whole lines, each with its newline (the last line of a text has none).
+    let from = oldAt[oldFrom]!;
+    let to = oldAt[oldTo]!;
+    let text = `${current}\n`.slice(newAt[newFrom]!, newAt[newTo]!);
+    if (from > base.length) {
+      // Lines added at the very end: the newline that ends the last line goes with them.
+      from = to = base.length;
+      text = `\n${text.slice(0, -1)}`;
+    } else if (to > base.length) {
+      to = base.length;
+      text = text.slice(0, -1);
+    }
+    const old = base.slice(from, to);
+    // Whole lines, not the characters that differ: a patch that rewrote a sentence of a line has no record here of
+    // which words it meant, so a later patch to any other part of that line is not told apart from it.
+    hunks.push({ start: from, end: to, replacement: text });
+  }
+  // The hunks must turn the old text into the new one; if an edge case of the line diff breaks that, the whole
+  // stretch between the first and last difference counts as rewritten (coarser, never wrong).
+  let rebuilt = "";
+  let cursor = 0;
+  for (const hunk of hunks) {
+    rebuilt += base.slice(cursor, hunk.start) + hunk.replacement;
+    cursor = hunk.end;
+  }
+  if (rebuilt + base.slice(cursor) === current) return hunks;
+  let skip = 0;
+  while (skip < base.length && skip < current.length && base[skip] === current[skip]) skip += 1;
+  let back = 0;
+  while (back < base.length - skip && back < current.length - skip && base[base.length - 1 - back] === current[current.length - 1 - back]) back += 1;
+  return [{ start: skip, end: base.length - back, replacement: current.slice(skip, current.length - back) }];
+}
+
+/**
+ * A patch read at `base`, placed in `current` (a rebase, as git does it): the spans are located in the text the
+ * writer saw, and each carries over when the newer text left that passage alone. A span lands where it moved to
+ * only when its observed text is still there, once. It is refused (and the patch with it) when someone rewrote any
+ * of its passage since, when two spans of the patch overlap, or when its observed text is now in the note more than
+ * once. Spans that sit together with a hunk of someone else's edit are an overlap: nothing is merged silently.
+ */
+export function rebaseSpans(base: string, current: string, spans: readonly DraftPatchSpan[]): LocatedSpans {
+  const seen = locateSpans(base, spans);
+  if (!seen.ok) return seen;
+  const hunks = hunksBetween(base, current);
+  const located: LocatedSpan[] = [];
+  for (const [index, span] of spans.entries()) {
+    const at = locateSpan(base, span) as { start: number; end: number };
+    const touched = hunks.some(hunk => (at.start < hunk.end && hunk.start < at.end) || (hunk.start === hunk.end && at.start < hunk.start && hunk.start < at.end));
+    if (touched) return { ok: false, index, reason: "someone changed that passage since it was read" };
+    let delta = 0;
+    for (const hunk of hunks) if (hunk.end <= at.start) delta += hunk.replacement.length - (hunk.end - hunk.start);
+    const start = at.start + delta;
+    const end = start + span.observed.length;
+    if (current.slice(start, end) !== span.observed) return { ok: false, index, reason: "the observed text isn't there any more" };
+    if (occurrences(current, span.observed).length > 1) return { ok: false, index, reason: "the observed text is in the note more than once now; give its range" };
+    located.push({ start, end, replacement: span.replacement });
+  }
+  return locateOrdered(located);
+}
+
+function locateOrdered(located: LocatedSpan[]): LocatedSpans {
+  const ordered = [...located].sort((left, right) => left.start - right.start);
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (ordered[index]!.start < ordered[index - 1]!.end) {
+      return { ok: false, index: located.indexOf(ordered[index]!), reason: "two spans of the patch overlap" };
+    }
+  }
+  return { ok: true, spans: ordered };
+}
+
 /** The text with located spans replaced. */
 export function applyLocated(text: string, spans: readonly LocatedSpan[]): string {
   let out = "";

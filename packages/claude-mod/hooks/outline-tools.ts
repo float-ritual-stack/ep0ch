@@ -264,7 +264,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       '(never empty) and its `replacement`, against the `revision` outline_read returned; all apply as one edit or ' +
       'none. A live draft gets it in place; otherwise it is an ordinary edit of the saved note. policy `edit` (the ' +
       'default) has outline_edit\'s guard (allowStructural likewise); `prose` keeps every link, anchor and property. ' +
-      'If the text changed under it, or prose refuses, it becomes one proposal for the person (outcome: proposed).',
+      'If the note was saved since you read it, the patch applies on the newer text when every observed span is still there ' +
+      'once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it becomes one proposal for the ' +
+      'person (outcome: proposed) when a span is gone, changed or ambiguous, when the note is open in a draft, or when prose refuses.',
     inputSchema: schema({
       ref: REF,
       revision: EXPECTED,
