@@ -6,7 +6,7 @@ import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, hea
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
-import { linkBlockAt, renderLinkBlock } from "./links";
+import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
@@ -55,6 +55,12 @@ export interface DocEnv {
    * Resource), so the reader steps to it and opens it. Without it the rows are text.
    */
   tag?: (to: LinkTarget, text: string) => string;
+  /**
+   * The reader's hold on the body's inline `::links` components (PIE-693, src/links.ts LinkBlocksEnv): each one's
+   * selected row and whether the person is in it, its rows and `⏎ in` tagged, its preview drawn as an embed. Without
+   * it (an embed, a draft's preview) a component draws its list as text.
+   */
+  linkBlocks?: LinkBlocksEnv;
   /**
    * The block whose body this is: an inline `::links` component lists its links unless it names another, and a figure
    * that is the note's figure block (its first line) takes the note's child bullets as rows.
@@ -459,7 +465,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
     const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
-      out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag));
+      out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag, env.linkBlocks));
       i = lb.end;
       continue;
     }

@@ -25,7 +25,7 @@ import {
 } from "./backlinks";
 import { subject, type Msg } from "./board";
 import { ago } from "./text";
-import { COMPONENT_OPEN, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
+import { COMPONENT_OPEN, componentAttrs, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { USER, type Actor, type SocketBoard } from "./socket";
 import type { LinkTarget } from "./refs";
@@ -34,13 +34,16 @@ import { C, ellipsize, fg, pad, RESET, selected as lit, width } from "./style";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
 
-export type LinkGroupName = "outlinks" | "resources" | "backlinks" | "children";
-/** The Tree's groups in its order, then the notes under the block, each with the glyph the door draws. */
+export type LinkGroupName = "outlinks" | "resources" | "backlinks" | "children" | "matches";
+/**
+ * The Tree's groups in its order, then the notes under the block, then a query's matches (PIE-693: an inline
+ * `::links{query=…}`'s rows), each with the glyph the door draws.
+ */
 export const LINK_GROUPS: readonly { group: LinkGroupName; glyph: string }[] = [
-  { group: "outlinks", glyph: "→" }, { group: "resources", glyph: "♦" }, { group: "backlinks", glyph: "←" }, { group: "children", glyph: "↓" },
+  { group: "outlinks", glyph: "→" }, { group: "resources", glyph: "♦" }, { group: "backlinks", glyph: "←" }, { group: "children", glyph: "↓" }, { group: "matches", glyph: "≡" },
 ];
-/** Every group's name, in order: what a links tile shows when nobody chose. */
-export const ALL_LINK_GROUPS: readonly LinkGroupName[] = LINK_GROUPS.map(g => g.group);
+/** A block's own groups, in order: what a links tile shows when nobody chose (a query's matches are an inline block's). */
+export const ALL_LINK_GROUPS: readonly LinkGroupName[] = ["outlinks", "resources", "backlinks", "children"];
 export const isLinkGroup = (s: string): s is LinkGroupName => LINK_GROUPS.some(g => g.group === s);
 
 export type Load<T> = { kind: "loading" } | { kind: "ready"; value: T } | { kind: "error"; message: string };
@@ -53,7 +56,7 @@ export interface ChildLink { block: Msg; facets?: AuthoredTargetFacets }
  * What the service sent for one block: its authored links and its backlinks, each as it came (or why not), and the
  * notes under it where the list reads them (the links tile; the tree's rows are its children already).
  */
-export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]> }
+export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]>; matches?: Load<ChildLink[]> }
 
 /** A comment or its reply is a block under the note too; it lists with Backlinks (kind Comment), never as a child. */
 export const isAnnotationBlock = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
@@ -76,7 +79,8 @@ export type LinkRow =
   | { kind: "outlink"; key: string; depth: number; link: AuthoredOutlink }
   | { kind: "resource"; key: string; depth: number; link: AuthoredResourceLink }
   | { kind: "backlink"; key: string; depth: number; source: BacklinkSource }
-  | { kind: "child"; key: string; depth: number; child: ChildLink };
+  | { kind: "child"; key: string; depth: number; child: ChildLink }
+  | { kind: "match"; key: string; depth: number; child: ChildLink };
 
 /** How the rows are shown: the person's folds and filters, kept by the list that draws them. */
 export interface LinkView {
@@ -110,8 +114,8 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
     const key = prefix + group;
     let count: number | null = null, note = "";
     const entries: LinkRow[] = [];
-    if (group === "children") {
-      const c = data.children;
+    if (group === "children" || group === "matches") {
+      const c = group === "children" ? data.children : data.matches;
       // Read only where the list asks for them (the links tile); elsewhere the group isn't there.
       if (!c) continue;
       if (c.kind === "loading") note = "asking the service…";
@@ -119,7 +123,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       else {
         // No children: the group says nothing, as an empty Outlinks doesn't, unless it's all the list shows (the replies).
         if (!c.value.length && !(view.only?.size === 1)) continue;
-        const rows: LinkRow[] = c.value.map(child => ({ kind: "child", key: key + SEP + child.block.id, depth: depth + 1, child }));
+        const rows: LinkRow[] = c.value.map(child => ({ kind: group === "children" ? "child" : "match", key: key + SEP + child.block.id, depth: depth + 1, child }));
         entries.push(...narrowRows(rows, view.backlinks, filter, !!view.sortAll));
         count = entries.length;
       }
@@ -171,7 +175,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
  * when something does; sorted by date it goes last.
  */
 export function rowFacets(r: LinkRow): { kind: string; kindLabel: string; bucket?: string; createdAt: string; updatedAt: string; title: string } | null {
-  if (r.kind === "child") {
+  if (r.kind === "child" || r.kind === "match") {
     const f = r.child.facets;
     return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
   }
@@ -228,7 +232,6 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
   const shows = (g: LinkGroupName) => !only || only.has(g);
   const by: BacklinkAcross["by"] = {};
   for (const g of ["outlinks", "resources", "backlinks"] as const) if (shows(g)) by[g] = null;
-  if (data.children && shows("children")) by.children = null;
   const kinds = new Map<string, string>();
   const note = (f: { kind: string; kindLabel: string } | undefined) => { if (f && !kinds.has(f.kind)) kinds.set(f.kind, f.kindLabel); };
   if (data.backlinks.kind === "ready" && shows("backlinks")) {
@@ -245,11 +248,14 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
       for (const e of g.entries) note(group === "outlinks" ? (e as AuthoredOutlink).resolution.kind === "ready" ? ((e as AuthoredOutlink).resolution as { facets?: AuthoredTargetFacets }).facets : undefined : (e as AuthoredResourceLink).facets);
     }
   }
-  if (data.children?.kind === "ready" && shows("children")) {
-    const all = data.children.value.map((child): LinkRow => ({ kind: "child", key: child.block.id, depth: 1, child }));
+  for (const g of ["children", "matches"] as const) {
+    const d = data[g];
+    if (!d || !shows(g)) continue;
+    if (d.kind !== "ready") { by[g] = null; continue; }
+    const all = d.value.map((child): LinkRow => ({ kind: g === "children" ? "child" : "match", key: child.block.id, depth: 1, child }));
     const rows = narrowRows(all, o, filter, false);
-    by.children = { matching: rows.length, total: all.length, filtered: all.length - rows.length };
-    for (const c of data.children.value) note(c.facets);
+    by[g] = { matching: rows.length, total: all.length, filtered: all.length - rows.length };
+    for (const c of d.value) note(c.facets);
   }
   const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce<number>((n, x) => n + (x ? f(x) : 0), 0);
   return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })) };
@@ -261,13 +267,13 @@ export function linkBlock(r: LinkRow | { kind: string } | undefined): string | n
   const x = r as LinkRow;
   if (x.kind === "outlink") return x.link.resolution.kind === "ready" ? x.link.resolution.target.blockId : null;
   if (x.kind === "backlink") return x.source.blockId;
-  if (x.kind === "child") return x.child.block.id;
+  if (x.kind === "child" || x.kind === "match") return x.child.block.id;
   return null;
 }
 
 /** Whether ⏎ on a row opens something (a note, a ticket, a Resource) rather than folding a group. */
-export const isLinkEntry = (r: LinkRow | undefined): r is Extract<LinkRow, { kind: "outlink" | "resource" | "backlink" | "child" }> =>
-  !!r && (r.kind === "outlink" || r.kind === "resource" || r.kind === "backlink" || r.kind === "child");
+export const isLinkEntry = (r: LinkRow | undefined): r is Extract<LinkRow, { kind: "outlink" | "resource" | "backlink" | "child" | "match" }> =>
+  !!r && (r.kind === "outlink" || r.kind === "resource" || r.kind === "backlink" || r.kind === "child" || r.kind === "match");
 
 /**
  * A row as words: its mark, its text and its dim context (`peek`, agents, and the drawing). `nest`: whether a row
@@ -283,9 +289,9 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : nest === null ? "→" : linkBlock(r) ? (nest ? "▾" : "▸") : "·", ...w }; }
     case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
     case "backlink": return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
-    case "child": {
+    case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
-      return { mark: nest === null ? "↓" : nest ? "▾" : "▸", text: subject(b), context: [b.author ?? "", ago(b.updatedAt), f?.stage ? f.stage.value : ""].filter(Boolean).join(" · ") };
+      return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", b.author ?? "", ago(b.updatedAt)].filter(Boolean).join(" · ") };
     }
   }
 }
@@ -349,9 +355,9 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
     if (!m) throw new ActionRefused("that source isn't in the outline any more");
     return { note: m };
   }
-  if (r.kind === "child") {
+  if (r.kind === "child" || r.kind === "match") {
     const m = await board.get(r.child.block.id);
-    if (!m) throw new ActionRefused("that note isn't under this one any more");
+    if (!m) throw new ActionRefused(r.kind === "child" ? "that note isn't under this one any more" : "that note isn't in the outline any more");
     return { note: m };
   }
   if (r.kind === "outlink") {
@@ -384,7 +390,7 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */
 export function linkTargetOf(r: LinkRow): LinkTarget | null {
   if (r.kind === "backlink") return { block: r.source.blockId, role: "row" };
-  if (r.kind === "child") return { block: r.child.block.id, role: "row" };
+  if (r.kind === "child" || r.kind === "match") return { block: r.child.block.id, role: "row" };
   if (r.kind === "outlink") {
     const res = r.link.resolution;
     if (res.kind === "ready") return { block: res.target.blockId, ...(res.target.fragmentId ? { fragment: res.target.fragmentId } : {}), role: "row" };
@@ -408,50 +414,105 @@ export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "back
 /** The inline component's names: every group, or one. */
 export const LINK_BLOCK_KINDS = ["links", "outlinks", "resources", "backlinks"] as const;
 export type LinkBlockKind = (typeof LINK_BLOCK_KINDS)[number];
+/** Where an inline component draws its selected row (PIE-693): beside the list, under it, or not at all. */
+export type LinkPreview = "right" | "below" | "none";
+const PREVIEWS: readonly LinkPreview[] = ["right", "below", "none"];
+/** The narrowest frame a preview goes beside the list in; narrower, the list alone. */
+export const PREVIEW_MIN_WIDTH = 70;
+/** The most rows a preview draws: the rest is the note's, a ⏎ away. */
+const PREVIEW_ROWS = 16;
 
-/** What an inline component asks: whose links (default the note it's in), which groups, a filter, a title. */
-export interface LinkBlockSpec { kind: LinkBlockKind; of: string | null; filter: string; title: string | null; problem?: string }
+/**
+ * What an inline component asks: whose links (default the note it's in), which groups, a filter, a title; and
+ * (PIE-693) a query whose matches it lists, and where it previews the selected row.
+ */
+export interface LinkBlockSpec {
+  kind: LinkBlockKind; of: string | null; filter: string; title: string | null;
+  /** The groups written (`groups:`), or null for its name's. */
+  groups: LinkGroupName[] | null;
+  /** A query in the saved views' grammar: its matches are the `matches` group. */
+  query: string | null;
+  preview: LinkPreview;
+  problem?: string;
+}
 
+/** The groups an inline component lists: its `groups:`, else its name's (`::links`: every group of the block, or a query's matches alone). */
+export function blockGroups(spec: LinkBlockSpec): LinkGroupName[] {
+  if (spec.groups) return spec.groups;
+  if (spec.kind !== "links") return [spec.kind];
+  return spec.query ? ["matches"] : [...ALL_LINK_GROUPS];
+}
+
+/** A `groups:` value: `links` (every group of the block), or group names, comma- or space-separated. */
+function groupsFrom(v: string): LinkGroupName[] | string {
+  const names = v.split(/[\s,]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+  if (!names.length) return "groups: names at least one group";
+  const out = new Set<LinkGroupName>();
+  for (const n of names) {
+    if (n === "links") ALL_LINK_GROUPS.forEach(g => out.add(g));
+    else if (isLinkGroup(n)) out.add(n);
+    else return `groups: is links or ${LINK_GROUPS.map(g => g.group).join(", ")}, not ${n}`;
+  }
+  return LINK_GROUPS.map(g => g.group).filter(g => out.has(g));
+}
 
 /**
  * The inline component starting at line `i`, or null. Where it ends (`end`, inclusive) is outline-core's
- * component-block rule (`blocks`: the lines' componentBlocks by first line, when the caller has them). Two forms:
+ * component-block rule (`blocks`: the lines' componentBlocks by first line, when the caller has them). Three forms:
  *
  *     ::resources jira                 one line: the words after the name filter the rows; `::links` alone,
  *                                        unclosed, is every link
  *
  *     ::links                          a block to its `::`: each line inside is `of:` (whose links),
- *     of: ((id))                         `filter:`, `title:` or `groups:`, or else the filter's words; `---`
- *     filter: offer                      lines (Comark's YAML fence) are skipped
+ *     of: ((id))                         `filter:`, `title:`, `groups:`, `query:` or `preview:`, or else the
+ *     filter: offer                      filter's words; `---` lines (Comark's YAML fence) are skipped
  *     ::
+ *
+ *     ::links{query="type=outbox-item status=waiting" preview=right}
+ *                                      the same keys in braces (outline-core's componentAttrs), closed by `::`
+ *                                        or on its line alone
  */
 export function linkBlockAt(lines: readonly string[], i: number, blocks: ReadonlyMap<number, ComponentBlock> = new Map(componentBlocks(lines).map(c => [c.start, c]))): { spec: LinkBlockSpec; end: number } | null {
   const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
-  const block = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i } : null);
+  const block: ComponentBlock | null = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i, ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}) } : null);
   if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
   const rest = (block.args ?? "").trim(), end = block.end;
-  const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null };
+  const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null, groups: null, query: null, preview: "none" };
   const idOf = (s: string) => referencedBlock(s)?.blockId ?? null;
   const words: string[] = [];
+  let preview: string | null = null;
+  const set = (k: string, v: string) => {
+    if (k === "of") { spec.of = idOf(v); if (!spec.of) spec.problem = `of: needs a ((block)) or a block id, not ${v}`; }
+    else if (k === "filter") words.push(v);
+    else if (k === "title") spec.title = v;
+    else if (k === "query") spec.query = v.trim() || null;
+    else if (k === "preview") preview = v.trim().toLowerCase();
+    else if (k === "groups") { const g = groupsFrom(v); if (typeof g === "string") spec.problem = g; else spec.groups = g; }
+    else return false;
+    return true;
+  };
+  // Its attributes, in braces on the first line.
+  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview)`;
   // Its arguments: `::links ((id))` names whose; anything else is the filter.
   if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }
   for (const line of lines.slice(i + 1, end)) {
     if (/^\s*---\s*$/.test(line)) continue;
-    const kv = /^\s*(of|filter|title|groups)\s*:\s*(.*?)\s*$/.exec(line);
+    const kv = /^\s*(of|filter|title|groups|query|preview)\s*:\s*(.*?)\s*$/.exec(line);
     if (!kv) { words.push(line.trim()); continue; }
-    const v = kv[2]!.replace(/^["']|["']$/g, "");
-    if (kv[1] === "of") { spec.of = idOf(v); if (!spec.of) spec.problem = `of: needs a ((block)) or a block id, not ${v}`; }
-    else if (kv[1] === "filter") words.push(v);
-    else if (kv[1] === "title") spec.title = v;
-    else if (kv[1] === "groups") { const g = v.trim().toLowerCase(); if ((LINK_BLOCK_KINDS as readonly string[]).includes(g)) spec.kind = g as LinkBlockKind; else spec.problem = `groups: is links, outlinks, resources or backlinks, not ${v}`; }
+    set(kv[1]!, kv[2]!.replace(/^["']|["']$/g, ""));
   }
   spec.filter = words.filter(Boolean).join(" ");
+  if (preview !== null && !(PREVIEWS as readonly string[]).includes(preview)) spec.problem = `preview: is right, below or none, not ${preview}`;
+  spec.preview = (preview as LinkPreview | null) ?? (spec.query ? "right" : "none");
+  if (spec.groups?.includes("matches") && !spec.query) spec.problem = "groups: matches lists a query's blocks: add query: (type=outbox-item status=waiting)";
+  if (spec.kind !== "links" && (spec.query || spec.groups)) spec.problem = `::${spec.kind} lists its own group; ::links takes query: and groups:`;
   return { spec, end };
 }
 
-// What the service answered for a block, kept while the outline doesn't change (asked again after it does), so a
-// redraw never asks. One per door: the inline components of every reader share it.
-type LinksBoard = Pick<SocketBoard, "authoredLinks" | "backlinks">;
+// What the service answered (a block's links, its children, a query's matches), kept while the outline doesn't
+// change (asked again after it does), so a redraw never asks. One per door: the inline components of every reader
+// share it.
+type LinksBoard = Pick<SocketBoard, "authoredLinks" | "backlinks" | "children" | "facets" | "queryNotes">;
 let source: LinksBoard | null = null;
 let redraw: () => void = () => {};
 /** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
@@ -460,11 +521,12 @@ export function listenLinks(fn: () => void): () => void { listeners.add(fn); ret
 const changed = () => { redraw(); for (const fn of listeners) fn(); };
 let generation = 0;
 const cache = new Map<string, { data: LinkData; at: number }>();
+const asks = new Map<string, { value: Load<ChildLink[]>; at: number }>();
 
 /** The door's outline connection and its repaint, for the inline components. */
 export function setLinksSource(b: LinksBoard | null, repaint: () => void) {
   // A new generation: an answer still on its way from the outline before is never kept as this one's.
-  source = b; redraw = repaint; cache.clear(); generation++;
+  source = b; redraw = repaint; cache.clear(); asks.clear(); generation++;
 }
 /** The connection and its repaint now, to put back after borrowing it (drawNote). */
 export const linksSource = (): { board: LinksBoard | null; redraw: () => void } => ({ board: source, redraw });
@@ -477,6 +539,7 @@ export function invalidateLinks() {
   if (settling) return;
   settling = setTimeout(() => { settling = null; generation++; changed(); }, 500);
 }
+const why = (e: unknown) => `couldn't ask: ${e instanceof Error ? e.message : String(e)}`;
 
 /** Block `id`'s links as last answered, asked for in the background when there's no answer or it's stale. */
 export function linksOf(id: string): LinkData | null {
@@ -487,38 +550,130 @@ export function linksOf(id: string): LinkData | null {
   const data: LinkData = hit ? { ...hit.data } : { links: { kind: "loading" }, backlinks: { kind: "loading" } };
   cache.set(id, { data, at });
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
-  const why = (e: unknown) => `couldn't ask: ${e instanceof Error ? e.message : String(e)}`;
   const put = (k: keyof LinkData, v: LinkData[keyof LinkData]) => { const e = cache.get(id); if (e && e.at === at) { e.data = { ...e.data, [k]: v }; changed(); } };
   b.authoredLinks(id).then(v => put("links", { kind: "ready", value: v }), e => put("links", { kind: "error", message: why(e) }));
   b.backlinks(id).then(v => put("backlinks", { kind: "ready", value: v }), e => put("backlinks", { kind: "error", message: why(e) }));
   return data;
 }
 
+/** A list of blocks with their facets (a block's children, a query's matches), as last answered, asked again when stale. */
+function blocksOf(key: string, ask: (b: LinksBoard) => Promise<ChildLink[]>): Load<ChildLink[]> | null {
+  if (!source) return null;
+  const hit = asks.get(key);
+  if (hit && hit.at === generation) return hit.value;
+  const at = generation, b = source;
+  asks.set(key, { value: hit?.value ?? { kind: "loading" }, at });
+  if (asks.size > 200) asks.delete(asks.keys().next().value!);
+  const put = (value: Load<ChildLink[]>) => { const e = asks.get(key); if (e && e.at === at) { e.value = value; changed(); } };
+  ask(b).then(value => put({ kind: "ready", value }), e => put({ kind: "error", message: why(e) }));
+  return hit?.value ?? { kind: "loading" };
+}
+/** The notes under block `id`, with their facets (the Children group of an inline component). */
+export const childrenOf = (id: string) => blocksOf(`children:${id}`, b => readChildren(b, id));
 /**
- * An inline component drawn `W` wide: the rows of `spec.of` (else `note`, the note it's in) in a figure's frame
- * (src/graphs.ts `frame`), every backlink kind open, each row tagged by `tag` as a link the reader opens. `frame`
- * is passed in (graphs.ts imports this module's caller).
+ * The blocks query `q` matches, with their facets, in the service's order (the `matches` group): the service
+ * parses the query (`blocks.query`), and says why it refuses one.
  */
-export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W: number, frame: (title: string, body: string[], W: number, footer?: string) => string[], tag?: (to: LinkTarget, text: string) => string): string[] {
-  const title = spec.title ?? spec.kind;
+export const matchesOf = (q: string) => blocksOf(`query:${q}`, async b => {
+  const { notes } = await b.queryNotes(q);
+  if (!notes.length) return [];
+  const { facets } = await b.facets(notes.map(n => n.id));
+  return notes.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
+});
+
+/**
+ * The reader's hold on a note's inline components (PIE-693), as FiguresEnv is on its figures: which row each has
+ * selected and whether the person is in it, how its rows, its `⏎ in` control and its preview are tagged and drawn,
+ * and what each drew. Without it (an embed, a draft's preview, `ep0ch show`) a component draws its list as text.
+ */
+export interface LinkBlocksEnv {
+  /** Counted as the components are drawn (one env for a layout): a component's key is its title and how many before it had it. */
+  drawn?: { n: number; titles: Map<string, number> };
+  ui?(key: string): { sel?: string; entered?: boolean; typing?: string } | undefined;
+  /** Tag a row, its target `to`, as row `row` of component `key`. */
+  row?(key: string, row: string, to: LinkTarget, text: string): string;
+  /** Tag the frame's control that goes in (or out). */
+  control?(key: string, text: string): string;
+  /** Block `id` drawn `width` wide, as the reader draws an embed of it. */
+  preview?(id: string, width: number): string[];
+  seen?(info: LinkBlockInfo): void;
+}
+/** One inline component as drawn: its key and place, its rows (each its row key, the block it stands for, its words), the selection, what's previewed. */
+export interface LinkBlockInfo {
+  key: string; n: number; title: string;
+  rows: { key: string; id: string | null; text: string; kind: LinkRow["kind"] }[];
+  sel: string | null; preview: string | null; entered: boolean; typing: string | null;
+  query: string | null; groups: LinkGroupName[];
+}
+
+/**
+ * An inline component drawn `W` wide: the rows of its groups (`spec.of`'s, else `note`'s, the note it's in, and a
+ * query's matches) in a figure's frame (src/graphs.ts `frame`), every backlink kind open, each row tagged by `tag`
+ * (or `blocks.row`) as a link the reader opens. With `blocks` (the reader's) and a preview, the selected row (the
+ * person's, else the first) is drawn beside the list or under it, as an embed of it is. `frame` is passed in
+ * (graphs.ts imports this module's caller).
+ */
+export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W: number, frame: (title: string, body: string[], W: number, footer?: string, control?: string) => string[], tag?: (to: LinkTarget, text: string) => string, blocks?: LinkBlocksEnv): string[] {
+  const groups = blockGroups(spec);
+  const title = spec.title ?? (spec.query && spec.kind === "links" && !spec.groups ? "matches" : spec.kind);
+  // Its key in the reader: its title and how many before it had that title, as a figure's.
+  const count = blocks ? (blocks.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
+  const n = ++count.n, same = count.titles.get(title) ?? 0;
+  count.titles.set(title, same + 1);
+  const key = `links:${title}#${same}`;
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
+  const own = groups.some(g => g !== "matches");
   const of = spec.of ?? note;
-  if (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:")) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
-  const data = linksOf(of);
-  if (!data) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
-  const only = spec.kind === "links" ? undefined : new Set<LinkGroupName>([spec.kind]);
+  if (own && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
+  const has = (g: LinkGroupName) => groups.includes(g);
+  const links = has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!) : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData;
+  const children = has("children") ? childrenOf(of!) : undefined, matches = spec.query ? matchesOf(spec.query) : undefined;
+  if (!links || children === null || matches === null) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
+  const data: LinkData = { ...links, ...(children ? { children } : {}), ...(matches ? { matches } : {}) };
+  const ui = blocks?.ui?.(key), typing = ui?.typing ?? null, entered = !!ui?.entered;
+  const filter = [spec.filter, typing ?? ""].filter(Boolean).join(" ");
   const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
-  const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter: spec.filter }, ...(only ? { only } : {}) });
+  const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter }, only: new Set(groups) });
   // One group alone: its header is the frame's title, so its entries stand one level up.
-  const alone = !!only, inner = Math.max(10, W - 4);
+  const alone = groups.length === 1;
   const shown = alone ? rows.filter(r => r.kind !== "group") : rows;
-  const body = shown.map(r => {
-    const to = tag ? linkTargetOf(r) : null;
-    return linkRowLine(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r, { cols: inner, ...(to && tag ? { tag: (t: string) => tag(to, t) } : {}) });
+  const entries = shown.filter(isLinkEntry);
+  // The selection: the person's row while it's still listed, else the first (only where it shows: a preview, or in it).
+  const previewing = spec.preview !== "none" && !!blocks?.preview;
+  const sel = entries.find(r => r.key === ui?.sel)?.key ?? (previewing || entered ? entries[0]?.key ?? null : null);
+  const selRow = entries.find(r => r.key === sel);
+  const inner = Math.max(10, W - 4);
+  const beside = previewing && spec.preview === "right" && W >= PREVIEW_MIN_WIDTH;
+  const lw = beside ? Math.max(20, Math.floor(inner * 0.42)) : inner, pw = beside ? inner - lw - 3 : inner;
+  const list = shown.map(r => {
+    const to = linkTargetOf(r);
+    const tagRow = to && blocks?.row ? (t: string) => blocks.row!(key, r.key, to, t) : to && tag ? (t: string) => tag(to, t) : undefined;
+    return linkRowLine(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r, { cols: lw, selected: r.key === sel && (previewing || entered), focused: entered, ...(tagRow ? { tag: tagRow } : {}) });
   });
   const head = rows.find(r => r.kind === "group");
-  if (!body.length) body.push(fg(C.dark) + (head?.kind === "group" && head.note ? head.note : spec.filter ? `nothing matches ${spec.filter}` : "nothing here yet") + RESET);
-  const counted = rows.filter(isLinkEntry).length;
-  const loading = data.links.kind === "loading" || data.backlinks.kind === "loading";
-  return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${counted} link${counted === 1 ? "" : "s"}${spec.filter ? ` · ${spec.filter}` : ""}${spec.of ? ` · of ${of.slice(0, 8)}` : ""}`);
+  if (!list.length) list.push(fg(C.dark) + (head?.kind === "group" && head.note ? head.note : filter ? `nothing matches ${filter}` : "nothing here yet") + RESET);
+  if (typing !== null) list.unshift(fg(C.yellow) + pad(`/ ${typing}▌`, lw) + RESET);
+  // The preview: the selected row's note, drawn as an embed of it (the reader's own renderer, its links its elements).
+  const previewId = selRow ? linkBlock(selRow) : null;
+  let pv: string[] = [];
+  if (previewing && selRow) {
+    if (!previewId) pv = [fg(C.dark) + "a Resource: ⏎ opens it" + RESET];
+    else {
+      const all = blocks!.preview!(previewId, pw);
+      pv = all.length > PREVIEW_ROWS ? [...all.slice(0, PREVIEW_ROWS - 1), fg(C.dark) + `… ${all.length - PREVIEW_ROWS + 1} more rows · ⏎ opens it` + RESET] : all;
+    }
+  }
+  const body = beside
+    ? Array.from({ length: Math.max(list.length, pv.length) }, (_, i) => pad(list[i] ?? "", lw) + fg(C.dark) + " │ " + RESET + (pv[i] ?? ""))
+    : [...list, ...(pv.length ? [fg(C.dark) + "─".repeat(Math.min(inner, 40)) + RESET, ...pv] : [])];
+  const counted = entries.length;
+  const loading = [data.links, data.backlinks, data.children, data.matches].some((l, i) => l?.kind === "loading" && (i > 1 || own));
+  const what = spec.query ? `${counted} match${counted === 1 ? "" : "es"}` : `${counted} link${counted === 1 ? "" : "s"}`;
+  const word = entered ? "esc out" : "⏎ in";
+  const control = blocks?.control ? blocks.control(key, word) : "";
+  blocks?.seen?.({
+    key, n, title, rows: entries.map(r => ({ key: r.key, id: linkBlock(r), text: linkWords(r).text, kind: r.kind })),
+    sel: sel ?? null, preview: previewing && previewId ? previewId : null, entered, typing, query: spec.query, groups,
+  });
+  return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${what}${filter ? ` · ${filter}` : ""}${spec.of ? ` · of ${of!.slice(0, 8)}` : ""}`, control);
 }

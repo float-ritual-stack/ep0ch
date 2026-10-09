@@ -245,6 +245,8 @@ export class ReaderPane implements Pane {
   get editing() { return this.surface.editing; }
   /** Every key goes to the surface first (an edit, or the property panel); hosts route to it before their own. */
   get holdsKeys() { return this.surface.holdsKeys; }
+  /** The person is typing a filter into an inline `::links` list: the desk's own keys (e, p, i, C) wait (Pane.typing). */
+  typing() { return this.surface.typingFilter; }
   /** Hold `m` (a desk reader opened by alt+⏎ on a link): it keeps its note as the current one changes. */
   hold(m: Msg, desk: DeskApi) { this.held = this.follows; this.show(m, desk); }
   /** Hold it on its note (on=true), or let it follow the current note again (false); left out, the other way. */
@@ -393,7 +395,7 @@ export class ReaderPane implements Pane {
    */
   click(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
     const h = this.host(desk);
-    return this.surface.click(x, y, open ? { ...h, navigate: open } : h);
+    return this.surface.click(x, y, open ? { ...h, navigate: open, freshClick: true } : h);
   }
   /**
    * The mouse in the pane (PIE-419): press, drag, release. A release on the pressed cell is the click
@@ -404,7 +406,7 @@ export class ReaderPane implements Pane {
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
     const h = this.host(desk);
-    return this.surface.release(x, y, open ? { ...h, navigate: open } : h);
+    return this.surface.release(x, y, open ? { ...h, navigate: open, freshClick: true } : h);
   }
 }
 

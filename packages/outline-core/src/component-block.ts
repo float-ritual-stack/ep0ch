@@ -55,6 +55,23 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
   return open[2] ? oneLine : null;
 }
 
+/** One attribute token: `.class`, `key=value`, `key="value"`, `key='value'`, or a bare `key` (on). */
+const ATTR = /\.([A-Za-z][\w-]*)|([A-Za-z][\w.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
+
+/**
+ * A component's `{…}` attributes (`::box{pad=1 .accent}`, `::links{query="type=outbox-item" preview=right}`), as
+ * written: its classes, and each `key=value` in order (a bare key's value is `on`). The one reader of the braces: a
+ * box reads them as style tokens, the links component as its own keys.
+ */
+export function componentAttrs(attrs: string): { classes: string[]; pairs: { key: string; value: string }[] } {
+  const classes: string[] = [], pairs: { key: string; value: string }[] = [];
+  for (const m of attrs.matchAll(ATTR)) {
+    if (m[1]) classes.push(m[1]);
+    else if (m[2]) pairs.push({ key: m[2], value: m[3] ?? m[4] ?? m[5] ?? "on" });
+  }
+  return { classes, pairs };
+}
+
 /** A component block found in a note's lines: its name, its arguments, and its first and last line (inclusive). */
 export interface ComponentBlock { name: string; args: string | null; start: number; end: number; attrs?: string }
 

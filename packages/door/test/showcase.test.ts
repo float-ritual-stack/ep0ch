@@ -428,6 +428,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
     children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
+    // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
+    "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
@@ -851,6 +853,44 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "backlinks.open", tile: "replies", args: { n: ana.n }, as: "test-agent" });
     await until(() => tile("reader")?.showing?.id === ana.id, "the reply opened in the reader", 5000);
     expect(S().focus).toBe(focus);
+  }, 30_000);
+
+  test("links-block (PIE-693): an outbox in a day's plan: the query's matches listed, the selection previewed; [ ] and a pick move it, an agent's moves nothing; ⏎ opens where opens land; going in is the person's", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "links-block" }, as: "test-agent" })).toMatchObject({ key: "links-block" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "links-block")).top; };
+    const reader = () => stage().pane("reader") as any;
+    const blocks = async () => ((await app.act({ action: "links.blocks", tile: "reader", as: "test-agent" })) as any).blocks;
+    await until(() => reader()?.surface.linkBlocksDrawn[0]?.rows.length === 3, "the outbox's three waiting letters", 8000);
+    let b = (await blocks())[0];
+    expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=outbox-item outbox=waiting", groups: ["matches"], entered: false });
+    expect(b.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
+    // The first row is selected and previewed beside the list, drawn as an embed of it is.
+    const first = b.rows.find((r: any) => r.selected);
+    expect(first.n).toBe(1);
+    expect(b.preview).toBe(first.id);
+    // An agent's pick answers the row and moves nothing of the person's.
+    const read = await app.act({ action: "links.pick", tile: "reader", args: { n: 2 }, as: "test-agent" }) as any;
+    expect(read).toMatchObject({ row: 2, moved: false });
+    expect((await blocks())[0].rows.find((r: any) => r.selected).n).toBe(1);
+    // The person's pick (a key or a click) moves the selection, the [ ] position with it, and the preview follows.
+    await stage().dispatch.act({ action: "links.pick", tile: "reader", args: { n: 2 } }, { kind: "user" });
+    await until(() => reader().surface.linkBlocksDrawn[0]?.preview === read.id, "the preview following the pick", 5000);
+    // The preview is the reader's own drawing of an embed of it: its » title, then its text.
+    await until(() => screen().includes(`» ${read.text.slice(0, 20)}`), "the picked letter drawn in the preview", 8000);
+    expect(reader().surface.inView()?.link?.linksBlock?.row).toBeDefined();
+    // Going in is the person's.
+    await expect(app.act({ action: "links.enter", tile: "reader", as: "test-agent" })).rejects.toThrow(/the person's/);
+    await stage().dispatch.act({ action: "links.enter", tile: "reader" }, { kind: "user" });
+    expect(reader().surface.linksIn).toBe(reader().surface.linkBlocksDrawn[0].key);
+    await stage().dispatch.act({ action: "links.enter", tile: "reader", args: { on: false } }, { kind: "user" });
+    expect(reader().surface.linksIn).toBeNull();
+    // ⏎ on a row opens it where the reader's opens land: here, the reader itself.
+    await app.act({ action: "links.open", tile: "reader", args: { n: 3 }, as: "test-agent" });
+    await until(() => reader().surface.msg?.id === b.rows[2].id, "the third letter in the reader", 5000);
+    await app.act({ action: "back", tile: "reader", as: "test-agent" });
+    await until(() => reader().surface.msg?.id === seeded.notes.dayPlan.id, "back on the plan", 5000);
+    expect(S().focus).toBe("index");
   }, 30_000);
 
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {

@@ -12,7 +12,7 @@ const enumOf = (meanings: Record<string, string>): PropValue[] => Object.entries
 
 const LINK_GROUPS = ["links", "outlinks", "resources", "backlinks"] as const;
 const GROUP_WORDS: Record<(typeof LINK_GROUPS)[number], { title: string; intro: string }> = {
-  links: { title: "Links", intro: "Every link of a block in one list: what it links to (outlinks), the Resources it names and what links to it (backlinks), grouped, with a preview of each row on `⏎`." },
+  links: { title: "Links", intro: "Every link of a block in one list: what it links to (outlinks), the Resources it names, what links to it (backlinks) and the notes under it (children), grouped; or the blocks a query matches. The selected row can be previewed beside the list; `[ ]` steps the rows, `⏎` on one opens it, `⏎` on the frame's `⏎ in` goes in (j k move, esc comes out)." },
   outlinks: { title: "Outlinks", intro: "What a block links to: its references, page links and embeds, each with where it points." },
   resources: { title: "Resources", intro: "The Resources a block names (a file, a Jira ticket, a URL a plugin knows), whether each is registered and what is stored for it." },
   backlinks: { title: "Backlinks", intro: "What links to a block, grouped by kind, open items first." },
@@ -24,14 +24,18 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
     { key: "filter", where: "yaml", type: "text", meaning: "only the rows holding these words (the same matcher as search); words on the opening line or lines of their own do the same", samples: ["offer", "jira", "moth"] },
     { key: "title", where: "yaml", type: "text", meaning: "a title over the list", samples: ["What points here", "Related"] },
     { key: "of", where: "yaml", type: "ref", meaning: "whose links: a ((block)) or a block id (the note it is written in when left out)" },
-    ...(name === "links" ? [{ key: "groups", where: "yaml" as const, type: "enum" as const, meaning: "narrow it to one group (the same as writing that group's name)", values: enumOf({ links: "every group", outlinks: "what it links to", resources: "the Resources it names", backlinks: "what links to it" }), default: "links" }] : []),
+    ...(name === "links" ? [
+      { key: "groups", where: "yaml" as const, type: "list" as const, meaning: "the groups it lists, comma-separated: outlinks, resources, backlinks, children (the notes under it), matches (the query's), or links for every group of the block", samples: ["links", "backlinks,children", "matches"] },
+      { key: "query", where: "yaml" as const, type: "query" as const, meaning: "list the blocks this query matches (the saved-view grammar, the service answers it) as a group of its own, `matches`; without `groups:` it is all the list shows", samples: ["type=outbox-item status=waiting", "type=errand stage=open"] },
+      { key: "preview", where: "yaml" as const, type: "enum" as const, meaning: "the selected row drawn beside the list (or under it) when the frame has the width; the person's keys stay in the note until ⏎ on the frame goes in", values: enumOf({ right: "beside the list, when it's 70 columns or wider", below: "under the list", none: "no preview" }), default: "right with a query, else none" },
+    ] : []),
   ];
   return {
     id: name, title: `${w.title} (::${name})`,
-    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? " and `groups:`" : ""} lines. The service answers the links and the reader lays them out, so the library has no outline to ask for the rows and draws the frame.`,
+    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:` and `preview:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=right}`)" : ""} lines. The service answers the links and the reader lays them out, so the library has no outline to ask for the rows and draws the frame.`,
     where: `a \`::${name}\` line or block in a note; \`of:\`, \`filter:\` and \`title:\` lines inside a block`,
     props, source: { use: `::${name}\n---\n{yaml}\n---\n::` }, example: { title: w.title },
-    sweep: ["filter", "title", ...(name === "links" ? ["groups"] : [])], grids: [], space: ["filter", "title"],
+    sweep: ["filter", "title", ...(name === "links" ? ["groups", "preview"] : [])], grids: [], space: ["filter", "title"],
   };
 }
 

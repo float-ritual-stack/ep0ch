@@ -60,6 +60,8 @@ export const SEED = {
   hedge: "Hedge trimming plan",
   compost: "Compost bay rules",
   swap: "Seed swap thread",
+  dayPlan: "Plan for Saturday",
+  outbox: "Letters to send",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -836,6 +838,27 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
+  // A day's plan with its outbox in it (PIE-693): a ::links block over a query, the waiting letters listed beside a
+  // preview of the one selected; the letters themselves live under a note of their own.
+  notes.outbox = await make(notes.root.id, `${SEED.outbox}\nWhat's written and waiting to go, one note a letter.`);
+  await make(notes.outbox.id, "Ask Ana about the bean seed [type::outbox-item] [outbox::waiting]\nTwo jars of runner beans for the swap. She said Thursday, so ask by Wednesday night.");
+  await make(notes.outbox.id, "Write to the allotment society about the gate [type::outbox-item] [outbox::waiting]\nThe latch drops when the wind gets up. Ask whether they'll pay for a new spring, or if we buy it.");
+  await make(notes.outbox.id, "Order the fruit-cage netting [type::outbox-item] [outbox::waiting]\n- [ ] measure the cage\n- [ ] 2 cm mesh, not 4");
+  await make(notes.outbox.id, "Thank the swap hosts [type::outbox-item] [outbox::done]\nSent on Monday.", SEED_AGENT);
+  notes.dayPlan = await make(notes.root.id, [
+    `${SEED.dayPlan} [type::daily-plan]`,
+    "Morning on the plot, then the letters that are waiting.",
+    "",
+    "## Outbox",
+    '::links{query="type=outbox-item outbox=waiting" preview=right title="Outbox"}',
+    "::",
+    "",
+    "[ ] steps onto a letter and the preview beside the list shows it; ⏎ on a letter opens it, ⏎ on the frame's ⏎ in goes into the list (j k, / to filter, esc out).",
+    "",
+    "## On the plot",
+    "- Water the beans before ten.",
+    "- Lift the last of the onions.",
+  ].join("\n"));
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
   notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread]\nWho brings what to the seed swap on Saturday. The table goes by [[${SEED.shed}]].`);
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");

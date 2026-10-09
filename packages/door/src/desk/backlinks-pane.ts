@@ -40,7 +40,7 @@ export function linkGroupsFrom(spec: string | readonly string[] | undefined): Li
   if (spec === undefined) return null;
   const names = (typeof spec === "string" ? spec.split(/[\s,]+/) : [...spec]).map(s => s.trim().toLowerCase()).filter(Boolean);
   if (names.length === 1 && names[0] === "all") return null;
-  const bad = names.find(n => !isLinkGroup(n));
+  const bad = names.find(n => !(ALL_LINK_GROUPS as readonly string[]).includes(n));
   if (bad !== undefined) throw new ActionRefused(`${bad} isn't a group; the groups are ${ALL_LINK_GROUPS.join(", ")} (or all)`);
   if (!names.length) throw new ActionRefused(`name at least one group: ${ALL_LINK_GROUPS.join(", ")} (or all)`);
   return ALL_LINK_GROUPS.filter(g => names.includes(g));
@@ -634,7 +634,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       if (show !== undefined) next = linkGroupsFrom(show) ?? [...ALL_LINK_GROUPS];
       else {
         const g = toggle!.trim().toLowerCase();
-        if (!isLinkGroup(g)) throw new ActionRefused(`${toggle} isn't a group; the groups are ${ALL_LINK_GROUPS.join(", ")}`);
+        if (!(ALL_LINK_GROUPS as readonly string[]).includes(g) || !isLinkGroup(g)) throw new ActionRefused(`${toggle} isn't a group; the groups are ${ALL_LINK_GROUPS.join(", ")}`);
         next = pane.groups.includes(g) ? pane.groups.filter(x => x !== g) : [...pane.groups, g];
         if (!next.length) throw new ActionRefused(`${g} is the only group this tile lists; turn another on first`);
       }

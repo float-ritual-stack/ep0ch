@@ -467,7 +467,7 @@ export class WelcomeDetail extends DetailPane {
   /** The detail never follows another note here: no `p`. */
   override hint() { return this.surface.hint(""); }
   override key(k: Key, desk: DeskApi): boolean {
-    if (ch(k) === "p" && !this.editing && !this.holdsKeys) { desk.ctx.flash("the detail keeps its note here · 1-9 0 pick a welcome note · alt+⏎ on a link reads it here"); return true; }
+    if (ch(k) === "p" && !this.editing && !this.holdsKeys && !this.typing()) { desk.ctx.flash("the detail keeps its note here · 1-9 0 pick a welcome note · alt+⏎ on a link reads it here"); return true; }
     if (super.key(k, desk)) return true;
     // ⏎ with nothing picked yet acts on the note's first element (its first link, most often), as if ] came first.
     if ((k.kind === "enter" || k.kind === "alt-enter") && this.msg && !this.holdsKeys && super.key({ kind: "char", ch: "]" }, desk)) return super.key(k, desk);

@@ -751,6 +751,16 @@ export class SocketBoard implements Board {
     return r.blocks.map(b => toMsg(b));
   }
 
+  /**
+   * The blocks a query in the saved views' grammar matches (`type=outbox-item status=waiting`, OR, NOT, ranges), as
+   * list rows, in the service's order: the service parses it (`query.expression`), the door never does. `truncated`:
+   * there were more than `limit`.
+   */
+  async queryNotes(expression: string, limit = 200): Promise<{ notes: Msg[]; truncated: boolean }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { expression, limit: Math.min(1000, limit) }, ...this.listFields(true) });
+    return { notes: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" };
+  }
+
   /** `fields` for a list-shaped read. */
   private listFields(list = true): { fields?: readonly string[] } {
     return list ? { fields: LIST_FIELDS } : {};
