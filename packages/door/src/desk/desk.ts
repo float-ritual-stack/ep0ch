@@ -609,7 +609,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const here = [...this.panes].filter(([pid, q]) => { const f = kindOf(q)?.follows?.(q); const b = boundSource.get(q); return pid !== id && f !== null && f !== undefined && (b !== undefined ? b === src : names.has(f)); }).map(([, q]) => q);
     const others = src ? this.relatives().filter(d => d !== this) : [];
     // A follower on another desk names its source by path (a preview in a group: `tile:../tree`, saved so).
-    const byPath = src ? others.flatMap(d => [...d.panes.values()].filter(q => { const f = kindOf(q)?.follows?.(q); return !!f && f.includes("/") && d.paneAtPath(f) === src; })) : [];
+    const byPath = src ? others.flatMap(d => [...d.panes.values()].filter(q => { const f = kindOf(q)?.follows?.(q); return !!f && f.includes("/") && !boundSource.has(q) && d.paneAtPath(f) === src; })) : [];
     const away = src ? others.flatMap(d => d.boundTo(src)) : [];
     return [...new Set([...here, ...away, ...byPath])];
   }
@@ -728,9 +728,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A follower bound to a tile on another desk (a preview in a group, its source outside): its `source` is that tile's path. */
   private sourceAcross(p: Pane): Partial<TileSpec> {
     const b = boundSource.get(p), f = kindOf(p)?.follows?.(p);
-    if (!b || b === NO_SOURCE || !f || this.idOf(b) !== undefined) return {};
+    if (!b || b === NO_SOURCE || !f) return {};
+    // Bound to a tile on this desk now: its name here (a spill brings `../tree` back to `tree`); on another: its path.
     const path = this.pathTo(b);
-    return path ? { source: `tile:${path}` } : {};
+    return path && path !== f ? { source: `tile:${path}` } : {};
   }
   /** Tile `id`'s link across an edge as its spec says it: the path to the tile, and the role. */
   private extSpec(id: number): Partial<TileSpec> {
@@ -3350,7 +3351,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const to = this.layout.links.get(id);
     if (to !== undefined && !inside.has(to) && this.panes.has(to)) return { ...spec, link: `../${this.nameOf(to)}`, linkRole: this.layout.linkRoles.get(id) ?? "preview" };
     const x = this.ext.get(id), path = x ? (x.pane ? this.pathTo(x.pane) : x.path) : undefined;
-    return x && path ? { ...spec, link: `../${path}`, linkRole: x.role } : spec;
+    // A target in a group that is gathered along with it stays at its own path; any other is out past the new group's edge.
+    const head = path?.split("/")[0], kept = head !== undefined && path!.includes("/") && head !== ".." && inside.has(this.idNamed(head) ?? -1);
+    return x && path ? { ...spec, link: kept ? path : `../${path}`, linkRole: x.role } : spec;
   }
   /**
    * The layout tree cut down to the tiles in `keep`, in the arrangement they had: a split of them stays a split (its
@@ -3604,11 +3607,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Linking to a tile here, or taking the link away, ends a link across an edge.
     const across = this.ext.get(src.id);
     if (across && role && !to) { across.role = role; this.save(); this.redraw(); return { tile: src.name, link: (across.pane ? this.pathTo(across.pane) : across.path) ?? null, role }; }
-    if (across) {
-      this.ext.delete(src.id);
-      if (!to) { this.save(); this.redraw(); return { tile: src.name, link: null }; }
-    }
+    if (across && !to) { this.ext.delete(src.id); this.save(); this.redraw(); return { tile: src.name, link: null }; }
     const r = this.apply({ op: "link", tile: src.id, ...(to ? { to: this.tile(to).id } : {}), ...(role ? { role } : {}) }, actor);
+    // The link here is made: it ends the one across the edge.
+    if (across) this.ext.delete(src.id);
     this.save(); this.redraw();
     return { tile: src.name, link: r.answer.link ?? null, ...(r.answer.role ? { role: r.answer.role } : {}) };
   }
@@ -4660,12 +4662,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const gid = this.idOf(group);
     if (gid === undefined || !(group instanceof ScreenTile) || !group.group) throw new ActionRefused(`${inner.title} isn't a group: a mounted screen keeps its tiles (^W u pops it out)`);
     const g = this.nameOf(gid), at = beside ?? g;
+    if (beside !== undefined) this.tile(beside);
     if (inner.tileCount() <= 1) {
-      // The last tile: the group spills where it was, and the tile is placed from there.
+      // The last tile: the group spills where it was, and the tile is placed from there (if that place refuses, it stays where the group was).
       const spilled = this.ungroupTile(g, actor);
       const only = (spilled.spilled as string[])[0]!;
       if (beside === undefined && where === "right") return { ...spilled, tile: only, out: true };
-      return { ...this.moveTile(only, at === g ? undefined : at, where, undefined, actor), out: true };
+      try { return { ...this.moveTile(only, at === g ? undefined : at, where, undefined, actor), out: true }; }
+      catch (e) { return { ...spilled, tile: only, out: true, stayed: e instanceof Error ? e.message : String(e) }; }
     }
     const out = inner.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);
@@ -4695,7 +4699,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const f = kindOf(pane)?.follows?.(pane);
     if (f && !boundSource.has(pane)) { const src = f.includes("/") ? this.paneAtPath(f) : this.panes.get(this.idNamed(f) ?? -1); boundSource.set(pane, src ?? NO_SOURCE); }
     // A tile followed here leaving: its followers keep following it, wherever it goes (bound to it, not to its name).
-    for (const q of this.followers(id)) if (!boundSource.has(q) && this.idOf(q) !== undefined) boundSource.set(q, pane);
+    for (const q of this.followers(id)) if (!boundSource.has(q)) boundSource.set(q, pane);
   }
 
   /** Where a tile moved here would land: beside `to` (the person's tile when left out), `where` (into the tabs of `to` here when this screen is the drawer). */
