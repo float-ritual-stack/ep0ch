@@ -146,7 +146,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
 
   test("b on a screen with only a reader opens a links tile below it with a preview beside: Outlinks, Resources, Backlinks", async () => {
     key({ kind: "char", ch: "b" });
-    await until(() => !!list() && rows().some(r => r.kind === "resource") && rows().some(r => r.kind === "kind"), "the three groups");
+    await until(() => !!list() && rows().some(r => r.kind === "resource") && rows().some(r => r.kind === "kind") && list().children.kind === "ready", "the three groups (and no children)");
     expect(rows().filter(r => r.kind === "group").map(r => r.text)).toEqual(["→ outlinks (1)", "♦ resources (1)", "← backlinks (2)"]);
     expect(focusName()).toBe("backlinks");
     expect(preview()).toBeDefined();

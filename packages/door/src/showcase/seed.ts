@@ -59,6 +59,7 @@ export const SEED = {
   rota: "Greenhouse watering rota",
   hedge: "Hedge trimming plan",
   compost: "Compost bay rules",
+  swap: "Seed swap thread",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -835,6 +836,12 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
+  // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
+  notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread]\nWho brings what to the seed swap on Saturday. The table goes by [[${SEED.shed}]].`);
+  await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
+  await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
+  await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");
+  await make(notes.swap.id, "Dee: a question about the time\nIs it ten or eleven?");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));

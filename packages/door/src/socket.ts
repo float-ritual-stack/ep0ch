@@ -14,7 +14,7 @@ import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionBarResult, ExtensionList } from "./extensions";
-import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
+import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
@@ -624,6 +624,20 @@ export class SocketBoard implements Board {
 
   async children(id: string): Promise<Msg[]> {
     return (await this.request<WireBlock[]>("children", { parentId: id })).map(b => toMsg(b));
+  }
+
+  /**
+   * Each block's kind, stage and dates as the service computes them for a link's target (`blocks.facets`, PIE-693):
+   * what Kind, Stage and Sort read for rows that aren't links (a note's children). At most 1000 a request, asked in
+   * turn; `missing` names the ids that answer no live block.
+   */
+  async facets(ids: readonly string[]): Promise<{ facets: Record<string, AuthoredTargetFacets>; missing: string[] }> {
+    const out: { facets: Record<string, AuthoredTargetFacets>; missing: string[] } = { facets: {}, missing: [] };
+    for (let i = 0; i < ids.length; i += 1000) {
+      const r = await this.request<{ facets: Record<string, AuthoredTargetFacets>; missing: string[] }>("blocks.facets", { blockIds: ids.slice(i, i + 1000) });
+      Object.assign(out.facets, r.facets ?? {}); out.missing.push(...(r.missing ?? []));
+    }
+    return out;
   }
 
   /**

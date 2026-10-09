@@ -256,8 +256,8 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
   });
 
   test("review: a dock's border sizes only it; an agent's dock or move never hides the person's tile; a dock's own resizable", async () => {
-    await mine("layout.load", { name: "desk" });                    // row(tree, row(reader, col(thread, activity)))
-    await mine("tile.dock", { edge: "left" }, "thread");
+    await mine("layout.load", { name: "desk" });                    // row(tree, row(reader, col(replies, activity)))
+    await mine("tile.dock", { edge: "left" }, "replies");
     const g = get(); const root = g.tree;
     expect(root.kids[0].dock).toBe("left");
     const shares = () => get().tree.kids.slice(1).map((k: any) => k.share);
@@ -273,20 +273,20 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     await act("layout.policy", { node: root.kids[0].id, clear: "resizable" });
     // The person's focused tile, moved by an agent beside a tile in a shut dock: the dock opens, it stays in view.
     await mine("tile.focus", {}, "reader");
-    await mine("tile.slide", { open: false }, "thread");
-    await act("layout.move", { to: "thread", where: "down" }, "reader");
+    await mine("tile.slide", { open: false }, "replies");
+    await act("layout.move", { to: "replies", where: "down" }, "reader");
     expect(tile("reader").dock).toBe("open");
     expect(tile("reader").shown).toBe(true);
     // An agent pinning a tab beside the person's tab: the dock it makes starts open, holding their tile.
     await mine("layout.load", { name: "desk" });
-    await mine("layout.move", { to: "activity", where: "tabs" }, "thread");
+    await mine("layout.move", { to: "activity", where: "tabs" }, "replies");
     await mine("tile.focus", {}, "activity");
-    await act("tile.dock", { on: true }, "thread");
+    await act("tile.dock", { on: true }, "replies");
     expect(tile("activity").dock).toBe("open");
     // A tile dropped beside a tab set isn't refused by the tab set's own policy (it doesn't join it).
     const set = get().tiles.find((t: any) => t.name === "activity");
-    const gid = JSON.stringify(get().tree).match(/"tabs":\["(?:thread|activity)","(?:thread|activity)"\],"id":"(g\d+)"/)![1];
-    await act("tile.dock", { on: false }, "thread");
+    const gid = JSON.stringify(get().tree).match(/"tabs":\["(?:replies|activity)","(?:replies|activity)"\],"id":"(g\d+)"/)![1];
+    await act("tile.dock", { on: false }, "replies");
     await act("layout.policy", { node: gid, droppable: false });
     await mine("layout.move", { to: "activity", where: "left" }, "tree");
     await expect(mine("layout.move", { to: "activity", where: "tabs" }, "reader")).rejects.toThrow(/takes no drops/);

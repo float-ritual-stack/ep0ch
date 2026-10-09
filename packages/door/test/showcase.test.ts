@@ -410,8 +410,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
     // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
     undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
-    panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
-    folds: ["outline", "thread", "◂", "▾"],
+    panes: ["outline", "children", "│ 4 activity", "Kitchen sink"],
+    folds: ["outline", "children", "◂", "▾"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
@@ -424,8 +424,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "· lanes", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
-    entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
+    entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
+    // The swap thread, its links with every group, and the same tile with Children alone (its replies).
+    children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
@@ -814,6 +816,42 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("children (PIE-693): a thread's replies are a group of its links, narrowed by Stage; a tile's groups are chosen by act and saved; ⏎ opens a reply in the reader", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "children" }, as: "test-agent" })).toMatchObject({ key: "children" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "children")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const tile = (name: string) => tiles().find(t => t.name === name);
+    const childRows = (name: string) => (tile(name)?.backlinks?.rows ?? []).filter((r: any) => r.kind === "child");
+    await until(() => tile("reader")?.showing?.id === seeded.notes.swap.id && childRows("replies").length === 4 && childRows("links").length === 4, "the swap thread, its links and its replies", 8000);
+    // The replies tile lists Children alone; the links tile every group, the counters across all four.
+    expect(tile("replies").backlinks.linkGroups).toEqual(["children"]);
+    expect(tile("replies").backlinks.rows.some((r: any) => r.kind === "outlink" || r.kind === "backlink")).toBe(false);
+    expect(tile("links").backlinks.status).toMatch(/→\d+\/\d+ ♦\d+\/\d+ ←\d+\/\d+ ↓4\/4/);
+    // Stage narrows the children as every group: open keeps Ana's (waiting) and Cal's (active).
+    await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "open" }, as: "test-agent" });
+    expect(childRows("replies").map((r: any) => r.text).sort()).toEqual(["Ana: runner beans to swap", "Cal: labels and a pencil"]);
+    expect(tile("replies").backlinks.status).toContain("2 of 4 match");
+    await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "all" }, as: "test-agent" });
+    // An agent chooses the links tile's groups: said, saved with the layout, refused past the last one.
+    const focus = S().focus;
+    expect(await app.act({ action: "backlinks.groups", tile: "links", args: { show: "children,backlinks" }, as: "test-agent" })).toMatchObject({ groups: ["backlinks", "children"] });
+    expect(tile("links").backlinks.rows.some((r: any) => r.kind === "outlink")).toBe(false);
+    expect(JSON.stringify(stage().layoutSpec())).toContain('"linkGroups":"backlinks,children"');
+    await app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "outlinks" }, as: "test-agent" });
+    expect(tile("replies").backlinks.linkGroups).toEqual(["outlinks", "children"]);
+    await app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "outlinks" }, as: "test-agent" });
+    await expect(app.act({ action: "backlinks.groups", tile: "replies", args: { toggle: "children" }, as: "test-agent" })).rejects.toThrow(/only group/);
+    await expect(app.act({ action: "backlinks.groups", tile: "replies", args: { show: "kids" }, as: "test-agent" })).rejects.toThrow(/isn't a group/);
+    await expect(app.act({ action: "backlinks.groups", tile: "replies", args: { choose: true }, as: "test-agent" })).rejects.toThrow(/person's/);
+    await app.act({ action: "backlinks.groups", tile: "links", args: { show: "all" }, as: "test-agent" });
+    // ⏎ on a reply opens it where the list's opens land: the reader whose children these are.
+    const ana = childRows("replies").find((r: any) => r.text.startsWith("Ana"));
+    await app.act({ action: "backlinks.open", tile: "replies", args: { n: ana.n }, as: "test-agent" });
+    await until(() => tile("reader")?.showing?.id === ana.id, "the reply opened in the reader", 5000);
+    expect(S().focus).toBe(focus);
+  }, 30_000);
 
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {
     (app as any).lastInput = 0;
@@ -2287,12 +2325,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await get()).tiles.find((t: any) => t.name === "board").mount.layout.tiles.find((t: any) => t.name === "preview").collapsed).toBe(true);
     await app.act({ action: "tile.expand", tile: "board/preview", args: {}, as: "test-agent" });
     // A tab holding a split: the reader and the thread gathered into a group in the reader's tab.
-    const grouped = await app.act({ action: "tile.group", tile: "reader", args: { with: "thread" }, as: "test-agent" }) as any;
-    expect(grouped).toMatchObject({ grouped: ["reader", "thread"] });
+    const grouped = await app.act({ action: "tile.group", tile: "reader", args: { with: "replies" }, as: "test-agent" }) as any;
+    expect(grouped).toMatchObject({ grouped: ["reader", "replies"] });
     const gt = (await get()).tiles.find((t: any) => t.name === grouped.tile);
     expect(gt.tabs).toEqual([grouped.tile, "activity"]);
     expect(gt.mount).toMatchObject({ group: true, layout: { tree: { split: "row" } } });
-    expect(gt.mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["reader", "thread"]);
+    expect(gt.mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["reader", "replies"]);
     await expect(app.act({ action: "tile.group", tile: grouped.tile, args: { on: false }, as: "test-agent" })).rejects.toThrow(/is a tab/);
     // Pop out (the person's): the full board over this screen, its own instance; screen.mount (as q does) comes back to the mount where it was.
     expect(await stage().dispatch.press("mount.out", {}, "board")).toMatchObject({ screen: "board" });

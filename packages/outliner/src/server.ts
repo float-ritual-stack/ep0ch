@@ -250,7 +250,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
@@ -1853,6 +1853,9 @@ export class OutlinerServer {
           break;
         case "blocks.records":
           result = readBlockRecords(this.store, request.ids);
+          break;
+        case "blocks.facets":
+          result = this.store.blockFacets(request.blockIds);
           break;
         case "mcp.access.status":
           result = this.store.mcpAccessStatus();

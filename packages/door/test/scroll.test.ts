@@ -5,7 +5,6 @@
 import { describe, expect, test } from "bun:test";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
-import { ThreadPane } from "../src/desk/panes";
 import { follow, RowView, scrolled, scrollRows, SCROLL_ROWS } from "../src/scroll";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { Term, type Key } from "../src/term";
@@ -168,23 +167,5 @@ describe("wheel reports into a reader, through the real input path", () => {
       d.read(DOWN);
       expect(d.layouts()).toBe(2);
     } finally { d.quit(); }
-  });
-});
-
-describe("a thread pane's wheel", () => {
-  test("scrolls its replies and comments; a repaint doesn't snap it back to the selected reply", async () => {
-    const kids = Array.from({ length: 30 }, (_, i) => ({ ...note(1), id: `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, "0")}`, text: `Reply ${i + 1}\nabout the tide` }));
-    let redraws = 0;
-    const desk = { ctx: { board: { children: async () => kids, comments: async () => [] } }, redraw() { redraws++; } } as any;
-    const p = new ThreadPane();
-    p.select(note(1), desk);
-    await Bun.sleep(0); await Bun.sleep(0);
-    const first = (h: number) => p.render(60, h, true).lines[0]!;
-    expect(first(10)).toContain("REPLIES 30");
-    for (let i = 0; i < 6; i++) p.wheel(1, desk);
-    expect(first(10)).not.toContain("REPLIES");
-    const at = first(10);
-    expect(first(10)).toBe(at);                    // painted again: still where the wheel left it
-    expect(redraws).toBeGreaterThan(0);
   });
 });

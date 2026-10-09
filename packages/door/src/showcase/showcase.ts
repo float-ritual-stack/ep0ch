@@ -32,7 +32,7 @@ import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS, RiverColumn } from "../river/column";
-import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
+import { ActivityPane, ReaderPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { TunePane } from "../desk/tune";
 import { MessageReader, SHELL_ACTIONS } from "../screens";
@@ -86,6 +86,9 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 
 /** Two panes side by side, the first `ratio` of the width. */
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
+
+/** The thread tile as it is now (PIE-693): a links tile listing the reader's note's Children alone. */
+const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
 interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[] }
@@ -224,8 +227,8 @@ export const SECTIONS: Section[] = [
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "a click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
-      // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
+      // The replies (a links tile with Children alone) and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
       // The outline is in a dock on the left (PIE-505): it slides shut when the keys leave it, and its handle
       // on the hint row opens it again; a header dropped on the handle goes into it.
       return deskOf({
@@ -238,7 +241,7 @@ export const SECTIONS: Section[] = [
     key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, bare - + = (PIE-699), a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
     aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile, and so do a bare - (fold) and + or = (open) wherever the tile takes no text; a tile's own - + = win (the tune inspector, an image, a figure) · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       // The outline beside the rest (a vertical spine), the reader over thread and activity side by side (a horizontal spine for the reader).
       return deskOf({
         title: "showcase · folds", panes: [tree, r, th, act],
@@ -323,13 +326,13 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "screen", need: "mount a screen in another (the board on the desk), a part of one (its lanes), or a group of tiles a tab can hold; pop one out to its full screen and back", part: "the mount (PIE-651): ScreenTile over FramedScreen, the screen's own spec on its own desk inside the tile (partSpec for a part, groupSpec for a group); its title is its spine's label; tile.open kind=screen, mount.out (^W u, ▲ full), mount.enter (^W e, ⏎ in), screen.mount (^W M) and screen.part (^W I) on a full screen, tile.group (^W G), tile.select (shift+click, ^W space), tile.into (^W i), layout.move into=/out= (a drag onto or out of a group); tile=<mount>/<tile> for act, links across the edge by path (ExtLink in src/desk/desk.ts)", files: "src/desk/screen-tile.ts, src/desk/screen-spec.ts (partSpec, groupSpec), src/desk/screen-specs.ts (mountDesk), src/showcase/frame.ts",
-    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=thread` puts the thread beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included",
+    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=replies` puts the replies beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included",
     stage(n, show) {
       const args = n.hub ? { args: { hub: n.hub.id } } : {};
       const board = new ScreenTile("screen", { screen: "board", ...args }), lanes = new ScreenTile("screen", { screen: "board", part: "lanes", ...args });
-      const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       return deskOf({
-        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "thread", "activity"],
+        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "replies", "activity"],
         layout: ([b, l, c, rd, h, a]) => pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
@@ -340,10 +343,10 @@ export const SECTIONS: Section[] = [
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; one links model (src/links.ts) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; one links model (src/links.ts: outlinks, resources, backlinks, children) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
     aside: "one model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's dock, section 5) and the shed note's own ::links are the same rows (src/links.ts linkRows, linkRowLine) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), links = new BacklinksPane("reader", true);
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), links = new BacklinksPane("reader", true);
       return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
     },
   },
@@ -353,6 +356,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const d = new DetailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
       return deskOf({ title: "showcase · links-open", panes: [d, links, p], layout: ([a, b, c]) => pair("col", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [], dsk => { if (n.shed) d.hold(n.shed, dsk); });
+    },
+  },
+  {
+    key: "children", need: "list a note's children (a thread's replies) with its links; choose which groups a links tile lists", part: "the one links model's Children group (PIE-693): the notes under a block, with the kind and stage the service computes (blocks.facets), narrowed by Kind, Stage and Sort and counted with the rest; a links tile's groups (backlinks.groups: v, a click on the counters, the tile menu; saved with the layout); the thread tile is a links tile with Children alone", files: "src/links.ts (readChildren, ChildLink), src/desk/backlinks-pane.ts (groups, backlinks.groups), outliner src/store.ts (blockFacets)",
+    aside: "left: the seed swap thread · middle: its links, every group: outlinks, resources, backlinks and ↓ children, the counters →♦←↓ across them · right: the same tile with Children alone (the replies) · w steps Stage (open keeps Ana's and Cal's), K the kind, s the sort, on every group · v (or a click on the counters) lists the groups, a click switches one · j k preview, ⏎ opens a reply in the reader, alt+⏎ in a new detail · `act backlinks.groups tile=links show=children,backlinks` does it for an agent, attributed; it never takes your keys",
+    stage(n, show) {
+      const r = new ReaderPane(), links = new BacklinksPane("reader", true), replies = repliesTile();
+      return deskOf({ title: "showcase · children", panes: [r, links, replies], names: ["reader", "links", "replies"], layout: ([a, b, c]) => pair("row", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [[r, n.swap]]);
     },
   },
   {
@@ -394,7 +405,7 @@ export const SECTIONS: Section[] = [
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
-      const r = new ReaderPane(), th = new ThreadPane();
+      const r = new ReaderPane(), th = repliesTile();
       return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
     },
   },

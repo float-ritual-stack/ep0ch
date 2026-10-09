@@ -116,19 +116,19 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   test("keys: ^W a puts the focused tile (the drawer comes up on it); ^W a in the drawer puts it back into the screen", async () => {
     const d = await door();
     try {
-      await d.desk.dispatch.act({ action: "tile.focus", tile: "thread" }, USER);
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "replies" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => d.inDrawer("thread"), "thread in");
+      await until(() => d.inDrawer("replies"), "thread in");
       expect(d.app.drawer.open).toBe(true);
-      expect(d.app.drawer.tabs().find(t => t.name === "thread")?.shown).toBe(true);
+      expect(d.app.drawer.tabs().find(t => t.name === "replies")?.shown).toBe(true);
       d.paint();
       // Into the drawer (a click in it), then ^W a there: back beside the tile the person had.
       const r = d.app.drawer.rect!;
       d.key(mouse("down", 20, r.row + 3)); d.key(mouse("up", 20, r.row + 3));
       expect(d.app.drawer.entered).toBe(true);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => !d.inDrawer("thread"), "thread out");
-      expect(d.desk.pane("thread")).toBeDefined();
+      await until(() => !d.inDrawer("replies"), "thread out");
+      expect(d.desk.pane("replies")).toBeDefined();
     } finally { d.app.quit(); }
   });
 
@@ -240,15 +240,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       grab("activity"); d.key(char("a"));
       await until(() => d.inDrawer("activity"), "a puts it in");
       d.paint();
-      grab("thread"); d.key(char("f"));
-      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.tile === "thread"), "f floats");
+      grab("replies"); d.key(char("f"));
+      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.tile === "replies"), "f floats");
       d.paint();
       // p on the float: straight into a dock (one step), and ^W f floats it again: float → dock → float.
-      await d.desk.dispatch.act({ action: "tile.dock", args: { on: true }, tile: "thread" }, USER);
+      await d.desk.dispatch.act({ action: "tile.dock", args: { on: true }, tile: "replies" }, USER);
       expect((d.desk.layoutGet() as any).floats).toEqual([]);
-      expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "thread").dock).toBeTruthy();
-      await d.desk.dispatch.act({ action: "tile.float", args: {}, tile: "thread" }, USER);
-      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.tile)).toEqual(["thread"]);
+      expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "replies").dock).toBeTruthy();
+      await d.desk.dispatch.act({ action: "tile.float", args: {}, tile: "replies" }, USER);
+      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.tile)).toEqual(["replies"]);
     } finally { d.app.quit(); }
   });
 
@@ -535,16 +535,16 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
 
   test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {
     const d = await door();
-    await d.app.act({ action: "tile.drawer", args: {}, tile: "thread", as: AS });
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
     d.app.quit();
     const file = join(outlineState(), "drawer-tiles.json");
     expect(existsSync(file)).toBe(true);
-    expect(readFileSync(file, "utf8")).toContain("thread");
+    expect(readFileSync(file, "utf8")).toContain("replies");
     const e = await door();
     try {
       e.paint();
-      expect(e.inDrawer("thread")).toBe(true);
-      expect(e.desk.pane("thread")).toBeDefined();               // the desk's own layout has a thread again (its spec): two tiles, one in the drawer
+      expect(e.inDrawer("replies")).toBe(true);
+      expect(e.desk.pane("replies")).toBeDefined();               // the desk's own layout has a thread again (its spec): two tiles, one in the drawer
     } finally { e.app.quit(); }
   });
 });
