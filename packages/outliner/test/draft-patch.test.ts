@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, rebaseSpans, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult } from "../src/draft-patch";
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
@@ -50,6 +50,7 @@ async function fakeDoor(client: OutlinerClient, clientId: string, blockId: strin
       if (request.kind === "read") answer = { text: door.text, revision: door.revision };
       else if (request.kind === "patch") {
         if (options.refuse) answer = { applied: false, reason: options.refuse };
+        else if (!request.force && request.revision !== door.revision) answer = { applied: false, reason: `the draft is on revision ${door.revision}, not the ${request.revision} it was read at` };
         else {
           const located = locateSpans(door.text, request.patches, request.force);
           if (!located.ok) answer = { applied: false, reason: located.reason };
@@ -220,8 +221,9 @@ describe("draft.patch over the protocol", () => {
     const { store, client } = await service();
     const note = store.create("Garden plan\nThe beans   go along  the fence.\n\n@tidy tidy this");
     const span = tidyAboveMark(note.text, "@tidy tidy this")!;
-    // The person keeps writing below the request before the patch lands: the note was saved since it was read.
-    const edited = store.update(note.id, `${note.text}\nwater on Sunday`, note.revision, { author: "user" });
+    // The person pastes a second copy of the passage below the request before the patch lands: the note was saved
+    // since it was read, and the patch's passage is now in it twice, so it isn't rebased.
+    const edited = store.update(note.id, `${note.text}\n${span.observed}`, note.revision, { author: "user" });
     const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [span], mark: { text: "@tidy tidy this" }, mutation: TIDY });
     expect(result).toMatchObject({ outcome: "proposed", embedded: "saved", embeddedIn: note.id });
     if (result.outcome !== "proposed") return;
@@ -240,7 +242,7 @@ describe("draft.patch over the protocol", () => {
     const applied = await client.request<{ outcome: string; edits: Array<{ route: string }>; warning?: string }>({ action: "draft.proposal.apply", proposalId: result.proposalId, mutation: { author: "user" } });
     expect(applied).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
     expect(applied.warning).toBeUndefined();
-    expect(store.require(note.id).text).toBe(`Garden plan\nThe beans go along the fence.\n\n@tidy tidy this\n!((${result.proposalId}))\nwater on Sunday`);
+    expect(store.require(note.id).text).toBe(`Garden plan\nThe beans go along the fence.\n\n@tidy tidy this\n!((${result.proposalId}))\n${span.observed}`);
     expect(store.require(result.proposalId).properties).toEqual(expect.arrayContaining([{ key: "proposal-status", value: "applied" }]));
     expect(store.require(result.proposalId).text).toStartWith("Applied anyway: 1 edit from @tidy, which didn't apply at first because the note was saved since it was read");
     await expect(client.request({ action: "draft.proposal.apply", proposalId: result.proposalId, mutation: { author: "user" } })).rejects.toThrow("already applied");
@@ -264,7 +266,7 @@ describe("draft.patch over the protocol", () => {
 
     // The person rewrote the passage after it was proposed (it was placeable then): still never replaced.
     const later = store.create("Garden plan\nBeans by the fence.\nLast line  here.");
-    store.update(later.id, later.text.replace("Garden plan", "Garden plan 2027"), later.revision, { author: "user" });
+    store.update(later.id, later.text.replace("Last line  here.", "Last line  here. And more."), later.revision, { author: "user" });
     const stale = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: later.id, revision: later.revision, patches: [spanOf(later.text, "Last line  here.", "Last line here.")], mutation: TIDY });
     if (stale.outcome !== "proposed") throw new Error("expected a proposal");
     expect(store.require(stale.proposalId).properties.some(property => property.key === "proposal-applies")).toBe(false);
@@ -300,7 +302,7 @@ describe("draft.patch over the protocol", () => {
   test("two applies of one proposal at once: one lands, the other is refused (PIE-510 B2)", async () => {
     const { store, client } = await service();
     const note = store.create("Seed list\nbeans\nend");
-    store.update(note.id, `${note.text}\nmore`, note.revision, { author: "user" });
+    store.update(note.id, `${note.text}\nbeans`, note.revision, { author: "user" });
     const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "beans", "runner beans")], mutation: TIDY });
     if (result.outcome !== "proposed") throw new Error("expected a proposal");
     const saved = store.require(note.id);
@@ -319,7 +321,7 @@ describe("draft.patch over the protocol", () => {
   test("the applied status follows the person's edits of the proposal, and a warning says when it can't be written (PIE-510 B15)", async () => {
     const { store, client } = await service();
     const note = store.create("Plan\nbeans   here\n@tidy go");
-    store.update(note.id, `${note.text}\nlater`, note.revision, { author: "user" });
+    store.update(note.id, note.text.replace("beans   here", "beans   here, later"), note.revision, { author: "user" });
     const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "beans   here", "beans here")], mark: { text: "@tidy go" }, mutation: TIDY });
     if (result.outcome !== "proposed") throw new Error("expected a proposal");
     // The person annotates the proposal before applying it: its status still follows, and the note stays.
@@ -332,7 +334,7 @@ describe("draft.patch over the protocol", () => {
 
     // Trashed while a slow door applies it: the edit stands, and the answer says the status wasn't written.
     const held = store.create("Held\npeas   there");
-    store.update(held.id, `${held.text}\nmore`, held.revision, { author: "user" });
+    store.update(held.id, held.text.replace("peas   there", "peas   there, more"), held.revision, { author: "user" });
     const second = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: held.id, revision: held.revision, patches: [spanOf(held.text, "peas   there", "peas there")], mutation: TIDY });
     if (second.outcome !== "proposed") throw new Error("expected a proposal");
     const saved = store.require(held.id);
@@ -341,14 +343,14 @@ describe("draft.patch over the protocol", () => {
     await Bun.sleep(80);
     store.delete(second.proposalId, { author: "user" });
     const late = await applying;
-    expect(door.text).toContain("peas there\n");
+    expect(door.text).toContain("peas there, more\n");
     expect(late.warning).toContain("couldn't be marked applied");
   });
 
   test("dismiss: the embed line comes out, the proposal is marked dismissed and goes to the Trash, attributed; an agent only its own", async () => {
     const { store, client } = await service();
     const note = store.create("Plan\nbeans   here\n@tidy go");
-    store.update(note.id, `${note.text}\nstill writing`, note.revision, { author: "user" });
+    store.update(note.id, note.text.replace("beans   here", "beans   here, still writing"), note.revision, { author: "user" });
     const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "beans   here", "beans here")], mark: { text: "@tidy go" }, mutation: TIDY });
     if (result.outcome !== "proposed") throw new Error("expected a proposal");
     expect(store.require(note.id).text).toContain(`!((${result.proposalId}))`);
@@ -356,7 +358,7 @@ describe("draft.patch over the protocol", () => {
       .rejects.toThrow("That proposal is @tidy's; an agent dismisses only its own");
     const dismissed = await client.request<{ outcome: string; embedRemoved: string | null }>({ action: "draft.proposal.dismiss", proposalId: result.proposalId, mutation: TIDY });
     expect(dismissed).toMatchObject({ outcome: "dismissed", embedRemoved: "saved" });
-    expect(store.require(note.id).text).toBe("Plan\nbeans   here\n@tidy go\nstill writing");
+    expect(store.require(note.id).text).toBe("Plan\nbeans   here, still writing\n@tidy go");
     const gone = store.require(result.proposalId);
     expect(gone.deletedAt).toBeTruthy();
     expect(gone.properties).toEqual(expect.arrayContaining([{ key: "proposal-status", value: "dismissed" }]));
@@ -755,5 +757,90 @@ describe("the edit policy (the default)", () => {
     expect(store.require(proposal.id).text.split("\n")[0]).toBe("Applied anyway: 1 edit (6 changes) from @claude-code, which didn't apply at first because change 1 would drop [[Seed Swap]]; a prose edit keeps them [type::draft-proposal] [proposal-status::applied]");
     expect(store.require(proposal.id).text).toContain(": one edit, its 6 changes applied together or not at all.\n");
     expect(store.require(proposal.id).text).not.toContain("A applies");
+  });
+});
+
+describe("a patch rebases onto a newer revision (PIE-687)", () => {
+  const base = "How it works\n\n## Intake\nBeans arrive on Monday.\n\n## Storage\nJars sit in the cellar.\n\n## Notes\nNothing yet.";
+  const patch = async (client: OutlinerClient, blockId: string, revision: number, patches: DraftPatchSpan[], mutation = TIDY) =>
+    client.request<DraftPatchResult>({ action: "draft.patch", blockId, revision, patches, mutation });
+
+  test("a concurrent edit elsewhere in the note: the patch applies at the newer revision and says what it was read at", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    // Another chat rewrote Storage and the note grew above the patch's passage.
+    const newer = store.update(note.id, base.replace("Jars sit in the cellar.", "Jars sit in the shed, on a shelf.").replace("How it works", "How it all works"), note.revision, { author: "agent", actorId: "other" });
+    const result = await patch(client, note.id, note.revision, [spanOf(base, "Beans arrive on Monday.", "Beans arrive on Tuesday.")]);
+    expect(result).toEqual({ outcome: "applied", edits: [{ blockId: note.id, route: "saved", revision: newer.revision + 1, rebasedFrom: note.revision }] });
+    expect(store.require(note.id).text).toBe(base.replace("How it works", "How it all works").replace("Jars sit in the cellar.", "Jars sit in the shed, on a shelf.").replace("Monday", "Tuesday"));
+  });
+
+  test("an unchanged revision is no rebase: the answer has no rebasedFrom", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    const result = await patch(client, note.id, note.revision, [spanOf(base, "Nothing yet.", "Nothing yet, really.")]);
+    expect(result).toEqual({ outcome: "applied", edits: [{ blockId: note.id, route: "saved", revision: note.revision + 1 }] });
+  });
+
+  test("two patches read at one revision whose spans overlap never both apply: the second becomes a proposal", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    const first = await patch(client, note.id, note.revision, [spanOf(base, "Beans arrive on Monday.", "Beans arrive on Tuesday.")], { author: "agent", actorId: "one" });
+    expect(first.outcome).toBe("applied");
+    // The second read the same revision and edits words inside the passage the first just rewrote.
+    const second = await patch(client, note.id, note.revision, [spanOf(base, "Beans arrive", "Beans come")], { author: "agent", actorId: "two" });
+    expect(second.outcome).toBe("proposed");
+    if (second.outcome === "proposed") expect(second.reason).toContain("someone changed that passage since it was read");
+    expect(store.require(note.id).text).toContain("Beans arrive on Tuesday.");
+  });
+
+  test("two patches at one revision on different passages both apply", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    expect((await patch(client, note.id, note.revision, [spanOf(base, "Monday", "Tuesday")], { author: "agent", actorId: "one" })).outcome).toBe("applied");
+    const second = await patch(client, note.id, note.revision, [spanOf(base, "cellar", "shed")], { author: "agent", actorId: "two" });
+    expect(second).toMatchObject({ outcome: "applied", edits: [{ rebasedFrom: note.revision }] });
+    expect(store.require(note.id).text).toBe(base.replace("Monday", "Tuesday").replace("cellar", "shed"));
+  });
+
+  test("a span that is now ambiguous becomes a proposal", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    store.update(note.id, `${base}\nJars sit in the cellar.`, note.revision, { author: "user" });
+    const result = await patch(client, note.id, note.revision, [spanOf(base, "Jars sit in the cellar.", "Jars sit in the shed.")]);
+    expect(result.outcome).toBe("proposed");
+    if (result.outcome === "proposed") expect(result.reason).toContain("more than once");
+  });
+
+  test("a span inside a section someone else just rewrote becomes a proposal", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    store.update(note.id, base.replace("Jars sit in the cellar.", "Jars sit in a crate."), note.revision, { author: "agent", actorId: "other" });
+    const result = await patch(client, note.id, note.revision, [spanOf(base, "cellar", "shed")]);
+    expect(result.outcome).toBe("proposed");
+    if (result.outcome === "proposed") expect(result.reason).toContain("saved since it was read");
+    expect(store.require(note.id).text).not.toContain("shed");
+  });
+
+  test("a person's open draft stays a proposal when the revision is stale", async () => {
+    const { store, client } = await service();
+    const note = store.create(base);
+    const saved = store.update(note.id, base.replace("Jars sit in the cellar.", "Jars sit in a crate."), note.revision, { author: "user" });
+    const door = await fakeDoor(client, "door-typing", note.id, saved.text, saved.revision);
+    const result = await patch(client, note.id, note.revision, [spanOf(base, "Beans arrive on Monday.", "Beans arrive on Tuesday.")]);
+    expect(result.outcome).toBe("proposed");
+    // The proposal's embed line went into the draft; the draft's own text and the saved note are untouched.
+    expect(door.text).toStartWith(saved.text);
+    expect(door.text).not.toContain("Tuesday");
+    expect(store.require(note.id).text).toBe(saved.text);
+  });
+
+  test("the compare: multi-hunk edits, an edit at the end and removed lines keep other spans placed", () => {
+    const text = "a\nb\nc\nd\ne\nf";
+    const current = "A\nb\nd\ne\nf\ng";
+    const placed = rebaseSpans(text, current, [{ observed: "e", replacement: "E" }]);
+    expect(placed.ok && applyLocated(current, placed.spans)).toBe("A\nb\nd\nE\nf\ng");
+    expect(rebaseSpans(text, current, [{ observed: "c", replacement: "C" }]).ok).toBe(false);
+    expect(rebaseSpans(text, current, [{ observed: "a", replacement: "x" }]).ok).toBe(false);
   });
 });

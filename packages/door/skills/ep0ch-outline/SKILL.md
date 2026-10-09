@@ -92,8 +92,10 @@ revision, so concurrent edits rarely collide.
   an ordinary edit. Its default policy, `edit`, is `outline_edit`'s guard: only dropping a `[page::…]`, or an
   `^anchor` another note links to, is refused, as an error, unless you pass `allowStructural: true`
   because that removal is the point. `policy: "prose"` is opt-in, for tidy-style edits that must keep every
-  link, anchor and property. A patch whose text changed under it, or that `prose` refuses, becomes one
-  proposal they can apply or dismiss.
+  link, anchor and property. A patch read at an older revision still applies when every `observed` span is present once at the
+  newer one and nobody rewrote its line (a rebase; the answer says `rebasedFrom: <revision you read>`). It becomes one
+  proposal they can apply or dismiss when a span is gone, changed or ambiguous, when the note is open in a draft,
+  or when `prose` refuses.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 
 ## How they write

@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     // Make the next patch conflict: the note moves on the far box, then two queued patches follow.
     const trunkNow = await textOf(far, "attic-notes", FAR, ids.trunk!);
     const a = await tool("outline_patch", { uri: uriOf("trunk"), revision: boxes.json.revision, patches: [{ observed: "A brass key", replacement: "A brass key, tarnished" }] });
-    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.trunk, text: `${trunkNow.text}\nAdded on the far box.`, expectedRevision: trunkNow.revision, mutation: { author: "user" } });
+    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.trunk, text: trunkNow.text.replace("A brass key", "A brass key, found on the far box"), expectedRevision: trunkNow.revision, mutation: { author: "user" } });
     expect((await pull()).ok).toBe(true);
     follow("attic-notes");
     expect((await tool("outline_write_status", { queueId: a.json.queueId })).json.state).toBe("proposed");
@@ -199,10 +199,10 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     expect(theirs.record.body).toContain("Three candles");
     // Once the far box pulls it and the mirror follows, the overlay is gone: the mirror has it.
     const pulled = await pull();
-    expect(pulled.settled.map(s => s.state)).toEqual(["applied", "proposed"]);
+    expect(pulled.settled.map(s => s.state)).toEqual(["applied", "applied"]);
     // Applied on the far box, not in the mirror yet: the writer still reads its edit, marked as applied there.
     const between = (await tool("outline_read", { uri: uriOf("trunk") })).json;
-    expect(between.pending.entries).toEqual([expect.objectContaining({ queueId: q.json.queueId, state: "applied" })]);
+    expect(between.pending.entries).toEqual([expect.objectContaining({ queueId: q.json.queueId, state: "applied" }), expect.objectContaining({ queueId: prop.json.queueId, state: "applied" })]);
     expect(between.pending.body).toContain("Four candles");
     expect((await callAs(OTHER, "outline_read", { uri: uriOf("trunk") })).json.pending).toBeUndefined();
     follow("attic-notes");

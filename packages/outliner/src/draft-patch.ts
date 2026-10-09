@@ -93,7 +93,11 @@ export type DraftPatchRoute = "draft" | "saved";
 
 export interface DraftPatchApplied {
   outcome: "applied";
-  edits: Array<{ blockId: string; route: DraftPatchRoute; revision?: number; holder?: string }>;
+  edits: Array<{
+    blockId: string; route: DraftPatchRoute; revision?: number; holder?: string;
+    /** Set when the note was saved after the revision the patch was read at and the patch applied on the newer text (a rebase): the revision it was read at. `revision` is the one it produced. */
+    rebasedFrom?: number;
+  }>;
 }
 
 export interface DraftPatchProposed {

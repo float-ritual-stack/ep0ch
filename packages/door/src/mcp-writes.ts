@@ -121,6 +121,12 @@ export const assignIdRefusal = (level: McpAccessLevel): string | null => level =
   : `outline_assign_id stamps the note and can't be proposed: it needs full access (this outline's is ${level}).`;
 
 /** Whether a level allows writes, and which kind. */
+/** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
+const rebasedSaid = (edits: readonly { revision?: number; rebasedFrom?: number }[]): string => {
+  const rebased = edits.filter(edit => edit.rebasedFrom !== undefined);
+  return rebased.length ? ` on the newer text (rebased from revision ${rebased.map(edit => edit.rebasedFrom).join(", ")}; now at ${rebased.map(edit => edit.revision).join(", ")})` : "";
+};
+
 export const writesAt = (level: McpAccessLevel): "proposals" | "applied" | null => level === "full" ? "applied" : level === "propose" ? "proposals" : null;
 
 /**
@@ -192,7 +198,7 @@ interface AgentTools {
   resourceRefOf(ref: string): unknown | null;
   readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
 }
-type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
+type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
 let agentTools: Promise<AgentTools> | null = null;
 const loadAgentTools = () => agentTools ??= import(AGENT_TOOLS_MODULE) as Promise<AgentTools>;
@@ -261,7 +267,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   }
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
-    ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}`, detail: r }
+    ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
     : { outcome: "proposed", uri: o.uri(write.blockId), said: `${what} proposed, not applied: ${r.reason}; the proposal is ${o.uri(r.proposalId)}, under the note for its owner to apply or dismiss`, detail: r };
   // A reply or a resolve names a thread of the note it is addressed to. One that isn't there (deleted, or never on this note) is a refusal here; a queued write lands on the whole note, saying so.
   const threadGone = async (): Promise<string | null> => {

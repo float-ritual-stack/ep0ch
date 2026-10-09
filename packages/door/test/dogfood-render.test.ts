@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
 
   test("a reader showing a proposal that's dismissed elsewhere says it's in the Trash, with no [apply] [dismiss]", async () => {
     const note = await make(null, "Compost notes\nThe bin  is   full.\nTurn it twice.");
-    await board.update(note.id, "Compost notes\nThe bin  is   full.\nTurn it twice a week.", note.revision);
+    await board.update(note.id, "Compost notes\nThe bin  is   full. Empty it Friday.\nTurn it twice a week.", note.revision);
     const observed = "The bin  is   full.", start = note.text.indexOf(observed);
     const r = await agent.request<any>("draft.patch", { blockId: note.id, revision: note.revision, mutation: { author: "agent", actorId: "tidy" }, patches: [{ observed, replacement: "The bin is full.", range: { start, end: start + observed.length }, unit: "utf16" }] });
     expect(r.outcome).toBe("proposed");

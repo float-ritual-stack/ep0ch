@@ -39,7 +39,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const id = await create(`Weekend plan\nThe peas   climb  the net.\n\n!((${shed}))\n\n!((${beds}^north))\n\n!((${view}))\n`);
     const read = (await board.get(id))!;
     const observed = "The peas   climb  the net.", start = read.text.indexOf(observed);
-    await board.update(id, gone ? read.text.replace(observed, "The peas sugar   climb  the net.") : read.text.replace("Weekend plan", "Weekend plan, revised"), read.revision!);
+    await board.update(id, gone ? read.text.replace(observed, "The peas sugar   climb  the net.") : read.text.replace(observed, `${observed} Mind the slugs.`), read.revision!);
     const r = await agent.request<any>("draft.patch", {
       blockId: id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
@@ -97,7 +97,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
       "embed » a proposal by @tidy",
       "control [apply]",
       "control [dismiss]",
-      "link Weekend plan, revised",
+      "link Weekend plan",
     ]);
     expect(s.describeElements().filter(e => e.control).map(e => [e.control, e.proposal])).toEqual([["apply", proposal], ["dismiss", proposal]]);
     // On the proposal's source line the hint leads with its keys.
