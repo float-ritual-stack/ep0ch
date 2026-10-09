@@ -17,8 +17,6 @@ import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } fr
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
-import { invalidateLive } from "./live";
-import { invalidateLinks } from "./links";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { EXT_ACTIONS, loadExtensions } from "./extensions";
@@ -810,8 +808,8 @@ export class App implements Ctx {
     if (e.domain === "resource-catalog") { if (resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId)) this.redraw(); return; }
     if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") {
-      invalidateLive();
-      invalidateLinks();
+      // Live figures and inline ::links aren't asked again here: their reads are watched, and the service says
+      // when an answer changed (src/watched.ts).
       // A change record names its block: only the links, pages and embeds that show it are asked again.
       // A move or trash takes a subtree along, and an event without a record could be anything.
       const c = e.change;

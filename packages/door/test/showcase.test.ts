@@ -14,7 +14,7 @@ import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -109,7 +109,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const choresId = seeded.notes.chores.id;
     expect(seeded.notes.figures.text).toContain(`query: "under:((${choresId})) type=chore NOT stage=done NOT title~hob"`);
     // The service parses the expression, as a live figure asks it (src/live.ts); board.query splits plain clauses itself.
-    const ask = async (expression: string) => board.toMsgs((await board.request<{ blocks: any[] }>("blocks.query", { query: { expression, limit: 50 } })).blocks);
+    const ask = async (where: string) => board.toMsgs((await board.request<{ blocks: any[] }>("blocks.query", { query: { where, limit: 50 } })).blocks);
     const titles = (await ask(`under:((${choresId})) type=chore NOT stage=done NOT title~hob`)).map(b => b.text.split(" [")[0]);
     expect(titles.sort()).toEqual(["Empty the food caddy", "Net the brassicas", "Turn the compost"]);
     // links: reads the reference index: the notebook links the shed page.
@@ -434,6 +434,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
+    // The society page: one question as a list, tabs by crop and a rank by season.
+    questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
@@ -973,6 +975,39 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "back", tile: "reader", as: "test-agent" });
     await until(() => reader().surface.msg?.id === seeded.notes.dayPlan.id, "back on the plan", 5000);
     expect(S().focus).toBe("index");
+  }, 30_000);
+
+  test("questions (PIE-745): links:this NOT linkedfrom:this as a list, tabs by crop and a rank by season, grouped by the service; a link back changes all three through queries.changed", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "questions" }, as: "test-agent" })).toMatchObject({ key: "questions" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "questions")).top; };
+    const reader = () => stage().pane("reader") as any;
+    const rows = () => (reader()?.surface.linkBlocksDrawn[0]?.rows ?? []).map((r: any) => r.text as string);
+    await until(() => rows().length === SOCIETY_NOTES.length - SOCIETY_LINKED_BACK, "the notes the page doesn't link back", 8000);
+    expect(rows()).not.toContain(SOCIETY_NOTES[0]!.title);
+    expect(rows()).toContain("Garlic in before the first frost");
+    const tabs = async () => ((await app.act({ action: "figures", tile: "reader", as: "test-agent" })) as any).figures.find((f: any) => f.kind === "tabs").tabs.map((t: any) => `${t.value} ${t.count}`);
+    // Grouped by the service, by a property no code knows, in its value order; every match counted.
+    expect(await tabs()).toEqual(["beans 3", "brassicas 3", "fruit 3", "garlic 1", "leeks 2", "none 2", "onions 3", "squash 3"]);
+    // The rank by season, further down the note: the service's groups, most first.
+    const page = await board.get(seeded.notes.society.id);
+    const shown = (await import("../src/notes-cli")).drawNote;
+    const printed = (await shown(board, page!.id, 120))!.map(plain).join("\n");
+    expect(printed).toMatch(/BY SEASON[\s\S]*autumn[\s\S]*7/);
+    // The page links one back: the service says the answer changed (queries.changed on the door's connection), and the
+    // list and both figures follow without anyone asking on paint.
+    const told: unknown[] = [];
+    const watched = board.watched, changed = watched.changed.bind(watched);
+    watched.changed = (changes) => { told.push(...changes); changed(changes); };
+    try {
+      const garlic = (await board.queryNotes('title~"Garlic in before"')).notes[0]!;
+      const page = (await board.get(seeded.notes.society.id))!;
+      await board.update(page.id, `${page.text}\nAnd now ((${garlic.id})).`, page.revision!, { kind: "agent", id: "test-agent" });
+      await until(() => rows().length === SOCIETY_NOTES.length - SOCIETY_LINKED_BACK - 1, "the garlic note linked back", 8000);
+      expect(told.length).toBeGreaterThan(0);
+      expect(rows()).not.toContain("Garlic in before the first frost");
+      for (let i = 0; (await tabs()).includes("garlic 1"); i++) { if (i > 80) throw new Error("the garlic tab is still there"); await Bun.sleep(100); }
+    } finally { watched.changed = changed; }
   }, 30_000);
 
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {

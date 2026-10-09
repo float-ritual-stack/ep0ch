@@ -27,7 +27,9 @@ import { subject, type Msg } from "./board";
 import { ago } from "./text";
 import { COMPONENT_OPEN, componentAttrs, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
-import { USER, type Actor, type SocketBoard } from "./socket";
+import { backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
+import { BACKLINK_QUERY_LIMIT } from "./backlinks";
+import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
 import { C, ellipsize, fg, pad, RESET, selected as lit, width } from "./style";
@@ -509,77 +511,62 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
   return { spec, end };
 }
 
-// What the service answered (a block's links, its children, a query's matches), kept while the outline doesn't
-// change (asked again after it does), so a redraw never asks. One per door: the inline components of every reader
+// What the service answers for the inline components (a block's links and backlinks, its children, a query's
+// matches): watched reads (src/watched.ts), told when their answer changed, so a redraw never asks and nothing is
+// asked again on a change that didn't touch it. One holder per connection: the inline components of every reader
 // share it.
-type LinksBoard = Pick<SocketBoard, "authoredLinks" | "backlinks" | "children" | "facets" | "queryNotes">;
+type LinksBoard = Pick<SocketBoard, "request" | "facets" | "toMsgs"> & { watched?: SocketBoard["watched"] };
 let source: LinksBoard | null = null;
 let redraw: () => void = () => {};
+let unlisten: () => void = () => {};
 /** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
 const listeners = new Set<() => void>();
 export function listenLinks(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
 const changed = () => { redraw(); for (const fn of listeners) fn(); };
-let generation = 0;
-const cache = new Map<string, { data: LinkData; at: number }>();
-const asks = new Map<string, { value: Load<ChildLink[]>; at: number }>();
 
 /** The door's outline connection and its repaint, for the inline components. */
 export function setLinksSource(b: LinksBoard | null, repaint: () => void) {
-  // A new generation: an answer still on its way from the outline before is never kept as this one's.
-  source = b; redraw = repaint; cache.clear(); asks.clear(); generation++;
+  unlisten();
+  source = b; redraw = repaint;
+  unlisten = b ? watchedOn(b).listen(changed) : () => {};
 }
 /** The connection and its repaint now, to put back after borrowing it (drawNote). */
 export const linksSource = (): { board: LinksBoard | null; redraw: () => void } => ({ board: source, redraw });
-let settling: Timer | null = null;
-/**
- * The outline changed: every component asks again on its next draw, once the burst settles (500 ms, as the links
- * tile waits), so a run of changes asks once; what it showed stays meanwhile.
- */
-export function invalidateLinks() {
-  if (settling) return;
-  settling = setTimeout(() => { settling = null; generation++; changed(); }, 500);
-}
-const why = (e: unknown) => `couldn't ask: ${e instanceof Error ? e.message : String(e)}`;
 
-/** Block `id`'s links as last answered, asked for in the background when there's no answer or it's stale. */
+/** A watched read as the links model's Load. */
+function loaded<T>(read: Watching<T>): Load<T> {
+  if (read.state === "ready") return { kind: "ready", value: read.value };
+  // A key nobody has written is the service's hint (`no notes have <key>; nearest: …`), said as it is.
+  if (read.state === "error") return read.value !== undefined ? { kind: "ready", value: read.value } : { kind: "error", message: read.error.startsWith("no notes have ") ? read.error : `couldn't ask: ${read.error}` };
+  return { kind: "loading" };
+}
+
+/** Block `id`'s links and backlinks, as last answered (watched: the service says when either changed). */
 export function linksOf(id: string): LinkData | null {
   if (!source) return null;
-  const hit = cache.get(id);
-  if (hit && hit.at === generation) return hit.data;
-  const at = generation, b = source;
-  const data: LinkData = hit ? { ...hit.data } : { links: { kind: "loading" }, backlinks: { kind: "loading" } };
-  cache.set(id, { data, at });
-  if (cache.size > 200) cache.delete(cache.keys().next().value!);
-  const put = (k: keyof LinkData, v: LinkData[keyof LinkData]) => { const e = cache.get(id); if (e && e.at === at) { e.data = { ...e.data, [k]: v }; changed(); } };
-  b.authoredLinks(id).then(v => put("links", { kind: "ready", value: v }), e => put("links", { kind: "error", message: why(e) }));
-  b.backlinks(id).then(v => put("backlinks", { kind: "ready", value: v }), e => put("backlinks", { kind: "error", message: why(e) }));
-  return data;
+  const watched = watchedOn(source);
+  return {
+    links: loaded(watched.read("blocks.authored-links", { ownerBlockId: id }, (r: AuthoredLinksSnapshot) => r)),
+    backlinks: loaded(watched.read("references.backlinks", { query: { targetBlockId: id, limit: BACKLINK_QUERY_LIMIT } }, (r: BacklinkCollection) => backlinkCollectionOf(r, id))),
+  };
 }
 
-/** A list of blocks with their facets (a block's children, a query's matches), as last answered, asked again when stale. */
-function blocksOf(key: string, ask: (b: LinksBoard) => Promise<ChildLink[]>): Load<ChildLink[]> | null {
-  if (!source) return null;
-  const hit = asks.get(key);
-  if (hit && hit.at === generation) return hit.value;
-  const at = generation, b = source;
-  asks.set(key, { value: hit?.value ?? { kind: "loading" }, at });
-  if (asks.size > 200) asks.delete(asks.keys().next().value!);
-  const put = (value: Load<ChildLink[]>) => { const e = asks.get(key); if (e && e.at === at) { e.value = value; changed(); } };
-  ask(b).then(value => put({ kind: "ready", value }), e => put({ kind: "error", message: why(e) }));
-  return hit?.value ?? { kind: "loading" };
-}
-/** The notes under block `id`, with their facets (the Children group of an inline component). */
-export const childrenOf = (id: string) => blocksOf(`children:${id}`, b => readChildren(b, id));
 /**
- * The blocks query `q` matches, with their facets, in the service's order (the `matches` group): the service
- * parses the query (`blocks.query`), and says why it refuses one.
+ * A question's matches with the facets the service computes for each (`blocks.facets`), in the service's order: a
+ * block's children (`parent:this`, comments left out) or an inline component's `query`, whose `this` is the note it
+ * sits in. Watched: asked again only when the service says the answer changed.
  */
-export const matchesOf = (q: string) => blocksOf(`query:${q}`, async b => {
-  const { notes } = await b.queryNotes(q);
-  if (!notes.length) return [];
-  const { facets } = await b.facets(notes.map(n => n.id));
-  return notes.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
-});
+function questionRows(b: LinksBoard, question: { where: string; this?: string }, limit: number): Load<ChildLink[]> {
+  return loaded(watchedOn(b).read("blocks.query", { query: { ...question, limit }, fields: LIST_FIELDS }, async (r: { blocks: any[]; hint?: string }) => {
+    const notes = b.toMsgs(r.blocks);
+    if (!notes.length && r.hint) throw new Error(r.hint);
+    if (!notes.length) return [];
+    const { facets } = await b.facets(notes.map(n => n.id));
+    return notes.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
+  }));
+}
+/** The notes under block `id` (the Children group of an inline component), comments left out. */
+const childLinks = (b: LinksBoard, id: string) => questionRows(b, { where: "parent:this NOT type=annotation NOT type=annotation-reply", this: id }, 1000);
 
 /**
  * The reader's hold on a note's inline components (PIE-693), as FiguresEnv is on its figures: which row each has
@@ -626,9 +613,11 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const of = spec.of ?? note;
   if (own && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
   const has = (g: LinkGroupName) => groups.includes(g);
-  const links = has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!) : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData;
-  const children = has("children") ? childrenOf(of!) : undefined, matches = spec.query ? matchesOf(spec.query) : undefined;
-  if (!links || children === null || matches === null) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
+  if (!source) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
+  const links = has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!)! : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData;
+  const children = has("children") ? childLinks(source, of!) : undefined;
+  // `this` in the query is the note the component sits in (`links:this NOT linkedfrom:this`).
+  const matches = spec.query ? questionRows(source, { where: spec.query, ...(note ? { this: note } : {}) }, 200) : undefined;
   const data: LinkData = { ...links, ...(children ? { children } : {}), ...(matches ? { matches } : {}) };
   const ui = blocks?.ui?.(key), typing = ui?.typing ?? null, entered = !!ui?.entered;
   const filter = [spec.filter, typing ?? ""].filter(Boolean).join(" ");

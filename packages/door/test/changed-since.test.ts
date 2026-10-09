@@ -9,11 +9,11 @@ function fakeBoard() {
   return { b, sent };
 }
 
-test("with query.expression, New Scan sends an updated range and list fields", async () => {
+test("with where, New Scan sends an updated range and list fields", async () => {
   const { b, sent } = fakeBoard();
   const since = Date.parse("2026-09-28T12:00:00Z");
   await b.changedSince(since, 400);
-  expect(sent[0].query.expression).toBe("updated>2026-09-28T12:00:00.000Z");
+  expect(sent[0].query.where).toBe("updated>2026-09-28T12:00:00.000Z");
   expect(sent[0].query.sort).toEqual({ field: "updated", direction: "desc" });
   expect(sent[0].fields).toBeDefined();
 });
@@ -21,6 +21,6 @@ test("with query.expression, New Scan sends an updated range and list fields", a
 test("a first call (since 0) asks for the newest, still as list rows", async () => {
   const { b, sent } = fakeBoard();
   await b.changedSince(0, 200);
-  expect(sent[0].query.expression).toBeUndefined();
+  expect(sent[0].query.where).toBeUndefined();
   expect(sent[0].fields).toBeDefined();
 });

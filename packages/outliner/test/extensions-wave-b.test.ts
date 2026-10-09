@@ -169,7 +169,7 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
   expect(record.actorId).toBe("ext:moon");
 
   // Queryable like any block.
-  const found = await client.request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { expression: "moon.phase=\"Full Moon\"", limit: 10 } });
+  const found = await client.request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { where: "moon.phase=\"Full Moon\"", limit: 10 } });
   expect(found.blocks.map((match) => match.id)).toEqual([record.id]);
 
   // Owned: a person's edit is refused with a reason; their own notes go on the asking block.

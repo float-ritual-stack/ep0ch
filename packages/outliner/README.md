@@ -1712,7 +1712,7 @@ blocks a query holds for. See [ARCHITECTURE](docs/ARCHITECTURE.md#saved-view-wri
 
 ### Bounded block queries
 
-The service owns one structured `BlockSearchQuery` used by Tree filters, virtual branches, CLI, Pi commands, and agent tools. A plain filter list is positive AND clauses with presence or exact equality (saved views and `expression` add `OR`, `NOT`, groups and ranges, below):
+The service owns one structured `BlockSearchQuery` used by Tree filters, virtual branches, CLI, Pi commands, and agent tools. A plain filter list is positive AND clauses with presence or exact equality (saved views and `where` add `OR`, `NOT`, groups and ranges, below):
 
 ```text
 status=open priority
@@ -1722,7 +1722,7 @@ work-stage::review type::roadmap-item
 
 Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. Aggregation is not part of the query language; the relation atoms below reach links, subtrees, tags and text.
 
-Saved-view `[query::…]` values, CLI `list --query` and the `expression` field of
+Saved-view `[query::…]` values, CLI `list --query` and the `where` field of
 `blocks.query` / `outliner_query` also accept `OR`, `NOT`, parentheses and
 timestamp ranges:
 
@@ -1761,15 +1761,21 @@ created < 2026-09-01T12:00Z
   |---|---|
   | `#tag` | blocks carrying the tag; `#jazz` also matches nested `jazz/hands` |
   | `links:[[page]]`, `links:((id))`, `links:PIE-123` | blocks whose text or properties link to the target (the backlink index, so a ticket key counts) |
+  | `linkedfrom:[[page]]`, `linkedfrom:((id))` | blocks the target links to (the same occurrences as `links:`, read from the target's side) |
   | `under:[[page]]`, `under:((id))` | blocks in the target's subtree, the target included |
+  | `parent:[[page]]`, `parent:((id))` | the target's direct children |
   | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
   | `text~text` | blocks whose whole text contains the text, ignoring case |
 
   Quote text with spaces (`title~"weekly review"`). A target that names no block fails the query with the atom and a
   working example; a malformed atom does too (`links:` alone says `links: needs a target after the colon, like
   links:[[garden]], links:((8f3a2c1d)) or links:PIE-123`). Example: `under:[[projects]] NOT links:[[archive]] #jazz`.
-  A move into a view planned by `views.planWrite` treats `links:` and `under:` like `child:`: they are checked against
+  A move into a view planned by `views.planWrite` treats the relation atoms like `child:`: they are checked against
   where the block is and a move never changes them.
+- **`this`:** any relation's target may be `this`, the block the question is asked for (ADR 0004): `blocks.query`'s
+  `this` (a `::links` block's note, a figure's note, a tile's aim). `links:this NOT linkedfrom:this` is what links to a
+  note that the note doesn't link back. A question that says `this` with none given is refused: `this is the note the
+  query sits in; this query has none (pass this=<block id>)`. `query.matches` takes `this` too.
 - **Ranges:** `created` or `updated`, then `<`, `<=`, `>` or `>=`, then a time,
   with or without spaces. A `YYYY-MM-DD` date is a whole UTC day:
   `> 2026-09-20` starts on the 21st and `<= 2026-09-20` includes all of the
@@ -1786,16 +1792,39 @@ created < 2026-09-01T12:00Z
   `deleted=true` cannot be combined with the boolean grammar.
 - **Errors:** invalid queries fail, and are never treated as empty results.
   `blocks.query` rejects them with a `problem` giving `code`, the request
-  `field` (`expression`) and the 0-based `position` within it; `views.read` reports `status: "invalid"` with the
+  `field` (`where`) and the 0-based `position` within it; `views.read` reports `status: "invalid"` with the
   `query` property and position.
 
 The Tree **Advanced property filter** accepts the same grammar. A clause list
 still reaches the service as plain `filters` (so `deleted=true` still selects
 Trash); a query using `OR`, `NOT`, parentheses or ranges is sent as a
-structured `where`. `expand-when`, checklist views and repeated CLI `--filter`
+structured `predicate`. `expand-when`, checklist views and repeated CLI `--filter`
 flags keep the positive-AND clause syntax.
 
-Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text (every word of it, in any order, punctuation folded), subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query carries a limit from 1 through 1000 and returns `complete` or `truncated` metadata. Tree **Advanced property filter** uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and accepts `--limit` (default 500).
+Property filters and catalogs default to `block` scope, so body examples and line-local annotations cannot silently change workflow semantics. Callers can explicitly request `block`, `line`, `inline`, or `all` through `propertyScope`; broader block-query results include each matching record’s scope, ordinal, line, column, and source span. Text (every word of it, in any order, punctuation folded), subtree root, deleted-content mode, projection rank context, timestamp sort, and limit remain explicit structured fields rather than reserved filter words. Timestamp sorting accepts `created` or `updated` with `asc` or `desc`, orders the full matched collection before applying the limit, and cannot be combined with manual projection ranks. Every query has a limit from 1 through 1000 (200 when it names none) and returns `complete` or `truncated` metadata (`truncated` says `matched`, how many matched in all, when the service read every match: a sort, a group or facets). Tree **Advanced property filter** uses the block-scoped property catalog for key/value completion; agents call `outliner_query` with structured filters and never parse the shorthand. CLI `list` exposes the same parser through repeatable `--filter` flags and accepts `--limit` (default 500).
+
+### Questions: groups, facets and watching (ADR 0004)
+
+`blocks.query` answers a question, the same everywhere (a `::links` block's `query`, a `::graph-*` figure's YAML,
+`outliner_query`), and the service does all of it: no client narrows, groups, sorts or counts rows itself.
+
+- `group`: a property name, or `created:day|week|month` / `updated:day|week|month`. The answer's `groups` are `{ value,
+  count, ids }`: `count` over every match, `ids` the returned rows in it. A property with several values puts a row in
+  each of their groups; matches without it are the `null` group, last. Groups follow the property's value order
+  (`work-stage` in the workboard's stage order, else numbers, then text); date buckets newest first.
+- `sort`: `"<property|created|updated|title>[ asc|desc]"` (or `{ field, direction }`); `property:<name>` names a
+  property called `created`, `updated` or `title`. `work-stage` sorts in the workboard's order.
+- `facets`: `true` (every key the matches carry) or a list of keys: `{ key, count, values: [{ value, count }], more? }`,
+  50 keys and 50 values each at most.
+- `hint`: when a key the question names (a clause, the group, the sort, a facet) is carried by no block in the
+  outline: `no notes have <key>; nearest: <keys>`. A known key with no matches is just an empty answer.
+- **Watched:** `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` take `watch: <key>`.
+  The question stays on the connection (`src/query-watches.ts`); the answer that registers it is `generation` 0. After
+  changes the service evaluates every watch at most every 250 ms and at least once a second under steady writes, and
+  sends that connection `{ event: { domain: "queries", action: "queries.changed", changes: [{ key, generation }] } }`
+  for the answers whose hash changed. Asked again with `generation`, a watch is answered from the newest kept answer,
+  never evaluated again. 64 watches per connection and 512 per service; past them the oldest is dropped
+  (`dropped: true`) and the client asks again to register it. A connection's watches end with it.
 
 ### Reading many blocks
 
