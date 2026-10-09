@@ -52,6 +52,7 @@ import { tileMenu } from "./tile-menu";
 import { ScreenTile } from "./screen-tile";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 
 /**
@@ -90,25 +91,7 @@ const FOCUS_BOX: BoxGlyphs = { top: "═", bottom: "═", side: "║", tl: "╔"
 const TO_EDGE: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right" };
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
 const ARROW: Record<string, string> = { left: "h", right: "l", up: "k", down: "j" };
-/** ^W and a key that waits for one more: o O open a kind, m t move beside or into tabs. */
-const PREFIX: Record<string, Prefix> = { o: "add", O: "addtab", m: "move", t: "tab" };
-/** ^W and a key that runs one action: its args, and its tile (`n` the focused tile's number, `-` none, else its name). */
-const WM: Record<string, [string, Record<string, unknown>, ("n" | "-")?]> = {
-  "<": ["tile.resize", { by: -1, axis: "row" }, "n"], ">": ["tile.resize", { by: 1, axis: "row" }, "n"],
-  "-": ["tile.resize", { by: -1, axis: "col" }, "n"], "+": ["tile.resize", { by: 1, axis: "col" }, "n"],
-  z: ["tile.zoom", {}, "n"], "=": ["layout.even", {}, "-"], x: ["tile.close", {}], v: ["tile.preview", { where: "right" }], V: ["tile.preview", { where: "down" }], p: ["tile.dock", {}],
-  c: ["tile.collapse", {}], f: ["tile.float", {}], W: ["tile.widen", {}], "]": ["tab.select", { by: 1 }], "[": ["tab.select", { by: -1 }],
-  // The drawer (PIE-498): into it from a screen, back into the screen shown from it; A brings the drawer's tab shown here.
-  a: ["tile.drawer", {}], A: ["tile.drawer", { on: false }],
-  // What an agent may do to this tile (PIE-639): free, edit only, hands off.
-  g: ["tile.agent", {}],
-  // The tile's menu (PIE-492), as its header's ⋯ and a right-click open it.
-  ".": ["tile.menu", {}],
-  // A mounted screen (PIE-651): out to its full screen, into it; this screen (or the part around the tile) onto the desk; a group.
-  u: ["mount.out", {}], e: ["mount.enter", {}], M: ["screen.mount", {}, "-"], I: ["screen.part", {}], G: ["tile.group", { ask: true }],
-  // Tiles picked to gather (PIE-696): pick or let go of this one; into a group, or out of the one it's in.
-  " ": ["tile.select", {}], i: ["tile.into", {}],
-};
+// The keys after ^W are the table in ./wkeys (W_KEYS): command() reads each one's binding from it.
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
@@ -192,6 +175,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
   /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
   private hintMoreOpen = false;
+  /** A ^W chord's keys box (PIE-704): the most-used keys, a line per group, drawn above the hint row (wkeys.ts). */
+  private hintBox: string[] | null = null;
   /** ^W P: the policy panel over the focused tile's containers. */
   /** The spines drawn, for a click. */
   private spines: [number, Rect][] = [];
@@ -2309,7 +2294,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows }); placements = []; }
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
-    if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
+    if (this.hintBox || (this.hintFull && (this.hintMoreOpen || this.prefix))) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     return { lines: canvas.lines(), placements };
   }
@@ -2753,7 +2738,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * row, which shows it at once). Each line keeps the colour its first part was written in.
    */
   private drawHintMore(canvas: Canvas, cols: number, rows: number) {
-    const lines = wrapHint(this.hintFull!, Math.max(10, cols - 4));
+    const lines = this.hintBox ? this.hintBox.flatMap(l => wrapHint(paint(l), Math.max(10, cols - 4))) : wrapHint(this.hintFull!, Math.max(10, cols - 4));
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 2 - h, cols, rows: h };
     canvas.clear(r, bg(C.black));
@@ -2766,6 +2751,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
   private spotAt(k: Key): { key: Key; tile?: number } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
+
+  /** Every ^W key with its label and summary, joined from the actions it runs (wkeys.ts): what the keys box and the power bar's ^W list show. */
+  wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name)); }
+
+  /**
+   * Type `keys` after ^W, as the person's keys would (the power bar's ^W list picks one this way): `o s` is ^W o, then s.
+   * Each key goes through `command`, the one place a ^W binding is read.
+   */
+  wChord(keys: string) {
+    this.prefix = "wm";                  // a chord left waiting (^W m) is dropped: this one starts afresh
+    for (const c of keys.split(" ").filter(Boolean)) {
+      this.command({ kind: "char", ch: c === "space" ? " " : c });
+    }
+  }
 
   /** `keys.more`: show the whole hint row above it (or put it away); refused when the row isn't cut. */
   keysMore(): { shown: boolean } {
@@ -2817,7 +2816,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const room = Math.max(0, cols - hw);
     // Too long for the row (dock handles take its end): cut between its parts, never inside a key's, and say
     // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
-    this.hintFull = null; this.moreChip = null;
+    this.hintFull = null; this.moreChip = null; this.hintBox = null;
     const fit = (s: string) => {
       const f = fitHint(s, room, MORE);
       if (!f.cut) return s;
@@ -2856,8 +2855,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));
     }
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
+    if (this.prefix === "wm") this.hintBox = wBoxLines(this.wRows());
     const s = this.prefix === "wm"
-      ? leaving + "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview beside · |07V |08preview below · |07p |08dock in/out · |07d |08slide · |07c |08spine · |07W |08widen · |07f |08float · |07P |08policy · |07g |08agents · |07r w |08layouts · |07x |08close · |07a |08your drawer in/out · |07A |08drawer tab here · |07s |08swap · |07. |08menu · |07! |08shell"
+      ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
@@ -3142,6 +3142,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.run("tile.link", to === from ? {} : { to: this.nameOf(to) }, this.nameOf(from));
   }
 
+  /** The ^W keys the desk does itself (W_KEYS' `special`): a handler for each, or this doesn't type-check. */
+  private readonly wSpecial: Record<WSpecialKey, (me: string, flash: (s: string) => void) => void> = {
+    T: (me, flash) => { if (tabsOf(this.root, this.focus)) this.run("layout.move", { to: me, where: "right" }, me); else flash(`${me} isn't in a tab set`); },
+    P: () => { this.overlays.push(policyPanel(this, this.focus)); this.redraw(); },
+    // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
+    "!": () => { void import("../screens").then(m => m.dropToShell(this, this.ctx)); },
+    d: (me, flash) => {
+      if (dockOf(this.root, this.focus)?.open) return this.run("tile.slide", { open: false }, me);
+      const shut = this.shutDocks().at(-1);
+      if (shut) this.run("tile.slide", { open: true, container: shut.id }, this.nameOf(leaves(shut.kid)[0]!)); else flash("no docks · ^W p puts this tile in one");
+    },
+    // The next tile in the tree (a float isn't in it: the swap says so).
+    s: me => {
+      const ids = leaves(this.root), j = this.isFloat(this.focus) ? ids[0]! : ids[(ids.indexOf(this.focus) + 1) % ids.length]!;
+      if (j !== this.focus) this.run("layout.swap", { to: this.nameOf(j) }, me); else this.redraw();
+    },
+    // All the ^W keys: the power bar's actions scope on the ^W prefix, a list to filter (src/bar/sources.ts).
+    "?": (_me, flash) => { if (this.ctx.press) void this.ctx.press("bar.open", { scope: "actions", query: "^W " }); else flash("the ^W list is the power bar's: this screen isn't given the door's actions"); },
+  };
+
   private command(k: Key) {
     const mode = this.prefix;
     this.prefix = "";
@@ -3163,27 +3183,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (mode === "tab") return n === null ? flash(`no tile ${dir} of ${me}`) : this.run("layout.move", { to: this.nameOf(n), where: "tabs" }, me);
       return this.run("layout.move", n === null ? { where: `edge-${dir}` } : { to: this.nameOf(n), where: dir }, me);
     }
-    if (dir) return n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
-    if (TO_EDGE[c]) return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
-    if (PREFIX[c]) { this.prefix = PREFIX[c]; return this.redraw(); }
-    const wm = WM[c];
-    if (wm) return this.run(wm[0], wm[1], wm[2] === "-" ? undefined : wm[2] === "n" ? String(this.numberOf(this.focus)) : me);
-    switch (c) {
-      case "T": return tabsOf(this.root, this.focus) ? this.run("layout.move", { to: me, where: "right" }, me) : flash(`${me} isn't in a tab set`);
-      case "P": this.overlays.push(policyPanel(this, this.focus)); return this.redraw();
-      case "r": return this.run("layout.load", {}, me);
-      case "w": return this.run("screen.save", {}, me);
-      // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
-      case "!": void import("../screens").then(m => m.dropToShell(this, this.ctx)); return;
-      case "d": {
-        if (dockOf(this.root, this.focus)?.open) return this.run("tile.slide", { open: false }, me);
-        const shut = this.shutDocks().at(-1);
-        return shut ? this.run("tile.slide", { open: true, container: shut.id }, this.nameOf(leaves(shut.kid)[0]!)) : flash("no docks · ^W p puts this tile in one");
-      }
-      case "s": { // the next tile in the tree (a float isn't in it: the swap says so)
-        const ids = leaves(this.root), j = this.isFloat(this.focus) ? ids[0]! : ids[(ids.indexOf(this.focus) + 1) % ids.length]!;
-        return j !== this.focus ? this.run("layout.swap", { to: this.nameOf(j) }, me) : this.redraw();
-      }
+    const e = wKey(c);
+    if (!e) return this.redraw();
+    switch (e.how.k) {
+      case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
+      case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
+      case "prefix": this.prefix = e.how.mode; return this.redraw();
+      case "run": return this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? String(this.numberOf(this.focus)) : me);
+      case "special": return this.wSpecial[e.key as WSpecialKey](me, flash);
     }
     this.redraw();
   }
