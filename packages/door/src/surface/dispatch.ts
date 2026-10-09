@@ -19,6 +19,11 @@ import { ActionRefused, agentLabel, asActor, declaredKeys, type ActionDef, type 
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
+/** Actions that were renamed: a call to the old name is answered with the call that works (PIE-660: say the right thing). */
+export const GONE_ACTIONS: Record<string, string> = {
+  "reader.hold": "reader.hold is now reader.mode (PIE-705, any reader or detail): act reader.mode tile=<reader> mode=held | follows | pinned [page=<name>]; with no mode it toggles follows and held, as on= did",
+};
+
 export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");
 
 export interface TileRef {
@@ -346,6 +351,7 @@ export class Dispatcher {
       delete args.expected;
     }
     const r = this.owner(req);
+    if (!r && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!r) throw new ActionRefused(`no action ${req.action} on the ${this.host.title}; \`actions\` lists what it takes`);
     if (!("set" in r)) {
       const d = r.delegate(req);

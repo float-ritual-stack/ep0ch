@@ -57,7 +57,7 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
     const row: BarRow = {
       key: `${at}:${path}`, label: t.showing ? `${path} · ${withWorkId(t.showing.workId, t.showing.title)}` : `${path} · ${t.title}`, depth: base + t.depth, group,
       mark: t.focused ? "●" : t.collapsed ? "▸" : t.float ? "⧉" : t.docked ? "⇤" : t.tab && !t.shown ? "⋯" : " ",
-      detail: [t.kind, t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
+      detail: [t.kind, t.mode ?? "", t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
       data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [] } satisfies TileAt,
     };
     const inner = p instanceof ScreenTile ? p.inner : null;

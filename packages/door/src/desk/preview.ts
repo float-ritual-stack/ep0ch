@@ -41,7 +41,7 @@ export class PreviewPane extends ReaderPane {
   constructor(public source: PreviewSource) { super(false); }
 
   /** What its title calls it in place of its source (the board's: "follows the board"). */
-  label: string | null = null;
+  override label: string | null = null;
   /** What the list it follows quotes of its selection (the backlinks: the mention), said in place of its label. */
   quote = "";
   override title() {

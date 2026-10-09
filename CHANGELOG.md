@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One reader, three modes: follows, held or pinned to a page, instead of reader and detail (PIE-705)
+
+- **Changed:** a detail is no longer a kind of tile of its own. The `reader` tile has a mode, shown as a chip on its frame:
+  `follows` the current note, `held` on the note it shows, or `pinned [[page]]` (shown again each time it starts). `p`
+  toggles follows and held in any reader, a click on the chip cycles all three, and `act reader.mode tile=<name>
+  mode=follows|held|pinned [page=<name>]` does it as an agent, attributed. `^W o d` still opens a reader started held, and
+  `tile.open kind=detail` (and `kind: detail` in a saved layout or a screen note, with or without `page=`) reads as a held
+  (or pinned) reader. *Why it matters:* you pick follow or hold on the tile you are looking at, and the old refusal
+  "reader.hold is for readers" for a detail is gone, because every reader can switch.
+- **Changed:** `reader.hold` is now `reader.mode` (its `on=` is `mode=held` or `mode=follows`). A detail you let go of now
+  follows the current note again (it used to stay put); a held reader is saved with its note and comes back held.
+  A pinned reader that is opened into another note than its page is held on it, not pinned.
+- **Run:** nothing: no protocol or schema change; saved layouts of the old form load as they are.
+
+
 ### Your look, part two: surfaces, frames, edges and the header, tuned live (PIE-675)
 
 - **New:** a tile or a box can sit on a surface (`[style.bg::raised]`, `sunken`, or a tone: blue, green, violet, amber,

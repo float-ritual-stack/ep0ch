@@ -168,7 +168,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     const dockId = get().tiles.find((t: any) => t.name === "tree").container;
     expect(dockId).toMatch(/^d\d+$/);
     await act("layout.policy", { node: dockId, accepts: "tree,pty" });
-    await expect(mine("layout.move", { to: "now", where: "down" }, "side")).rejects.toThrow(new RegExp(`${dockId} takes only tree, pty: not side \\(detail\\)`));
+    await expect(mine("layout.move", { to: "now", where: "down" }, "side")).rejects.toThrow(new RegExp(`${dockId} takes only tree, pty: not side \\(reader\\)`));
     await expect(act("layout.policy", { node: dockId, accepts: "compost" })).rejects.toThrow(/accepts names tile kinds/);
     await act("layout.policy", { node: dockId, draggable: false });
     await expect(mine("layout.move", { where: "edge-right" }, "now")).rejects.toThrow(new RegExp(`now stays where it is: ${dockId} keeps its tiles in place · \\^W P there turns draggable on`));
