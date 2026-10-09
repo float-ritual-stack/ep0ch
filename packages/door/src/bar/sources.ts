@@ -7,6 +7,8 @@
 import { identityFields, noteLabel, withWorkId, type Msg } from "../board";
 import { Desk } from "../desk/desk";
 import { PtyPane } from "../desk/pty";
+import { tileKinds } from "../desk/tile-kinds";
+import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
 import { ActionRefused, declaredKeys, type ActionInfo } from "../surface/actions";
@@ -14,7 +16,7 @@ import { USER } from "../socket";
 import { ago } from "../text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { Screen } from "../app";
-import type { BarHost, BarRow, BarSource } from "./source";
+import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
@@ -165,12 +167,43 @@ const firstKey = (keys: string | undefined) => [...declaredKeys(keys)].find(k =>
 /** An action anyone can run with no arguments, from the bar (the bar's own aren't listed). */
 const bare = (a: ActionInfo) => !a.name.startsWith("bar.") && Object.values(a.args).every(s => s.optional);
 
+/** `^W` typed first in the actions scope (or `ctrl+w`): the desk's ^W keys, what's after it filtering them. */
+const W_QUERY = /^\s*(?:\^w|ctrl\+w)\s*(.*)$/i;
+
+/** What a ^W row carries to be picked: the keys after ^W that press it, and the action an agent runs instead. */
+interface WData { chord: string; action: string; args: Record<string, unknown>; how: WRow["how"] }
+
+/**
+ * The desk's ^W keys as rows (PIE-704): the table in desk/wkeys.ts joined to each action's words (`Desk.wRows`), the
+ * kinds' open keys after `^W o`, each with its keycap and, where the tile menu says the action would be refused
+ * now, why. Under their group's heading with nothing more typed; typed, ranked by the bar's one matcher.
+ */
+function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
+  const refusals = new Map<string, string>();
+  try { for (const m of host.screens().at(-1)?.dispatch?.menu("focused", USER) ?? []) if (m.key && m.refused) refusals.set(m.key, m.refused); } catch { /* no menu here */ }
+  const rows: BarRow[] = desk.wRows().map(r => ({
+    key: `w:${r.key}`, label: r.label, detail: r.summary && r.summary !== r.label ? r.summary : r.action, keycap: r.chord, group: r.group,
+    ...(refusals.get(r.chord) ? { refused: refusals.get(r.chord)! } : {}),
+    data: { chord: r.key, action: r.action, args: r.args, how: r.how } satisfies WData,
+  }));
+  // The open keys: ^W o and then the kind's own.
+  const at = rows.findIndex(r => r.key === "w:O") + 1;
+  const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, kind: k.kind })));
+  rows.splice(at, 0, ...kinds.map((k): BarRow => ({ key: `w:o ${k.key}`, label: `open ${k.label} beside`, detail: `tile.open kind=${k.kind}`, keycap: `ctrl+w o ${k.key}`, group: "open", data: { chord: `o ${k.key}`, action: "tile.open", args: { kind: k.kind }, how: "prefix" } satisfies WData })));
+  const typed = !!q.trim();
+  const hits = filtered(rows, q, r => [r.label, r.detail ?? "", r.group ?? "", wCaption((r.data as WData).chord)]);
+  // Ranked by the matcher once something is typed, so no headings; in the table's order, under its groups, before.
+  return typed ? hits.map(({ group: _g, ...r }) => r) : hits;
+}
+
 const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",
   about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key; ⏎ runs it as that key would",
   main: { empty: false, typed: true, most: 6 },
   rows(q, host) {
     const top = host.screens().at(-1);
+    const w = W_QUERY.exec(q);
+    if (w) { const desk = tilesOf(top); return desk ? wKeyRows(desk, w[1]!, host) : []; }
     const menu = (() => { try { return top?.dispatch?.menu("focused", USER) ?? []; } catch { return []; } })();
     const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, detail: `${m.group} · ${m.action}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
     const seen = new Set(menu.map(m => m.action));
@@ -192,11 +225,29 @@ const ACTIONS: BarSource = {
     if (row.refused) throw new ActionRefused(row.refused);
     const d = row.data as { action: string; args: Record<string, unknown>; tile?: string };
     const top = host.screens().at(-1);
+    if (row.key.startsWith("w:")) return pickW(row, host, how);
     // A menu row runs in its tile on the screen's dispatcher, as its ⋯ menu runs it; the rest on the door's.
     const on = d.tile !== undefined && top?.dispatch ? top.dispatch : host.dispatch;
     return how.actor.kind === "agent" ? on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor) : on.press(d.action, d.args, d.tile);
   },
 };
+
+/**
+ * A ^W row picked: the person's presses its keys (the desk's own chord handler, so it is what ^W then the key does,
+ * a key that waits for another leaves the desk waiting for it); an agent's runs the action it stands for, as itself,
+ * and is told the action when the key is only a person's chord (a direction, a panel).
+ */
+async function pickW(row: BarRow, host: BarHost, how: PickHow): Promise<unknown> {
+  const d = row.data as WData, desk = tilesOf(host.screens().at(-1));
+  if (row.refused) throw new ActionRefused(row.refused);
+  if (!desk) throw new ActionRefused("the screen shown has no ^W keys");
+  if (how.actor.kind === "agent") {
+    if (d.how !== "run") throw new ActionRefused(`^W ${d.chord} is the person's key chord; an agent runs ${d.action} with its arguments (ep0ch actions ${d.action})`);
+    return host.screens().at(-1)!.dispatch!.act({ action: d.action, args: d.args, tile: "focused" }, how.actor);
+  }
+  desk.wChord(d.chord);
+  return { key: wCaption(d.chord), action: d.action };
+}
 
 const RECENT: BarSource = {
   id: "recent", title: "recent", prefix: "+", by: "door",

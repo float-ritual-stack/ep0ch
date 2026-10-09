@@ -452,6 +452,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
     // A reader and a terminal whose program asked for the mouse, each with its ⋯.
     menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
+    wkeys: ["Allotment notebook", "Bike shed"],
     // A blank screen: its rows, each a first step.
     made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
     // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
@@ -1298,6 +1299,29 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     await until(() => { const t = stage().tileOutline().find(x => x.name === "pears")!; return !t.collapsed && t.focused; }, "pears opened and given the keys");
     expect((app as any).bar).toBeNull();
+    if (S().focus === "stage") press({ kind: "esc" });
+  }, 30_000);
+
+  test("the ^W keys section (PIE-704): ^W lists the grouped keys once; ? opens the whole list on the bar; typing finds a key and ⏎ presses it; an agent's bar.open answers the same rows", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "wkeys" }, as: "test-agent" });
+    await until(() => marks.wkeys!.every(m => screen().includes(m)), "the ^W keys section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    if (S().focus !== "stage") press({ kind: "enter" });
+    const r = await app.act({ action: "bar.open", args: { scope: "actions", query: "^W " }, as: "test-agent" }) as any;
+    expect(r.rows.some((x: any) => x.keycap === "ctrl+w G" && x.group === "mounts & groups")).toBe(true);
+    expect((app as any).bar).toBeNull();
+    press({ kind: "char", ch: "w", ctrl: true });
+    press({ kind: "char", ch: "?" });
+    await until(() => (app as any).bar?.describe().scope === "actions", "the ^W list opened");
+    for (const c of "float") press({ kind: "char", ch: c });
+    await until(() => (app as any).bar.describe().rows[0]?.keycap === "ctrl+w f", "float found by its letters");
+    press({ kind: "enter" });
+    await until(() => stage().layoutGet().floats.length === 1, "the tile floated by the list");
+    expect((app as any).bar).toBeNull();
+    press({ kind: "char", ch: "w", ctrl: true });
+    press({ kind: "char", ch: "f" });
+    await until(() => stage().layoutGet().floats.length === 0, "put back by its key");
     if (S().focus === "stage") press({ kind: "esc" });
   }, 30_000);
 

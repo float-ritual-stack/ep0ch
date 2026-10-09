@@ -525,6 +525,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "wkeys", need: "see every ^W key, find one by its letters, and run it by key, mouse or act", part: "the ^W keys (PIE-704): one table (desk/wkeys.ts, W_KEYS) that the chord handler reads, the keys box and hint row are generated from, and the tile menu's `ctrl+w` rows agree with; each key's words are joined from its action (the menu row, else the summary). `^W ?` or a click on \"all keys\" opens the power bar's actions scope on the ^W prefix, grouped, filtered by the bar's matcher, ⏎ pressing the key", files: "src/desk/wkeys.ts, src/desk/desk.ts (command, wSpecial, wRows, wChord), src/bar/sources.ts (wKeyRows), src/surface/dispatch.ts (defOf)",
+    aside: "press ^W: a box above the hint row lists the most-used keys, a line per group, and the hint row says only \"all keys · esc\" · ? (or a click on \"all keys\") opens the whole list: every ^W key under its group (focus & move, size & shape, tabs, open, mounts & groups, drawer, layouts & more) with its keycap · type to filter (\"gather\", \"drawer\", \"zoom\"), ⏎ or a click presses it, as the key would · a key that waits for another (m, t, o) leaves the desk waiting for it · `act bar.open scope=actions query=\"^W \"` answers the same rows to an agent, and `act bar.pick query=\"^W zoom\" scope=actions` runs one as the agent, never taking your focus",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new DetailPane();
+      return deskOf({ title: "showcase · ^W keys", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
     key: "made", need: "make a screen of your own: start blank, build it, save it, open it by name", part: "the blank screen (one tile whose rows are blank.fill and blank.screens, the layout's replace) and screen notes: screen.save writes the screen as a [type::screen] note, its spec as data, which every door on the outline registers (screen.open, --screen, ^W r)", files: "src/desk/blank.ts, src/desk/screen-notes.ts, src/desk/screen-spec.ts, src/desk/tile-actions.ts",
     aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · name it the way you'd say it (allotment work is kept as typed and opened as allotment-work too; the prompt shows what it saves as, or why it can't, as you type) · `act blank.fill kind=tree tile=blank`, then `act screen.save name=allotment-work`: an agent builds and saves one the same way, and the answer says the slug",
     stage() { return openScreen("blank", { persist: false }); },

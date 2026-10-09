@@ -226,6 +226,12 @@ export class Dispatcher {
     return k ? { ...NOBODY, ...k, screen: this.host.title } : NOBODY;
   }
 
+  /** The def of action `name`, as the first set here that has it declares it (labels, summaries, menu rows). */
+  defOf(name: string): ActionDef<any, any> | undefined {
+    for (const r of this.regs) if ("set" in r && r.set.has(name)) return r.set.def(name);
+    return undefined;
+  }
+
   /** Every action here once, in the order a name is looked up; the tiles `tile=` names. */
   list(): { actions: ActionInfo[]; tiles: string[] } {
     const seen = new Set<string>(), out: ActionInfo[] = [];
