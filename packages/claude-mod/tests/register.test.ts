@@ -38,7 +38,7 @@ function boundToWorkspace(folder: string): string {
  */
 function sessionIn(
   on: On,
-  cwd: string,
+  cwd: string | (() => string),
   answer: (run: Run) => ProcessRunResult | Promise<ProcessRunResult>,
   workspaces = '',
   env: Record<string, string> = {},
@@ -62,7 +62,7 @@ function sessionIn(
     return Box({ key: 'engine', children: Text({ children: e.props.text }) })
   })
   on('session.id', () => ({ value: 'session-1' }))
-  on('session.cwd', () => ({ value: cwd }))
+  on('session.cwd', () => ({ value: typeof cwd === 'function' ? cwd() : cwd }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('process.run', async ($, e) => {
     // This machine's name, which a write's principal carries (claude-code@garden-host).
@@ -962,7 +962,35 @@ describe('register', () => {
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
-    expect(session.runs).toEqual([])
+    // Nothing reached an outline: only the CLI's discovery ran.
+    expect(session.runs.map(run => run.argv[0])).toEqual(['herdr'])
+  })
+
+  test('a not-bound answer is never sticky: the next call reads the folder again and finds it bound (PIE-755)', async ($, on) => {
+    let bound = false
+    const session = sessionIn(on, '/elsewhere', succeeding, '', {}, folder =>
+      bound ? result(0, JSON.stringify({ bound: true, folder: '/elsewhere', outline: 'garden' }), '') : result(0, boundToWorkspace(folder), ''))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
+    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    expect(denied.deny).toContain('not bound to an Outliner outline')
+    bound = true
+    const allowed = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    expect(allowed.deny).toBeUndefined()
+  })
+
+  test('a shell cd elsewhere does not unbind the tools: the lookup stays on the starting folder (PIE-755)', async ($, on) => {
+    let cwd = WORKSPACE
+    const session = sessionIn(on, () => cwd, succeeding)
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start(START))
+    cwd = '/opt/boards'
+    // The binding read again (/outline, a turn now and then) while the shell is elsewhere.
+    await $.command.run({ command: 'outline', args: '' } as any)
+    await session.clock.settle()
+    const again = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    expect(again.deny).toBeUndefined()
+    expect(session.bindings.every(run => run.argv.at(-1) === WORKSPACE)).toBe(true)
   })
 
   test('in a folder bound to no outline, replies are not linked', async ($, on) => {

@@ -34,7 +34,7 @@ function whereJson(door: null | { outline: string; machine?: string; host: strin
   })
 }
 
-type Case = { env?: Record<string, string>; bound: (folder: string) => string; where: string | null; mentions?: string; whereMs?: number }
+type Case = { cwd?: string; env?: Record<string, string>; bound: (folder: string) => string; where: string | null; mentions?: string; whereMs?: number }
 
 /** A session in FOLDER: the Outliner answers `bound-folder` from the case, `ep0ch where --json` from the case (null: no ep0ch). */
 function sessionIn(on: On, c: Case) {
@@ -47,7 +47,7 @@ function sessionIn(on: On, c: Case) {
   on('session.end', () => ({ sessionId: 'session-1' }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.id', () => ({ value: 'session-1' }))
-  on('session.cwd', () => ({ value: FOLDER }))
+  on('session.cwd', () => ({ value: c.cwd ?? FOLDER }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('prompt.context', ($, e) => ({ blocks: e.blocks }))
@@ -92,8 +92,9 @@ const REMOTE: Case = {
   bound: boundTo('harbor', 'far'),
   where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
 }
+// A door the folder reaches without Claude sitting in one of its tiles (no EP0CH_CONTROL): the folder's binding stands.
 const MISMATCH: Case = {
-  env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
+  env: { EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
   bound: boundTo('garden'),
   where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
 }
@@ -219,9 +220,49 @@ describe('where this Claude is bound: the card, the status line, the context', (
     await s.clock.advance(31_000)
     await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1, isAborted: false, turnId: 'turn-1' })
     await s.clock.settle()
-    expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder · ⚠ door is harbor @ far')
+    // In a door tile the door's outline is the binding (PIE-755).
+    expect(s.statuses.at(-1)).toBe('outline: harbor @ far · folder, door')
     expect(s.runs.filter(r => r[0] === 'ep0ch' && r[1] === 'where').length).toBe(2)
     expect(s.runs.some(r => r[0] === 'ep0ch' && r[1] === 'help')).toBe(false)
+  })
+})
+
+describe('where this Claude is bound: the folder it started in, and the door', () => {
+  const turn = { reason: 'answer', answer: 'ok', durationMs: 1, isAborted: false, turnId: 'turn-1' } as const
+
+  test('a shell cd away and back: the binding stays on the folder the session started in', async ($, on) => {
+    const c: Case = { ...LOCAL }
+    const s = sessionIn(on, c)
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder')
+    c.cwd = '/opt/boards'
+    await s.clock.advance(31_000)
+    await $.turn.complete(turn)
+    await s.clock.settle()
+    expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder')
+    c.cwd = FOLDER
+    await s.clock.advance(31_000)
+    await $.turn.complete(turn)
+    await s.clock.settle()
+    expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder')
+    // Every lookup asked about the starting folder, never the wandered one.
+    expect(s.runs.filter(r => r.includes('bound-folder')).every(r => r.at(-1) === FOLDER)).toBe(true)
+    expect(s.runs.filter(r => r[1] === 'where').length).toBeGreaterThan(1)
+  })
+
+  test('in a door tile the door\'s outline is the binding, whatever the folder names', async ($, on) => {
+    const s = sessionIn(on, { ...MISMATCH, env: { ...MISMATCH.env, EP0CH_CONTROL: '/run/door.sock' } })
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(s.statuses.at(-1)).toBe('outline: harbor @ far · folder, door')
+  })
+
+  test('in a door tile with a folder that names nothing: the door\'s outline binds', async ($, on) => {
+    const s = sessionIn(on, { ...UNBOUND_IN_DOOR, env: { ...MISMATCH.env, EP0CH_CONTROL: '/run/door.sock' } })
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(s.statuses.at(-1)).toBe('outline: harbor @ far · folder, door')
   })
 })
 
