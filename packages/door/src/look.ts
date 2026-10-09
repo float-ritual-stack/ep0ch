@@ -250,19 +250,11 @@ export class Tuning {
 }
 
 const tunings = new WeakMap<object, Tuning>();
-/** The connections with a tuning, for the door's quit. */
-const known = new Set<WeakRef<object>>();
 /** The connection's tuning (one per outline connection: every tile and screen on it sees the same nudges). */
 export function tuningOf(board: object): Tuning {
   let t = tunings.get(board);
-  if (!t) { tunings.set(board, (t = new Tuning())); known.add(new WeakRef(board)); }
+  if (!t) tunings.set(board, (t = new Tuning()));
   return t;
-}
-/** Every connection's unwritten nudges (the door's quit says so). */
-export function anyUnsavedTuning(): number {
-  let n = 0;
-  for (const r of known) { const b = r.deref(); if (!b) { known.delete(r); continue; } n += tunings.get(b)?.unsavedCount() ?? 0; }
-  return n;
 }
 
 // ── resolving ─────────────────────────────────────────────────────────────────
