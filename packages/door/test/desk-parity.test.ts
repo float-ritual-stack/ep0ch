@@ -63,8 +63,6 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     expect((app as any).bar).toBeNull();
     expect(get().focus).toBe(focus);
     await expect(act("search", { query: "p" })).rejects.toThrow(/at least 2 characters/);
-    // From a tile whose own keys don't take / (the replies list filters with it, as every links tile does).
-    await D().dispatch.act({ action: "tile.focus", tile: "activity" }, { kind: "user" });
     expect(await ran(char("/"))).toEqual(["search", "bar.open"]);
     expect((app as any).bar.scope).toBe("notes");
     expect(app.person().busy).toBe(true);

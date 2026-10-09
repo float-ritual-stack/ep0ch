@@ -164,6 +164,8 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
   test("the desk tells the layout where the person types: an agent's pin or move of that reader is refused, of another isn't", async () => {
     fresh();
     const note = await board.request<any>("create", { parentId: null, text: "Rake the gravel path\nBefore the frost.", author: "user" });
+    // The desk starts with the person's keys in the reader: an agent opens there only once they're elsewhere.
+    await mine("tile.focus", {}, "activity");
     await act("open", { id: note.id }, "reader");
     await until(() => get().tiles.find(t => t.name === "reader")?.showing?.id === note.id, "the note open");
     await mine("tile.focus", {}, "reader");
