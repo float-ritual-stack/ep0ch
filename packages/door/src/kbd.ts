@@ -8,6 +8,7 @@
 //   for (push, pop, set; its `CSI ? u` query is answered), and the person's keys reach it encoded that way:
 //   the report as it came when the program asked for the protocol, legacy bytes when it didn't (Shift+Enter
 //   as `ESC CR`, as alt+enter: a newline in Claude Code and most line editors).
+import { hyperOn } from "./hyper";
 import type { Key } from "./term";
 
 /** What the door asks for: 1 disambiguate escape codes, 4 report alternate keys (alt+shift+1 says `!`). */
@@ -71,6 +72,9 @@ export function reportKey(r: KeyReport): Key | null {
   if (typeof kp === "object") return kp;
   if (typeof kp === "number") r = { ...r, code: kp, shifted: undefined };
   const m = r.mods & 15, shift = !!(m & SHIFT), alt = !!(m & ALT), ctrl = !!(m & CTRL);
+  // Hyper (⌃⌥⇧⌘ together, PIE-699) with a printable key, while the layer is on: its own kind, the base key whatever shift made of it.
+  // Off, it's what it always was (super with the key), so a person who never turned it on loses nothing.
+  if (m === 15 && r.code > 32 && r.code !== 127 && !(r.code >= 0xe000 && r.code <= 0xf8ff) && r.code <= 0x10ffff && hyperOn()) return { kind: "hyper", ch: String.fromCodePoint(r.code).toLowerCase() };
   switch (r.code) {
     case 13: return alt ? { kind: "alt-enter" } : { kind: "enter", ...(shift ? { shift: true as const } : {}), ...(ctrl ? { ctrl: true as const } : {}) };
     case 27: return { kind: "esc" };

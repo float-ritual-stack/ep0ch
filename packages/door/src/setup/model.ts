@@ -167,6 +167,8 @@ export interface Facts {
     configPath: string;
     /** The key bound to each of the plugin's actions in config.toml (action id → key). */
     keys: Record<string, string>;
+    /** Chords in config.toml that hold ctrl, alt, shift and cmd/super together: Herdr would take them before a pane's program (the hyper layer, PIE-699). */
+    hyperChords?: string[];
   };
   plugin: PluginFacts | null;
   repo: RepoFacts;

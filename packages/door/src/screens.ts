@@ -10,6 +10,7 @@ import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./pack
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
+import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
 import { overscroll, overscrollOf, useOverscroll } from "./scroll";
@@ -623,6 +624,31 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       const env = process.env.EP0CH_EDIT_ARM?.trim() ? " · EP0CH_EDIT_ARM is set and wins until the door starts without it" : "";
       ctx.flash(`${now ? `e asks before an edit (${now} ms)` : "e opens an edit at once"}${env}`);
       return { armed: now > 0, ms: now, saved: keep };
+    },
+  }),
+  "keys.probe": def({
+    summary: "show exactly what the next keys arrive as, and run none of them: the bytes (a Kitty keyboard report such as CSI 107;16u, or legacy bytes), the modifiers they carry (⌃⌥⇧⌘), the key the door reads them as and whether the hyper layer is on. The way to learn what a terminal, Herdr or ssh passes through: a chord that never shows up never reached the door. Esc, or the action again, ends it; clicks still work. The person's: an agent can't take their keys",
+    keys: "`ep0ch act keys.probe`, the power bar's actions scope (>)",
+    touches: "screen", replay: "safe", person: "the probe takes the person's next keys; an agent's `act` would swallow them",
+    says: out => (out.probing ? null : "· key probe ended"),
+    args: { on: { type: "boolean", optional: true, about: "true starts it, false ends it; default toggles" } },
+    run({ on }, { ctx }) {
+      if (!ctx.probeKeys) throw new ActionRefused("this screen can't probe keys: it is the door's own terminal that reads them");
+      return { probing: ctx.probeKeys(on) };
+    },
+  }),
+  "hyper.set": def({
+    summary: "turn the hyper layer on or off (PIE-699): ⌃⌥⇧⌘ and a key reach the door's own actions from anywhere, even while typing in a draft or a terminal tile (src/hyper.ts is the keymap; the hints and the power bar show ✦). Off by default. Kept for the next start; EP0CH_HYPER=1 or 0 overrides it. Needs a terminal that sends the Kitty keyboard protocol and a Caps Lock (or key) mapped to ⌃⌥⇧⌘ (Raycast's Hyper Key, Karabiner): keys.probe shows whether the chord arrives",
+    keys: "`ep0ch act hyper.set on=true`, the power bar's actions scope (>)",
+    touches: "screen", replay: "ask", says: out => `· hyper layer ${out.on ? "on" : "off"}`,
+    args: { on: { type: "boolean", about: "true turns the layer on, false off" } },
+    run({ on }, { ctx }) {
+      useHyper(on);
+      writeState("hyper.json", { on });
+      const env = process.env.EP0CH_HYPER?.trim() ? " · EP0CH_HYPER is set and wins until the door starts without it" : "";
+      ctx.flash(`hyper layer ${hyperOn() ? "on: ⌃⌥⇧⌘ and a key (✦p the power bar, ✦h j k l focus, ✦- ✦= spine)" : "off"}${env}`);
+      ctx.redraw();
+      return { on: hyperOn(), saved: on };
     },
   }),
   "reader.hero": def({

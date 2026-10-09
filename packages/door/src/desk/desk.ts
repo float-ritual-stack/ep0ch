@@ -26,6 +26,7 @@ import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
+import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
@@ -92,6 +93,8 @@ const TO_EDGE: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right"
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
 const ARROW: Record<string, string> = { left: "h", right: "l", up: "k", down: "j" };
 // The keys after ^W are the table in ./wkeys (W_KEYS): command() reads each one's binding from it.
+/** Bare keys that fold and unfold the focused tile (PIE-699), when nothing takes them: `-` folds it; `+` and `=` (the same key unshifted) open it. */
+const FOLD_KEYS = new Set(["-", "+", "="]);
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
@@ -166,6 +169,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private slid: PlacedDock<number>[] = [];
   /** The lock chip at the end of the hint row, as last drawn. */
   private lockChip: { from: number; to: number } | null = null;
+  private hyperChip: { from: number; to: number } | null = null;
   /** The hint row as composed, when it was too long for the row and was cut ("? more"); where "? more" is on it. */
   private hintFull: string | null = null;
   private moreChip: { from: number; to: number } | null = null;
@@ -1858,6 +1862,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!this.overlays.top() || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || this.rawKeys() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
       || [...this.models.values()].some(m => m.busy?.());
   }
+  /** A hyper chord (PIE-699) is moving the keys: the edit, comment or panel the person is in is left as a click elsewhere leaves it. False when it can't be left. */
+  leaveTyping(): boolean { const w = this.personIn(); return w ? this.leaveSession(w) : true; }
   /** A reader whose step choice is open (PIE-472), wherever it is: it takes the keys (a click in a dock's preview opens one without focusing it). */
   private choosingReader(): ReaderPane | undefined { return this.namedReaders().find(r => r.pane.surface.choosing && !this.collapsed.has(r.id))?.pane; }
 
@@ -2806,13 +2812,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const handles = this.shutDocks().map(d => ({ id: leaves(d.kid)[0]!, dock: d, text: ` ${EDGE_GLYPH[d.edge]} ${isLine(d.kid) && d.kid.key ? d.kid.key : shown(d.kid).map(i => this.nameOf(i)).join("+")} ` }));
     const locked = this.screenLocked();
     const chip = this.spec.layouts || locked ? (locked ? " ▣ locked " : " □ lock ") : "";
-    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0);
+    // The hyper layer is on (PIE-699): its chip, a click on it probes what a chord arrives as (keys.probe).
+    const hyper = hyperOn() ? HYPER_CHIP : "";
+    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0) + (hyper ? width(hyper) + 1 : 0);
     this.handles = [];
     let x = cols - hw;
     let tail = "";
     for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, dock: h.dock, from: x, to: x + hw }); tail += `${chipStyle(C.brown)}${h.text}${RESET} `; x += hw + 1; }
     this.lockChip = chip ? { from: x, to: x + width(chip) } : null;
-    if (chip) tail += `${locked ? chipStyle(C.yellow, C.black) : fg(C.dark)}${chip}${RESET} `;
+    if (chip) { tail += `${locked ? chipStyle(C.yellow, C.black) : fg(C.dark)}${chip}${RESET} `; x += width(chip) + 1; }
+    this.hyperChip = hyper ? { from: x, to: x + width(hyper) } : null;
+    if (hyper) tail += `${fg(C.magenta)}${hyper}${RESET} `;
     const room = Math.max(0, cols - hw);
     // Too long for the row (dock handles take its end): cut between its parts, never inside a key's, and say
     // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
@@ -3039,8 +3049,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A spine has the keys: ⏎ or space opens it; its own keys don't reach what it holds out of sight.
     if (this.collapsed.has(this.focus)) {
       // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
-      if (k.kind === "enter" || c0 === " " || c0 === "c") return this.expandSpine(this.focus);
-      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { this.ctx.flash(`${this.readerLabel(this.focus)} is collapsed to a spine · c, ⏎ or a click opens it`); return; }
+      // - + = too (PIE-699): on a spine either one opens it.
+      if (k.kind === "enter" || c0 === " " || c0 === "c" || FOLD_KEYS.has(c0)) return this.expandSpine(this.focus);
+      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { this.ctx.flash(`${this.readerLabel(this.focus)} is collapsed to a spine · c, - or ⏎ or a click opens it`); return; }
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.run("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));
@@ -3058,6 +3069,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return void this.startSession(focused, start);
     }
     if (!focused?.holdsKeys && pane?.key(k, this)) return;
+    // Bare - folds the focused tile to a spine and + or = opens it (PIE-699), only now: a tile's own - + = (the tune
+    // inspector's nudge, an image's size, a figure's density) took the key above, and nothing that takes text is here.
+    if (FOLD_KEYS.has(c0) && !this.holdsKeys()) return this.run("tile.collapse", { on: c0 === "-" }, this.nameOf(this.focus));
     // ⏎ in a reader that follows another tile (the board's preview), on none of its elements, opens its note where its
     // opens land on a screen whose opens go into a container (the readers row): alt+⏎ in a new tile there.
     if ((k.kind === "enter" || k.kind === "alt-enter") && focused?.msg && !focused.holdsKeys && kindOf(focused)?.follows?.(focused) && this.opensIntoKey() && !this.collapsed.has(this.focus))
@@ -5149,6 +5163,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const h = this.handles.find(h => k.x >= h.from && k.x < h.to);
         if (h) this.run("tile.slide", { open: true, container: h.dock.id }, this.nameOf(h.id));
         else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.run("layout.lock");
+        else if (this.hyperChip && k.x >= this.hyperChip.from && k.x < this.hyperChip.to) void this.ctx.press?.("keys.probe");
         else if (this.moreChip && k.x >= this.moreChip.from && k.x < this.moreChip.to) this.run("keys.more");
         return;
       }
@@ -5311,6 +5326,8 @@ const PEEK_DIM = 0.55;
 let MORE = "";
 themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });
 const MORE_WIDTH = width(MORE);
+/** The hint row's chip while the hyper layer is on (PIE-699): a click probes what a chord arrives as. */
+const HYPER_CHIP = " ✦ hyper ";
 /** How a hint row draws a key (|15; |07 in a ^W chord's row): a click on one presses it (hintSpots). */
 const keyStyles = () => [fg(C.white), fg(C.grey)];
 /**

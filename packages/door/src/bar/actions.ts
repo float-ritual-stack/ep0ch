@@ -29,7 +29,7 @@ const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, tit
 export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
   "bar.open": def({
     summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens or an extension's (or its prefix: % / > + @, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
-    keys: "ctrl+k, cmd+k (where the terminal sends it), a click on the status bar's ^K, on every screen (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
+    keys: "ctrl+k, cmd+k (where the terminal sends it), ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },

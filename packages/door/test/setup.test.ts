@@ -15,7 +15,7 @@ import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
+import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
@@ -647,6 +647,23 @@ describe("read-only probes on scratch files", () => {
     writeFileSync(path, `onboarding = false\n\n[[keys.command]]\nkey = "prefix+u"\ntype = "plugin_action"\ncommand = "float.pi-outliner.open-here"\n\n[[keys.command]]\nkey = "prefix+g"\ntype = "plugin_action"\ncommand = "other.plugin.open-here"\n\n[theme]\nname = "x"\n`);
     expect(herdrKeys(path)).toEqual({ "open-here": "prefix+u" });
     expect(herdrKeys(join(scratch, "none.toml"))).toEqual({});
+  });
+
+  test("the hyper layer (PIE-699): doctor says it's off and what Herdr does with the chord; a Herdr key holding ctrl+alt+shift+cmd is named", () => {
+    const path = join(scratch, "hyper.toml");
+    writeFileSync(path, `[keys]\nnew_tab = ["prefix+c", "ctrl+alt+c"]\nzoom = "cmd+alt+ctrl+shift+z"\n\n[[keys.command]]\nkey = "ctrl+shift+alt+super+k"\ntype = "plugin_action"\ncommand = "x.y"\n`);
+    expect(herdrHyperChords(path)).toEqual(["cmd+alt+ctrl+shift+z", "ctrl+shift+alt+super+k"]);
+    expect(herdrHyperChords(join(scratch, "none.toml"))).toEqual([]);
+    const free = doctorChecks(laptop()).find(x => x.name === "hyper keys")!;
+    expect(free).toMatchObject({ status: "info" });
+    expect(free.detail).toContain("layer off");
+    expect(free.detail).toContain("passes them on as Kitty reports");
+    expect(free.detail).toContain("ep0ch act keys.probe");
+    const f = laptop(); f.herdr = { ...f.herdr, hyperChords: ["ctrl+shift+alt+super+k"] };
+    const taken = doctorChecks(f).find(x => x.name === "hyper keys")!;
+    expect(taken).toMatchObject({ status: "behind" });
+    expect(taken.detail).toContain("ctrl+shift+alt+super+k");
+    expect(taken.fix).toContain("herdr server reload-config");
   });
 
   test("databases: every <outlines>/<name>.sqlite by name, and nothing else in the folder", () => {

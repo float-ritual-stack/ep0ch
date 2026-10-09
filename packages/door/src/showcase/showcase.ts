@@ -235,8 +235,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
-    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
+    key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, bare - + = (PIE-699), a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
+    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile, and so do a bare - (fold) and + or = (open) wherever the tile takes no text; a tile's own - + = win (the tune inspector, an image, a figure) · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The outline beside the rest (a vertical spine), the reader over thread and activity side by side (a horizontal spine for the reader).
@@ -580,6 +580,14 @@ export const SECTIONS: Section[] = [
       }, show, [[a, n.shed], [b, n.notebook]], d => { if (n.whiteboard) d.setCurrent(n.whiteboard, { reveal: true }); void d.collapseTile("pears", true, USER); });
     },
   },
+  {
+    key: "hyper", need: "reach the door's own actions from anywhere, even while typing in a draft or a terminal tile, and see what a chord arrives as", part: "the hyper layer (PIE-699): ⌃⌥⇧⌘ and a key (Kitty modifiers 15) read before any tile's own keys, one keymap (HYPER_KEYS), optional and off by default (EP0CH_HYPER=1, or hyper.set on=true); keys.probe shows exactly what a chord arrived as; bare - + = fold and open the focused tile (the folds section)", files: "src/hyper.ts, src/key-probe.ts, src/kbd.ts, src/app.ts",
+    aside: "off by default: `ep0ch act hyper.set on=true` (or EP0CH_HYPER=1) turns it on, and the hint row ends ✦ hyper · then ✦p the power bar, ✦h ✦j ✦k ✦l move the keys, ✦1-✦9 a tile, ✦- ✦= fold and open it, ✦z zoom, ✦n a new note, ✦g a screen: from inside a draft (the edit is left or kept as a click away would) and from inside the shell on the right · each is also a key, a click and an act · `ep0ch act keys.probe` (or a click on the ✦ hyper chip) then any chord: the status bar shows its bytes, modifiers and the key the door read, which is how you learn what your terminal, Herdr and ssh pass · a terminal that sends no Kitty reports can't send hyper at all",
+    stage(n, show) {
+      const r = new ReaderPane(true), term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: with the layer on, a hyper chord still reaches the door from here'; exec sh"], label: "shell" });
+      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -797,6 +805,8 @@ export class Showcase implements Screen {
   }
   /** The shown stage's own new-note rule, and its edit where ctrl+n is still a note (PIE-591), while the keys are in it. */
   newNoteRule(): NewNoteRule | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.newNoteRule?.() ?? null : null; }
+  /** Screen.leaveTyping: a hyper chord moving the keys (PIE-699) leaves the stage's edit first. */
+  leaveTyping(): boolean { return this.focus !== "stage" || (this.stages.get(this.sel)?.top.leaveTyping?.() ?? true); }
   newNoteWhileTyping(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.newNoteWhileTyping?.(); }
   /** An agent's new note shown on the stage (note.new opens=), never taking the person's keys. */
   async showNew(m: Msg, opens: NewNoteOpens, actor: Actor): Promise<string | null> {

@@ -19,7 +19,8 @@ import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
-import type { Key } from "../src/term";
+import { hyperOn, useHyper } from "../src/hyper";
+import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 /**
@@ -465,6 +466,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     library: ["Heading styles", "1 overview", "Minimal example"],
     // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
     bar: ["outline", "Kitchen whiteboard", "Bike shed"],
+    // A reader and a shell for a hyper chord to reach the door from, and the part's line.
+    hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -2153,10 +2156,22 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(tile("reader").collapsed).toBeUndefined();
     expect(tile("reader").rect).toEqual(before.reader);
     // By keys: alt+h on the focused tile and again.
+    if (S().focus !== "stage") press({ kind: "enter" });
     const focused = tiles().find(x => x.focused).name;
     press({ kind: "alt", ch: "h" });
     expect(tile(focused).collapsed).toBe(true);
     press({ kind: "alt", ch: "h" });
+    expect(tile(focused).collapsed).toBeUndefined();
+    // By bare keys (PIE-699): - folds the focused tile, + and = open it, and - on a spine opens it too.
+    press({ kind: "char", ch: "-" });
+    expect(tile(focused).collapsed).toBe(true);
+    press({ kind: "char", ch: "+" });
+    expect(tile(focused).collapsed).toBeUndefined();
+    press({ kind: "char", ch: "-" });
+    press({ kind: "char", ch: "=" });
+    expect(tile(focused).collapsed).toBeUndefined();
+    press({ kind: "char", ch: "-" });
+    press({ kind: "char", ch: "-" });
     expect(tile(focused).collapsed).toBeUndefined();
     // By act: an agent folds a tile the person doesn't have, horizontally, and opens it; the keys stay.
     const other = tiles().find(x => x.name === "activity" && !x.focused)?.name ?? "activity";
@@ -2168,6 +2183,76 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "tile.collapse", tile: focus0, args: { on: true }, as: "test-agent" })).rejects.toThrow(/has the person's keys/);
     press({ kind: "esc" });
   }, 30_000);
+
+  test("hyper (PIE-699): mods-15 Kitty reports reach the door from a draft and from a terminal tile once the layer is on; keys.probe shows what a chord arrived as", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "hyper" }, as: "test-agent" })).toMatchObject({ key: "hyper" });
+    await until(() => marks.hyper!.every(m => screen().includes(m)), "the hyper section");
+    if (S().focus !== "stage") press({ kind: "enter" });
+    const stage = () => S().stages.get(S().sel).top;
+    const tiles = () => stage().describe().panes as any[];
+    const tile = (name: string) => tiles().find(x => x.name === name);
+    /** A terminal's bytes through the door's own decoder, the keys it makes pressed as the terminal's would be. */
+    const sent = (bytes: string) => {
+      const seen: Key[] = [], d = new KeyDecoder({ cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false } as any);
+      d.keyHandler = k => seen.push(k);
+      d.rawSink = stage().rawKeys?.() ? () => () => {} : null;
+      d.feed(bytes);
+      (app as any).term.lastSeq = d.lastSeq;
+      for (const k of seen) press(k);
+      return seen;
+    };
+    const reader = tiles().find(x => x.kind === "reader").name;
+    // Off (the default): the chord is super+K, nothing folds, and the hint row has no chip.
+    expect(hyperOn()).toBe(false);
+    expect(sent("\x1b[45;16u")).toEqual([{ kind: "super", ch: "-" }]);
+    expect(tile(reader).collapsed).toBeUndefined();
+    expect(stage().hyperChip).toBeNull();
+    // On: ✦- folds the focused tile, ✦= opens it; the chip is on the hint row.
+    useHyper(true);
+    try {
+      app.redraw(); screen(); expect(stage().hyperChip).not.toBeNull();
+      const focused = tiles().find(x => x.focused).name;
+      expect(sent("\x1b[45;16u")).toEqual([{ kind: "hyper", ch: "-" }]);
+      expect(tile(focused).collapsed).toBe(true);
+      sent("\x1b[61:43;16u");                                                            // ✦= as the terminal sends it: = with shift, mods 15
+      expect(tile(focused).collapsed).toBeUndefined();
+      // From a draft: the edit stays on the spine, whole.
+      press({ kind: "mouse", action: "down", button: 0, x: S().stageRect.col + tile(reader).rect.col + 4, y: S().stageRect.row + tile(reader).rect.row + 4 });
+      press({ kind: "mouse", action: "up", button: 0, x: S().stageRect.col + tile(reader).rect.col + 4, y: S().stageRect.row + tile(reader).rect.row + 4 });
+      press({ kind: "char", ch: "e" }); press({ kind: "char", ch: "e" });
+      await until(() => !!stage().panes.get(stage().focus)?.draft, "the draft", 8000);
+      for (const c of " seeds") press({ kind: "char", ch: c });
+      sent("\x1b[45;16u");
+      expect(tile(reader).collapsed).toBe(true);
+      expect(stage().panes.get(stage().idNamed?.(reader) ?? stage().focus)?.draft).toBeTruthy();
+      sent("\x1b[61;16u");
+      expect(tile(reader).collapsed).toBeUndefined();
+      press({ kind: "esc" }); press({ kind: "esc" });
+      // From the terminal tile the person types in: the chord stays the door's (the decoder keeps it from the program).
+      const shell = tiles().find(x => x.kind === "pty").name;
+      await app.act({ action: "tile.focus", tile: shell, as: "test-agent" }).catch(() => {});
+      void stage().dispatch.act({ action: "tile.focus", tile: shell }, { kind: "user" });
+      void stage().dispatch.act({ action: "tile.enter", tile: shell }, { kind: "user" });
+      await until(() => stage().rawKeys(), "typing in the shell", 5000);
+      expect(sent("\x1b[45;16u")).toEqual([{ kind: "hyper", ch: "-" }]);
+      expect(tile(shell).collapsed).toBe(true);
+      sent("\x1b[61;16u");
+      expect(tile(shell).collapsed).toBeUndefined();
+      // keys.probe: describes the next chord, runs none; esc ends it.
+      await app.dispatch.press("keys.probe");
+      sent("\x1b[107;16u");
+      const said = (app as any).message as string;
+      expect(said).toContain("bytes CSI 107;16u");
+      expect(said).toContain("modifiers ⌃⌥⇧⌘");
+      expect(said).toContain("hyper+k");
+      expect(tile(shell).collapsed).toBeUndefined();
+      press({ kind: "esc" });
+      expect((app as any).message).toContain("key probe ended");
+      // An agent can't probe: it would swallow the person's keys.
+      await expect(app.act({ action: "keys.probe", args: {}, as: "test-agent" })).rejects.toThrow(/person/);
+    } finally { useHyper(null); press({ kind: "esc" }); }
+  }, 40_000);
 
   test("mounts (PIE-651): the board mounted live folds to a spine named for it and opens by click, alt+h and act; it pops out to the full board and back; its lanes alone; a tab holding a group", async () => {
     (app as any).lastInput = 0;

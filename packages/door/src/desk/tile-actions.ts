@@ -183,7 +183,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.zoom": def({
     summary: "zoom tile=<tile> to fill the screen (on=false, or again, unzooms). An agent zooms only the tile that has the person's keys, never one that would hide it",
-    keys: "^W z",
+    keys: "^W z, ✦z (hyper)",
     touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
@@ -216,7 +216,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.focus": def({
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
-    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →); esc q back home (a screen with a home: the board's lanes)",
+    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
     args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     run({ dir }, { d, reader }, actor) {
@@ -237,7 +237,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.collapse": def({
     summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. Only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
-    keys: "alt+h (alt+H a horizontal spine); the ◂ ▾ on a tile's frame (alt+click: horizontal); ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
+    keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the ◂ ▾ on a tile's frame (alt+click: horizontal); ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
@@ -253,7 +253,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.expand": def({
     summary: "open tile=<tile> from its spine, back at the size it had (tile.collapse on=false); what was in it is as it was left",
-    keys: "alt+h or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
+    keys: "alt+h, - + = or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `opened ${r.tile}`),
     args: {},
     run(_a, { d, reader }, actor) {
