@@ -2185,7 +2185,9 @@ Bodies render with `src/doc.ts`:
 ### The component library (PIE-618)
 
 Each component says what its properties are once, as a schema in outline-core (`src/component-schema.ts`): heading
-styles, callouts, rules, `::graph-meter` and `::graph-spark`, and any an extension ships in its `extension.json`
+styles, callouts, rules, every `::graph-*` figure, `::links` and its kin, `::box`, pictures and header images, embeds,
+code fences and tables (a test fails when a component the readers draw has no schema), and any an extension ships in
+its `extension.json`
 (`components`). The outline adds its own values (a `[heading-style::plot]` note makes `plot` a value of `[heading::]`).
 Two things are made from that and nothing else: property completion in a draft (above) and the **library**, a
 design-system page per component. `ep0ch --screen library` opens it (`--screen library callout` on a component;
@@ -2198,7 +2200,7 @@ under it (`## Your calls [heading::band]`, and for a style's own properties the 
 `My style [heading-style::mine] [heading-pattern::waffle]`). **Grids**: the pairs the schema marks (pattern × align,
 rows × row), side by side where they fit. **Every combination**: the whole space (heading styles have 2430) behind a
 filter, never dumped: pick values per axis and the matching variations are drawn, eight at a time. Every variation
-is drawn by the readers' own renderer at 40, 80 or 160 columns, so the narrow fallback shows too; a rule's are drawn
+is drawn by the readers' own renderer at 40, 80 or 160 columns, or all three one under another, so the narrow fallback shows too; a figure's live form (`query:`) is asked of the outline, which the library has none of, and its page says so; a rule's are drawn
 as the service draws them.
 
 | Keys | Action |
@@ -2210,7 +2212,7 @@ as the service draws them.
 | `space`, `⏎`, or a click on a value | every combination: pick or unpick it (`library.pick`); `x` clears (`library.clear`), `n` `p` page (`library.page`) |
 | `j` `k` (`↓` `↑`), or a click on a variation | select a variation (`library.select`) |
 | `y`, or a click on `copy` | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
-| `w`, or a click on a width | draw at 40, 80 or 160 columns (`library.width`) |
+| `w`, or a click on a width | draw at 40, 80, 160 or all three at once (`library.width`) |
 | the wheel, `PgUp` `PgDn` | scroll (`library.scroll`) |
 
 `ep0ch library` lists the components; `--brief` prints what an agent reads (per component its purpose, where it goes,

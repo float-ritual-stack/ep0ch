@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS, spaceSize } from "@ep0ch/outline-core/component-schema";
 import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
-import { LibraryPane, PARTS } from "../src/library/library";
+import { LIBRARY_ACTIONS, LibraryPane, PARTS } from "../src/library/library";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
 import { Draft } from "../src/edit";
@@ -34,6 +34,22 @@ test("a page is laid out from the schema alone: the table, each value with its s
   // Every part is a digit, and every built-in component has a page.
   expect(PARTS.map(x => x.key)).toEqual(["1", "2", "3", "4"]);
   for (const s of BUILTIN_COMPONENT_SCHEMAS) { p.component = s.id; p.part = "overview"; expect(text()).toContain("Minimal example"); }
+});
+
+test("all widths: every variation drawn at 40, 80 and 160 one under another; w cycles through them", async () => {
+  const desk: any = { ctx: { board: {} }, redraw() {} };
+  const p = new LibraryPane({ component: "box", part: "property" });
+  const text = () => p.render(COLS, 400, true, desk).lines.map(visible).join("\n");
+  expect(text()).not.toContain("40 columns");
+  const width = (args: object) => LIBRARY_ACTIONS.def("library.width")!.run(args as never, { pane: p } as never, {} as never);
+  expect(width({ all: true })).toEqual({ width: "all" });
+  expect(["40", "80", "160"].every(n => text().includes(`  ${n} columns`))).toBe(true);
+  expect(p.describe().width).toBe("all");
+  expect(() => width({ cols: 40, all: true })).toThrow("give cols or all, not both");
+  // From all, the next is 40 again; from 160, the next is all.
+  expect(width({})).toEqual({ width: 40 });
+  width({ cols: 160 });
+  expect(width({})).toEqual({ width: "all" });
 });
 
 describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
@@ -139,7 +155,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await act("library.component", { name: "rule" });
     await act("library.axis", { key: "rule-decorate" });
     await until(() => lines().some(l => l.includes("D E C I S I O N S") || l.includes("DECISIONS")), "the band the service drew", 8000);
-    await expect(act("library.component", { name: "nope" })).rejects.toThrow("no component nope; components: heading-style, callout, rule, graph-meter, graph-spark");
+    await expect(act("library.component", { name: "nope" })).rejects.toThrow("no component nope; components: heading-style, callout, rule, graph-meter, graph-spark, graph-stat,");
   });
 
   test("an extension that ships a schema gets a page and completion, with no code of its own", async () => {
@@ -187,12 +203,17 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
       expect(brief.out).toContain("- heading-rows [on the declaring note]: 1 to 3 (default 3) — ");
       expect(brief.out).toContain("Example:\n```markdown\n");
       expect(brief.out).not.toContain("```text");
+      // The extension's component (registered by the test above, nothing else changed) is in the brief and the JSON.
+      const mood = await run("mood", "--brief");
+      expect([mood.code, mood.err]).toEqual([0, ""]);
+      expect(mood.out).toContain("## mood (ext:moods)\n");
+      expect(JSON.parse((await run("--json")).out).map((c: any) => c.id)).toContain("mood");
       const both = await run("--brief", "--json");
       expect(both.code).toBe(2);
       const dir = mkdtempSync(join(tmpdir(), "ep0ch-library-"));
       try {
         const wrote = await run("--out", dir);
-        expect(wrote.out.trim()).toBe(`wrote 6 pages and README.md to ${dir}`);
+        expect(wrote.out.trim()).toBe(`wrote ${BUILTIN_COMPONENT_SCHEMAS.length + 1} pages and README.md to ${dir}`);
         const page = readFileSync(join(dir, "heading-style.md"), "utf8");
         expect(page).toContain("#### heading-pattern: waffle\n\n```text\n");
         expect(page).toMatch(/```text\n[▓▒░ ·]+\n.*Your calls/);

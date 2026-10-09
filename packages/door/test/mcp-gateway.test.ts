@@ -201,7 +201,23 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const bad = await tool("outline_components", { outline: scratch.name, components: ["nope"] });
     expect(bad.isError).toBe(true);
     expect(bad.text).toContain("no component nope; components: heading-style");
+    // A component an extension ships is one more of the same answer: no code of the gateway's own (PIE-701).
+    const dir = join(scratch.workspace, "extensions", "moods");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "moods", version: 1, name: "Moods", components: [{
+        id: "mood", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
+        props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "nothing on fire" }] }],
+        source: { use: "Standup [mood::{mood}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"],
+      }],
+    }));
+    await board.request("extensions.list", { reload: true });
+    const mood = await tool("outline_components", { outline: scratch.name, components: ["mood"] });
+    expect(mood.isError).toBe(false);
+    expect(mood.text).toContain("## mood (ext:moods)\n");
+    expect(mood.text).toContain("- mood: calm — how it went");
     const listed = await rpc("resources/list");
+    expect((listed.body.result.resources as { uri: string }[]).map(r => r.uri)).toContain(`ep0ch://${scratch.name}@${machine}/components/mood`);
     const uri = `ep0ch://${scratch.name}@${machine}/components/rule`;
     expect((listed.body.result.resources as { uri: string }[]).map(r => r.uri)).toContain(uri);
     const read = await rpc("resources/read", { uri });
