@@ -70,6 +70,8 @@ export interface TileSpec {
   filter?: string;
   /** A backlinks tile whose groups start open (the welcome's). */
   groups?: "open";
+  /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */
+  linkGroups?: string;
 }
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
@@ -190,7 +192,7 @@ export function builtin(name: string): LayoutSpec | null {
   // The river's columns are a flow on the desk itself (PIE-515), a preview following whichever column the keys are in.
   if (name === "river") return { name, rule: "current", focus: "library", root: { t: "split", dir: "row", weights: [0.7, 0.3], kids: [{ t: "flow", key: "river", kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" }] }, { t: "leaf", kind: "preview", name: "card", source: "tile:river" }] } as SavedTree };
   if (name === "board") return { name, rule: "current", focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
-  if (name === "desk") return { name, rule: "current", focus: 2, root: serial(splitOf("row", [T("tree", "tree"), splitOf("row", [T("reader", "reader"), splitOf("col", [T("thread", "thread"), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
+  if (name === "desk") return { name, rule: "current", focus: 2, root: serial(splitOf("row", [T("tree", "tree"), splitOf("row", [T("reader", "reader"), splitOf("col", [T("backlinks", "replies", { source: "tile:reader", linkGroups: "children" }), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
   return null;
 }
 export const BUILTIN = ["daily", "river", "board", "desk"] as const;

@@ -66,7 +66,7 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
     ],
     hint: {
       query: LANES_HINT,
-      backlinks: "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15B|08 pin · |15tab|08 area · |15esc|08 close",
+      backlinks: "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15v|08 groups · |15B|08 pin · |15tab|08 area · |15esc|08 close",
       tree: "|08 |15j k|08 row · |15⏎|08 open · |15L|08 links · |15T|08 dock · |15S|08 side · |15tab|08 area · |15esc|08 close",
       float: "|08 drag the title to move (onto a header or an edge docks it) · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 back in · |15x|08 close · |15tab|08 area",
       spine: "|15c ⏎|08 open · |15alt+c|08 open all · |15tab|08 area · |15esc|08 lanes",

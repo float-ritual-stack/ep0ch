@@ -285,7 +285,8 @@ export function backlinkRowSuffix(source: BacklinkSource): string {
 }
 
 /** A control in the status line: clicking it (or its key) does what `control` names. */
-export type BacklinkControl = "filter" | "kind" | "stage" | "resolved" | "related" | "sort";
+/** `groups`: the links tile's counters, a click on which chooses the groups it lists (PIE-693; the door's own, Detail has no groups). */
+export type BacklinkControl = "filter" | "kind" | "stage" | "resolved" | "related" | "sort" | "groups";
 /** `slot`: where the links tile places it (src/desk/backlinks-pane.ts): counts, the groups' counts, the filter, a control, or a note. */
 export interface BacklinkStatusPart { text: string; control?: BacklinkControl; slot?: "count" | "by" | "filter" | "kind" | "stage" | "sort" | "note" }
 
@@ -295,13 +296,14 @@ export interface BacklinkStatusPart { text: string; control?: BacklinkControl; s
  */
 export interface BacklinkAcross {
   matching: number; total: number; filtered: number;
-  by: Record<"outlinks" | "resources" | "backlinks", { matching: number; total: number; filtered: number } | null>;
+  /** Each group listed (a group the list doesn't show has no key): its counts, or null while it isn't read. */
+  by: Partial<Record<"outlinks" | "resources" | "backlinks" | "children", { matching: number; total: number; filtered: number } | null>>;
   kinds: Array<{ kind: string; label: string }>;
 }
-/** "→2/21 ♦0/2 ←3/8": matching of all, per group (… while a group isn't read). */
+/** "→2/21 ♦0/2 ←3/8 ↓1/4": matching of all, per group listed (… while a group isn't read). */
 export function acrossWords(a: BacklinkAcross): string {
-  const g = (mark: string, x: BacklinkAcross["by"]["outlinks"]) => `${mark}${x ? `${x.matching}/${x.total}` : "…"}`;
-  return `${g("→", a.by.outlinks)} ${g("♦", a.by.resources)} ${g("←", a.by.backlinks)}`;
+  const marks = [["outlinks", "→"], ["resources", "♦"], ["backlinks", "←"], ["children", "↓"]] as const;
+  return marks.filter(([g]) => g in a.by).map(([g, mark]) => { const x = a.by[g]; return `${mark}${x ? `${x.matching}/${x.total}` : "…"}`; }).join(" ");
 }
 
 /**

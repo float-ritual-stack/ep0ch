@@ -1,6 +1,8 @@
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of what another tile shows (its `source`, a
-// tile's name) in the shared links model (src/links.ts): its Outlinks, its Resources and its Backlinks, the
-// backlinks grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection, or giving
+// tile's name) in the shared links model (src/links.ts): its Outlinks, its Resources, its Backlinks and its
+// Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
+// does through src/backlinks.ts, and Kind, Stage and Sort on every group. Which groups it lists is the tile's own
+// (`groups`, saved with the layout, `backlinks.groups`): the thread tile is this tile with Children alone. Moving the selection, or giving
 // the tile the keys, shows the selected row where this tile's selection goes (a preview following it, or its
 // link) without moving the current note (so the tile it lists the links of stays put): a note, a ticket's block,
 // a Resource's stored content (read only: nothing is registered or fetched by showing it). ⏎ opens it for real
@@ -14,7 +16,7 @@
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { describeLinkRow, isLinkEntry, isLinkGroup, linkAcross, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkRowLine, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -28,6 +30,21 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { RowView, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
+import { centred, ListPicker, pickRow } from "../surface/picker";
+
+/**
+ * A tile spec's `linkGroups` (`children`, `outlinks,backlinks`) as the groups it names, in the model's order; null
+ * for every group (left out, or `all`). Throws with the reason for a name that isn't a group, or none at all.
+ */
+export function linkGroupsFrom(spec: string | readonly string[] | undefined): LinkGroupName[] | null {
+  if (spec === undefined) return null;
+  const names = (typeof spec === "string" ? spec.split(/[\s,]+/) : [...spec]).map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (names.length === 1 && names[0] === "all") return null;
+  const bad = names.find(n => !isLinkGroup(n));
+  if (bad !== undefined) throw new ActionRefused(`${bad} isn't a group; the groups are ${ALL_LINK_GROUPS.join(", ")} (or all)`);
+  if (!names.length) throw new ActionRefused(`name at least one group: ${ALL_LINK_GROUPS.join(", ")} (or all)`);
+  return ALL_LINK_GROUPS.filter(g => names.includes(g));
+}
 
 
 /** One piece of the status line as placed: at x, y in the list's cells, `cols` wide (clipped), a control or not. */
@@ -92,8 +109,12 @@ export class BacklinksPane implements Pane {
   target: Msg | null = null;
   data: BacklinkCollection | null = null;
   authored: Load<AuthoredLinksSnapshot> = { kind: "loading" };
-  /** The groups (Outlinks, Resources, Backlinks) folded to their header. */
+  /** The groups (Outlinks, Resources, Backlinks, Children) folded to their header. */
   shut = new Set<LinkGroupName>();
+  /** The groups this tile lists (PIE-693), in the model's order: every one unless its spec names some. */
+  groups: LinkGroupName[] = [...ALL_LINK_GROUPS];
+  /** The notes under the target, with their facets, while Children is listed (read only then). */
+  children: Load<ChildLink[]> = { kind: "loading" };
   problem = "";
   /** The selected row, and the first row drawn. */
   sel = 0;
@@ -123,15 +144,54 @@ export class BacklinksPane implements Pane {
    * with room for only a few rows, where a folded "+ Note 2" would hide the only links); Detail's default,
    * folded, otherwise.
    */
-  constructor(public source: string, readonly openGroups = false) {}
+  constructor(public source: string, readonly openGroups = false, groups: readonly LinkGroupName[] | null = null) {
+    if (groups?.length) this.groups = ALL_LINK_GROUPS.filter(g => groups.includes(g));
+  }
+
+  /** Every group listed (the tile's default), or only some. */
+  private get every() { return this.groups.length === ALL_LINK_GROUPS.length; }
+  /** Children alone: the replies of a thread, as the thread tile was. */
+  private get childrenOnly() { return this.groups.length === 1 && this.groups[0] === "children"; }
 
   title() {
-    if (!this.target) return `links · of ${this.source}`;
+    const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;
+    if (!this.target) return `${word} · of ${this.source}`;
+    if (this.childrenOnly) {
+      const c = this.children;
+      return `${word} · ${subject(this.target).slice(0, 50)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
+    }
     const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
-    return `links · ${subject(this.target).slice(0, 50)}${n}`;
+    return `${word} · ${subject(this.target).slice(0, 50)}${n}`;
   }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k preview · ⏎ open in the reader · alt+⏎ new detail · . fold · s K w h n view"; }
-  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}) }; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k preview · ⏎ open in the reader · alt+⏎ new detail · . fold · s K w h n view · v groups"; }
+  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }) }; }
+
+  /**
+   * List these groups (at least one), in the model's order; the selection stays on its row where it still shows.
+   * Children is read when it comes on.
+   */
+  setGroups(groups: readonly LinkGroupName[], desk: DeskApi) {
+    if (!groups.length) throw new ActionRefused("a links tile lists at least one group");
+    const was = this.groups.includes("children");
+    this.keepSel(() => { this.groups = ALL_LINK_GROUPS.filter(g => groups.includes(g)); });
+    if (!was && this.groups.includes("children") && this.target) void this.loadChildren(this.target, desk, this.asked);
+    desk.redraw();
+  }
+
+  /** The person's choice of groups: a list over the tile whose rows switch a group on or off, one click each (it stays). */
+  chooseGroups(desk: DeskApi) {
+    if (!desk.overlay) throw new ActionRefused("this screen has no room for the groups' list; backlinks.groups show=<groups> chooses them");
+    const counts = () => this.across().by;
+    desk.overlay(new ListPicker<LinkGroupName, unknown>({
+      name: "links-groups", stays: true, items: () => ALL_LINK_GROUPS,
+      row: (g, _i, on, w) => {
+        const glyph = LINK_GROUPS.find(x => x.group === g)!.glyph, c = counts()[g];
+        return [pickRow(` [${this.groups.includes(g) ? "x" : " "}] ${glyph} ${g}${c ? ` (${c.matching})` : ""}`, on, w)];
+      },
+      choose: g => void desk.press?.(this, BACKLINKS_ACTIONS, "backlinks.groups", { toggle: g }),
+      frame: a => ({ rect: centred(a, Math.min(44, a.cols - 4), ALL_LINK_GROUPS.length + 4), title: "groups this tile lists", foot: "⏎ or a click switches one · esc closes" }),
+    }));
+  }
 
   init(desk: DeskApi) { this.sync(desk); }
 
@@ -169,6 +229,8 @@ export class BacklinksPane implements Pane {
     this.problem = "";
     if (!m) return Promise.resolve();
     const n = ++this.asked;
+    if (!keepSel) this.children = { kind: "loading" };
+    if (this.groups.includes("children")) void this.loadChildren(m, desk, n);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
     void desk.ctx.board.authoredLinks(m.id).then(v => {
       if (n !== this.asked) return;
@@ -191,6 +253,15 @@ export class BacklinksPane implements Pane {
       if (by) this.showSelected(desk, by);
       desk.redraw();
     }, (e: Error) => { if (n === this.asked) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
+  }
+
+  /** The notes under `m` and their facets (the Children group), drawn as they land, the selection kept. */
+  private loadChildren(m: Msg, desk: DeskApi, n: number): Promise<void> {
+    return readChildren(desk.ctx.board, m.id).then(value => {
+      if (n !== this.asked) return;
+      this.keepSel(() => { this.children = { kind: "ready", value }; }, !this.data);
+      desk.redraw();
+    }, (e: Error) => { if (n === this.asked) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
   /** The tile was given the keys: the selected source shows where its selection goes, as moving to it would. */
@@ -219,9 +290,16 @@ export class BacklinksPane implements Pane {
     return r?.kind === "backlink" ? String(r.source.occurrences[0]?.snippet ?? "").replace(/\s+/g, " ").trim() : "";
   }
   /** What the service sent, as the shared model reads it. */
-  private linkData(): LinkData { return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" } }; }
-  /** The rows as shown: Outlinks, Resources and Backlinks (the shared links model), each folding, the filter on all three. */
-  rows(): LinkRow[] { return this.target ? linkRows(this.linkData(), { shut: this.shut, kinds: this.expanded, backlinks: this.opts(), sortAll: true }) : []; }
+  private linkData(): LinkData {
+    return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" }, ...(this.groups.includes("children") ? { children: this.children } : {}) };
+  }
+  /** The groups listed, as the model's `only` (left out when every one is). */
+  private only(): ReadonlySet<LinkGroupName> | undefined { return this.every ? undefined : new Set(this.groups); }
+  /** The rows as shown: the groups this tile lists (the shared links model), each folding, the filter on all of them. */
+  rows(): LinkRow[] {
+    const only = this.only();
+    return this.target ? linkRows(this.linkData(), { shut: this.shut, kinds: this.expanded, backlinks: this.opts(), sortAll: true, ...(only ? { only } : {}) }) : [];
+  }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.sync(desk);
@@ -255,13 +333,15 @@ export class BacklinksPane implements Pane {
   /** The status line's parts: the filter (as it's typed), the view's controls, and how much the service sent. */
   private statusParts(): BacklinkStatusPart[] {
     const o = this.opts(), typing = this.draft;
-    const parts = backlinkStatusParts(backlinkView(this.data, o), o, o.filter, this.across(o)).filter(p => typing === null || p.control !== "filter");
+    // The counters per group are the groups' control: a click on them chooses which this tile lists.
+    const parts = backlinkStatusParts(backlinkView(this.data, o), o, o.filter, this.across(o)).filter(p => typing === null || p.control !== "filter")
+      .map(p => (p.slot === "by" ? { ...p, control: "groups" as const } : p));
     if (typing !== null) parts.unshift({ text: `Filter: ${typing.plain()}`, control: "filter", slot: "filter" });
     if (this.data?.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
     return parts;
   }
   /** How the view narrowed all three groups, and the kinds in any of them. */
-  across(o: BacklinkViewOptions = this.opts()) { return linkAcross(this.linkData(), o); }
+  across(o: BacklinkViewOptions = this.opts()) { return linkAcross(this.linkData(), o, this.only()); }
   private sgrOf(p: BacklinkStatusPart) { return this.draft !== null && p.control === "filter" ? fg(C.yellow) : p.control ? fg(C.lcyan) : fg(C.grey); }
   /**
    * Pick row `i`: a group opens or folds (on open); a link is shown where this tile's selection goes (read only),
@@ -339,6 +419,7 @@ export class BacklinksPane implements Pane {
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
       else if (c === "filter") { this.draft ??= new LineInput(o.filter, false, { complete: false }); said = ""; }   // plain words over rows already listed
+      else if (c === "groups") said = "";   // the groups' list is backlinks.groups's (it needs the screen)
     });
     return said;
   }
@@ -348,10 +429,10 @@ export class BacklinksPane implements Pane {
     if (!this.data) return { source: this.source, target: brief, loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
     // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them.
-    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], typing: this.draft?.text ?? null };
+    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], groups: [...this.groups], typing: this.draft?.text ?? null };
   }
 
-  run(desk: DeskApi, name: "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
   private filterKey(k: Key, desk: DeskApi): boolean {
@@ -380,6 +461,7 @@ export class BacklinksPane implements Pane {
     const control: Record<string, BacklinkControl> = { s: "sort", K: "kind", w: "stage", h: "resolved", n: "related" };
     if (control[c]) { this.run(desk, "backlinks.view", { step: control[c]! }); return true; }
     if (c === "/") { this.run(desk, "backlinks.view", { step: "filter" }); return true; }
+    if (c === "v") { this.run(desk, "backlinks.groups", { choose: true }); return true; }
     return false;
   }
 
@@ -393,6 +475,7 @@ export class BacklinksPane implements Pane {
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk); return true; }
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
+    if (c?.control === "groups") { this.run(desk, "backlinks.groups", { choose: true }); return true; }
     if (c?.control) { this.run(desk, "backlinks.view", { step: c.control }); return true; }
     // A gap or a divider row is the list's drawing, not a row: a press there selects nothing.
     const slot = this.slots[this.view.top + y - this.head];
@@ -519,6 +602,35 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : (n ?? pane.sel + 1) - 1;
       if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
       return pane.pick(i, where === "new" ? "fresh" : "open", desk, actor);
+    },
+  }),
+  "backlinks.groups": def({
+    summary: "which groups a links tile lists (PIE-693): show=<groups> (outlinks, resources, backlinks, children, comma-separated, or all), toggle=<group> one on or off, choose=true opens the person's list of them (a click on a row switches one). Saved with the layout. A tile with children alone is the thread tile's replies. At least one group stays",
+    keys: "v, a click on the counters (→ ♦ ← ↓)",
+    touches: "tile", replay: "safe", way: "an agent changes the groups of a links tile the person isn't in", says: r => (r.groups ? `links tile lists ${(r.groups as string[]).join(", ")}` : null),
+    menu: { label: "choose its groups", group: "Links", key: "v", args: { choose: true } },
+    args: {
+      show: { type: "string", optional: true, about: "the groups, comma-separated (outlinks, resources, backlinks, children), or all" },
+      toggle: { type: "string", optional: true, about: "one group to switch on or off" },
+      choose: { type: "boolean", optional: true, about: "open the list of groups (the person's)" },
+    },
+    run({ show, toggle, choose }, { pane, desk }, actor) {
+      if ([show, toggle, choose].filter(x => x !== undefined && x !== false).length !== 1) throw new ActionRefused("backlinks.groups takes one of show, toggle or choose");
+      if (choose) {
+        if (actor.kind === "agent") throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
+        pane.chooseGroups(desk);
+        return { choosing: true, groups: undefined };
+      }
+      let next: LinkGroupName[];
+      if (show !== undefined) next = linkGroupsFrom(show) ?? [...ALL_LINK_GROUPS];
+      else {
+        const g = toggle!.trim().toLowerCase();
+        if (!isLinkGroup(g)) throw new ActionRefused(`${toggle} isn't a group; the groups are ${ALL_LINK_GROUPS.join(", ")}`);
+        next = pane.groups.includes(g) ? pane.groups.filter(x => x !== g) : [...pane.groups, g];
+        if (!next.length) throw new ActionRefused(`${g} is the only group this tile lists; turn another on first`);
+      }
+      pane.setGroups(next, desk);
+      return { groups: [...pane.groups] };
     },
   }),
   "backlinks.view": def({

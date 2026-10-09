@@ -5,8 +5,8 @@ import { ch } from "../term";
 // under ^W o, its actions, what it holds and shows, how it starts, saves and describes itself. The desk asks
 // the entry; it never asks which kind a tile is.
 import { subject, type Msg } from "../board";
-import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
-import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, THREAD_ACTIONS, ThreadPane, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
+import { BACKLINKS_ACTIONS, BacklinksPane, linkGroupsFrom } from "./backlinks-pane";
+import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
 import { ART_ACTIONS } from "../art-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
@@ -43,6 +43,11 @@ const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take
   },
 };
 /** The note a tile shows or has selected, whatever its kind. */
+/** A backlinks tile's saved groups, or every group (null) when they're left out or wrong (`check` says why). */
+const linkGroupsOf = (spec: string | undefined) => { try { return linkGroupsFrom(spec); } catch { return null; } };
+const groupsProblem = (spec: string | undefined): string | null => { try { linkGroupsFrom(spec); return null; } catch (e) { return (e as Error).message; } };
+/** The tile a links tile lists the links of: its `tile:<name>` source, else the reader. */
+const sourceTile = (spec: string | undefined) => { const src = spec && sourceOf(spec); return src && "tile" in src ? src.tile : "reader"; };
 const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) ?? null : null);
 
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
@@ -147,7 +152,8 @@ const builtins = (): TileKind[] => [
       return t.isNvim ? `tile:${name}` : `file:${t.file}`;
     },
   },
-  { kind: "thread", about: "the current note's children", keys: [{ key: "h", label: "thread" }], make: () => new ThreadPane(), actions: THREAD_ACTIONS },
+  // The thread tile is the links tile with Children alone (PIE-693): a layout saved with one gets that, and saves it so.
+  { kind: "thread", about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"]), actions: BACKLINKS_ACTIONS },
   { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
   { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
@@ -180,14 +186,14 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", about: "the links of what another tile shows (source=tile:<name>): its outlinks, resources and backlinks",
+    kind: "backlinks", about: "the links of what another tile shows (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some)",
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
     // A selection previews (a preview tile follows it), ⏎ opens: in the reader it lists the links of, or the tile linked to it as a target (PIE-646).
     linkRole: "target", origin: p => (p as BacklinksPane).source,
-    keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }],
-    make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader", s.groups === "open"); },
+    keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }, { key: "h", label: "children", spec: at => ({ source: `tile:${at.name}`, linkGroups: "children" }) }],
+    make: s => new BacklinksPane(sourceTile(s.source), s.groups === "open", linkGroupsOf(s.linkGroups)),
     actions: BACKLINKS_ACTIONS,
-    check: s => (s.source && !/^tile:./.test(s.source) ? "a backlinks tile's source is tile:<name>" : null),
+    check: s => (s.source && !/^tile:./.test(s.source) ? "a backlinks tile's source is tile:<name>" : groupsProblem(s.linkGroups)),
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
     describe: (p, full) => ({ source: `tile:${(p as BacklinksPane).source}`, ...(full ? { backlinks: (p as BacklinksPane).describe() } : {}) }),
     // The backlinks as the screen shows them: what they list and from which tile, while they're on screen and aimed.

@@ -1,6 +1,7 @@
 // One links model: a block's Outlinks, Resources and Backlinks, as the outliner's Tree shows them under a block
-// (PIE-259, PIE-324, PIE-329) and Detail groups its backlinks (PIE-442). Three places draw it, from this one
-// model and this one row renderer:
+// (PIE-259, PIE-324, PIE-329) and Detail groups its backlinks (PIE-442), and its Children (PIE-693: the notes under
+// it; a thread's replies), which the links tile lists where the thread tile once did. Three places draw it, from
+// this one model and this one row renderer:
 //
 //   - the tree's links under a row (`L`, src/desk/tree.ts), one panel per row;
 //   - the links tile (kind `backlinks`, src/desk/backlinks-pane.ts), the list beside a reader, whose preview
@@ -22,7 +23,8 @@ import {
   backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, isOpenBacklinkStage,
   type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
-import type { Msg } from "./board";
+import { subject, type Msg } from "./board";
+import { ago } from "./text";
 import { COMPONENT_OPEN, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { USER, type Actor, type SocketBoard } from "./socket";
@@ -32,16 +34,40 @@ import { C, ellipsize, fg, pad, RESET, selected as lit, width } from "./style";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
 
-export type LinkGroupName = "outlinks" | "resources" | "backlinks";
-/** The Tree's groups in its order, each with the glyph the door draws. */
+export type LinkGroupName = "outlinks" | "resources" | "backlinks" | "children";
+/** The Tree's groups in its order, then the notes under the block, each with the glyph the door draws. */
 export const LINK_GROUPS: readonly { group: LinkGroupName; glyph: string }[] = [
-  { group: "outlinks", glyph: "→" }, { group: "resources", glyph: "♦" }, { group: "backlinks", glyph: "←" },
+  { group: "outlinks", glyph: "→" }, { group: "resources", glyph: "♦" }, { group: "backlinks", glyph: "←" }, { group: "children", glyph: "↓" },
 ];
+/** Every group's name, in order: what a links tile shows when nobody chose. */
+export const ALL_LINK_GROUPS: readonly LinkGroupName[] = LINK_GROUPS.map(g => g.group);
 export const isLinkGroup = (s: string): s is LinkGroupName => LINK_GROUPS.some(g => g.group === s);
 
 export type Load<T> = { kind: "loading" } | { kind: "ready"; value: T } | { kind: "error"; message: string };
-/** What the service sent for one block: its authored links and its backlinks, each as it came (or why not). */
-export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection> }
+/**
+ * One note under the block (PIE-693): the child as the service sent it, with its kind, stage and dates as the
+ * service computes them for any row (`blocks.facets`, the backlinks' rules), so Kind, Stage and Sort narrow it.
+ */
+export interface ChildLink { block: Msg; facets?: AuthoredTargetFacets }
+/**
+ * What the service sent for one block: its authored links and its backlinks, each as it came (or why not), and the
+ * notes under it where the list reads them (the links tile; the tree's rows are its children already).
+ */
+export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]> }
+
+/** A comment or its reply is a block under the note too; it lists with Backlinks (kind Comment), never as a child. */
+export const isAnnotationBlock = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
+
+/**
+ * The notes under `id` as the Children group lists them: the service's children (comments left out), each with the
+ * facets the service computes (`blocks.facets`). A child the facets read doesn't know any more keeps no facets.
+ */
+export async function readChildren(board: Pick<SocketBoard, "children" | "facets">, id: string): Promise<ChildLink[]> {
+  const kids = (await board.children(id)).filter(m => !isAnnotationBlock(m));
+  if (!kids.length) return [];
+  const { facets } = await board.facets(kids.map(k => k.id));
+  return kids.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
+}
 
 /** One row of a block's links: a group's header, a backlink kind's header, or a link. `key` is stable across reads. */
 export type LinkRow =
@@ -49,7 +75,8 @@ export type LinkRow =
   | { kind: "kind"; key: string; depth: number; group: BacklinkViewGroup; expanded: boolean }
   | { kind: "outlink"; key: string; depth: number; link: AuthoredOutlink }
   | { kind: "resource"; key: string; depth: number; link: AuthoredResourceLink }
-  | { kind: "backlink"; key: string; depth: number; source: BacklinkSource };
+  | { kind: "backlink"; key: string; depth: number; source: BacklinkSource }
+  | { kind: "child"; key: string; depth: number; child: ChildLink };
 
 /** How the rows are shown: the person's folds and filters, kept by the list that draws them. */
 export interface LinkView {
@@ -59,7 +86,7 @@ export interface LinkView {
   kinds: ReadonlySet<string>;
   /** Detail's backlink options: filter, kind, stage, resolved, related, sort. */
   backlinks: Readonly<BacklinkViewOptions>;
-  /** Only these groups (the inline `::resources`); every group otherwise. */
+  /** Only these groups (the inline `::resources`, a links tile's chosen groups); every group otherwise. */
   only?: ReadonlySet<LinkGroupName>;
   /** The sort (`backlinks.sortField`) orders Outlinks and Resources too, as it does Backlinks (the links tile); else they stay in the note's order. */
   sortAll?: boolean;
@@ -83,7 +110,18 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
     const key = prefix + group;
     let count: number | null = null, note = "";
     const entries: LinkRow[] = [];
-    if (group === "backlinks") {
+    if (group === "children") {
+      const c = data.children;
+      // Read only where the list asks for them (the links tile); elsewhere the group isn't there.
+      if (!c) continue;
+      if (c.kind === "loading") note = "asking the service…";
+      else if (c.kind === "error") note = c.message;
+      else {
+        const rows: LinkRow[] = c.value.map(child => ({ kind: "child", key: key + SEP + child.block.id, depth: depth + 1, child }));
+        entries.push(...narrowRows(rows, view.backlinks, filter, !!view.sortAll));
+        count = entries.length;
+      }
+    } else if (group === "backlinks") {
       const b = data.backlinks;
       if (b.kind === "loading") note = "asking the service…";
       else if (b.kind === "error") note = b.message;
@@ -131,6 +169,10 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
  * when something does; sorted by date it goes last.
  */
 export function rowFacets(r: LinkRow): { kind: string; kindLabel: string; bucket?: string; createdAt: string; updatedAt: string; title: string } | null {
+  if (r.kind === "child") {
+    const f = r.child.facets;
+    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
+  }
   if (r.kind === "backlink") {
     const f = r.source.facets;
     return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: r.source.createdAt, updatedAt: r.source.updatedAt, title: r.source.title } : null;
@@ -144,11 +186,16 @@ const stageMatches = (bucket: string | undefined, stage: BacklinkStageFilter) =>
 
 /** An Outlink's or Resource's rows after the text, kind and stage filters and the sort the Backlinks group answers to; `total` is how many there were. */
 function authoredRows(entries: readonly (AuthoredOutlink | AuthoredResourceLink)[], group: "outlinks" | "resources", key: string, depth: number, o: Readonly<BacklinkViewOptions>, filter: ReturnType<typeof prepareSearchQuery>, sort: boolean): { rows: LinkRow[]; total: number } {
+  const rows: LinkRow[] = entries.map(e => group === "outlinks"
+    ? { kind: "outlink", key: key + SEP + e.key, depth, link: e as AuthoredOutlink }
+    : { kind: "resource", key: key + SEP + e.key, depth, link: e as AuthoredResourceLink });
+  return { rows: narrowRows(rows, o, filter, sort), total: entries.length };
+}
+
+/** Rows that aren't backlinks after the text, kind and stage filters, sorted as the Backlinks group is when `sort`. */
+function narrowRows(all: readonly LinkRow[], o: Readonly<BacklinkViewOptions>, filter: ReturnType<typeof prepareSearchQuery>, sort: boolean): LinkRow[] {
   const rows: LinkRow[] = [];
-  for (const e of entries) {
-    const row: LinkRow = group === "outlinks"
-      ? { kind: "outlink", key: key + SEP + e.key, depth, link: e as AuthoredOutlink }
-      : { kind: "resource", key: key + SEP + e.key, depth, link: e as AuthoredResourceLink };
+  for (const row of all) {
     const w = linkWords(row), f = rowFacets(row);
     if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.bucket ? [f.bucket] : [])])) continue;
     if (o.kind !== null && f?.kind !== o.kind) continue;
@@ -167,32 +214,42 @@ function authoredRows(entries: readonly (AuthoredOutlink | AuthoredResourceLink)
     return dir * primary || fa.title.localeCompare(fb.title) || a.key.localeCompare(b.key);
   };
   if (sort) rows.sort(cmp);
-  return { rows, total: entries.length };
+  return rows;
 }
 
 /**
  * How many links match in each group, and the kinds present anywhere, across all three: the links tile's
  * counters and Kind control. A group still being read, or with nothing, counts as unknown (null).
  */
-export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>): BacklinkAcross {
+export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, only?: ReadonlySet<LinkGroupName>): BacklinkAcross {
   const filter = prepareSearchQuery(o.filter ?? "");
-  const by: BacklinkAcross["by"] = { outlinks: null, resources: null, backlinks: null };
+  const shows = (g: LinkGroupName) => !only || only.has(g);
+  const by: BacklinkAcross["by"] = {};
+  for (const g of ["outlinks", "resources", "backlinks"] as const) if (shows(g)) by[g] = null;
+  if (data.children && shows("children")) by.children = null;
   const kinds = new Map<string, string>();
   const note = (f: { kind: string; kindLabel: string } | undefined) => { if (f && !kinds.has(f.kind)) kinds.set(f.kind, f.kindLabel); };
-  if (data.backlinks.kind === "ready") {
+  if (data.backlinks.kind === "ready" && shows("backlinks")) {
     const bv = backlinkView(data.backlinks.value, o), all = backlinkView(data.backlinks.value, { ...o, kind: null, stage: "all", filter: "" });
     by.backlinks = { matching: bv.matching.length, total: bv.total, filtered: bv.filtered };
     for (const k of all.kinds) kinds.set(k.kind, k.label);
   }
   if (data.links.kind === "ready" && data.links.value.kind === "ready") {
     for (const group of ["outlinks", "resources"] as const) {
+      if (!shows(group)) continue;
       const g = data.links.value[group];
       const { rows, total } = authoredRows(g.entries, group, group, 1, o, filter, true);
       by[group] = { matching: rows.length, total, filtered: total - rows.length };
       for (const e of g.entries) note(group === "outlinks" ? (e as AuthoredOutlink).resolution.kind === "ready" ? ((e as AuthoredOutlink).resolution as { facets?: AuthoredTargetFacets }).facets : undefined : (e as AuthoredResourceLink).facets);
     }
   }
-  const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce((n, x) => n + (x ? f(x) : 0), 0);
+  if (data.children?.kind === "ready" && shows("children")) {
+    const all = data.children.value.map((child): LinkRow => ({ kind: "child", key: child.block.id, depth: 1, child }));
+    const rows = narrowRows(all, o, filter, false);
+    by.children = { matching: rows.length, total: all.length, filtered: all.length - rows.length };
+    for (const c of data.children.value) note(c.facets);
+  }
+  const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce<number>((n, x) => n + (x ? f(x) : 0), 0);
   return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })) };
 }
 
@@ -202,12 +259,13 @@ export function linkBlock(r: LinkRow | { kind: string } | undefined): string | n
   const x = r as LinkRow;
   if (x.kind === "outlink") return x.link.resolution.kind === "ready" ? x.link.resolution.target.blockId : null;
   if (x.kind === "backlink") return x.source.blockId;
+  if (x.kind === "child") return x.child.block.id;
   return null;
 }
 
 /** Whether ⏎ on a row opens something (a note, a ticket, a Resource) rather than folding a group. */
-export const isLinkEntry = (r: LinkRow | undefined): r is Extract<LinkRow, { kind: "outlink" | "resource" | "backlink" }> =>
-  !!r && (r.kind === "outlink" || r.kind === "resource" || r.kind === "backlink");
+export const isLinkEntry = (r: LinkRow | undefined): r is Extract<LinkRow, { kind: "outlink" | "resource" | "backlink" | "child" }> =>
+  !!r && (r.kind === "outlink" || r.kind === "resource" || r.kind === "backlink" || r.kind === "child");
 
 /**
  * A row as words: its mark, its text and its dim context (`peek`, agents, and the drawing). `nest`: whether a row
@@ -223,6 +281,10 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : nest === null ? "→" : linkBlock(r) ? (nest ? "▾" : "▸") : "·", ...w }; }
     case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
     case "backlink": return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
+    case "child": {
+      const b = r.child.block, f = r.child.facets;
+      return { mark: nest === null ? "↓" : nest ? "▾" : "▸", text: subject(b), context: [b.author ?? "", ago(b.updatedAt), f?.stage ? f.stage.value : ""].filter(Boolean).join(" · ") };
+    }
   }
 }
 
@@ -285,6 +347,11 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
     if (!m) throw new ActionRefused("that source isn't in the outline any more");
     return { note: m };
   }
+  if (r.kind === "child") {
+    const m = await board.get(r.child.block.id);
+    if (!m) throw new ActionRefused("that note isn't under this one any more");
+    return { note: m };
+  }
   if (r.kind === "outlink") {
     const res = r.link.resolution;
     if (res.kind === "unregistered-page") {
@@ -315,6 +382,7 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */
 export function linkTargetOf(r: LinkRow): LinkTarget | null {
   if (r.kind === "backlink") return { block: r.source.blockId, role: "row" };
+  if (r.kind === "child") return { block: r.child.block.id, role: "row" };
   if (r.kind === "outlink") {
     const res = r.link.resolution;
     if (res.kind === "ready") return { block: res.target.blockId, ...(res.target.fragmentId ? { fragment: res.target.fragmentId } : {}), role: "row" };
@@ -326,11 +394,11 @@ export function linkTargetOf(r: LinkRow): LinkTarget | null {
 }
 
 /** A note's links as an agent reads them: every row as the list numbers them, every group open, nobody's view changed. */
-export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "backlinks">, id: string) {
+export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "backlinks" | "children" | "facets">, id: string) {
   const ask = <T>(p: Promise<T>): Promise<Load<T>> => p.then(value => ({ kind: "ready" as const, value }), (e: Error) => ({ kind: "error" as const, message: `couldn't ask: ${e.message}` }));
-  const [links, backlinks] = await Promise.all([ask(board.authoredLinks(id)), ask(board.backlinks(id))]);
+  const [links, backlinks, children] = await Promise.all([ask(board.authoredLinks(id)), ask(board.backlinks(id)), ask(readChildren(board, id))]);
   const kinds = backlinks.kind === "ready" ? new Set(backlinkView(backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
-  return { rows: linkRows({ links, backlinks }, { shut: new Set(), kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS }).map((r, i) => describeLinkRow(r, i + 1, false)) };
+  return { rows: linkRows({ links, backlinks, children }, { shut: new Set(), kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS }).map((r, i) => describeLinkRow(r, i + 1, false)) };
 }
 
 // ── the inline component: `::links`, `::resources`, `::backlinks` ────────────────────────────────────

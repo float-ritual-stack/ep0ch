@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { AuthoredLinksSnapshot, AuthoredOutlink, AuthoredResourceLink, AuthoredTargetFacets } from "../src/authored";
 import { backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, type BacklinkCollection, type BacklinkViewOptions } from "../src/backlinks";
 import { layoutLinksStatus } from "../src/desk/backlinks-pane";
-import { linkAcross, linkRows, linkWords, type LinkData } from "../src/links";
+import { linkAcross, linkRows, linkWords, readChildren, type ChildLink, type LinkData } from "../src/links";
+import type { Msg } from "../src/board";
 import { SocketBoard } from "../src/socket";
 import { Scratch } from "./scratch";
 
@@ -56,7 +57,7 @@ const data = (): LinkData => ({
 const rows = (o: Partial<BacklinkViewOptions>, sortAll = true) =>
   linkRows(data(), { shut: new Set(), kinds: new Set(["outbox-item", "day-page"]), backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, ...o }, sortAll });
 const entries = (o: Partial<BacklinkViewOptions>) => {
-  const out: Record<"outlinks" | "resources" | "backlinks", string[]> = { outlinks: [], resources: [], backlinks: [] };
+  const out: Record<"outlinks" | "resources" | "backlinks" | "children", string[]> = { outlinks: [], resources: [], backlinks: [], children: [] };
   let g: keyof typeof out = "outlinks";
   for (const r of rows(o)) { if (r.kind === "group") g = r.group; else if (r.kind !== "kind") out[g].push(linkWords(r).text.replace(/ →.*/, "")); }
   return out;
@@ -177,6 +178,57 @@ describe("the header keeps its controls where they are", () => {
   });
 });
 
+// PIE-693: Children is a group in the one model, narrowed and counted as the others are.
+const child = (title: string, f?: AuthoredTargetFacets): ChildLink => ({
+  block: { id: `c-${title}`, text: title, parentId: "me", childIds: [], createdAt: 0, updatedAt: Date.parse(f?.updatedAt ?? "2026-03-01T00:00:00Z"), author: "ana", props: {} } as Msg,
+  ...(f ? { facets: f } : {}),
+});
+const withChildren = (): LinkData => ({ ...data(), children: { kind: "ready", value: [
+  child("Water the seedlings", facets("task", "Task", "waiting", "2026-03-08T00:00:00Z")),
+  child("Label the trays", facets("task", "Task", "done", "2026-03-09T00:00:00Z")),
+  child("A loose thought"),
+] } });
+const view = (o: Partial<BacklinkViewOptions> = {}, only?: Set<"outlinks" | "resources" | "backlinks" | "children">) =>
+  ({ shut: new Set<never>(), kinds: new Set(["outbox-item", "day-page"]), backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, ...o }, sortAll: true, ...(only ? { only } : {}) });
+const childTexts = (o: Partial<BacklinkViewOptions> = {}, only?: Set<"outlinks" | "resources" | "backlinks" | "children">) =>
+  linkRows(withChildren(), view(o, only)).filter(r => r.kind === "child").map(r => linkWords(r).text);
+
+describe("Children: a group in the one links model (PIE-693)", () => {
+  test("listed last, under its own header, only where the list reads children (the tree's rows are its children already)", () => {
+    const groups = linkRows(withChildren(), view()).filter(r => r.kind === "group").map(r => r.kind === "group" ? r.group : "");
+    expect(groups).toEqual(["outlinks", "resources", "backlinks", "children"]);
+    expect(linkRows(data(), view()).some(r => r.kind === "group" && r.group === "children")).toBe(false);
+  });
+
+  test("Kind, Stage, the filter and Sort narrow and order children as every other group", () => {
+    expect(childTexts({ stage: "open" })).toEqual(["Water the seedlings"]);
+    expect(childTexts({ stage: "done" })).toEqual(["Label the trays"]);
+    expect(childTexts({ kind: "task" }).sort()).toEqual(["Label the trays", "Water the seedlings"]);
+    expect(childTexts({ filter: "trays" })).toEqual(["Label the trays"]);
+    // open first, then by updated; a child with no facets after the rest
+    expect(childTexts()).toEqual(["Water the seedlings", "Label the trays", "A loose thought"]);
+  });
+
+  test("the counters count it, and a tile that lists some groups counts only those", () => {
+    const all = linkAcross(withChildren(), DEFAULT_BACKLINK_VIEW_OPTIONS);
+    expect(all).toMatchObject({ matching: 12, total: 12, by: { children: { matching: 3, total: 3 } } });
+    expect(all.kinds.map(k => k.kind)).toContain("task");
+    const only = linkAcross(withChildren(), { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }, new Set(["children"]));
+    expect(only).toMatchObject({ matching: 1, total: 3, filtered: 2 });
+    expect(Object.keys(only.by)).toEqual(["children"]);
+    const o = { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" as const };
+    const text = backlinkStatusParts(backlinkView((data().backlinks as { value: BacklinkCollection }).value, o), o, o.filter, only).map(p => p.text);
+    expect(text).toEqual(expect.arrayContaining(["1 of 3 match", "↓1/3"]));
+  });
+
+  test("a tile with Children alone lists its group and nothing else", () => {
+    const rows = linkRows(withChildren(), view({}, new Set(["children"])));
+    expect(rows.filter(r => r.kind === "group").length).toBe(1);
+    expect(rows.filter(r => r.kind === "child").length).toBe(3);
+    expect(rows.some(r => r.kind === "outlink" || r.kind === "backlink" || r.kind === "resource")).toBe(false);
+  });
+});
+
 describe("the service sends what an Outlink's target is", () => {
   const scratch = new Scratch();
   let board: SocketBoard;
@@ -197,5 +249,19 @@ describe("the service sends what an Outlink's target is", () => {
     expect(a.kinds.map(k => k.kind).sort()).toEqual(["note", "outbox-item"]);
     const only = linkRows(data, { shut: new Set(), kinds: new Set(), backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, kind: "outbox-item", stage: "done" }, sortAll: true });
     expect(only.filter(r => r.kind === "outlink").map(r => linkWords(r).text)).toEqual([expect.stringContaining("Thank the swap hosts")]);
+  }, 20_000);
+
+  test("a note's children come with their kind and stage from blocks.facets; comments under it don't list as children", async () => {
+    const mk = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+    const plan = await mk("Bean bed plan [type::project]");
+    await mk("Ask about netting [type::outbox-item] [outbox::waiting]", plan.id);
+    await mk("Dig the trench [work-stage::done]", plan.id);
+    await mk("A margin note [type::annotation]", plan.id);
+    const kids = await readChildren(board, plan.id);
+    expect(kids.map(k => k.block.text.split(" [")[0]).sort()).toEqual(["Ask about netting", "Dig the trench"]);
+    const ask = kids.find(k => k.block.text.startsWith("Ask"))!;
+    expect(ask.facets).toMatchObject({ kind: "outbox-item", stage: { bucket: "waiting" } });
+    const data: LinkData = { links: { kind: "loading" }, backlinks: { kind: "loading" }, children: { kind: "ready", value: kids } };
+    expect(linkAcross(data, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }, new Set(["children"])).by.children).toMatchObject({ matching: 1, total: 2 });
   }, 20_000);
 });

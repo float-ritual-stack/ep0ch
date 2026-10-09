@@ -24,6 +24,7 @@ import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, resolveBacklinkRelation } from "./backlinks";
+import { linkTargetFacets } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
@@ -163,6 +164,7 @@ import type {
   WorkIdAllocatorStatus,
   WorkspaceSnapshot,
   WorkspaceSnapshotView,
+  LinkTargetFacets,
 } from "./types";
 
 interface BlockRow {
@@ -3647,6 +3649,29 @@ export class OutlinerStore {
             (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
         }),
       };
+    })();
+  }
+
+  /**
+   * Each block's kind, stage and dates as the links model reads them (PIE-693): the facets an Outlink's target
+   * carries (`linkTargetFacets`, the backlinks' rules), for rows the door lists that aren't links (a note's
+   * children, a query's matches), so Kind, Stage and Sort narrow them as they do the rest. One consistent read; an
+   * id that names no block, or one in the Trash, is in `missing`.
+   */
+  blockFacets(ids: unknown): { facets: Record<string, LinkTargetFacets>; missing: string[] } {
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)) throw new Error("blocks.facets needs blockIds: an array of block ids");
+    if (ids.length > 1000) throw new Error(`blocks.facets reads at most 1000 blocks at once, not ${ids.length}`);
+    return this.database.transaction(() => {
+      const facets: Record<string, LinkTargetFacets> = {};
+      const missing: string[] = [];
+      const seen = new Map<string, Block | null>();
+      const lookup = (id: string) => { if (!seen.has(id)) seen.set(id, this.getFromCurrentRead(id)); return seen.get(id) ?? null; };
+      for (const id of new Set(ids as string[])) {
+        const block = lookup(id);
+        if (!block || block.effectiveDeletedRootId) { missing.push(id); continue; }
+        facets[id] = linkTargetFacets(block, lookup);
+      }
+      return { facets, missing };
     })();
   }
 

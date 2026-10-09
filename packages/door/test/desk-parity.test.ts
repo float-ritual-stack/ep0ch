@@ -74,14 +74,19 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
   });
 
   test("a list tile's pick: the person's moves the selection; an agent's answers the row and moves nothing", async () => {
+    // The desk's replies are a links tile with Children alone (PIE-693): row 1 the group, then the replies.
     await act("open", { id: notes.orchard.id });
-    await until(() => (D().panes as Map<number, any>).values().some((p: any) => p.kind === "thread" && p.replies().length === 2), "the thread's replies");
-    const thread = [...(D().panes as Map<number, any>).values()].find((p: any) => p.kind === "thread");
-    const r = await act("thread.pick", { n: 2 }) as any;
+    const replies = () => [...(D().panes as Map<number, any>).values()].find((p: any) => p.kind === "backlinks" && p.groups.join() === "children");
+    await until(() => replies()?.rows().filter((r: any) => r.kind === "child").length === 2, "the replies");
+    const ids = replies().rows().filter((r: any) => r.kind === "child").map((r: any) => r.child.block.id);
+    expect(ids.sort()).toEqual([notes.pears.id, notes.plums.id].sort());
+    const was = replies().sel;
+    const r = await act("backlinks.pick", { id: notes.plums.id }, "replies") as any;
     expect(r.id).toBe(notes.plums.id);
-    expect(thread.selected).toBe(0);
-    await D().dispatch.act({ action: "thread.pick", args: { n: 2 } }, { kind: "user" });
-    expect(thread.selected).toBe(1);
+    expect(replies().sel).toBe(was);
+    const row = replies().rows().findIndex((x: any) => x.kind === "child" && x.child.block.id === notes.plums.id);
+    await D().dispatch.act({ action: "backlinks.pick", args: { n: row + 1 }, tile: "replies" }, { kind: "user" });
+    expect(replies().sel).toBe(row);
   });
 
   test("tile.enter and tile.leave are the person's: an agent's is refused, with the way it does it instead", async () => {

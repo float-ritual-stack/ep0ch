@@ -1,6 +1,6 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import type { Look } from "../look";
-import { RowView, wheelRows, type RowPress } from "../scroll";
+import { RowView, type RowPress } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -9,8 +9,7 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import type { Activity, Actor, Comment } from "../socket";
-import { shortId } from "../refs";
+import type { Activity, Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
@@ -21,7 +20,6 @@ import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
-import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -217,8 +215,6 @@ export { TreePane } from "./tree";
 
 // ── reader ───────────────────────────────────────────────────────────────────
 
-/** Comment and reply blocks: stored as children of the note they're about. */
-const isAnnotation = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
 
 export { propertyChange };
 
@@ -454,93 +450,6 @@ export class Entered {
   follow(p: ReaderPane | null | undefined) { if (this.at && this.at.pane !== p) this.at = null; }
 }
 
-// ── thread: replies (children) and comment threads ───────────────────────────
-
-export class ThreadPane implements Pane {
-  readonly kind = "thread";
-  private msg: Msg | null = null;
-  private kids: Msg[] | null = null;
-  private comments: Comment[] | null = null;
-  private sel = 0;
-  private view = new RowView();
-  private kidLine: number[] = [];
-  title() { return this.kids ? `thread · ${this.kids.length} repl${this.kids.length === 1 ? "y" : "ies"} · ${this.comments?.length ?? "…"} comment${this.comments?.length === 1 ? "" : "s"}` : "thread"; }
-  hint() { return "j k pick · ⏎ open reply · u up · comment from a reader: C, m"; }
-  /** Its replies (the note's children that aren't comments), as `thread.pick` numbers them. */
-  replies(): Msg[] { return this.kids ?? []; }
-  get selected() { return this.sel; }
-  /** Row `i` is the person's selection. */
-  pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
-  /** The note this one is under, made the current note (`u`). */
-  async up(desk: DeskApi, actor: Actor): Promise<{ id: string }> {
-    const id = this.msg?.parentId;
-    if (!id) throw new ActionRefused(this.msg ? "this note is at the top" : "no note shown");
-    const p = await desk.ctx.board.get(id);
-    if (!p) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
-    desk.setCurrent(p, { reveal: true, from: this, by: actor });
-    return { id: p.id };
-  }
-
-  select(m: Msg | null, desk: DeskApi) {
-    this.msg = m; this.kids = null; this.comments = null; this.sel = 0; this.view.reset();
-    if (!m) return;
-    // Comment and reply blocks live under the note too; they show below as comments, not as replies.
-    desk.ctx.board.children(m.id).then(k => { if (this.msg?.id === m.id) { this.kids = k.filter(x => !isAnnotation(x)); desk.redraw(); } }, () => { this.kids = []; });
-    this.loadComments(desk);
-  }
-
-  private loadComments(desk: DeskApi) {
-    const m = this.msg;
-    if (m) desk.ctx.board.comments(m.id).then(c => { if (this.msg?.id === m.id) { this.comments = c; desk.redraw(); } }, () => { this.comments ??= []; });
-  }
-
-  private timer: Timer | null = null;
-  onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.loadComments(desk), 700); }
-
-  render(w: number, h: number, focused: boolean): PaneView {
-    if (!this.msg) return { lines: [dim("no message selected")] };
-    const lines: string[] = [];
-    this.kidLine = [];
-    lines.push(fg(C.lcyan) + `REPLIES ${this.kids ? this.kids.length : "…"}` + RESET);
-    (this.kids ?? []).forEach((k, i) => {
-      const last = i === this.kids!.length - 1;
-      this.kidLine.push(lines.length);
-      const head = `${last ? "└" : "├"} ${k.author ?? "?"} · ${ago(k.updatedAt)} · ${subject(k)}`;
-      lines.push(i === this.sel ? selected(focused) + pad(head, w) + RESET : fg(C.blue) + head.slice(0, 1) + " " + fg(C.yellow) + pad(head.slice(2), w - 2) + RESET);
-      const snippet = k.text.split("\n").slice(1).map(l => withoutPropertyTokens(l).trim()).find(Boolean) ?? "";
-      if (snippet) lines.push(fg(C.blue) + (last ? " " : "│") + "   " + fg(C.dark) + pad(snippet, w - 4) + RESET);
-    });
-    lines.push("");
-    const open = this.comments?.filter(c => c.open).length ?? 0;
-    lines.push(fg(C.lcyan) + `COMMENTS ${this.comments ? `${open} open · ${this.comments.length - open} resolved` : "…"}` + RESET);
-    for (const c of this.comments ?? []) {
-      lines.push(`${fg(c.open ? C.yellow : C.dark)}${c.open ? "■" : "·"} ${fg(C.white)}${c.author}${fg(C.dark)} · ${ago(c.at)}${c.open ? "" : " · resolved"}${RESET}`);
-      if (c.quote) lines.push(fg(C.green) + pad(`  ▐ "${c.quote}"`, w) + RESET);
-      for (const l of wrap(c.body, w - 2).slice(0, 4)) lines.push("  " + fg(C.grey) + l + RESET);
-      for (const r of c.replies) lines.push(fg(C.cyan) + pad(`  └ ${r.author} · ${ago(r.at)}: ${r.body.split("\n")[0]}`, w) + RESET);
-    }
-    const selLine = this.kidLine[this.sel] ?? 0;
-    const top = this.view.place(selLine, lines.length, h);
-    return { lines: lines.slice(top, top + h) };
-  }
-
-  key(k: Key, desk: DeskApi): boolean {
-    const n = this.kids?.length ?? 0, on = { pane: this, desk };
-    if (isUp(k)) { if (this.sel > 0) runOwn(THREAD_ACTIONS, "thread.pick", { n: this.sel }, on); return true; }
-    if (isDown(k)) { if (this.sel + 1 < n) runOwn(THREAD_ACTIONS, "thread.pick", { n: this.sel + 2 }, on); return true; }
-    if (k.kind === "enter" && this.kids?.[this.sel]) { runOwn(THREAD_ACTIONS, "thread.pick", { open: true }, on); return true; }
-    if (ch(k) === "u" && this.msg?.parentId) { runOwn(THREAD_ACTIONS, "thread.up", {}, on); return true; }
-    return false;
-  }
-
-  click(_x: number, y: number, desk: DeskApi) {
-    const i = this.kidLine.indexOf(this.view.top + y);
-    if (i >= 0) runOwn(THREAD_ACTIONS, "thread.pick", { n: i + 1 }, { pane: this, desk });
-  }
-
-  wheel(dir: 1 | -1, desk: DeskApi) { this.view.scroll(wheelRows(dir)); desk.redraw(); }
-}
-
 // ── activity (last callers, live) and who's online ───────────────────────────
 
 export class ActivityPane implements Pane {
@@ -684,30 +593,6 @@ export class ArtPane implements Pane {
 
 // ── the list tiles' own actions (PIE-506): what their keys and clicks do, by name, for `act` too ──
 
-
-export const THREAD_ACTIONS = actionSet<{ pane: ThreadPane; desk: DeskApi }>()("thread", {
-  "thread.pick": def({
-    summary: "pick a reply in a thread tile (tile=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
-    keys: "j k ↑ ↓ click, ⏎ (open)",
-    touches: "nothing", replay: "safe", says: r => (r.opened ? `opened reply ${r.row}` : null),
-    args: { n: { type: "number", optional: true, about: "the reply, from 1" }, open: { type: "boolean", optional: true, about: "make it the current note, as ⏎ does" } },
-    run({ n, open }, { pane, desk }, actor) {
-      const all = pane.replies(), i = rowN(n, pane.selected, all.length, "thread");
-      const m = all[i]!;
-      // An agent's pick is its own (the answer); the person's moves their selection.
-      if (actor.kind !== "agent") pane.pickRow(i, desk);
-      if (open) desk.setCurrent(m, { reveal: true, from: pane, by: actor });
-      return { row: i + 1, id: m.id, title: subject(m), opened: !!open };
-    },
-  }),
-  "thread.up": def({
-    summary: "make the note above the thread's (its parent) the current note, as u does; an agent's never moves the person's keys",
-    keys: "u",
-    touches: "nothing", replay: "safe", says: () => "went up a level",
-    args: {},
-    run(_, { pane, desk }, actor) { return pane.up(desk, actor); },
-  }),
-});
 
 export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>()("activity", {
   "activity.pick": def({
