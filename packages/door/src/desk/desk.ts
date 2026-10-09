@@ -1431,21 +1431,32 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (p && take) { const why = take(p, m, this, by); this.redraw(); if (why) throw new ActionRefused(/^(holds|is|has|can't)\b/.test(why) ? `${this.nameOf(lands!)} ${why}` : why); return; }
     this.openShown(m, by);
   }
+  /**
+   * The reader an open naming no tile lands in (the drawer's what-changed list, `ep0ch open <id>`): a tile that cannot
+   * open into a reader of its own has the keys and links somewhere (the daily layout's claude tile → middle), else the
+   * reader that follows the current note, else the first reader. A reader's own link is where the links followed IN it
+   * land (reader9 → reader10), never where an open from outside lands: it is not asked, so the chain's last link
+   * isn't moved by opening into the reader before it (PIE-700).
+   */
+  private openLandingReader(by: Actor): { id: number; name: string; pane: ReaderPane } | undefined {
+    const focused = this.panes.get(this.focus);
+    const link = focused instanceof ReaderPane ? undefined : this.linkOf(this.focus);
+    // Not a tile that follows a source (a preview of a tile or a file): what it shows is its source's.
+    // A reader the screen limits for agents (PIE-639) isn't where an agent's open lands.
+    const readers = this.namedReaders().filter(r => !r.pane.holdsKeys && !r.pane.editing && !kindOf(r.pane)?.follower && !(by.kind === "agent" && this.limitedFor(r.pane)));
+    return (link !== undefined ? readers.find(x => x.id === link) : undefined) ?? readers.find(x => x.pane.follows && !x.pane.holding) ?? readers[0];
+  }
   /** `openBlock`, saying which reader it landed in. */
   private openShown(m: Msg, by: Actor): string | null {
-    const link = this.linkOf(this.focus);
-    // A link across a group's edge: the reader there (in its own desk) shows it.
-    const across = link === undefined ? this.extTarget(this.focus) : undefined;
+    // A link across a group's edge: the reader there (in its own desk) shows it. A reader's own link is for opens made in it.
+    const across = this.panes.get(this.focus) instanceof ReaderPane ? undefined : this.linkOf(this.focus) === undefined ? this.extTarget(this.focus) : undefined;
     if (across && across.pane instanceof ReaderPane && !across.pane.holdsKeys && !across.pane.editing && !(by.kind === "agent" && across.desk.limitedFor(across.pane))) {
       const rp = across.pane;
       rp.surface.track(() => { this.setCurrent(m, { by }); if (rp.msg?.id !== m.id) { if (rp.holding) rp.hold(m, across.desk); else rp.show(m, across.desk); } });
       this.redraw(); across.desk.redraw();
       return this.pathTo(rp) ?? null;
     }
-    // Not a tile that follows a source (a preview of a tile or a file): what it shows is its source's.
-    // A reader the screen limits for agents (PIE-639) isn't where an agent's open lands.
-    const readers = this.namedReaders().filter(r => !r.pane.holdsKeys && !r.pane.editing && !kindOf(r.pane)?.follower && !(by.kind === "agent" && this.limitedFor(r.pane)));
-    const r = (link !== undefined ? readers.find(x => x.id === link) : undefined) ?? readers.find(x => x.pane.follows && !x.pane.holding) ?? readers[0];
+    const r = this.openLandingReader(by);
     const show = () => { this.setCurrent(m, { by }); if (r && r.pane.msg?.id !== m.id) { if (r.pane.holding) r.pane.hold(m, this); else r.pane.show(m, this); } };
     if (r) r.pane.surface.track(show); else show();
     this.redraw();
@@ -2593,6 +2604,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
   private plainName(id: number) { const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id); return n === k || new RegExp(`^${k}\\d+$`).test(n); }
 
+  /** What a reader's header says of the chain of links it is in (PIE-700), or "" when it is in none. */
+  private chainWords(id: number): string {
+    if (!(this.panes.get(id) instanceof ReaderPane)) return "";
+    const from = [...this.layout.links].filter(([src, to]) => to === id && src !== id && this.panes.has(src)).map(([src]) => this.nameOf(src));
+    const linked = this.layout.links.has(id) || from.length > 0;
+    const lands = linked && this.openLandingReader(USER)?.id === id;
+    return `${from.length ? ` ← ${from.join(", ")}` : ""}${lands ? " ⏎ drawer" : ""}`;
+  }
+
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number): string {
     // A tile whose opens land in itself (the welcome's preview) says nothing about where they go.
     const link = this.layout.links.get(id);
@@ -2613,6 +2633,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       put(` → ${this.pathTo(x.pane)}`, fg(C.lmagenta));
       if (this.linkChoice(id)) put(x.role === "target" ? " ⏎ target" : " ◌ preview", fg(C.lmagenta));
     } else if (this.linkVia(id) === "origin") put(` ⏎ ${this.nameOf(this.originId(id)!)}`, fg(C.lmagenta));
+    // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
+    // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
+    const chain = this.chainWords(id);
+    if (chain) put(chain, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     const ag = this.agentOf(id).level;
     if (ag !== "free") {
