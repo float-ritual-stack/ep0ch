@@ -23,7 +23,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Fixed:** a `::graph-waterfall` whose running total rose past its first bar drew as "couldn't draw".
 - **Changed:** a test fails when a component the readers draw has no schema, so a new component cannot ship without a
   library page. A figure's live form (`query:`) is not drawn in the library, which has no outline to ask; its page says so.
-- **Run:** PROTOCOL 125 (the components the service lists grew). After `ep0ch install --apply` on each machine, restart the host so clients and service agree. No schema change.
+- **Run:** PROTOCOL 123 (the components the service lists grew). After `ep0ch install --apply` on each machine, restart the host so clients and service agree. No schema change.
 
 ### Every MCP write says which call made it, and your own writes stop coming back as news (PIE-685)
 
