@@ -2,7 +2,9 @@
 // regions. The service's property parser, reference scanner and section readers and every client's renderer ask
 // these, so a fence the service treats as code is drawn as code everywhere. Pure: no I/O.
 
-import { codeBlocks } from "./code-fence";
+import { closesCodeFence, codeBlocks, codeFenceOpen, type CodeFence } from "./code-fence";
+import { quoteDepth, stripQuotes } from "./callouts";
+import { componentBlocks } from "./component-block";
 
 /** An offset range of the text: `start` inclusive, `end` exclusive. */
 export interface SourceRange { start: number; end: number }
@@ -195,6 +197,51 @@ export function literalLines(text: string): { markers: Set<number>; inside: Set<
   return { markers, inside, unterminated: scan.unterminated ? lineOf(scan.unterminated.start) : null };
 }
 
+// ── structural literals (PIE-690): a component's YAML and a fence inside a quote ──────────────────────────────
+
+const YAML_FENCE_LINE = /^ {0,3}---[ \t]*$/;
+
+/**
+ * Line spans (first and last line, inclusive) that are literal because of the block they sit in, not a top-level
+ * fence: the front matter of a `::component` (its `---` lines and what they hold: a figure's query string is the
+ * figure's, never a tag), and a code fence inside a quote or callout (`> ```` opens one at the depth it is quoted
+ * to). Both are bounded the way their readers bound them (PIE-669): an unclosed component is plain text, so it
+ * swallows nothing, and an unclosed quoted fence ends where its quote does.
+ */
+export function structuralLiteralLines(lines: readonly string[]): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  for (const block of componentBlocks(lines)) {
+    let open = -1, closed = false;
+    for (let i = block.start + 1; i <= block.end; i++) {
+      if (!YAML_FENCE_LINE.test(lines[i]!.replace(/\r$/, ""))) continue;
+      if (open < 0) open = i;
+      else { spans.push({ start: open, end: i }); closed = true; break; }
+    }
+    // Front matter the component closes without a second `---`: literal to the block's end.
+    if (open >= 0 && !closed) spans.push({ start: open, end: block.end });
+  }
+  let fence = null as { depth: number; code: CodeFence; start: number } | null;
+  lines.forEach((raw, i) => {
+    const line = raw.replace(/\r$/, ""), { depth, content } = quoteDepth(line);
+    if (fence && depth < fence.depth) { spans.push({ start: fence.start, end: i - 1 }); fence = null; }
+    if (fence) {
+      if (closesCodeFence(stripQuotes(line, fence.depth), fence.code)) { spans.push({ start: fence.start, end: i }); fence = null; }
+      return;
+    }
+    const code = depth ? codeFenceOpen(content) : null;
+    if (code) fence = { depth, code, start: i };
+  });
+  const unclosed = fence as { start: number } | null;
+  if (unclosed) spans.push({ start: unclosed.start, end: lines.length - 1 });
+  return spans;
+}
+
+/** `structuralLiteralLines` by offsets: whole lines, line breaks included. */
+function structuralLiteralRanges(text: string, lines: SourceLine[]): SourceRange[] {
+  const texts = lines.map(line => text.slice(line.start, line.contentEnd));
+  return structuralLiteralLines(texts).map(span => ({ start: lines[span.start]!.start, end: lines[span.end]!.end }));
+}
+
 function mergeRanges(ranges: SourceRange[]): SourceRange[] {
   const merged: SourceRange[] = [];
   for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
@@ -207,14 +254,14 @@ function mergeRanges(ranges: SourceRange[]): SourceRange[] {
 
 /**
  * Where the property parser reads no property (a `[key::value]`, a bare `key::` line, a hashtag): fenced code,
- * literal regions and code spans, merged and in order.
+ * literal regions, a component's YAML, fences in quotes and code spans, merged and in order.
  */
 export function scanPropertyLiteralRanges(text: string): SourceRange[] {
   const lines = sourceLines(text);
   const fences = fencedRangesOf(text, lines);
   const { regions } = literalRegionsFromLines(text, lines, fences);
   // Fences and regions are block-level; inline code never pairs across them.
-  const blockRanges = mergeRanges([...fences, ...regions]);
+  const blockRanges = mergeRanges([...fences, ...regions, ...structuralLiteralRanges(text, lines)]);
   const inlineLiterals = inlineLiteralRanges(text, lines, blockRanges);
   return mergeRanges([...blockRanges, ...inlineLiterals]);
 }
@@ -234,6 +281,7 @@ export function protectedCodeRanges(text: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   for (const block of fences) for (let i = block.start; i <= block.end; i++) ranges.push(lineRange(i));
   for (const i of indented) ranges.push(lineRange(i));
+  for (const range of structuralLiteralRanges(text, sourceLines(text))) ranges.push({ start: range.start, end: Math.max(range.start, range.end - 1) });
   ranges.push(...codeSpanRanges(text));
   return ranges;
 }

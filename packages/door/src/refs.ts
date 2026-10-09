@@ -11,7 +11,7 @@ import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
-import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
+import { codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
@@ -246,6 +246,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
   // src/links.ts); drawn as a link, the id would be gone.
   const lines = text.split("\n"), typed = noteStructure(lines);
+  // A fence inside a callout or quote is code too (PIE-690): its lines stay as typed.
+  for (const span of structuralLiteralLines(lines)) for (let j = span.start; j <= span.end; j++) if (typed[j]! < 0) typed[j] = span.start;
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];

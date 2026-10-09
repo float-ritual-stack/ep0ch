@@ -98,6 +98,14 @@ describe("the inline component's forms", () => {
     expect(out[2]).toBe(`of: ((${id}))`);
     expect(out[0]).not.toContain(`((${id}))`);                                       // a link outside it is presented
   });
+
+  test("a fence inside a callout is left as typed (PIE-690); a link after it is presented", () => {
+    const id = "0b0c4d58-1a2b-4c3d-8e9f-001122334455";
+    const text = `> [!note] Skill\n> \`\`\`md\n> see ((${id}))\n> \`\`\`\n> then ((${id}))`;
+    const out = presentLinks(text, true, null).split("\n");
+    expect(out[2]).toBe(`> see ((${id}))`);
+    expect(out[4]).not.toContain(`((${id}))`);
+  });
 });
 
 describe.skipIf(!outliner)("the links tile, b, and the inline component, against a scratch outline", () => {

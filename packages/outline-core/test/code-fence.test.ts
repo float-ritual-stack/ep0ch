@@ -68,3 +68,16 @@ test("the Claude mod's copy is outline-core's code-fence.ts, word for word", asy
   const [own, copy] = await Promise.all([read("../src/code-fence.ts"), read("../../claude-mod/hooks/code-fence.ts")]);
   expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
 });
+
+test("a component's YAML and a fence inside a quote are literal; an unclosed component is not (PIE-690)", () => {
+  const text = "a\n::graph-stat\n---\nq: #x\n---\n::\n> ```\n> #y\n> ```\nz";
+  for (const ranges of [scanPropertyLiteralRanges(text), protectedCodeRanges(text)]) {
+    const inside = (needle: string) => ranges.some(r => r.start <= text.indexOf(needle) && text.indexOf(needle) < r.end);
+    expect(inside("#x")).toBe(true);
+    expect(inside("#y")).toBe(true);
+    expect(inside("z")).toBe(false);
+  }
+  const open = "::graph-stat\n---\nq: #x\n\n## Next\n#after";
+  expect(scanPropertyLiteralRanges(open)).toEqual([]);
+  expect(scanPropertyLiteralRanges("> ```\n> #y\n\n#free").some(r => r.end > "> ```\n> #y\n\n".length)).toBe(false);
+});
