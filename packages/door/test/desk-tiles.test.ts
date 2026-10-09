@@ -111,10 +111,10 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
 
 
   test("daily: the now tile is pinned to the now page (EP0CH_NOW_PAGE), and saves as that page, not its note", async () => {
-    const now = () => [...D().panes.values()].find((p: any) => p.kind === "detail" && p.page);
+    const now = () => [...D().panes.values()].find((p: any) => p.kind === "reader" && p.pinPage);
     await until(() => now()?.msg?.id === notes.now.id, "the now page in the now tile");
-    expect(now().page).toBe("garden-now");
-    expect(now().spec()).toEqual({ page: "garden-now" });
+    expect(now().pinPage).toBe("garden-now");
+    expect(now().spec()).toEqual({ mode: "pinned", page: "garden-now" });
   });
 
   test("a header dropped on a tile's lower triangle splits it; on its centre, tabs; on the outer right edge, a column", () => {
@@ -232,10 +232,10 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.lock", { on: false });
     const at = rect("plan"), r = await act("tile.preview", {}, "plan") as any;
     // A reader's preview is a detail (it keeps what's opened into it), beside or below by the layout's one rule.
-    expect(r).toMatchObject({ tile: "plan-preview", kind: "detail", from: "plan", where: splitAxis(at) === "row" ? "right" : "down" });
+    expect(r).toMatchObject({ tile: "plan-preview", kind: "reader", from: "plan", where: splitAxis(at) === "row" ? "right" : "down" });
     expect(tile("plan").link).toBe("plan-preview");
     expect(get().focus).toBe(focus0);                               // an agent's never takes the keys
-    expect(message()).toContain("an agent (tile-agent-413) opened a detail tile (plan-preview) where plan's opens land");
+    expect(message()).toContain("an agent (tile-agent-413) opened a reader tile (plan-preview) where plan's opens land");
     // A link followed in the source lands in the preview; the source keeps its note.
     await act("link.follow", { n: 1 }, "plan");
     await until(() => tile("plan-preview").showing?.id === notes.beans.id, "the link in the preview");

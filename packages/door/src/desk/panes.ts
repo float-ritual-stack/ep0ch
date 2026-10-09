@@ -193,7 +193,7 @@ export interface Pane {
    * Controls for its header after its title, when they fit in `room` columns (the backlinks' status: sort, kind,
    * stage), each its text, colour and what a click on it does; null when they don't fit (it draws them itself).
    */
-  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void }[] | null;
+  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void; chip?: true }[] | null;
 }
 
 
@@ -223,26 +223,48 @@ export { TreePane } from "./tree";
 
 export { propertyChange };
 
+/** How a reader shows notes (PIE-705): it follows the current note, is held on the one it shows, or is pinned to a page. */
+export type FollowMode = "follows" | "held" | "pinned";
+export const FOLLOW_MODES: readonly FollowMode[] = ["follows", "held", "pinned"];
+
 /**
  * A reader is a note surface (src/surface/note.ts) hosted in a pane: the surface shows, edits and
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
 export class ReaderPane implements Pane {
-  /** "detail": a tile that keeps its note (held from the start); "preview": one that follows a tile or a file. */
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   readonly surface = new NoteSurface();
   private held = false;
   /**
-   * `follows`: this reader shows the view's current note as it changes (the desk's readers), so `p` holds
-   * it on the note it shows. Readers that never follow (the board's preview, details, docks and floats)
-   * have nothing to hold, so they don't offer it. ("Pin" is kept for a dock joining the layout.)
+   * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is
+   * pinned to a page, and `p` switches it. Readers a host owns (the board's preview strip, a river column, docks and
+   * floats) have one fixed way of showing, so they don't offer it. ("Pin" is kept for a dock joining the layout.)
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
   claims(k: Key): boolean { return !this.holdsKeys && this.surface.claims(k); }
-  /** Held on its note (p, or alt+⏎): it doesn't follow the current note. */
-  get holding() { return this.held; }
+  /** Held on its note (p, alt+⏎, or pinned to a page): it doesn't follow the current note. */
+  get holding() { return this.held || !!this.pinPage; }
+  /** How it shows notes: following the current one, held on one, or pinned to a page. */
+  get followMode(): FollowMode { return this.pinPage ? "pinned" : this.held ? "held" : "follows"; }
+  /** The page it's pinned to, if any (`[[page]]`): it shows that page each time it starts, not the last note it held. */
+  pinPage: string | null = null;
+  /** Counts the mode changes: a pin that was looked up for a page is dropped when the mode changed again meanwhile. */
+  private modeGen = 0;
+  /** The block its page named when it last resolved: a different note opened into it lets the page go (it is held). */
+  private pageNote: string | null = null;
+  /** The note it should show once the desk can read it (a restored layout). */
+  want: string | null = null;
+  /** The note it was laid out with, when the outline has no such note (gone, or a screen saved on another outline). */
+  missing: string | null = null;
+  /** Opened into a container (the board's readers row): what it's called there ("detail 1"); null otherwise. */
+  label: string | null = null;
+  /** Set by the desk as it draws: an open there lands here (shown when there are two or more), and it floats. */
+  opensHere = false;
+  floating = false;
+  /** Made for a new note (PIE-591, `note.new`): its id and the note it was made from; it closes with its edit, and goes when the note is trashed unwritten. */
+  newNote: { id: string; context: string | null } | null = null;
   get draft() { return this.surface.draft; }
   get session() { return this.surface.session; }
   get comments() { return this.surface.comments; }
@@ -250,27 +272,80 @@ export class ReaderPane implements Pane {
   get editing() { return this.surface.editing; }
   /** Every key goes to the surface first (an edit, or the property panel); hosts route to it before their own. */
   get holdsKeys() { return this.surface.holdsKeys; }
-  /** Hold `m` (a desk reader opened by alt+⏎ on a link): it keeps its note as the current one changes. */
-  hold(m: Msg, desk: DeskApi) { this.held = this.follows; this.show(m, desk); }
-  /** Hold it on its note (on=true), or let it follow the current note again (false); left out, the other way. */
-  setHold(on: boolean | undefined, desk: DeskApi): { held: boolean } {
-    if (!this.follows) throw new ActionRefused("this reader keeps its own note; it doesn't follow the current one");
-    if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
-    this.held = on ?? !this.held;
-    if (!this.held) this.show(desk.current, desk);
-    desk.redraw();
-    return { held: this.held };
+  /** Hold `m` (alt+⏎ on a link, a note opened into it): it keeps its note as the current one changes. A pinned reader shown another note is held, no longer pinned. */
+  hold(m: Msg, desk: DeskApi) {
+    this.modeGen++;
+    this.held = this.follows;
+    if (this.pinPage && m.id !== this.pageNote) { this.pinPage = null; this.pageNote = null; }
+    this.show(m, desk);
   }
-  /** Held before it has a note (a detail tile waiting for its first open): the current note doesn't move it. */
+  /**
+   * Switch its mode (`p`, a click on the mode chip, `reader.mode`): `follows` shows the current note as it changes, `held`
+   * keeps the note it shows, `pinned` keeps a page's note (`page`, else the page the shown note has) and shows it again
+   * each time it starts. Left out, `p`'s toggle: follows to held, anything else back to following.
+   */
+  async setMode(mode: FollowMode | undefined, desk: DeskApi, page?: string): Promise<{ mode: FollowMode; page?: string; held: boolean }> {
+    if (!this.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it has no mode to switch");
+    if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+    const next = mode ?? (this.followMode === "follows" ? "held" : "follows");
+    const gen = ++this.modeGen;
+    if (next === "pinned") {
+      const name = page ?? this.msg?.props.page;
+      if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
+      const r = await desk.ctx.board.resolvePage(name);
+      if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
+      if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
+      this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
+      if (this.msg?.id !== r.block.id) this.show(r.block, desk);
+    } else {
+      this.pinPage = null; this.pageNote = null;
+      this.held = next === "held";
+      if (!this.held) this.show(desk.current, desk);
+    }
+    desk.redraw();
+    return { mode: this.followMode, ...(this.pinPage ? { page: this.pinPage } : {}), held: this.holding };
+  }
+  /** Start held before it has a note (a detail tile waiting for its first open): the current note doesn't move it. */
   holdOn() { this.held = this.follows; }
+  /** Start pinned to `page`: it is shown once the page resolves (`pinStart`). */
+  pinTo(page: string) { this.held = this.follows; this.pinPage = page; }
+  /** The page it's pinned to resolved to `block` (the tile joined a desk): show it, unless a note is open there already. */
+  pinned(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show(block, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   dispose() { this.surface.dispose(); }
-  title() {
+  /**
+   * A reader that follows is "reader"; one that keeps its note is a "detail" (the glossary's word for a held reader), which
+   * a host may label ("detail 1" in the board's readers row). The mode chip on the frame says which mode it is in.
+   */
+  title(): string {
     const st = this.surface.state();
-    return ["reader", this.held ? "held" : "", st].filter(Boolean).join(" · ");
+    if (this.label !== null) {
+      // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
+      if (this.floating) return this.msg ? subject(this.msg) || this.label : "float";
+      return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", st].filter(Boolean).join(" · ");
+    }
+    if (!this.holding) return ["reader", st].filter(Boolean).join(" · ");
+    return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
-  hint() { return this.surface.hint(this.follows ? (this.held ? "p follow · " : "p hold · ") : ""); }
+  hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
+  /**
+   * The mode chip on the frame (PIE-705): `follows`, `held` or `pinned [[page]]`; a click on it cycles the mode
+   * (reader.mode), as `p` toggles follows and held. A reader that has no mode shows none.
+   */
+  headControls(room: number, desk: DeskApi) {
+    if (!this.follows) return null;
+    const text = this.followMode === "pinned" ? `pinned [[${this.pinPage}]]` : this.followMode;
+    if (text.length > room && this.followMode === "pinned" && "pinned".length <= room) return [{ text: "pinned", sgr: fg(C.yellow), press: () => this.cycle(desk), chip: true as const }];
+    if (text.length > room) return null;
+    return [{ text, sgr: fg(this.followMode === "follows" ? C.grey : C.yellow), press: () => this.cycle(desk), chip: true as const }];
+  }
+  /** What a click on the chip does: follows to held, held to pinned (where the note has a page), pinned to follows. */
+  private cycle(desk: DeskApi) {
+    const next: FollowMode = this.followMode === "follows" ? "held" : this.followMode === "held" && this.msg?.props.page ? "pinned" : "follows";
+    runOwn(READER_ACTIONS, "reader.mode", { mode: next }, { pane: this, desk });
+  }
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
   host(desk: DeskApi): SurfaceHost {
@@ -282,7 +357,7 @@ export class ReaderPane implements Pane {
       redraw: () => desk.redraw(),
       ...(desk.keepLayout ? { navChanged: () => desk.keepLayout!() } : {}),
       // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
-      navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
+      navigate: (m, how) => { if (this.holding && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
@@ -298,7 +373,7 @@ export class ReaderPane implements Pane {
     return h;
   }
 
-  select(m: Msg | null, desk: DeskApi) { if (!this.held) this.show(m, desk); }
+  select(m: Msg | null, desk: DeskApi) { if (!this.holding) this.show(m, desk); }
   refresh(m: Msg) { this.surface.refresh(m); }
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
@@ -313,13 +388,26 @@ export class ReaderPane implements Pane {
   /** The note the saved layout had this reader on, until it shows it (or `dropWant`: it couldn't). */
   wantNote(): string | null { return this.wantNav === undefined ? null : navNote(this.wantNav); }
   dropWant() { this.wantNav = undefined; }
-  /** What a layout saves of a reader: its place and its back and forward stacks (PIE-643). */
-  spec(): Record<string, unknown> { const nav = this.wantNav ? this.wantNav : this.surface.saveNav(); return nav ? { nav } : {}; }
+  /**
+   * What a layout saves of a reader: its mode (held on its note, or pinned to a page), its place and its back and forward
+   * stacks (PIE-643). A reader that follows saves only its place.
+   */
+  spec(): Record<string, unknown> {
+    const nav = this.wantNav ? this.wantNav : this.surface.saveNav();
+    const note = this.msg && !this.msg.id.startsWith("file:") ? this.msg.id : this.want;
+    // A pinned reader comes back on its page, not on the last note it held: no history to keep.
+    if (this.pinPage) return { mode: "pinned", page: this.pinPage };
+    if (this.follows && this.held) return { mode: "held", ...(note ? { note } : {}), ...(nav ? { nav } : {}) };
+    return nav ? { nav } : {};
+  }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
+  /** The label a host gave it for the row it is in ("detail 1" in the board's readers row), or null. */
+  detailLabel(): string | null { return this.kind === "reader" ? this.label : null; }
   /** The tiles whose opens land here (their link, or their container's opens-into): set by the desk as it draws. */
   landsFrom: string[] = [];
   /** What an empty one says it's for: where its notes come from, and how to get one there. */
   protected emptyFor(): string {
+    if (this.missing) return `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it`;
     if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return this.follows && !this.holding ? "shows the current note: pick one in the outline, or / searches" : "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
@@ -341,7 +429,7 @@ export class ReaderPane implements Pane {
   scrollKey(k: Key, desk: DeskApi) { return this.surface.scrollKey(k, this.host(desk)); }
   /** Run a note action (NOTE_ACTIONS) in this reader as `actor`: what the keys do, callable by an agent. */
   act(name: string, args: Record<string, unknown>, desk: DeskApi, actor: Actor) { return desk.within ? desk.within(name, args, actor, this) : this.surface.act(name, args, this.host(desk), actor); }
-  describe() { return { title: this.title(), held: this.held, ...this.surface.describe() }; }
+  describe() { return { title: this.title(), held: this.holding, mode: this.followMode, ...(this.pinPage ? { page: this.pinPage } : {}), ...this.surface.describe() }; }
 
   // ── folded to a spine (tile.collapse): what it holds is kept; comments arriving meanwhile mark the spine ──
 
@@ -384,7 +472,7 @@ export class ReaderPane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
     if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
-    if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.hold", {}, { pane: this, desk }); return true; }
+    if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.mode", {}, { pane: this, desk }); return true; }
     // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
     if (!this.editing && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }
     return this.surface.key(k, this.host(desk));
@@ -624,12 +712,18 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>
 
 
 export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
-  "reader.hold": def({
-    summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
-    keys: "p",
-    touches: "tile", replay: "safe", way: "an agent holds a reader the person isn't in", says: r => (r.held ? "held the reader on its note" : "let the reader follow the current note"),
-    menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.holding ? { label: "follow the current note" } : null) },
-    args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
-    run({ on }, { pane, desk }) { return pane.setHold(on, desk); },
+  "reader.mode": def({
+    summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
+    keys: "p (follows and held), a click on the mode chip on the frame (follows, held, pinned)",
+    touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "let the reader follow the current note" : r.mode === "pinned" ? `pinned the reader to [[${r.page}]]` : "held the reader on its note"}`,
+    menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "follow the current note" } : null) },
+    args: {
+      mode: { type: "string", optional: true, about: "follows, held or pinned; left out, the other of follows and held" },
+      page: { type: "string", optional: true, about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },
+    },
+    run({ mode, page }, { pane, desk }) {
+      if (mode !== undefined && !(FOLLOW_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`reader.mode: mode is follows, held or pinned, not ${mode}`);
+      return pane.setMode(mode as FollowMode | undefined, desk, page);
+    },
   }),
 });

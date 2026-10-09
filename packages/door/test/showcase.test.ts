@@ -423,6 +423,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
+    "reader-modes": ["outline", "· held", "· pinned"],
     screen: ["board ·", "· lanes", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
@@ -755,7 +756,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
     await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "reader")?.showing?.id === seeded.notes.notebook.id, "the notebook in the reader", 5000);
     const r = await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" }) as any;
-    expect(r).toMatchObject({ tile: "reader-preview", kind: "detail", from: "reader" });
+    expect(r).toMatchObject({ tile: "reader-preview", kind: "reader", from: "reader" });
     const tiles = () => stage().layoutGet().tiles as any[];
     expect(tiles().find(t => t.name === "reader").link).toBe("reader-preview");
     // A link followed in the reader lands in the preview; the reader still shows the notebook.
@@ -766,6 +767,25 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Again: that preview, not a second one.
     expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
     expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("reader modes (PIE-705): the section's readers follow, hold and pin; an agent switches each by reader.mode, attributed, and never takes the person's keys", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "reader-modes" }, as: "test-agent" })).toMatchObject({ key: "reader-modes" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "reader-modes")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const tile = (name: string) => tiles().find(t => t.name === name);
+    await until(() => tile("now")?.showing?.id === seeded.notes.notebook.id && tile("detail")?.showing?.id === seeded.notes.shed.id, "the held and the pinned reader on their notes", 5000);
+    expect(tile("reader")).toMatchObject({ kind: "reader", mode: "follows" });
+    expect(tile("detail")).toMatchObject({ kind: "reader", mode: "held" });
+    expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: seeded.notes.notebook.props.page });
+    // The held one lets go and follows the outline's selection; held again, it keeps what it shows.
+    expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "detail", mode: "follows", held: false });
+    expect((app as any).message).toContain("test-agent");
+    expect(tile("detail").mode).toBe("follows");
+    expect(await app.act({ action: "reader.mode", tile: "reader", args: { mode: "held" }, as: "test-agent" })).toMatchObject({ tile: "reader", mode: "held", held: true });
+    expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "now", mode: "follows" });
     expect(S().focus).toBe("index");
   }, 20_000);
 
@@ -869,7 +889,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const before = tiles().length;
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
     await until(() => tiles().length === before + 1, "a new detail", 5000);
-    expect(tiles().find(t => t.kind === "detail" && t.name !== "detail")?.showing?.id).toBe(first.id);
+    expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(first.id);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
     // ⏎ opens it in the detail the links came from, and the links tile lists that note's links now.
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
@@ -1008,12 +1028,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     // d: a detail in the blank's place (its row, as the person picks it).
     press({ kind: "char", ch: "d" });
-    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "detail"), "a detail in the blank's place");
+    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "reader" && t.mode === "held"), "a detail in the blank's place");
     await until(() => screen().includes("+ New note"), "the empty detail's + New note");
     // A click on + New note, as a mouse event on the screen: the same note.new ctrl+n runs.
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("+ New note")), x = rows[y]!.indexOf("+ New note") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "detail").name);
+    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "reader" && t.mode === "held").name);
     await until(() => !!detail()?.surface?.draft, "the new note's edit in the detail, by the click", 8000);
     const id = detail().surface.draft.blockId;
     expect(await board.get(id)).toBeTruthy();
@@ -1035,7 +1055,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "blank.fill", tile: "blank", args: { kind: "tree" }, as: "test-agent" });
     await app.act({ action: "tile.open", tile: "tree", args: { kind: "detail", where: "right" }, as: "test-agent" });
     await app.act({ action: "tile.link", tile: "tree", args: { to: "detail" }, as: "test-agent" });
-    expect(tiles().map(t => t.kind)).toEqual(["tree", "detail"]);
+    expect(tiles().map(t => t.kind)).toEqual(["tree", "reader"])   // kind=detail opens a held reader (PIE-705); the tile keeps the name "detail";
     const saved = await app.act({ action: "screen.save", args: { name: "Allotment work" }, as: "test-agent" }) as any;
     // Named the way it is typed: the title is kept, the answer says the slug it saved under.
     expect(saved).toMatchObject({ screen: "allotment-work", title: "Allotment work", slug: "allotment-work", created: true, tiles: ["tree", "detail"] });

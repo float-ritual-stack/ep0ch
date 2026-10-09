@@ -117,8 +117,8 @@ describe("what a spec says, the desk does", () => {
   test("a key may name the tile its action runs in, or the kinds it's for; screen.spec answers the spec as data", async () => {
     const spec: ScreenSpec = {
       name: "keys2", title: "keys2",
-      keys: [{ key: "z", action: "tile.zoom", tile: "b" }, { key: "y", action: "tile.zoom", only: ["detail"] }],
-      layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "a" }, b: { t: "leaf", kind: "detail", name: "b" } } },
+      keys: [{ key: "z", action: "tile.zoom", tile: "b" }, { key: "y", action: "tile.zoom", only: ["preview"] }],
+      layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "a" }, b: { t: "leaf", kind: "preview", name: "b", source: "tile:a" } } },
     };
     const d = new Desk(spec), a = app();
     a.push(d);

@@ -937,6 +937,8 @@ const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 export const EDGE_GLYPH: Record<Dir, string> = { left: "⇤", right: "⇥", up: "⤒", down: "⤓" };
 /** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
+/** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */
+export const canonKind = (kind: string): string => (kind === "detail" ? "reader" : kind);
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
 /**
@@ -950,7 +952,7 @@ export function policyOf(x: unknown): Policy {
   for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
   if (typeof o.keep === "number" && Number.isInteger(o.keep) && o.keep >= 1 && o.keep <= 20) out.keep = o.keep;
   for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
-  if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)))];
+  if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;

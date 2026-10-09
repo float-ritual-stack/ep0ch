@@ -34,7 +34,6 @@ import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/pane
 import { PreviewPane, sourceOf } from "../desk/preview";
 import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
-import { DetailPane } from "../desk/tiles";
 import { nowPage } from "./now";
 import { RowView } from "../scroll";
 import { newNoteOffer } from "../new-note";
@@ -452,11 +451,14 @@ export class WelcomeList implements Pane {
 }
 
 /** The detail: the welcome note read, or what alt+⏎ made the thing read. Its source is the welcome list. */
-export class WelcomeDetail extends DetailPane {
+export class WelcomeDetail extends ReaderPane {
   override readonly kind: TileKindName = "welcome.detail";
   /** The welcome list (the spec names it as this tile's source: `tile:welcome`). */
   list: WelcomeList | null = null;
-  constructor(readonly source: string) { super(); }
+  constructor(readonly source: string) { super(true); this.holdOn(); }
+  /** It keeps the welcome note it was given: the current note never moves it, and it has no mode of its own to switch. */
+  override select() {}
+  override headControls() { return null; }
   override title() {
     const s = this.list, m = this.msg;
     if (!s || !m) return s?.items && !s.items.length && !s.fallback ? "nothing to read yet" : "detail";
@@ -596,7 +598,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
 
 /** The welcome's kinds: the list (its model, actions and band), its detail and its preview. */
 export function welcomeKinds(): TileKind[] {
-  const detail = tileKind("detail")!, preview = tileKind("preview")!;
+  const detail = tileKind("reader")!, preview = tileKind("preview")!;
   return [
     {
       kind: "welcome.list", word: "list", about: "the welcome notes ([welcome::…], in the Welcome view's hand-set order) and the band with their tabs", noun: "the welcome list",
@@ -610,7 +612,7 @@ export function welcomeKinds(): TileKind[] {
       peek: (p, desk) => (p as WelcomeList).describe(desk),
     },
     {
-      ...detail, kind: "welcome.detail", word: "detail", about: "the welcome note read (its source: the welcome list)", keys: undefined,
+      ...detail, kind: "welcome.detail", word: "detail", about: "the welcome note read (its source: the welcome list)", keys: undefined, actions: undefined,
       make: s => { const src = s.source && sourceOf(s.source); return new WelcomeDetail(src && "tile" in src ? s.source! : "tile:welcome"); },
       start: (p, env) => {
         const d = p as WelcomeDetail, src = sourceOf(d.source), list = src && "tile" in src ? env.tile(src.tile) : undefined;
