@@ -102,6 +102,15 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(garden?.blocks.map(b => b.text.split(" [")[0])).toEqual(expect.arrayContaining(["Water the beans", "Turn the compost", "Net the brassicas"]));
   });
 
+  test("the relation atoms: under:, NOT and title~ in a live figure's query (PIE-554)", async () => {
+    const choresId = seeded.notes.chores.id;
+    expect(seeded.notes.figures.text).toContain(`query: "under:((${choresId})) NOT stage=done NOT title~hob"`);
+    const titles = (await board.query(`under:((${choresId})) NOT stage=done NOT title~hob`)).map(b => b.text.split(" [")[0]);
+    expect(titles.sort()).toEqual(["Empty the food caddy", "Net the brassicas", "Turn the compost"]);
+    // links: reads the reference index: the notebook links the shed page.
+    expect((await board.query(`links:[[${SEED.shed}]] #nothing OR links:[[${SEED.shed}]]`)).map(b => b.id)).toContain(seeded.notes.notebook.id);
+  });
+
   test("the notebook: callouts, links and soft links, folds, a literal region, a tilde fence, a transclusion, properties in every scope", async () => {
     const t = seeded.notes.notebook.text;
     for (const piece of ["> [!note] Gate code", "> [!warning]- Slugs", `[[${SEED.shed}]]`, `((${seeded.cards[3]!.id}|the kettle job))`, "HOME-001 is the gate latch",

@@ -63,6 +63,16 @@ are its record. The outliner's entries from then are kept below, under
   span it is about (`raw: true` gives either as stored). `seen: ["id@rev", …]` on `outline_read`, `outline_query` and
   `outline_find` returns `{id, revision, unchanged: true}` for any block the caller holds at that revision, like
   If-None-Match; a block that changed since comes back whole. No wire change, no `PROTOCOL` bump.
+### The query grammar can ask about relations: `#tag`, `links:`, `under:`, `title~` and `text~` (PIE-554)
+
+- **New:** every client that queries (saved views, live figures, board lanes, `ep0ch find --query`, MCP `outline_query`)
+  now takes five more atoms, combined with `AND`, `OR`, `NOT` and parentheses like `key=value`: `#tag` (also nested
+  tags), `links:[[page]]` / `links:((id))` / `links:PIE-123` (the backlink index), `under:[[page]]` / `under:((id))`
+  (a subtree), `title~text` and `text~text` (caseless substrings). "What points at X" and "everything under Y except
+  Z" are views now, with no type-exclusion lists. A malformed atom, or a target that names no block, says which atom
+  and shows a working one.
+- **Protocol:** `PROTOCOL` is 118 (the grammar's shared part moved into outline-core `query-atoms.ts`). Update the
+  host and every client together with `ep0ch install --apply`; there is no schema change.
 
 ### The MCP gateway reads and writes the laptop's live outline when the laptop answers; stdio writes by the same grant (PIE-661)
 

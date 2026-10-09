@@ -1720,7 +1720,7 @@ status="in progress" project=pi-outliner
 work-stage::review type::roadmap-item
 ```
 
-Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. Aggregation and reference traversal are not part of the query language.
+Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. Aggregation is not part of the query language; the relation atoms below reach links, subtrees, tags and text.
 
 Saved-view `[query::…]` values, CLI `list --query` and the `expression` field of
 `blocks.query` / `outliner_query` also accept `OR`, `NOT`, parentheses and
@@ -1753,6 +1753,23 @@ created < 2026-09-01T12:00Z
   properties, never its children: `views.planWrite` checks `child:` clauses
   against the children as they are and refuses a move they don't allow, and a
   new block (which has no children) never satisfies a positive one.
+- **Atoms** (outline-core `query-atoms.ts` parses them, the service evaluates them; each combines with `AND`, `OR`,
+  `NOT` and parentheses like any clause, and works in saved views, live figures, board lanes, `ep0ch find --query`
+  and MCP `outline_query` alike):
+
+  | atom | holds for |
+  |---|---|
+  | `#tag` | blocks carrying the tag; `#jazz` also matches nested `jazz/hands` |
+  | `links:[[page]]`, `links:((id))`, `links:PIE-123` | blocks whose text or properties link to the target (the backlink index, so a ticket key counts) |
+  | `under:[[page]]`, `under:((id))` | blocks in the target's subtree, the target included |
+  | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
+  | `text~text` | blocks whose whole text contains the text, ignoring case |
+
+  Quote text with spaces (`title~"weekly review"`). A target that names no block fails the query with the atom and a
+  working example; a malformed atom does too (`links:` alone says `links: needs a target after the colon, like
+  links:[[garden]], links:((8f3a2c1d)) or links:PIE-123`). Example: `under:[[projects]] NOT links:[[archive]] #jazz`.
+  A move into a view planned by `views.planWrite` treats `links:` and `under:` like `child:`: they are checked against
+  where the block is and a move never changes them.
 - **Ranges:** `created` or `updated`, then `<`, `<=`, `>` or `>=`, then a time,
   with or without spaces. A `YYYY-MM-DD` date is a whole UTC day:
   `> 2026-09-20` starts on the 21st and `<= 2026-09-20` includes all of the

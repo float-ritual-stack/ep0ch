@@ -3,6 +3,7 @@ export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/pro
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+import type { QueryAtom } from "@ep0ch/outline-core/query-atoms";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -1321,6 +1322,8 @@ export type QueryExpression =
    */
   | { kind: "property"; key: string; value?: string; relation?: "child" }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
+  /** `#tag`, `links:`, `under:`, `title~` and `text~` (outline-core `query-atoms.ts`); the service evaluates them. */
+  | QueryAtom
   | { kind: "not"; operand: QueryExpression }
   | { kind: "and" | "or"; operands: QueryExpression[] };
 

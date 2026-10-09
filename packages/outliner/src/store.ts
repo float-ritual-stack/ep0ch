@@ -43,8 +43,10 @@ import { openSchema } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import {
+  BlockQueryError,
   compileQueryExpression,
   normalizeBlockSearchQuery,
+  type QueryRelations,
   parseSearchExpression,
   positivePropertyFilters,
   sortQueriedBlocks,
@@ -2855,6 +2857,40 @@ export class OutlinerStore {
   }
 
   /**
+   * What the query grammar's `links:` and `under:` atoms read (outline-core `query-atoms.ts`): the target resolved by
+   * `resolveBlockRef`, the backlink index (the one `::links` and backlinks use) and the tree. Built lazily, so a query
+   * without those atoms pays nothing.
+   */
+  private queryRelations(graph: LoadedGraph): QueryRelations {
+    const sources = new Map<string, ReadonlySet<string>>();
+    return {
+      resolve: (atom, target) => {
+        try {
+          return this.resolveBlockRef(target).id;
+        } catch (error) {
+          throw new BlockQueryError(`${atom}:${target} names no block (${error instanceof Error ? error.message : String(error)}). Name a page, a block id or a Work ID that exists, like ${atom}:[[projects]]`);
+        }
+      },
+      linkSources: (blockId) => {
+        let found = sources.get(blockId);
+        if (!found) {
+          found = new Set(backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set([blockId])).get(blockId) ?? []);
+          sources.set(blockId, found);
+        }
+        return found;
+      },
+      within: (blockId, rootId) => {
+        const seen = new Set<string>();
+        for (let at = graph.byId.get(blockId); at && !seen.has(at.id); at = at.parentId ? graph.byId.get(at.parentId) : undefined) {
+          if (at.id === rootId) return true;
+          seen.add(at.id);
+        }
+        return false;
+      },
+    };
+  }
+
+  /**
    * A block named the way a person or agent types it: an id, ((id)), an id's first 8+ characters (one block), a
    * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move`; refuses with what it tried.
    */
@@ -3552,7 +3588,7 @@ export class OutlinerStore {
       const plans = viewIds.map(viewId => {
         const view = writeView(viewId, active(viewId));
         // A `child:` clause reads the block's children, which a move leaves where they are.
-        const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) } : undefined;
+        const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties), relations: this.queryRelations(this.loadGraph()) } : undefined;
         return { viewId, plan: subject ? planMoveIntoView(view, subject, now) : planCreateInView(view, text, now) };
       });
       return { sequence: this.sequence, ...(block ? { revision: block.revision } : {}), plans };
@@ -3574,7 +3610,7 @@ export class OutlinerStore {
     if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
     const { filters, where } = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
-    const test = where ? compileQueryExpression(where) : null;
+    const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
     const terms = typeof text === "string" ? searchTextTerms(text) : [];
     return this.database.transaction(() => {
       if (typeof subtreeRootId === "string") this.require(subtreeRootId);
@@ -4182,7 +4218,7 @@ export class OutlinerStore {
     const filterTerms = options.text ? searchTextTerms(options.text) : [];
     const deletedMode = options.deletedMode ?? "active";
     const propertyScope = options.propertyScope ?? "block";
-    const where = options.where ? compileQueryExpression(options.where, options.now) : null;
+    const where = options.where ? compileQueryExpression(options.where, options.now, this.queryRelations(graph)) : null;
     const contextFilters = [...(options.filters ?? []), ...(options.where ? positivePropertyFilters(options.where) : [])];
     const visit = (block: Block, depth: number): boolean => {
       const effectivelyDeleted = Boolean(block.effectiveDeletedRootId);
