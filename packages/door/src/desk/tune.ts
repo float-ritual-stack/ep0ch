@@ -16,7 +16,7 @@
 // Every key and click is an action (TUNE_ACTIONS), so an agent tunes the same way, said on the screen and never with
 // the person's keys.
 import {
-  fieldKey, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText,
+  fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText,
   SURFACE_STEPS, type Breakpoint, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
 import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
@@ -76,7 +76,7 @@ export interface TuneTargetInfo {
   /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
   pictures?: string[];
   /** The list the reader's [ ] is in (`this list`): where its save goes, and its own layers. */
-  list?: { target: string | null; layers: StyleLayer[]; first: number } | null;
+  list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number } | null;
 }
 
 /** The rows that are a surface (PIE-675): drawn with a swatch of it beside the value, at the strength they're shown at. */
@@ -101,7 +101,7 @@ interface Shadow { why: string; kind: "level" | "variant"; src: StyleSource; can
 interface Armed { action: "tune.resetlevel" | "tune.revert"; words: string; target?: TuneTarget }
 
 /** The label of the outline's layer a target writes (look.ts's layers): `global`, `tile detail`, `page`, `style lab`. */
-const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("tile:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
+const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("instance:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
 /** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
 const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" || src.level === "tile" || src.level === "screen" || src.level === "instance" ? src.level : src.level === "page" && src.label === "page" ? "page" : src.label === "this list" ? "list" : "auto");
 
@@ -393,7 +393,7 @@ async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: St
   if (!target) throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
   const mine = tuning.get(target, field), at = src.block;
   // This tile's own: taken out of its spec (a save writes the spec without it).
-  if (target.startsWith("tile:")) {
+  if (target.startsWith("instance:")) {
     if (t.look.place.instance?.fields[field] !== undefined) return () => tuning.set(target, field, UNSET, actor, target);
     if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
     throw new ActionRefused(`${tk} isn't this tile's own`);
@@ -403,7 +403,7 @@ async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: St
     const line = (await board(desk).get(at))?.text.split("\n")[src.line] ?? "";
     const tokens = liveTokensInLine(line).filter(x => x.key.toLowerCase() === styleProperty(tk, src.variant ?? null));
     if (tokens.some(x => x.value.includes("|"))) throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is a tier: edit the line (or set it here with + −)`);
-    if (tokens.length) return () => tuning.set(target, field, UNSET, actor, at);
+    if (tokens.length) return () => { if (t.list?.revision !== undefined && !tuning.listSeen.has(target)) tuning.listSeen.set(target, t.list.revision); tuning.set(target, field, UNSET, actor, at); };
     if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
     throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is set by a shorthand: edit the line`);
   }
@@ -423,6 +423,16 @@ async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: St
   }
   if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
   throw new ActionRefused(src.line !== undefined ? `${tk} is set on line ${src.line + 1} of note ${at?.slice(0, 8) ?? "?"}: take it away there` : `${tk} on note ${at?.slice(0, 8) ?? "?"} is set by a shorthand or a tier: edit the note (or set it here with + −)`);
+}
+
+/**
+ * A list's own level takes only a list's fields (`list.gap`, `list.divider`, …: what its line can say), and remembers
+ * the note's revision it was tuned at, so the save writes the line it means.
+ */
+function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: ReturnType<typeof tuningOf>) {
+  if (!target.startsWith("list:")) return;
+  if (!isListField(field)) throw new ActionRefused(`this list sets only a list's values (list.gap, list.zebra…, list.divider…): ${field} is the page's, the tile's or a box's`);
+  if (t.list?.revision !== undefined && !tuning.listSeen.has(target)) tuning.listSeen.set(target, t.list.revision);
 }
 
 /** The step words for the status line and the result. */
@@ -495,6 +505,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
         const own = pane.ownValue(t, tk, lv, sc), parsed = own !== null && own !== UNSET ? parseStyleValue(tk, own) : null;
         const from = parsed && "value" in parsed ? parsed.value : values[tk];
         const next = tk === "header.image" ? stepPicture(from as string, t.pictures ?? [], step) : nudgeStyleValue(tk, from as StyleValue, step);
+        listOnly(a.target, a.field, t, tuning);
         tuning.set(a.target, a.field, styleValueText(next), actor);
         shown.push(styleValueText(next));
         at = `${targetWords(a.target)}${a.variant ? `, ${a.variant} only` : ""}`;
@@ -525,6 +536,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const t = fresh(pane, desk);
       const a = pane.aimAt(t, tk, lv, (width ?? pane.scope) === "this" ? "this" : "all");
       if (!a) throw new ActionRefused(`${pane.source} has no ${lv} level`);
+      listOnly(a.target, a.field, t, tuningOf(desk.ctx.board));
       tuningOf(desk.ctx.board).set(a.target, a.field, styleValueText(ok.value), actor);
       desk.redraw();
       if (actor.kind === "agent") desk.ctx.flash(says(actor, `set ${tk} to ${styleValueText(ok.value)} (${targetWords(a.target)}) · s saves`));
@@ -661,7 +673,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       if (!target) throw new ActionRefused(pane.level === "list" ? "the [ ] isn't in a list with a heading or a line above it" : `${pane.source} has no ${pane.level} level`);
       const tuning = tuningOf(desk.ctx.board), src = { board: desk.ctx.board, redraw: () => desk.redraw() };
       // This tile's: its spec's look. This list's: the list tokens on its owner line. Else the level's style notes.
-      const tileOwn = target.startsWith("tile:") ? Object.keys(t.look.place.instance?.fields ?? {}) : [];
+      const tileOwn = target.startsWith("instance:") ? Object.keys(t.look.place.instance?.fields ?? {}) : [];
       const listLine = parseListTarget(target), listOwn = listLine ? Object.keys(t.list?.layers.find(l => l.line === listLine.line)?.fields ?? {}) : [];
       const { notes, lines } = tileOwn.length || listLine ? { notes: [] as { id: string; fields: number }[], lines: [] as string[] } : levelNotes(src, target, t.look.place), nudges = tuning.layers.get(target)?.size ?? 0;
       const n = notes.reduce((k, x) => k + x.fields, 0) + tileOwn.length + listOwn.length;

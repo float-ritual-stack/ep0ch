@@ -44,7 +44,7 @@ export type TuneTarget = string;
 export function tuneTarget(level: SaveLevel, place: StylePlace, list?: TuneTarget | null): TuneTarget | null {
   if (level === "page") return place.page ? `page:${place.page.id}` : null;
   // This tile (its tile spec) and this list (its lead-in or heading line, where the reader's [ ] is): PIE-675.
-  if (level === "instance") return place.instance ? `tile:${place.instance.id}` : null;
+  if (level === "instance") return place.instance ? `instance:${place.instance.id}` : null;
   if (level === "list") return list ?? null;
   return levelTarget(level, place);
 }
@@ -63,7 +63,7 @@ export function parseListTarget(t: TuneTarget): { note: string; line: number } |
 export function sourceTarget(src: { level: string; label: string; block?: string; line?: number }, place: StylePlace): TuneTarget | null {
   const label = src.label.replace(/ · tuning$/, "");
   if (src.level === "global") return "global";
-  if (src.level === "instance") return place.instance ? `tile:${place.instance.id}` : null;
+  if (src.level === "instance") return place.instance ? `instance:${place.instance.id}` : null;
   if (src.level === "block" && label === "this list" && src.block && src.line !== undefined) return listTarget(src.block, src.line);
   if (src.level === "tile" || src.level === "screen") return label.replace(" ", ":");
   if (src.level === "page") return label.startsWith("style ") ? label.slice(6) : place.page ? `page:${place.page.id}` : null;
@@ -127,6 +127,11 @@ export class Tuning {
   /** A list's own line (`note:line`) and a tile's own look (its tile id), as they were before this session first wrote them. */
   readonly lineBaseline = new Map<string, Record<string, string[]>>();
   readonly tileBaseline = new Map<string, Record<string, string>>();
+  /**
+   * A list's target (`list:<note>:<line>`) → the note's revision when the inspector tuned it: its save is checked
+   * against it, so a line moved by an edit since is refused, never written over another line.
+   */
+  readonly listSeen = new Map<TuneTarget, number>();
   readonly last = new Map<string, number>();
   /** Bumped by every change: a reader's layout cache keys on it. */
   gen = 0;
@@ -292,7 +297,7 @@ export function lookFor(src: ListSource | null | undefined, place: StylePlace, w
   if (t?.layers.size) {
     const outlineAt = (target: TuneTarget): Record<FieldKey, string> | undefined => {
       if (target.startsWith("page:")) return layers.find(l => l.level === "page" && l.label === "page")?.fields;
-      if (target.startsWith("tile:")) return { ...(place.instance?.fields ?? {}) };
+      if (target.startsWith("instance:")) return { ...(place.instance?.fields ?? {}) };
       const merged: Record<FieldKey, string> = {};
       for (const s of sheets) if (s.for === target) Object.assign(merged, s.fields);
       return merged;
@@ -300,14 +305,14 @@ export function lookFor(src: ListSource | null | undefined, place: StylePlace, w
     // Whether note `block` still sets `field` itself (a declaration that's the note's own properties, or the page's).
     const has = (block: string, field: FieldKey) => sheets.some(s => s.block === block && s.line === undefined && field in s.fields)
       || layers.some(l => l.level === "page" && l.label === "page" && l.block === block && field in l.fields)
-      || (block.startsWith("tile:") && field in (place.instance?.fields ?? {}));
+      || (block.startsWith("instance:") && field in (place.instance?.fields ?? {}));
     // The tuning goes into the outline's layer it tunes (its newest declaration), as a save would write it, so a width
     // variant there keeps its precedence live as after the save; a level with no declaration gets a layer of its own.
     // A field taken away (UNSET) leaves the one declaration it's taken from, as the save will: an older one still shows.
     const put = (level: StyleLayer["level"], label: string, at: Map<FieldKey, Tuned>) => {
       const set = [...at].filter(([, v]) => v.value !== UNSET), gone = [...at].filter(([, v]) => v.value === UNSET);
       const fields = Object.fromEntries(set.map(([k, v]) => [k, v.value]));
-      for (const [k, v] of gone) layers.forEach((l, n) => { if (l.label === label && (l.block === v.from || (label === "this tile" && v.from?.startsWith("tile:")))) layers[n] = { ...l, fields: Object.fromEntries(Object.entries(l.fields).filter(([f]) => f !== k)) }; });
+      for (const [k, v] of gone) layers.forEach((l, n) => { if (l.label === label && (l.block === v.from || (label === "this tile" && v.from?.startsWith("instance:")))) layers[n] = { ...l, fields: Object.fromEntries(Object.entries(l.fields).filter(([f]) => f !== k)) }; });
       const i = layers.findLastIndex(l => l.label === label);
       if (i >= 0) layers[i] = { ...layers[i]!, fields: { ...layers[i]!.fields, ...fields } };
       else if (set.length) layers.push({ level, label, fields });
@@ -385,7 +390,7 @@ export interface StyleWriteBoard {
 }
 
 /** Words for a target: `global`, `tile detail`, `screen desk`, `this page`. */
-export const targetWords = (t: TuneTarget) => (t === "global" ? "global" : t.startsWith("page:") ? "this page" : t.startsWith("tile:") ? "this tile" : t.startsWith("list:") ? "this list" : t.includes(":") ? t.replace(":", " ") : `style ${t}`);
+export const targetWords = (t: TuneTarget) => (t === "global" ? "global" : t.startsWith("page:") ? "this page" : t.startsWith("instance:") ? "this tile" : t.startsWith("list:") ? "this list" : t.includes(":") ? t.replace(":", " ") : `style ${t}`);
 
 /** A note's style property keys (`style.…`). */
 const styleKeys = (m: Msg) => Object.keys(m.props ?? {}).filter(k => k.toLowerCase().startsWith("style."));
@@ -440,10 +445,10 @@ export interface TileLooks {
 
 /**
  * Writes a tile's own look (field key → value, null removing it) into its tile spec, which the layout saves: a step's
- * write like a note's (`tile:<id>`), kept in Tuning.tileBaseline before the first. Null when nothing changes.
+ * write like a note's (`instance:<id>`), kept in Tuning.tileBaseline before the first. Null when nothing changes.
  */
 export function writeTile(tiles: TileLooks | undefined, tuning: Tuning, target: TuneTarget, want: Readonly<Record<FieldKey, Want>>): NoteWrite | null {
-  const id = target.slice(5), now = tiles?.get(id);
+  const id = target.slice(9), now = tiles?.get(id);
   if (!tiles || !now) throw new Error(`tile ${id} isn't on this screen: its look can't be saved`);
   const next: Record<FieldKey, string> = { ...now }, before: Record<string, string[]> = {}, after: Record<string, string[]> = {};
   for (const [k, v] of Object.entries(want)) {
@@ -487,7 +492,7 @@ export async function writeLine(board: StyleWriteBoard, tuning: Tuning, note: st
 
 /** One write of a step again (an undo or a redo): to a tile's look, a list's line, or a note's properties. */
 async function writeAgain(board: StyleWriteBoard, tuning: Tuning, tiles: TileLooks | undefined, w: NoteWrite, want: Record<string, string[]>, expected: number | null, actor: Actor) {
-  if (w.note.startsWith("tile:")) return writeTile(tiles, tuning, w.note, want);
+  if (w.note.startsWith("instance:")) return writeTile(tiles, tuning, w.note, want);
   if (w.line !== undefined) return writeLine(board, tuning, w.note, w.line, want, expected, actor);
   return writeNote(board, tuning, w.note, want, expected, actor);
 }
@@ -503,7 +508,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
   const t = tuningOf(src.board), entry = t.unsaved().find(u => u.target === target);
   if (!entry) return null;
   // This tile's: into its tile spec, by field (the layout saves it). This list's: onto its owner line, as tokens.
-  if (target.startsWith("tile:")) {
+  if (target.startsWith("instance:")) {
     const want = Object.fromEntries(entry.fields.map(([k, v]) => [k, v === UNSET ? null : v]));
     const w = writeTile(tiles, t, target, want);
     if (w) done.push(w);
@@ -514,7 +519,9 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
   if (list) {
     const key = (k: FieldKey) => { const f = parseFieldKey(k)!; return styleProperty(f.token, f.variant); };
     const want = Object.fromEntries(entry.fields.map(([k, v]) => [key(k), v === UNSET ? null : v]));
-    const w = await writeLine(src.board, t, list.note, list.line, want, null, actor);
+    // At the revision the list was tuned at (or the one this session's own write left it at since): its line can't have moved.
+    const seen = t.listSeen.get(target), mine = t.last.get(list.note);
+    const w = await writeLine(src.board, t, list.note, list.line, want, seen === undefined ? null : mine !== undefined && mine > seen ? mine : seen, actor);
     if (w) done.push(w);
     t.markSaved(target, entry.fields);
     return { target, note: list.note, fields: Object.entries(want).map(([k, v]) => (v === null ? `${k} removed` : `${k}=${v}`)), created: false };
@@ -573,12 +580,12 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
 export async function rewrite(board: StyleWriteBoard, tuning: Tuning, writes: NoteWrite[], back: boolean, actor: Actor, tiles?: TileLooks) {
   const at = (w: NoteWrite) => tuning.last.get(w.note) ?? w.revision;
   for (const w of writes) {
-    if (w.note.startsWith("tile:")) continue;
+    if (w.note.startsWith("instance:")) continue;
     const m = await board.get(w.note);
     if (m && m.revision !== at(w)) throw new Error(`note ${w.note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
   }
   for (const w of back ? [...writes].reverse() : writes) {
-    const r = await writeAgain(board, tuning, tiles, w, back ? w.before : w.after, w.note.startsWith("tile:") ? null : at(w), actor);
+    const r = await writeAgain(board, tuning, tiles, w, back ? w.before : w.after, w.note.startsWith("instance:") ? null : at(w), actor);
     if (r) w.revision = r.revision;
   }
   SHEETS.stale(board);
@@ -645,7 +652,7 @@ export async function revertAll(board: StyleWriteBoard, tuning: Tuning, actor: A
       const cur = tiles?.get(id);
       if (!cur) continue;
       const keys = new Set([...Object.keys(cur), ...Object.keys(base)]);
-      const w = writeTile(tiles, tuning, `tile:${id}`, Object.fromEntries([...keys].map(k => [k, base[k] ?? null])));
+      const w = writeTile(tiles, tuning, `instance:${id}`, Object.fromEntries([...keys].map(k => [k, base[k] ?? null])));
       if (w) done.push(w);
     }
   } finally { SHEETS.stale(board); }

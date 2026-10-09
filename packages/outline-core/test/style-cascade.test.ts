@@ -254,5 +254,9 @@ describe("this tile and this list (PIE-675)", () => {
     const boxed = ["## Shed [style.list.gap::2]", "::box{pad=1}", "- rake", "::", "- hoe"];
     expect(listOwners(boxed, 2)).toEqual({ lead: null, heading: null });
     expect(listOwners(boxed, 4)).toEqual({ lead: null, heading: 0 });
+    // An example heading in a code fence owns nothing; the fence's closer isn't a lead-in.
+    const fenced = ["## Real", "```", "## Example [style.list.gap::2]", "```", "- one", "- two"];
+    expect(listOwners(fenced, 4)).toEqual({ lead: null, heading: 0 });
+    expect(listStart(fenced, 2)).toBeNull();
   });
 });

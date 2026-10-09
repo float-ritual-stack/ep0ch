@@ -565,6 +565,13 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       // Undone: the heading as it was.
       expect((await act("tune.undo")).words).toContain("save of style.list.gap");
       expect((await b4.get(garden.id))!.text.split("\n")[5]).toBe("## Ground");
+      // This list takes only a list's values; and its save refuses a note edited since it was tuned (its line may have moved).
+      await expect(act("tune.set", { row: "margin.x", value: "4", level: "list" })).rejects.toThrow(/this list sets only a list's values/);
+      await act("tune.set", { row: "list.gap", value: "1", level: "list" });
+      const g = (await b4.get(garden.id))!;
+      await b4.update(garden.id, g.text.replace("Garden lists\n", "Garden lists\nA new first line.\n"), g.revision!);
+      await expect(act("tune.save", { level: "list" })).rejects.toThrow(/changed since/);
+      expect((await b4.get(garden.id))!.text).not.toContain("[style.list.gap::");
     } finally { d.close(); b4.close(); }
   }, 60_000);
 

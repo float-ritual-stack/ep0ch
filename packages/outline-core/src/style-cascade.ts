@@ -30,6 +30,7 @@
 // export leaves it out. Pure: no I/O. A change to what it matches or computes bumps PROTOCOL (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
+import { noteCodeFences } from "./component-block";
 import { BUILTIN_HEADING_STYLES, bandMarginText, bandPaddingText, liveTokensInLine, parseBandMargin, parseBandPadding, type BandMargin, type BandRoom } from "./heading-styles";
 
 /** How a token's value is written and kept. */
@@ -507,9 +508,12 @@ export const isListField = (k: FieldKey) => { const f = parseFieldKey(k); return
  * and indented lines carry it on, an unindented line that isn't an item ends it. Null when `at` isn't in a list.
  */
 export function listStart(lines: readonly string[], at: number): number | null {
+  const code = fencedLines(lines);
+  if (code.has(at) && indentOf(lines[at]!) === 0) return null;
   let first: number | null = null;
   for (let i = at; i >= 0; i--) {
     const l = lines[i]!;
+    if (code.has(i)) { if (indentOf(l) > 0) continue; break; }
     if (LIST_ITEM.test(l)) { if (indentOf(l) === 0) first = i; continue; }
     if (!l.trim() || indentOf(l) > 0) continue;
     break;
@@ -523,13 +527,16 @@ export function listStart(lines: readonly string[], at: number): number | null {
  * can be null. A save goes to the lead-in when there is one, else the heading.
  */
 export function listOwners(lines: readonly string[], first: number): { lead: number | null; heading: number | null } {
+  const code = fencedLines(lines);
   const above = first > 0 ? lines[first - 1]! : "";
-  const lead = first > 0 && above.trim() && !LIST_ITEM.test(above) && !HEADING_LINE.test(above) && !COMPONENT_FENCE.test(above) && indentOf(above) === 0 ? first - 1 : null;
+  const lead = first > 0 && !code.has(first - 1) && above.trim() && !LIST_ITEM.test(above) && !HEADING_LINE.test(above) && !COMPONENT_FENCE.test(above) && indentOf(above) === 0 ? first - 1 : null;
   // The section's heading, within the component it's in: a box's list doesn't reach past its `::box{…}`, and one after a
   // box looks past the box's lines.
   let heading: number | null = null, depth = 0;
   for (let i = first - 1; i >= 0; i--) {
     const l = lines[i]!.trim();
+    // A fence's lines are code: an example heading in one owns nothing.
+    if (code.has(i)) continue;
     if (l === "::") { depth++; continue; }
     if (COMPONENT_FENCE.test(l)) { if (depth) { depth--; continue; } break; }
     if (!depth && HEADING_LINE.test(lines[i]!)) { heading = i; break; }
@@ -538,6 +545,12 @@ export function listOwners(lines: readonly string[], first: number): { lead: num
 }
 /** A component's fence line (`::box{…}`, `::graph-meter`, `::`). */
 const COMPONENT_FENCE = /^::/;
+/** The lines of `lines` that are code (a fence, its own lines too), by the one fence rule (code-fence.ts). */
+export function fencedLines(lines: readonly string[]): Set<number> {
+  const out = new Set<number>();
+  for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) out.add(j);
+  return out;
+}
 
 /** The list fields a line sets (`[style.list.gap::1]` on it), as written. */
 export function listFieldsOn(line: string): Record<FieldKey, string> {
