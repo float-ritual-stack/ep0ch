@@ -1,4 +1,5 @@
 // The door: a stack of screens, one status bar, one paint per change.
+import { anyUnsavedTuning } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import type { Placement } from "./kitty";
@@ -539,7 +540,10 @@ export class App implements Ctx {
     if (refusal) { this.flash(refusal); return false; }
     // Quitting, a reader in the drawer's unsaved edit asks too (its programs are the drawer's own warning).
     const dirty = [...screens, ...(quitting && this.drawer.made ? [this.drawer.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? null : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
+    // Quitting with the tune inspector's nudges unwritten (PIE-673): they live in memory, so say so once, never lose them silently.
+    const tuned = quitting ? anyUnsavedTuning() : 0;
+    const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null;
+    const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -979,6 +983,8 @@ export class App implements Ctx {
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
+    // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.
+    if (k.kind === "alt" && k.ch === "y" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.()) { void this.dispatch.press("tile.tune"); return; }
     // alt+w: what waits on you, the list in your drawer (host.waiting), on every screen but in a terminal tile (its program's).
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.

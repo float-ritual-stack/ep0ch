@@ -95,25 +95,32 @@ function balanceCode(rows: string[]): string[] {
 /**
  * `text` in rows of at most `w` cells. `code`: a body row colourBody will colour, whose code spans the wrap cut are
  * closed and reopened (balanceCode); the backticks it adds are taken out by colourBody, so only its callers ask. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
-export function wrap(text: string, w: number, { code = false }: { code?: boolean } = {}): string[] {
+export function wrap(text: string, w: number, { code = false, joins }: { code?: boolean; joins?: (string | undefined)[] } = {}): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];
+  // `joins` (PIE-673): for each row, what joins it to the row before when the wrap broke the line there (the whitespace
+  // it took, or "" where it cut a word longer than the row); undefined for a line's first row. A copy joins by it.
   for (const whole of text.split("\n")) {
-    if (!whole.length) { out.push(""); continue; }
+    if (!whole.length) { out.push(""); joins?.push(undefined); continue; }
     // A property token that fits a row is not broken across two: colourBody colours a row alone, so a half of a
     // chip would be drawn as plain text. Its spaces are held as NBSP-like placeholders while the line is cut.
     const raw = whole.includes("::") ? replacePropertyTokens(whole, t => (len(t.raw) <= w ? t.raw.replace(/\s/g, HELD) : t.raw)) : whole;
     // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
     // long paragraph's wrap quadratic).
     let line = "", n = 0;
-    const rows: string[] = [];
+    const rows: string[] = [], seams: (string | undefined)[] = [undefined];
     for (const word of raw.split(/(\s+)/)) {
       const wl = len(word);
-      if (n + wl > w && line.trim()) { rows.push(line.trimEnd()); line = word.trimStart(); n = len(line); }
+      if (n + wl > w && line.trim()) {
+        const kept = line.trimEnd();
+        seams.push(line.slice(kept.length) + word.slice(0, word.length - word.trimStart().length));
+        rows.push(kept); line = word.trimStart(); n = len(line);
+      }
       else { line += word; n += wl; }
-      while (n > w) { const [head, tail] = cut(line, w); rows.push(head); line = tail; n = len(line); }
+      while (n > w) { const [head, tail] = cut(line, w); rows.push(head); seams.push(""); line = tail; n = len(line); }
     }
     rows.push(line);
+    joins?.push(...seams.map(s => (s === undefined ? s : s.replaceAll(HELD, " "))));
     const held = raw !== whole ? rows.map(r => r.replaceAll(HELD, " ")) : rows;
     out.push(...(code ? balanceCode(held) : held));
   }

@@ -4,6 +4,7 @@
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
+import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -590,6 +591,10 @@ export class SocketBoard implements Board {
   /** The outline's heading styles (PIE-599): those its notes declare with [heading-style::name]; the built-ins are outline-core's. */
   async headingStyles(): Promise<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }> {
     return this.request<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }>("headings.styles", {});
+  }
+  /** The outline's style sheets (PIE-673): each [style-for::…] note or line with its style.* fields; the cascade is outline-core's. */
+  async styleSheets(): Promise<{ sheets: StyleSheet[]; problems: string[]; complete: boolean }> {
+    return this.request<{ sheets: StyleSheet[]; problems: string[]; complete: boolean }>("styles.list", {});
   }
   /** What a rule note (its text, never saved) draws on a sample note's text (PIE-618: a component page's rule variations). */
   async rulePreview(note: string, text: string): Promise<{ decorations: Decoration[]; problems: string[] }> {

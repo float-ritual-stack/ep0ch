@@ -1,4 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
+import type { Look } from "../look";
 import { RowView, wheelRows, type RowPress } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
@@ -27,6 +28,10 @@ export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: 
 
 export interface DeskApi {
   ctx: Ctx;
+  /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
+  lookOf?(p: Pane): Look | undefined;
+  /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
+  tileLook?(name: string): { look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null } | null;
   /** The screens held one inside the next down to this desk (a mount is checked against it). */
   mountChain?(): string[];
   current: Msg | null;
@@ -115,6 +120,11 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  /**
+   * Its content is a note's text: the look's `measure` holds it to that many columns, centred (PIE-673). A list, a
+   * terminal or a whole screen fills its tile.
+   */
+  readonly measured?: boolean;
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
   title(): string;
@@ -219,6 +229,7 @@ export { propertyChange };
 export class ReaderPane implements Pane {
   /** "detail": a tile that keeps its note (held from the start); "preview": one that follows a tile or a file. */
   readonly kind: TileKindName = "reader";
+  readonly measured = true;
   readonly surface = new NoteSurface();
   private held = false;
   /**
@@ -272,6 +283,8 @@ export class ReaderPane implements Pane {
       // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
       navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
+      // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
+      get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),

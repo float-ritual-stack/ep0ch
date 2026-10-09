@@ -10,6 +10,31 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Your look, tuned live: spacing and list density from notes, with a tune inspector (PIE-673)
+
+- **New:** a tile's padding, a note's measure (the widest its text runs, centred in a wider tile; a reader's is 88 by
+  default) and margin, a list's gap, dividers and zebra, and a heading's spacing come from notes in the outline, so you
+  change them without an agent or a build. A note says what it styles and how: `[style-for::global]`,
+  `[style-for::tile:detail]`, `[style-for::screen:desk]`, or a name a page uses (`[style::airy]`), with fields such as
+  `[style.measure::72] [style.pad::1] [style.list.gap::1] [style.list.divider::dots]`; a page can set its own, and a box
+  in a note too (`::box{margin.x=4 list.gap=0}` … `::`). Any field takes a width (`[style.narrow.margin.x::0]`, under 60
+  columns). The nearest level wins: built-in, a heading style, global, the tile's kind, the screen, the page, a box. An
+  edit to a style note restyles every door on the outline at once.
+- **New:** the tune inspector (`alt+y`, `^W o y`, or "tune its look" in a tile's ⋯ menu) beside a tile lists each value
+  and where it comes from. `+` `−`, a click on `[−] [+]` or the wheel over a value nudge it, and the tile moves in the
+  next frame. A nudge goes where the value is set (or to the level you pick with v), for every width or (w) this width
+  only. `s` saves to the outline, `u` undoes, `x` resets. Quitting with nudges unsaved says so.
+- **Unchanged text:** spacing is drawn, never text. A drag, `y`, `Y`, `select.copy`, `peek` and `ep0ch export` give the
+  note's words, a wrapped line joined, with no margin, gap or divider in them; a click lands on the character under it.
+  A terminal's own selection (a shift-drag, tmux or Herdr copy-mode) copies the screen as it is, spaces included: use the
+  door's own drag, which copies the text over OSC 52.
+- **Heading styles:** a heading style's `heading-margin` and `heading-padding` are the same tokens as a style note's
+  `heading.margin` and `heading.padding`, so an outline can set a default margin for every heading. A style's margin rows are no longer copied as blank
+  lines.
+- **Protocol 115:** the host lists the style notes (`styles.list`), and outline-core's component rule reads `::name{…}`.
+  Run `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for float-hub): it restarts the host on the
+  new code; until then a door on this code refuses the old host and says to run it.
+
 ### The MCP gateway reads and writes the laptop's live outline when the laptop answers; stdio writes by the same grant (PIE-661)
 
 - **Changed:** the local stdio server (`ep0ch mcp`) is no longer always read-only. It honours the same access levels as

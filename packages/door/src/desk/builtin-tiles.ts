@@ -1,3 +1,4 @@
+import { TUNE_ACTIONS, TunePane } from "./tune";
 import { ch } from "../term";
 // The built-in tile kinds (PIE-505), registered at startup in the registry an extension's kinds join
 // (src/desk/tile-kinds.ts). Everything a kind does differently lives in its entry: how it's made, its keys
@@ -167,6 +168,16 @@ const builtins = (): TileKind[] => [
     shows: p => (p as QueryPane).card() ?? null,
     view: p => { const q = p as QueryPane, m = q.card(); return { viewport: { view: q.view, lane: q.name, selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: p => (p as QueryPane).describe(),
+  },
+  {
+    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing and list values, where each comes from, nudged and saved (PIE-673)",
+    keys: [{ key: "y", label: "tune", spec: at => ({ source: `tile:${at.name}` }) }],
+    make: s => { const src = s.source && sourceOf(s.source); return new TunePane(src && "tile" in src ? src.tile : "reader"); },
+    actions: TUNE_ACTIONS,
+    check: s => (s.source && !/^tile:./.test(s.source) ? "a tune tile's source is tile:<name>" : null),
+    defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
+    describe: (p, full) => ({ source: `tile:${(p as TunePane).source}`, ...(full ? { tune: (p as TunePane).describe() } : {}) }),
+    peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
     kind: "backlinks", about: "the links of what another tile shows (source=tile:<name>): its outlinks, resources and backlinks",

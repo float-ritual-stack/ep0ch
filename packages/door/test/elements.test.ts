@@ -297,13 +297,12 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(p.surface.describe().folds!.folded).toEqual(["## Beds"]);
     expect(current(p)).toMatchObject({ kind: "fold", label: "## Beds" });
     click(where(frame(), "## Beds", rect("preview")));
-    // The comment mark sits in the margin, one cell left of the item.
-    const item = where(frame(), "dig the north bed", rect("preview"));
-    const r = rect("preview");
-    click({ x: r.col + 1, y: item.y });
+    // The comment mark sits in the margin, on the first row of the passage it quotes (where the look's measure puts it).
+    const mark = where(frame(), "▐", rect("preview"));
+    click({ x: mark.x - 1, y: mark.y });
     await shows("preview", "Use the long spade.");                     // expanded inline (PIE-420)
     expect(current(p)!.kind).toBe("comment");                          // and it's the [ ] position
-    click({ x: r.col + 1, y: item.y });
+    click({ x: mark.x - 1, y: mark.y });
     frame();
     expect(p.surface.expanded.size).toBe(0);
     click(where(frame(), "Turn the compost", rect("preview")));

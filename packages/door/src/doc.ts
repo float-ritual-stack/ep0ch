@@ -14,9 +14,15 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
+import { headingComponentLayer, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
+  /**
+   * The look (PIE-673): its list rows (gap, divider, zebra) and heading spacing, and the layers it came from, which a
+   * heading's style and a `::box{…}` add theirs to. Without it the body is drawn as it always was.
+   */
+  look?: { values: StyleValues; layers: readonly StyleLayer[]; width: number };
   /**
    * Why images aren't drawn (`graphics` off): said on each image's line ("no Kitty graphics in this terminal").
    * Without it (an embed, a draft's preview) the line names the image and says nothing about graphics.
@@ -139,6 +145,14 @@ export interface Doc {
   blocks: DocBlock[];
   /** The header image (`env.hero`): the first `[layout::hero]` image, drawn by the reader above the title. */
   hero?: DocMedia & { media: Media };
+  /** Rows on the look's quiet zebra tint (every other list item, `list.zebra`): [from, to) ranges. */
+  zebra?: [number, number][];
+  /**
+   * Rows that carry on the row before them (a paragraph or list item soft-wrapped), each with what joins it to that row:
+   * the whitespace the wrap took, or "" where it cut a word (src/text.ts wrap's `joins`). A copy joins by it, so the text
+   * is the source at any width.
+   */
+  wraps?: Map<number, string>;
 }
 
 /**
@@ -283,6 +297,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const trims = new Map<number, DocTrim>(), blocks: DocBlock[] = [];
   const cut = (row: number, ...cuts: [number, number, string?][]) => { const t = trims.get(row); if (t) t.cuts.push(...cuts); else trims.set(row, { cuts }); };
   const edge = (row: number) => trims.set(row, { cuts: [[0, Infinity]], edge: true });
+  // A heading's or rule's margin rows (its style's, or the look's heading.margin) are spacing: edge rows, never copied.
+  const wraps = new Map<number, string>();
+  // A prose line's rows after its first carry it on, joined as the wrap said (a quote's don't: each row is a `>` line again).
+  const wrapped = (at: number, joins: readonly (string | undefined)[]) => joins.forEach((j, k) => { if (k > 0 && j !== undefined) wraps.set(at + k, j); });
+  const marginEdges = (at: number, h: { rows: string[]; margin?: { top: number; bottom: number } }) => {
+    if (!h.margin) return;
+    for (let r = 0; r < h.margin.top; r++) edge(at + r);
+    for (let r = 0; r < h.margin.bottom; r++) edge(at + h.rows.length - 1 - r);
+  };
   /**
    * A sub-document's rows taken in at `base`: its trims and blocks moved by `dx` cells and `off` lines. `frame`: its rows sit
    * inside a frame `│ … │` (2 cells each side, the text `inner` wide), which is decoration too.
@@ -295,6 +318,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (frame) cuts.push([0, dx], [dx + frame.inner, Infinity]);
       if (cuts.length) cut(base + r, ...cuts);
     });
+    for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
@@ -315,11 +339,67 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
   };
   if (env.after) inserted = -1;
+  const look = env.look;
+  let run: { n: number } | null = null, zebraFrom: number | null = null;
+  const zebra: [number, number][] = [];
+  const endZebra = () => { if (zebraFrom !== null && out.length > zebraFrom) zebra.push([zebraFrom, out.length]); zebraFrom = null; };
   for (let i = 0; i < src.length; i++) {
     mark();
     insert(i);
     from = i;
     const line = src[i]!;
+
+    // The look's list rows (PIE-673): blank rows and a divider between one item and the next, every other item tinted.
+    // Drawn, never text: the gap and the divider are edge rows, so a copy across them joins the items with one newline.
+    if (look && rawStructure[i] === -1 && !lit(i)) {
+      if (ITEM.test(line)) {
+        if (run) {
+          endZebra();
+          for (let g = 0; g < look.values["list.gap"]; g++) { edge(out.length); out.push(""); }
+          const d = look.values["list.divider"];
+          if (d !== "none") { edge(out.length); out.push(fg(C.dark) + (d === "dots" ? "· ".repeat(Math.ceil(W / 2)).slice(0, W) : "─".repeat(W)) + RESET); }
+          run.n++;
+        } else run = { n: 0 };
+        if (look.values["list.zebra"] && run.n % 2 === 1) zebraFrom = out.length;
+      } else if (line.trim() && indentOf(line) === 0) { endZebra(); run = null; }
+    }
+
+    // A box (`::box{margin.x=2 list.gap=1}` … `::`, PIE-549's block attributes): the lines inside drawn by this same
+    // renderer with the box as the block level of the look, inset by its margin and padding (drawn, never copied).
+    const boxed = componentAt.get(i);
+    if (boxed && boxed.name === "box" && boxed.attrs !== undefined) {
+      const attrs = parseStyleAttrs(boxed.attrs);
+      const layers = [...(look?.layers ?? []), { level: "block" as const, label: "box", fields: attrs.fields }];
+      // At the tile's width (the look's), so a width variant means the same inside the box as around it.
+      const at = look?.width ?? W;
+      const v = resolveStyle(layers, at).values;
+      // A box's own margin and padding are its own (as CSS's aren't inherited); the list tokens carry on from the page.
+      const own = resolveStyle([{ level: "block", label: "box", fields: attrs.fields }], at);
+      const mine = (t: "margin.x" | "pad.x" | "margin.y" | "pad.y") => (own.sources[t].level === "block" ? own.values[t] : 0);
+      const ix = Math.max(0, Math.min(Math.floor((W - 10) / 2), mine("margin.x") + mine("pad.x"))), iy = mine("margin.y") + mine("pad.y");
+      const inner = Math.max(8, W - 2 * Math.max(0, ix)), off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
+      const sub = renderDoc(src.slice(i + 1, end).join("\n"), {
+        ...env, nested: true, width: inner, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined, look: { values: v, layers, width: at },
+        literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
+        folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
+      });
+      endZebra(); run = null;
+      mark();
+      for (let g = 0; g < iy; g++) { edge(out.length); out.push(""); source.push(i); }
+      const base = out.length, lead = " ".repeat(Math.max(0, ix));
+      sub.lines.forEach((l, r) => { out.push(lead + l); source.push(off + (sub.source[r] ?? 0)); });
+      for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+      adopt(sub, base, ix, off);
+      sub.lines.forEach((_, r) => { if (ix > 0 && !trims.get(base + r)?.edge) cut(base + r, [0, ix]); });
+      for (const [a, b] of sub.zebra ?? []) zebra.push([base + a, base + b]);
+      // Its pictures and media lines, moved to where the box put its rows (an image's index kept to its record).
+      const imageBase = images.length;
+      for (const im of sub.images) images.push({ ...im, line: im.line + base, col: im.col + Math.max(0, ix) });
+      for (const x of sub.media) mediaRefs.push({ ...x, row: x.row + base, line: x.line + off, ...(x.image !== undefined ? { image: x.image + imageBase } : {}) });
+      for (let g = 0; g < iy; g++) { edge(out.length); out.push(""); source.push(end); }
+      i = end;
+      continue;
+    }
 
     // A rule's decoration in these lines' place, or around them (PIE-600).
     const deco = env.decorate?.(i, W);
@@ -363,10 +443,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (fp && env.folds && fp.kind !== "callout") {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
       const disclosure = { folded, selected, hidden: fp.hidden };
-      const styled = fp.kind === "heading" ? styledHeading(line, W, env, lit(i), disclosure) : null;
-      const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)));
-      if (!styled) proseCuts(line, W, disclosure).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + k, ...c); });
+      const styled = fp.kind === "heading" ? headingRows(line, W, env, lit(i), disclosure) : null;
+      const joins: (string | undefined)[] = [];
+      const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)), joins);
+      if (!styled || styled.plainAt !== undefined) proseCuts(line, W, disclosure).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + (styled?.plainAt ?? 0) + k, ...c); });
       heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
+      if (styled) marginEdges(out.length, styled);
+      else wrapped(out.length, joins);
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
       continue;
@@ -565,9 +648,16 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const setext = /^ {0,3}-/.test(line) && !!prev.trim() && !HEADING.test(prev);
     const declared = lit(i) ? null : styleDeclaration(line, W);
     if (declared) { out.push(...declared); continue; }
-    const styled = styledHeading(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
-    if (styled) { out.push(...styled.rows); continue; }
-    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)));
+    const styled = headingRows(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
+    if (styled) {
+      const plainAt = "plainAt" in styled ? styled.plainAt as number | undefined : undefined;
+      if (plainAt !== undefined) proseCuts(line, W).forEach((c, k) => { if (c.length) cut(out.length + plainAt + k, ...c); });
+      marginEdges(out.length, styled);
+      out.push(...styled.rows);
+      continue;
+    }
+    const joins: (string | undefined)[] = [];
+    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)), joins);
     proseCuts(line, W).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + k, ...c); });
     // A run of `>` lines is one quote: its copy control is on the first.
     if (/^\s*>/.test(line)) {
@@ -575,17 +665,20 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (last?.kind === "quote" && last.end === i && last.row + last.rows === out.length) { last.rows += rows.length; last.end = i + 1; last.inner[1] = i + 1; last.text += "\n" + text; }
       else blocks.push({ kind: "quote", row: out.length, rows: rows.length, line: i, end: i + 1, inner: [i, i + 1], strip: 1, text, col: W - 1 });
     }
+    wrapped(out.length, joins);
     out.push(...rows);
   }
+  endZebra();
   mark();
   insert(src.length);
   // The inline code spans as drawn (nested documents' are found again in the rows they were framed into), and every block in reading order.
   const finish = (lines: string[]) => { blocks.push(...codeSpans(lines, source)); blocks.sort((a, b) => a.row - b.row || a.col - b.col); return blocks; };
   // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
   out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
-  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) }; }
+  const z = { ...(zebra.length ? { zebra } : {}), ...(wraps.size ? { wraps } : {}) };
+  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}) };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z };
 }
 
 /** Rows `cols` cells of `m` take, its aspect kept. */
@@ -694,7 +787,34 @@ function styleOf(line: string, env: DocEnv): { style: HeadingStyle | null; text:
   const reg = env.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
   const named = sl.style !== null ? reg.style(sl.style) : sl.kind === "heading" ? reg.forLevel(sl.level) : reg.forRule();
   const base = named ?? (sl.style !== null || !sl.fields.length ? null : sl.kind === "rule" ? reg.style("fade") ?? BASE_HEADING_STYLE : BASE_HEADING_STYLE);
-  return { style: base && headingStyleWith(base, sl.fields).style, text: sl.text, level: sl.level, kind: sl.kind };
+  const style = base && headingStyleWith(base, sl.fields).style;
+  return { style: style && base ? cascaded(style, base, sl.fields, env) : style, text: sl.text, level: sl.level, kind: sl.kind };
+}
+
+/**
+ * A heading style's margin and padding through the look's cascade (PIE-673, one system with PIE-599): the style is the
+ * component level, the outline's levels over it, the heading's own `heading-margin` and `heading-padding` the block
+ * level over those. Without a look the style is as written.
+ */
+function cascaded(style: HeadingStyle, base: HeadingStyle, fields: readonly { key: string; value: string }[], env: DocEnv): HeadingStyle {
+  if (!env.look) return style;
+  const own = styleFieldsOf(fields, "this heading", []);
+  const v = resolveStyle([...env.look.layers, headingComponentLayer(base), { level: "block", label: "this heading", fields: own }], env.look.width).values;
+  return { ...style, margin: v["heading.margin"], padding: v["heading.padding"] };
+}
+
+/**
+ * A heading's rows: styled (headingStyle), or plain with the look's heading margin around it (`plainAt`: the row its
+ * prose starts on, for its cuts), with the margin it took. Null for a line that isn't a heading, or a plain heading
+ * with no margin.
+ */
+function headingRows(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number; margin?: { top: number; bottom: number }; plainAt?: number } | null {
+  const styled = styledHeading(line, W, env, literal, fold);
+  if (styled) return styled;
+  const m = env.look?.values["heading.margin"];
+  if (!m || (!m.top && !m.bottom) || !HEADING.test(line) || literal) return null;
+  const rows = prose(line, W, fold, literal);
+  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top };
 }
 
 /** A property token left on a heading in a band (`[who::sam]`): a chip after the heading, never its text. */
@@ -733,29 +853,29 @@ function styleDeclaration(line: string, W: number): string[] | null {
  * figures' tier rule or too long for the band, the heading as `#` draws it, without the style's property. Null for a
  * line that isn't a heading, or a heading with no style and no property.
  */
-function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number } | null {
+function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number; margin?: { top: number; bottom: number } } | null {
   const st = styleOf(line, env);
   if (!st || st.kind !== "heading" || (st.style === null && st.text === line)) return null;
   // `## [heading::band]` is a heading with no text: drawn as written.
   const h = st.text.match(HEADING);
   if (!h) return { rows: prose(st.text, W, fold, literal), headRow: 0 };
   const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
-  if (band) return { rows: band.rows, headRow: band.textRow };
+  if (band) return { rows: band.rows, headRow: band.textRow, ...(st.style ? { margin: st.style.margin } : {}) };
   const margin = st.style?.margin;
   const plain = prose(st.text, W, fold, literal);
   if (!margin) return { rows: plain, headRow: 0 };
   const m = withMargin(margin, plain, 0);
-  return { rows: m.rows, headRow: m.textRow };
+  return { rows: m.rows, headRow: m.textRow, margin };
 }
 
 /** A rule (`---`) with a style: its track, or as written when narrow. Null for a line that isn't one, or a plain one. */
-function styledRule(line: string, W: number, env: DocEnv): { rows: string[] } | null {
+function styledRule(line: string, W: number, env: DocEnv): { rows: string[]; margin?: { top: number; bottom: number } } | null {
   const st = styleOf(line, env);
   if (!st || st.kind !== "rule" || (st.style === null && st.text === line)) return null;
   const track = st.style && drawTrack(st.style, W);
-  if (track) return { rows: track };
+  if (track) return { rows: track, ...(st.style ? { margin: st.style.margin } : {}) };
   const rows = wrap(st.text.trim(), W).map(l => fg(C.dark) + l + RESET);
-  return { rows: st.style ? withMargin(st.style.margin, rows, 0).rows : rows };
+  return st.style ? { rows: withMargin(st.style.margin, rows, 0).rows, margin: st.style.margin } : { rows };
 }
 
 /**
@@ -771,7 +891,7 @@ function headingLabel(text: string, level: number, style: HeadingStyle, fold?: D
 }
 
 /** Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). */
-function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null): string[] {
+function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null, joins?: (string | undefined)[]): string[] {
   const out: string[] = [];
   const inline = (s: string) => inlineOf(s, literal);
   if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2, BODY)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
@@ -789,12 +909,12 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
     const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const box = task ? li[3]!.match(BOX)?.[0] : undefined;
     const drawn = box ? task!(box) : null;
-    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, BODY);
+    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, { ...BODY, joins });
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;
   }
   if (!line.trim()) return [""];
-  return wrap(line, W, BODY).map(inline);
+  return wrap(line, W, { ...BODY, joins }).map(inline);
 }
 
 const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey), TAG_CHAR = /[\u{100000}-\u{10FFFD}]/u;

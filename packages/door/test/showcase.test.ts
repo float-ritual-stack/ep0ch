@@ -383,7 +383,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    detail: ["─ detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -446,6 +446,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     esc: ["Allotment notebook", "Bike shed"],
     // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
     headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
+    // The Spacing lab page in its look, the tune inspector beside it, the links tile, the Looks lab note that declares it.
+    style: ["Spacing lab", "tune · lab", "list.gap", "Looks lab"],
     // The component library on the heading styles' page: its tabs, its parts, the minimal example.
     library: ["Heading styles", "1 overview", "Minimal example"],
     // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
@@ -557,6 +559,34 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("the style section (PIE-673): the lab page in its named style; the tune inspector shows where each value comes from, a nudge through act draws at once and saves onto the style note that set it", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
+    await until(() => marks.style!.every(m => screen().includes(m)) && /· · · ·/.test(screen()), "the lab, its dividers and the inspector", 8000);
+    expect(screen()).toMatch(/list\.gap +1 +← style lab/);
+    const gap = () => { const l = screen().split("\n"); return l.findIndex(x => x.includes("Chillies in")) - l.findIndex(x => x.includes("Tomatoes on")); };
+    const before = gap();
+    // An agent's nudge goes where the value is set (the lab style), drawn in the next frame, said on the screen.
+    expect(await app.act({ action: "tune.nudge", args: { row: "list.gap", by: 1 }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "2", at: expect.stringContaining("style lab") });
+    expect(gap()).toBe(before + 1);
+    expect(screen()).toMatch(/list\.gap +2 +● style lab/);
+    // Saved: onto the Looks lab note, which every door reads; then put back, so the outline is as seeded.
+    expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
+    expect((await board.get(seeded.notes.looksLab.id))!.text).toMatch(/\[style\.(narrow\.)?list\.gap::2\]/);
+    expect(await app.act({ action: "tune.set", args: { row: "list.gap", value: "1" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "1" });
+    expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
+    // The person's keys: into the stage, 2 to the inspector, + nudges the measure a step (4 columns), u takes it back.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("2");
+    ch("+");
+    await until(() => /measure +68 +● style lab/.test(screen()), "the measure nudged by the person's +", 5000);
+    ch("u");
+    await until(() => /measure +64 +← style lab/.test(screen()), "the nudge taken back", 5000);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 30_000);
 
   test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {
     (app as any).lastInput = 0;

@@ -1,6 +1,7 @@
 import { queryRequestProblem } from "./block-query";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
+import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -1020,18 +1021,36 @@ export class OutlinerServer {
 
   /** The outline's heading styles (`headings.styles`, PIE-599): those its notes and lines declare, and what's wrong with any. */
   private headingStyles() {
-    // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles. A
-    // `[heading-style::name]` of any scope declares one: block scope with the note's own properties, a line's or
-    // an inline one with the tokens on its line (the save-time parser's scopes, so a code span declares nothing).
-    const declared = this.store.queryBlocks({ filters: [{ key: "heading-style" }], propertyScope: "all", limit: 500 });
+    // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles.
+    const { declarations, complete } = this.declarations("heading-style");
+    return { ...headingStylesFromBlocks(declarations), complete };
+  }
+
+  /**
+   * The outline's style sheets (`styles.list`, PIE-673): each `[style-for::…]` note or line with its `style.*` fields,
+   * oldest first (a later one for the same target wins field by field), and what's wrong with any. The cascade itself
+   * is outline-core's (style-cascade.ts), resolved by each renderer for where it draws.
+   */
+  private styleSheets() {
+    const { declarations, complete } = this.declarations("style-for");
+    return { ...styleSheetsFromBlocks(declarations), complete };
+  }
+
+  /**
+   * The notes and lines that declare something with `[key::name]`, oldest first: a declaration of any scope counts,
+   * block scope with the note's own properties, a line's or an inline one with the tokens on its line (the save-time
+   * parser's scopes, so a code span declares nothing). Heading styles (PIE-599) and style sheets (PIE-673) both.
+   */
+  private declarations(key: string) {
+    const declared = this.store.queryBlocks({ filters: [{ key }], propertyScope: "all", limit: 500 });
     const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
     const declarations = blocks.flatMap((block) => {
       const records = parsePropertyRecords(block.text).filter((r) => r.syntax !== "hashtag");
-      return records.filter((r) => r.key === "heading-style").map((r) => r.scope === "block"
+      return records.filter((r) => r.key === key).map((r) => r.scope === "block"
         ? { id: block.id, properties: block.properties }
         : { id: block.id, line: r.line, properties: records.filter((o) => o.line === r.line && o.scope !== "block") });
     });
-    return { ...headingStylesFromBlocks(declarations), complete: declared.completeness.kind === "complete" };
+    return { declarations, complete: declared.completeness.kind === "complete" };
   }
 
   private attentionClient(clientId: string): OutlinerClientRegistration {
@@ -2583,6 +2602,9 @@ export class OutlinerServer {
           break;
         case "headings.styles":
           result = this.headingStyles();
+          break;
+        case "styles.list":
+          result = this.styleSheets();
           break;
         case "rules.preview": {
           if (typeof request.note !== "string" || typeof request.text !== "string") throw new Error("rules.preview needs note and text");

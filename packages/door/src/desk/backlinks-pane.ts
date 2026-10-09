@@ -11,6 +11,8 @@
 //
 // The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
 // line by `layoutLinksStatus`. One model and one drawing, not three.
+import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
+import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
 import { describeLinkRow, isLinkEntry, isLinkGroup, linkAcross, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
@@ -96,6 +98,8 @@ export class BacklinksPane implements Pane {
   /** The selected row, and the first row drawn. */
   sel = 0;
   private view = new RowView();
+  /** The rows as last drawn, with the look's spacing between them (src/list-look.ts). */
+  private slots: ListSlot[] = [];
   options: BacklinkViewOptions = { ...DEFAULT_BACKLINK_VIEW_OPTIONS };
   expanded = new Set<string>();
   /** The status line's controls as last drawn (for clicks), and how many rows it took. */
@@ -235,8 +239,15 @@ export class BacklinksPane implements Pane {
     this.head = st.rows;
     const fit = Math.max(1, h - this.head);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
-    this.view.place(this.sel, rows.length, fit);
-    rows.slice(this.view.top, this.view.top + fit).forEach((row, j) => lines.push(linkRowLine(row, { selected: this.view.top + j === this.sel, focused, cols: w })));
+    // The look's list rows (PIE-673): gaps between rows, a divider between groups (dots by default), zebra on every other.
+    const v = desk.lookOf?.(this)?.values ?? BASE_STYLE;
+    const { slots, at } = listSlots(rows.length, v, i => rows[i]!.kind === "group");
+    this.slots = slots;
+    this.view.place(at[this.sel] ?? 0, slots.length, fit);
+    for (const slot of slots.slice(this.view.top, this.view.top + fit)) {
+      if ("item" in slot) { const selected = slot.item === this.sel; lines.push(zebraRow(linkRowLine(rows[slot.item]!, { selected, focused, cols: w }), slot.item, w, v, selected)); }
+      else lines.push("divider" in slot ? dividerLine(v["list.divider"], w) : "");
+    }
     if (!rows.some(isLinkEntry) && this.opts().filter) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };
   }
@@ -383,7 +394,9 @@ export class BacklinksPane implements Pane {
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
     if (c?.control) { this.run(desk, "backlinks.view", { step: c.control }); return true; }
-    const i = this.view.top + y - this.head, row = this.rows()[i];
+    // A gap or a divider row is the list's drawing, not a row: a press there selects nothing.
+    const slot = this.slots[this.view.top + y - this.head];
+    const i = slot && "item" in slot ? slot.item : -1, row = this.rows()[i];
     if (y < this.head || !row) return true;
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
     const header = row.kind === "group" || row.kind === "kind";

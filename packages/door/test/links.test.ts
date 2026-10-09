@@ -13,7 +13,8 @@ import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
+import { tuningOf } from "../src/look";
 import { extractLinks, LINK_END, linkTag, pad, width } from "../src/style";
 import type { Key } from "../src/term";
 import { SCROLL_ROWS } from "../src/scroll";
@@ -220,6 +221,12 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
 
   test("a backlinks row opens its source in a detail, the preview follows it, and a link in that preview opens in a detail too", async () => {
     await fresh();
+    // The links tile drawn dense for this tile's few rows: no divider between its groups (the look's, PIE-673).
+    const tuning = tuningOf(board);
+    tuning.set("tile:backlinks", "list.divider", "none", USER);
+    try { await backlinkRowOpens(); } finally { tuning.clear("tile:backlinks"); }
+  }, 20_000);
+  const backlinkRowOpens = async () => {
     key(char("b"));
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
     // Grouped as Detail groups them (PIE-442): a note isn't an open item, so its group opens first.
@@ -239,7 +246,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     click(where(frame(), "Weekend jobs", pr, 1));                          // the first is the quoted snippet in its title, not a link
     await until(() => B().details.some((x: ReaderPane) => x.msg?.id === n.jobs.id), "the link in a detail");
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
-  }, 20_000);
+  };
 
   test("only the links rows drawn are clickable: not the frame, the status line, nor the spare rows under the last source", async () => {
     await fresh();
@@ -260,7 +267,9 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     expect(B().details.length).toBe(0);
     click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn: a double click opens it
     click({ x: r.col + 3, y: r.row + head + fit });
-    expect(L.sel).toBe(fit - 1);
+    // The rows drawn are the list's with the look's spacing between them (a divider between groups, PIE-673): the last is an item.
+    const last = (L as any).slots.slice(0, fit).at(-1);
+    expect(L.sel).toBe(last.item);
     await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
     // A short list leaves spare rows under it: a click there does nothing.
     L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };

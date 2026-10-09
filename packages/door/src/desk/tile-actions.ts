@@ -474,6 +474,14 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return (on ?? !d.isGroup(reader)) ? d.groupTile(reader, { node, with: w, where: pl as Dir, name, label }, actor) : d.ungroupTile(reader, actor);
     },
   }),
+  "tile.tune": def({
+    summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
+    keys: "alt+y; ^W o y; the tile menu's \"tune its look\"",
+    touches: "shape", replay: "ask", says: r => `· tuning ${r.tunes}`,
+    menu: { label: "tune its look", group: TILE, key: "alt+y", now: ({ d, reader }) => (d.tileLook(reader ?? "") ? null : { hide: true }) },
+    args: {},
+    async run(_, { d, reader }, actor) { return await d.openTune(actor, reader); },
+  }),
   // Last, so a tile's menu lists its Tile rows first and the Screen group after them.
   "screen.mount": def({
     summary: "put this screen on the desk as a mount (PIE-651): a tile there holding it, live, that folds to a spine and pops out again (mount.out). part=<a container's key> puts that part alone (the board's lanes: part=lanes); the tile menu offers the container around the tile. A screen popped out of a mount goes back to it (as q does). Its arrangement goes with it; from then on the mount's is its own. On the desk itself: refused (tile.open kind=screen mounts a screen there)",

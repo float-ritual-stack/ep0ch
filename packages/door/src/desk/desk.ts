@@ -40,6 +40,7 @@ import {
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
+import { lookFor, pageOf, type Look } from "../look";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
@@ -156,7 +157,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The share the border being dragged was last put at. */
   private dragAt: number | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
-  private pressed: { pane: ReaderPane; col: number; row: number; fresh: boolean } | null = null;
+  /** A press in a reader, until it comes up: where the reader's content was drawn (`col`, `row`, `cols`: PIE-673's rect). */
+  private pressed: { pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean } | null = null;
+  /** Where a drag or a release lands in the pressed reader: its column held to the content (a gutter is its nearest cell), its row free (past an edge scrolls). */
+  private pressedAt(p: { col: number; row: number; cols: number }, k: { x: number; y: number }) { return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row }; }
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   /** `inTile`'s tiles, by id: the reader each opened beside, where the person's keys go back when they close it. */
   private openedFrom = new Map<number, number>();
@@ -209,6 +213,46 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private mouseTile: { id: number; r: Rect } | null = null;
   /** What was drawn, for the mouse: tiles (docks first, they're on top), header labels, dock handles. */
   private hits: [number, Rect][] = [];
+  /**
+   * Each tile's look as last drawn (PIE-673), and the rectangle its content was drawn in: inside its frame, its padding
+   * and, for a note, its measure (centred). The tile never sees the cells outside it: a press there is the nearest cell
+   * in it, and nothing drawn there is the tile's text.
+   */
+  private looks = new Map<Pane, Look>();
+  private contents = new Map<number, Rect>();
+  private lookSrc: { board: unknown; redraw(): void } | null = null;
+  /** Tile `p`'s look at `cols` columns: its kind, this screen and the note it shows. */
+  private lookAt(p: Pane, cols: number): Look {
+    const board = this.ctx?.board;
+    if (!this.lookSrc || this.lookSrc.board !== board) this.lookSrc = board ? { board, redraw: () => this.redraw() } : null;
+    const shows = (p as { msg?: Msg | null }).msg;
+    return lookFor(this.lookSrc, { tile: p.kind, screen: this.name, ...(shows ? { page: pageOf(shows) } : {}) }, cols);
+  }
+  lookOf(p: Pane): Look | undefined { return this.looks.get(p); }
+  tileLook(name: string) {
+    const id = this.idNamed(name), p = id !== undefined ? this.panes.get(id) : undefined, look = p && this.looks.get(p);
+    if (id === undefined || !p || !look) return null;
+    return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: p instanceof ReaderPane ? p.surface.boxAt() : null };
+  }
+  /**
+   * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
+   * opens beside it. The person's keys go to it; an agent's leaves them where they are.
+   */
+  async openTune(actor: Actor, tile?: string): Promise<Record<string, unknown>> {
+    const focused = this.panes.get(this.focus);
+    const tunes = [...this.panes.entries()].filter(([, p]) => p.kind === "tune") as [number, Pane & { source: string }][];
+    const target = tile ?? (focused?.kind === "tune" ? (focused as Pane & { source: string }).source : this.nameOf(this.focus));
+    if (this.idNamed(target) === undefined) throw new ActionRefused(`no tile ${target} on this screen`);
+    let id = tunes[0]?.[0];
+    if (id !== undefined) { (this.panes.get(id) as Pane & { source: string }).source = target; }
+    else {
+      const made = await this.openTile({ kind: "tune", source: `tile:${target}` }, target, "right", actor);
+      id = this.idNamed(made.tile);
+    }
+    if (id !== undefined && actor.kind !== "agent") this.run("tile.focus", {}, this.nameOf(id));
+    this.redraw();
+    return { tile: id !== undefined ? this.nameOf(id) : null, tunes: target };
+  }
   private heads: { id: number; from: number; to: number; row: number }[] = [];
   private markHits: { id: number; n: number; from: number; to: number; row: number }[] = [];
   /** Each header's "⇤ docked" as drawn: a click there undocks it (tile.dock on=false). */
@@ -2084,7 +2128,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!inResize()) { this.reflows = null; return; }
     const stale = placed.flatMap(([id, r0]) => {
       const r = this.boxOf(id, r0), last = this.views.get(id);
-      return last && (last.cols !== r.cols - 2 || last.rows !== r.rows - 2) ? [{ id, last }] : [];
+      const p = this.panes.get(id), look = p && this.looks.get(p);
+      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured);
+      return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
     let spent = 0;
@@ -2191,7 +2237,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
     // or a float's on the black it slides over).
     canvas.clear(r, dock || float ? bg(C.black) : "");
-    const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+    const framed: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+    const look = this.lookAt(pane, framed.cols);
+    this.looks.set(pane, look);
+    const inner = contentRect(framed, look, !!pane.measured);
+    this.contents.set(id, inner);
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
     // The person's keys are in this tile (it's focused and they're on this desk): its frame and name wear the focus accent.
@@ -4080,10 +4130,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
   }
 
+  /** Where tile `id`'s content was drawn (inside its frame, padding and measure), its frame at `r`. */
+  private origin(id: number, r: Rect): Rect {
+    return this.contents.get(id) ?? { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+  }
+  /**
+   * Screen cell `x`, `y` in tile `id` (its frame at `r`) as a cell of its content: a press in its padding or beside its
+   * measure is the nearest cell of the content (a line's start or end), never nothing and never a cell the tile didn't draw.
+   */
+  private local(id: number, r: Rect, x: number, y: number): { x: number; y: number } {
+    const c = this.origin(id, r);
+    return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
+  }
+
   /** A right-click at screen cell `x`, `y` in tile `id` (drawn at `r`) is the tile's own (a program that asked for the mouse, a step's box). */
   private ownsRightClick(id: number, r: Rect, x: number, y: number): boolean {
     if (y <= r.row || x <= r.col || x >= r.col + r.cols - 1 || y >= r.row + r.rows - 1) return false;
-    return !!this.panes.get(id)?.ownsRightClick?.(x - r.col - 1, y - r.row - 1);
+    const at = this.local(id, r, x, y);
+    return !!this.panes.get(id)?.ownsRightClick?.(at.x, at.y);
   }
 
   /** `float.place`: move or size a float, kept on the screen. */
@@ -4342,7 +4406,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.hits.find(([id]) => this.panes.get(id) === pane);
     const hit = at?.[1];
     if (!hit) return false;
-    const x = k.x - hit.col - 1, y = k.y - hit.row - 1;
+    // In the tile's content (its padding and measure, PIE-673): a press in the padding is the nearest cell; a drag and
+    // its release go where they are, as a reader's do.
+    const o = this.origin(at![0], hit), near = this.local(at![0], hit, k.x, k.y);
+    const { x, y } = k.action === "down" ? near : this.pressedAt(o, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
     if (k.action === "up") { if (this.editPressed !== pane) return false; this.editPressed = null; pane.release(x, y, this); return true; }
@@ -4420,8 +4487,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (this.inFlow(h.id)) this.run("tile.widen", {}, this.nameOf(h.id));
         this.redraw();
       }
-      if (this.mouseTile) { const m = this.mouseTile; this.mouseTile = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col - 1, k.y - m.r.row - 1, this); }
-      if (p) { this.pressed = null; p.pane.release(k.x - p.col, k.y - p.row, this, p.fresh ? (m, how) => this.setCurrent(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined); this.redraw(); }
+      if (this.mouseTile) { const m = this.mouseTile; this.mouseTile = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); }
+      if (p) { this.pressed = null; const at = this.pressedAt(p, k); p.pane.release(at.x, at.y, this, p.fresh ? (m, how) => this.setCurrent(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined); this.redraw(); }
       return;
     }
     if (k.action === "drag") {
@@ -4451,8 +4518,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         this.dragging = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? this.saysDocked(dropAt(this.dropTiles(), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse)), x: k.x, y: k.y };
         return this.redraw();
       }
-      if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col - 1, k.y - m.r.row - 1, this); return; }
-      if (p) return p.pane.drag(k.x - p.col, k.y - p.row, this);
+      if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); return; }
+      if (p) { const at = this.pressedAt(p, k); return p.pane.drag(at.x, at.y, this); }
       return;
     }
     // A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first).
@@ -4471,7 +4538,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (sw) {
       if (!hit) return;
       const [id, r] = hit, pane = this.panes.get(id);
-      if (pane?.mouse?.(k, k.x - r.col - 1, k.y - r.row - 1, this)) return;
+      const at = this.local(id, r, k.x, k.y);
+      if (pane?.mouse?.(k, at.x, at.y, this)) return;
       const a = pane ? kindOf(pane)?.sideways?.(pane, sw) : null;
       if (a && this.swipe.step(sw)) this.run(a.action, a.args ?? {}, this.nameOf(id));
       return;
@@ -4573,18 +4641,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
       if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) {
         const pane = this.panes.get(id);
-        const x = k.x - r.col - 1, y = k.y - r.row - 1;
+        const { x, y } = this.local(id, r, k.x, k.y);
         const how: RowPress = { mods: k.mods ?? 0, button: k.button, focusing };
         const press = pane ? kindOf(pane)?.press : undefined;
         if (pane && press) {
           // A click its kind gives an action (in a terminal: typing in it); the tile gets the click when it asks for the mouse.
           const a = press(pane, k);
           if (a) this.run(a.action, a.args ?? {}, this.nameOf(id));
-          if (pane.mouse?.(k, x, y, this, how)) this.mouseTile = { id, r };
-        } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this, how); }
+          if (pane.mouse?.(k, x, y, this, how)) this.mouseTile = { id, r: this.origin(id, r) };
+        } else if (pane?.mouse) { this.mouseTile = { id, r: this.origin(id, r) }; pane.mouse(k, x, y, this, how); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
-          this.pressed = { pane, col: r.col + 1, row: r.row + 1, fresh: !!((k.mods ?? 0) & 24) };
+          const o = this.origin(id, r);
+          this.pressed = { pane, col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24) };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
@@ -4597,7 +4666,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (hit && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const [id, r] = hit;
       const pane = this.panes.get(id);
-      if (pane?.mouse && pane.mouse(k, k.x - r.col - 1, k.y - r.row - 1, this)) return;
+      const at = this.local(id, r, k.x, k.y);
+      if (pane?.mouse && pane.mouse(k, at.x, at.y, this)) return;
       pane?.wheel?.(k.action === "wheel-up" ? -1 : 1, this);
     }
   }
@@ -4849,4 +4919,18 @@ function mapTree(n: LNode, f: (id: number) => number): LNode {
   if (n.t === "dock") return { ...n, kid: mapTree(n.kid, f) };
   if (n.t === "flow") return { ...n, kids: n.kids.map(k => mapTree(k, f)), ...(n.anchor !== undefined ? { anchor: f(n.anchor) } : {}), ...(n.keep !== undefined ? { keep: f(n.keep) } : {}), ...(n.read !== undefined ? { read: f(n.read) } : {}), ...(n.held ? { held: n.held.map(f) } : {}), trail: undefined };
   return { ...n, kids: n.kids.map(k => mapTree(k, f)) } as LNode;
+}
+
+/**
+ * Where a tile's content goes inside its frame (`framed`) by its look (PIE-673): its padding (never so much that less
+ * than 8 columns or 3 rows are left), and, for a note's text (`measured`), at most `measure` columns, centred.
+ */
+export function contentRect(framed: Rect, look: Look | undefined, measured: boolean): Rect {
+  if (!look) return framed;
+  const v = look.values;
+  const px = Math.max(0, Math.min(v["pad.x"], Math.floor((framed.cols - 8) / 2))), py = Math.max(0, Math.min(v["pad.y"], Math.floor((framed.rows - 3) / 2)));
+  let col = framed.col + px, cols = framed.cols - 2 * px;
+  const m = v.measure;
+  if (measured && m > 0 && cols > m) { col += Math.floor((cols - m) / 2); cols = m; }
+  return { col, row: framed.row + py, cols, rows: framed.rows - 2 * py };
 }

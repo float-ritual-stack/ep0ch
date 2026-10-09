@@ -6,6 +6,8 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { lookFor, pageOf as lookPage, type Look } from "../look";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
@@ -54,7 +56,7 @@ import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -77,6 +79,11 @@ export interface Outside { outside: "browser" | "viewer"; url: string; launched:
 export interface SurfaceHost {
   ctx: Ctx;
   redraw(): void;
+  /**
+   * The look (PIE-673) the host resolved for where this reader is (its tile kind, its screen, the note): its margin,
+   * gap and list rows. Without one, the reader resolves the note's own (global and page levels) itself.
+   */
+  readonly look?: Look;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
@@ -424,6 +431,39 @@ export class NoteSurface {
   private endWant: "edge" | "last" | null = null;
   /** The last layout, reused by a frame that only scrolled. */
   private laid: Laid | null = null;
+  /**
+   * The body's inset from the reader's left edge, its right margin, and the blank rows above it, from the look's
+   * `margin.x` and `margin.y` (PIE-673). The first column on the left is always the comment marks' gutter, so `margin.x`
+   * 1 is today's reader: one column in, none on the right. Drawn, never text: a selection's copy starts after it.
+   */
+  private bx = 1;
+  private bxRight = 0;
+  private my = 0;
+  /** The look this reader was drawn with last (the host's, or the note's own levels): `peek` and the inspector read it. */
+  lastLook: Look | null = null;
+  /**
+   * The `::box{…}` the current element is in (else the top row shown), as written: the tune inspector reads its block
+   * level from it. Null outside one.
+   */
+  boxAt(): { attrs: string; line: number } | null {
+    const d = this.drawn, m = this.msg;
+    if (!d || !m) return null;
+    const cur = this.elems.find(e => e.key === this.cur);
+    const line = d.doc.source[cur ? cur.row - d.top : this.scroll];
+    if (line === undefined) return null;
+    const b = componentBlocks(this.foldsIn(m).text.split("\n")).find(c => c.name === "box" && c.attrs !== undefined && line > c.start && line < c.end);
+    return b ? { attrs: b.attrs!, line: b.start } : null;
+  }
+  /** The look for the note shown at `w`: the host's (the desk resolves its tile's), else the global and page levels. */
+  private lookAt(m: Msg, w: number, host: SurfaceHost | undefined): Look {
+    const look = host?.look ?? lookFor(this.src, { page: lookPage(m) }, w);
+    this.lastLook = look;
+    const mx = look.values["margin.x"];
+    this.bx = Math.max(1, Math.min(mx, Math.floor(w / 4)));
+    this.bxRight = Math.max(0, Math.min(mx - 1, Math.floor(w / 4)));
+    this.my = look.values["margin.y"];
+    return look;
+  }
   private crumbs = "";
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
   notice = "";
@@ -482,7 +522,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -950,6 +990,7 @@ export class NoteSurface {
     const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
     if (foot) h -= 1;
     const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
+    this.lookAt(m, w, host);
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
@@ -983,7 +1024,9 @@ export class NoteSurface {
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
-    // One blank row between the header and the body (PIE-657); a rule only under the property panel, which it closes.
+    // The look's margin.y: blank rows above the body (edge rows: never copied), then one blank row between the header
+    // and the body (PIE-657); a rule only under the property panel, which it closes.
+    for (let r = 0; r < this.my; r++) head.push("");
     head.push(this.panel ? rule(w) : "");
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
@@ -1041,20 +1084,21 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my };
     this.selectionControl(w);
-    // The body's images, one column in (its margin), cut to the rows shown.
-    const placements = imagePlacements(doc.images, 1, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
+    // The body's images, past its inset (the look's margin), cut to the rows shown.
+    const bx = this.bx;
+    const placements = imagePlacements(doc.images, bx, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
     const firstOf = new Map<number, string>();
-    for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + 1}`) ?? "");
+    for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + bx}`) ?? "");
     for (const r of doc.links) {
       const row = r.line - this.scroll;
       const link = drawn[r.n];
-      if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: top + row, from: r.from + 1, to: Math.min(w, r.to + 1), link, elem: firstOf.get(r.n) || undefined });
+      if (link && row >= 0 && row < room && r.from + bx < w) this.hits.push({ row: top + row, from: r.from + bx, to: Math.min(w, r.to + bx), link, elem: firstOf.get(r.n) || undefined });
     }
     // An image's caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
     for (const e of this.elems) {
@@ -1064,7 +1108,7 @@ export class NoteSurface {
       const x = doc.media.find(x => top + x.row === e.row), im = x?.image !== undefined ? doc.images[x.image] : undefined;
       if (im) for (let r = im.line; r < im.line + im.rows; r++) {
         const at = r - this.scroll;
-        if (at >= 0 && at < room) this.hits.push({ row: top + at, from: 1 + im.col, to: Math.min(w, 1 + im.col + im.cols), image: e.key });
+        if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
       }
     }
     for (const k of marks) {
@@ -1073,11 +1117,11 @@ export class NoteSurface {
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
-      if (row >= 0 && row < room && c.from + 1 < w) this.hits.push({ row: top + row, from: c.from + 1, to: Math.min(w, c.to + 1), thread: c.thread, elem: controlKey(c.thread, c.control) });
+      if (row >= 0 && row < room && c.from + bx < w) this.hits.push({ row: top + row, from: c.from + bx, to: Math.min(w, c.to + bx), thread: c.thread, elem: controlKey(c.thread, c.control) });
     }
     for (const [i, r] of (picks?.rows ?? []).entries()) {
       const row = r - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: 1, to: w, pick: i });
+      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: bx, to: w, pick: i });
     }
     // The reading ruler: the current element's block, and a focus mark's, in one calm tint. An expanded
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
@@ -1085,9 +1129,12 @@ export class NoteSurface {
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
     const inQuote = (row: number) => quoted.some(([a, b]) => row >= a && row < b);
+    // The look's zebra (list.zebra): every other list item on a quiet tint, under the ruler and a thread's.
+    const zebraRows = doc.zebra ?? [];
+    const striped = (row: number) => zebraRows.some(([a, b]) => row - top >= a && row - top < b);
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
       const row = i < top ? i : i + this.scroll;
-      const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
+      const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : row >= top && striped(row) ? ZEBRA_BG : null;
       return this.paintSelection(tint ? paintRange(pad(l, w), 0, w, tint) : l, row);
     });
     // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
@@ -1096,18 +1143,18 @@ export class NoteSurface {
     doc.blocks.forEach((b, n) => {
       if (b.kind === "span") {
         const row = b.row - this.scroll;
-        if (row >= 0 && row < room && b.col + 1 < w) this.hits.push({ row: top + row, from: b.col + 1, to: Math.min(w, (b.to ?? b.col) + 1), block: n });
+        if (row >= 0 && row < room && b.col + bx < w) this.hits.push({ row: top + row, from: b.col + bx, to: Math.min(w, (b.to ?? b.col) + bx), block: n });
         return;
       }
-      if (b.col + 1 >= w) return;
+      if (b.col + bx >= w) return;
       // On its first row with a free cell there (a long first line of a quote or code fills its row).
       for (let r = b.row; r < b.row + Math.min(b.rows, COPY_ROWS); r++) {
         const row = r - this.scroll, at = top + row;
         if (row < 0 || row >= room || at >= lines.length) continue;
-        const put = putCell(lines[at]!, b.col + 1, COPY_GLYPH, fg(n === blockNow ? C.lcyan : C.dark));
+        const put = putCell(lines[at]!, b.col + bx, COPY_GLYPH, fg(n === blockNow ? C.lcyan : C.dark));
         if (put === null) continue;
         lines[at] = put;
-        this.hits.push({ row: at, from: b.col + 1, to: b.col + 2, block: n });
+        this.hits.push({ row: at, from: b.col + bx, to: b.col + bx + 1, block: n });
         break;
       }
     });
@@ -1141,10 +1188,12 @@ export class NoteSurface {
     // What the rules draw on the note (PIE-600), unless the person asked for it raw (R).
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}`;
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
-    const env = { ...this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero };
+    const bw = Math.max(1, w - this.bx - this.bxRight);
+    const look = this.lastLook;
+    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -1197,8 +1246,8 @@ export class NoteSurface {
     });
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
-    const threads = this.threadPanels(m, rendered, noteLines, Math.max(1, w - 1));
-    const { doc, picks } = this.pickerRows(threads.doc, drawn, Math.max(1, w - 1));
+    const threads = this.threadPanels(m, rendered, noteLines, bw);
+    const { doc, picks } = this.pickerRows(threads.doc, drawn, bw);
     const controls = threads.controls.map(c => ({ ...c, row: c.row + (picks && c.row >= picks.at ? picks.lines : 0) }));
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
     // section aren't drawn, so they aren't links until it's unfolded.
@@ -1209,7 +1258,8 @@ export class NoteSurface {
       this.link = sel ? this.links.findIndex(l => (sel.media ? l.media === sel.media : l === sel)) : -1;
     }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
-    const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
+    const inset = " ".repeat(this.bx);
+    const body = doc.lines.map(l => (width(l) + this.bx > w ? pad(inset + l, w) : inset + l));
     // Comment marks sit in the body's margin, on the first row of the lines each quote spans. Threads on one
     // row share its one margin cell (PIE-541: drawing each in turn cut the escape of the one before), yellow
     // while any of them is open; each stays its own element.
@@ -1353,6 +1403,8 @@ export class NoteSurface {
     const src = this.use(host);
     this.drawn = null;
     this.digesting = true;
+    // A digest's elements are counted as the reader's always were (one column in); its host draws its own margin.
+    this.bx = 1; this.bxRight = 0;
     const drawn: Link[] = [];
     // A digest draws no header image above the note: it's drawn where it's written.
     this.hero = null;
@@ -2705,29 +2757,29 @@ export class NoteSurface {
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
       const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
-      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
+      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
-      out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path, ...(image ? { image } : {}) } });
+      out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: this.bx, to: this.bx + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path, ...(image ? { image } : {}) } });
     }
     for (const hd of doc.heads) {
       const p = points.find(p => p.key === hd.key);
-      if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: 1, to: hd.cols + 1, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
+      if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: this.bx, to: hd.cols + this.bx, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
     }
     // A code block and a quote (a callout is an element already): `[ ]` stops on them so y copies one (PIE-638).
     doc.blocks.forEach((b, n) => {
       if (b.kind === "callout") return;
       if (b.kind === "span") {
-        out.push({ key: `block:span:${b.row}:${b.col}`, kind: "block", row: top + b.row, from: b.col + 1, to: (b.to ?? b.col) + 1, ruler: [top + b.row, top + b.row + b.rows], label: `code · ${ellipsize(b.text, 40)}`, block: n });
+        out.push({ key: `block:span:${b.row}:${b.col}`, kind: "block", row: top + b.row, from: b.col + this.bx, to: (b.to ?? b.col) + this.bx, ruler: [top + b.row, top + b.row + b.rows], label: `code · ${ellipsize(b.text, 40)}`, block: n });
         return;
       }
       const lines = b.text.split("\n").length;
-      out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: 1, to: 1 + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"} · ${lines} line${lines === 1 ? "" : "s"}`, block: n });
+      out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: this.bx, to: this.bx + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"} · ${lines} line${lines === 1 ? "" : "s"}`, block: n });
     });
     for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
-    for (const c of controls) out.push({ key: controlKey(c.thread, c.control), kind: "control", row: top + c.row, from: c.from + 1, to: c.to + 1, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control });
+    for (const c of controls) out.push({ key: controlKey(c.thread, c.control), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);
   }
 
@@ -2925,7 +2977,7 @@ export class NoteSurface {
     const d = this.drawn;
     const x = d?.doc.media.find(x => d.lines[x.line] === ref.line);
     const im = x?.image !== undefined ? d!.doc.images[x.image] : undefined;
-    return im && d ? (im.cols / Math.max(1, d.w - 1)) * 100 : null;
+    return im && d ? (im.cols / Math.max(1, d.w - d.bx - this.bxRight)) * 100 : null;
   }
   /** How each image is drawn now, by its note line: its cells and where it sits, or the header's rows. */
   drawnImages(): Map<number, { cols: number; rows: number; col: number } | { header: number }> {
@@ -3923,10 +3975,14 @@ export class NoteSurface {
         return c;
       },
       // A shaded region's gutter (an embed's, a resource projection's) is drawn like the margin, and isn't copied.
-      margin: r => (r < d.top ? 0 : d.body[r - d.top]?.startsWith(" " + SHADE) ? 2 : 1),
+      // The body's inset (the look's margin.x, PIE-673) and a shaded region's gutter are drawn, never copied.
+      margin: r => (r < d.top ? 0 : d.body[r - d.top]?.startsWith(" ".repeat(d.bx) + SHADE) ? d.bx + 1 : d.bx),
       // The drawing inside the text (a quote's bar, a frame's edges, a bullet glyph, a fold arrow) is drawn, never copied (PIE-638).
-      cuts: r => (r < d.top ? undefined : d.doc.trims.get(r - d.top)?.cuts.map(([a, b, rep]) => [a + 1, b + 1, rep] as const)),
-      edge: r => r >= d.top && !!d.doc.trims.get(r - d.top)?.edge,
+      cuts: r => (r < d.top ? undefined : d.doc.trims.get(r - d.top)?.cuts.map(([a, b, rep]) => [a + d.bx, b + d.bx, rep] as const)),
+      // A row that is only drawing (a frame's edge; the look's gap, divider and margin rows) is left out whole.
+      edge: r => (r >= d.top ? !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
+      // A paragraph wrapped over rows is one line of text: its rows join with a space where the wrap took one, nothing where it cut a word.
+      joins: r => (r >= d.top ? d.doc.wraps?.get(r - d.top + 1) : undefined),
     };
   }
 
@@ -4287,6 +4343,8 @@ export class NoteSurface {
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
       focus: this.focusMark ? { by: whoOf(this.focusMark.by), marked: this.focusMark.label, ...this.focusMark.spec } : null,
+      // The look it was drawn with (PIE-673): reported here, never put into the text it reads back.
+      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.divider"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
       properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
