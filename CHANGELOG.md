@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Gather tiles into a group by mouse and keys, and keep their links (PIE-696)
+
+- Drag a tile's title onto a group (its frame, or a drop zone inside it) and it goes in; drag one out past the group's content and it goes back out onto the screen. The tile moves whole: a running shell keeps running, and its agent limit, spine and links go with it. `layout.move into=<group>` and `out=true`, and `^W i`, do the same by keys and `act`.
+- Shift+click on tile titles (or `^W space`) picks tiles, marked ◆ on their frames; `^W G` gathers the picked into one group in the arrangement they had, esc lets go. Your picks are yours: an agent's picks (`tile.select`) are its own and never touch them.
+- `^W G` on a tile in a split asks whether to gather this tile or the whole split; the tile menu's row asks the same.
+- A link between a tile and one in a group survives gathering, spilling, moving in and out, and a restart: the tree outside opens notes in the reader inside, and a preview across the edge keeps following. Across the edge a tile is `<group>/<tile>` (and `../<tile>` from inside): `tile.link to=<path>`.
+
 ### Agents make outlines of their own over MCP, and every write says who made it (PIE-679)
 
 - **New:** `outline_new` over MCP (stdio and the gateway): an agent makes a scratch outline on this machine for link sprees,
