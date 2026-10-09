@@ -36,8 +36,12 @@ Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-
 verification and the review checklist. Agents load the stack's skills (`ep0ch --skill` lists them):
 `ep0ch` to drive a door, `ep0ch-outline` to work in an outline for someone, `ep0ch-core` to change this
 code or the outliner's, `daily-brief` for the morning brief. The [architecture map](docs/architecture/map.json) records every
-structure in the door and the outliner, its ladder position and its open questions; `bun
-scripts/architecture-map.ts` checks its file:line citations against both checkouts and draws it as one page.
+structure in the door and the outliner, its ladder position and its open questions. Each citation is a file, a
+marker (a snippet of the cited code) and a line: in packages/door, `bun scripts/architecture-map.ts --sync` moves
+every line to where its marker is now and stamps the commit (it lists the markers the code no longer has, for a
+person to rewrite), then `bun scripts/architecture-map.ts` checks the citations against both checkouts and draws
+the isometric map as one page, `out/architecture-map.html` (open it in a browser; `#ch13` shows every part).
+`test/architecture-map.test.ts` fails when a citation has drifted, and says to run `--sync`.
 
 ## Getting started
 
