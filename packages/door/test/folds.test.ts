@@ -528,7 +528,8 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
       const y = rowIn(lines(), r(), "## Beds");
       click(r().col + r().cols - 1, y);
       expect(reader()[1].surface.describe().folds.folded).toEqual([]);
-      click(r().col + 4, y);
+      // On the heading as drawn (the reader's measure centres its text in a wide tile, PIE-673).
+      click(plain(lines()[y]!).indexOf("## Beds") + 1, y);
       expect(reader()[1].surface.describe().folds.folded).toEqual(["## Beds"]);
     } finally { app.pop(); }
   });

@@ -157,7 +157,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The share the border being dragged was last put at. */
   private dragAt: number | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
-  private pressed: { pane: ReaderPane; col: number; row: number; fresh: boolean } | null = null;
+  /** A press in a reader, until it comes up: where the reader's content was drawn (`col`, `row`, `cols`: PIE-673's rect). */
+  private pressed: { pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean } | null = null;
+  /** Where a drag or a release lands in the pressed reader: its column held to the content (a gutter is its nearest cell), its row free (past an edge scrolls). */
+  private pressedAt(p: { col: number; row: number; cols: number }, k: { x: number; y: number }) { return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row }; }
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   /** `inTile`'s tiles, by id: the reader each opened beside, where the person's keys go back when they close it. */
   private openedFrom = new Map<number, number>();
@@ -4406,7 +4409,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In the tile's content (its padding and measure, PIE-673): a press in the padding is the nearest cell; a drag and
     // its release go where they are, as a reader's do.
     const o = this.origin(at![0], hit), near = this.local(at![0], hit, k.x, k.y);
-    const { x, y } = k.action === "down" ? near : { x: k.x - o.col, y: k.y - o.row };
+    const { x, y } = k.action === "down" ? near : this.pressedAt(o, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
     if (k.action === "up") { if (this.editPressed !== pane) return false; this.editPressed = null; pane.release(x, y, this); return true; }
@@ -4485,7 +4488,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         this.redraw();
       }
       if (this.mouseTile) { const m = this.mouseTile; this.mouseTile = null; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); }
-      if (p) { this.pressed = null; p.pane.release(k.x - p.col, k.y - p.row, this, p.fresh ? (m, how) => this.setCurrent(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined); this.redraw(); }
+      if (p) { this.pressed = null; const at = this.pressedAt(p, k); p.pane.release(at.x, at.y, this, p.fresh ? (m, how) => this.setCurrent(m, { ...how, from: p.pane, fresh: true, reveal: true }) : undefined); this.redraw(); }
       return;
     }
     if (k.action === "drag") {
@@ -4516,7 +4519,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return this.redraw();
       }
       if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); return; }
-      if (p) return p.pane.drag(k.x - p.col, k.y - p.row, this);
+      if (p) { const at = this.pressedAt(p, k); return p.pane.drag(at.x, at.y, this); }
       return;
     }
     // A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first).
@@ -4650,7 +4653,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
           const o = this.origin(id, r);
-          this.pressed = { pane, col: o.col, row: o.row, fresh: !!((k.mods ?? 0) & 24) };
+          this.pressed = { pane, col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24) };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
