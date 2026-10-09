@@ -230,7 +230,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.lookSrc || this.lookSrc.board !== board) this.lookSrc = board ? { board, redraw: () => this.redraw() } : null;
     const shows = (p as { msg?: Msg | null }).msg, id = this.idOf(p);
     return lookFor(this.lookSrc, {
-      tile: p.kind, screen: this.name, ...(shows ? { page: pageOf(shows) } : {}),
+      // A held or pinned reader keeps the look `detail` had (`[style-for::tile:detail]` notes, PIE-705).
+      tile: p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind, screen: this.name, ...(shows ? { page: pageOf(shows) } : {}),
       ...(id !== undefined ? { instance: { id: this.tileId(id), fields: p.instanceLook ?? {} } } : {}),
     }, cols);
   }
