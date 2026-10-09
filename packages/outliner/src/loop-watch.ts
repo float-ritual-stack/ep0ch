@@ -94,7 +94,7 @@ export function loopWatched(): boolean {
  */
 export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
   "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "workspace.snapshot",
-  "callouts.types", "headings.styles", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
+  "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
 ]);
 

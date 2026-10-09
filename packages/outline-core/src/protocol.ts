@@ -4,10 +4,10 @@
 // PROTOCOL is the one compatibility check: `ping` reports the service's number and a client refuses a service
 // whose number differs from its own. Bump it with any change to the wire (an action, a field, a meaning) and
 // with any change to what outline-core's shared modules match or compute (the property grammar, the code fence
-// and literal ranges, the link grammar, the heading styles, the component schemas, the draft.patch compare, the search matcher), since a long-running service
+// and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 114;
+export const PROTOCOL = 115;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's

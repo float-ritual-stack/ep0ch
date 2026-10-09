@@ -120,6 +120,39 @@ const FIELD_KEYS: ReadonlySet<string> = new Set(HEADING_FIELD_KEYS);
 const ROOM = /^\s*(\d+)(?:\s+(\d+))?\s*$/;
 const MARGIN = /^\s*(\d+)(?:\s+(\d+))?(?:\s+(\d+))?\s*$/;
 
+/** The most padding a heading takes: rows above and below it in its band, columns either side. */
+export const PADDING_MOST: BandRoom = { rows: 2, cols: 12 };
+
+/**
+ * A heading's padding as written (`heading-padding`, the style cascade's `heading.padding`): "C" (columns, the rows
+ * kept from `base`) or "R C". The one grammar for both spellings.
+ */
+export function parseBandPadding(v: string, base: BandRoom): { value: BandRoom } | { problem: string } {
+  const m = ROOM.exec(v);
+  if (!m) return { problem: `${JSON.stringify(v)} is columns, or "rows columns"` };
+  const [rows, cols] = m[2] === undefined ? [base.rows, Number(m[1])] : [Number(m[1]), Number(m[2])];
+  return { value: { rows: Math.min(PADDING_MOST.rows, rows), cols: Math.min(PADDING_MOST.cols, cols) } };
+}
+
+/**
+ * A heading's margin as written (`heading-margin`, the style cascade's `heading.margin`): "C" (columns), "R C" (rows
+ * above and below, columns) or "T C B" (above, columns, below). Past the most it's held there and said, the value kept.
+ */
+export function parseBandMargin(v: string, base: BandMargin): { value: BandMargin; problem?: string } | { problem: string } {
+  const m = MARGIN.exec(v);
+  if (!m) return { problem: `${JSON.stringify(v)} is columns, "rows columns" or "top columns bottom"` };
+  const n = [m[1], m[2], m[3]].filter(x => x !== undefined).map(Number);
+  const [top, cols, bottom] = n.length === 1 ? [base.top, n[0]!, base.bottom] : n.length === 2 ? [n[0]!, n[1]!, n[0]!] : [n[0]!, n[1]!, n[2]!];
+  const out = { top: Math.min(MARGIN_MOST.top, top), cols: Math.min(MARGIN_MOST.cols, cols), bottom: Math.min(MARGIN_MOST.bottom, bottom) };
+  if (out.top !== top || out.cols !== cols || out.bottom !== bottom) return { value: out, problem: `${JSON.stringify(v)} is at most ${MARGIN_MOST.top} rows and ${MARGIN_MOST.cols} columns` };
+  return { value: out };
+}
+
+/** A margin written back: "T C B". */
+export const bandMarginText = (m: BandMargin) => `${m.top} ${m.cols} ${m.bottom}`;
+/** A padding written back: "R C". */
+export const bandPaddingText = (p: BandRoom) => `${p.rows} ${p.cols}`;
+
 /** What a style is when nothing names one: the base a heading's own fields apply to when its level has no default. */
 export const BASE_HEADING_STYLE: HeadingStyle = style("", {});
 
@@ -136,25 +169,19 @@ function withFields(base: HeadingStyle, props: readonly { key: string; value: st
     problems.push(`${where}: ${key} ${JSON.stringify(v)} is one of ${all.join(", ")}`);
     return fallback;
   };
-  const room = (key: string, fallback: BandRoom, most: BandRoom): BandRoom => {
+  const room = (key: string, fallback: BandRoom): BandRoom => {
     const v = prop(key);
     if (v === undefined) return fallback;
-    const m = ROOM.exec(v);
-    if (!m) { problems.push(`${where}: ${key} ${JSON.stringify(v)} is columns, or "rows columns"`); return fallback; }
-    const [rows, cols] = m[2] === undefined ? [fallback.rows, Number(m[1])] : [Number(m[1]), Number(m[2])];
-    return { rows: Math.min(most.rows, rows), cols: Math.min(most.cols, cols) };
+    const r = parseBandPadding(v, fallback);
+    if ("problem" in r) { problems.push(`${where}: ${key} ${r.problem}`); return fallback; }
+    return r.value;
   };
-  // `heading-margin`: "N" (columns), "R C" (rows above and below, columns) or "T C B" (above, columns, below).
   const marginRoom = (): BandMargin => {
     const v = prop("heading-margin");
     if (v === undefined) return base.margin;
-    const m = MARGIN.exec(v);
-    if (!m) { problems.push(`${where}: heading-margin ${JSON.stringify(v)} is columns, "rows columns" or "top columns bottom"`); return base.margin; }
-    const n = [m[1], m[2], m[3]].filter(x => x !== undefined).map(Number);
-    const [top, cols, bottom] = n.length === 1 ? [base.margin.top, n[0]!, base.margin.bottom] : n.length === 2 ? [n[0]!, n[1]!, n[0]!] : [n[0]!, n[1]!, n[2]!];
-    const out = { top: Math.min(MARGIN_MOST.top, top), cols: Math.min(MARGIN_MOST.cols, cols), bottom: Math.min(MARGIN_MOST.bottom, bottom) };
-    if (out.top !== top || out.cols !== cols || out.bottom !== bottom) problems.push(`${where}: heading-margin ${JSON.stringify(v)} is at most ${MARGIN_MOST.top} rows and ${MARGIN_MOST.cols} columns`);
-    return out;
+    const r = parseBandMargin(v, base.margin);
+    if ("problem" in r) { problems.push(`${where}: heading-margin ${r.problem}`); return "value" in r ? r.value as BandMargin : base.margin; }
+    return r.value;
   };
   let rows = base.rows;
   const rowsRaw = prop("heading-rows");
@@ -168,7 +195,7 @@ function withFields(base: HeadingStyle, props: readonly { key: string; value: st
     rows,
     align: oneOf("heading-align", BAND_ALIGNS, base.align),
     row: oneOf("heading-row", BAND_ROWS, base.row),
-    padding: room("heading-padding", base.padding, { rows: 2, cols: 12 }),
+    padding: room("heading-padding", base.padding),
     margin: marginRoom(),
     tone: oneOf("heading-tone", CALLOUT_TONES, base.tone),
     letters: oneOf("heading-letters", BAND_LETTERS, base.letters),

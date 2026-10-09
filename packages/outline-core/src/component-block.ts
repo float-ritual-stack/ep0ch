@@ -8,9 +8,10 @@ import { closesCodeFence, codeBlocks, codeFenceOpen, type CodeFence, type CodeFe
 
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
- * arguments (`::links ((id))`).
+ * arguments (`::links ((id))`), or with attributes straight after the name (`::box{pad=1 list.gap=1}`, PIE-549's
+ * block attributes; group 3). One with attributes is a block: it closes with `::`, as one without arguments does.
  */
-export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?))?[ \t]*$/;
+export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{[^{}\n]*\}))?[ \t]*$/;
 /** The closing line: `::` alone. */
 export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 
@@ -55,7 +56,7 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
 }
 
 /** A component block found in a note's lines: its name, its arguments, and its first and last line (inclusive). */
-export interface ComponentBlock { name: string; args: string | null; start: number; end: number }
+export interface ComponentBlock { name: string; args: string | null; start: number; end: number; attrs?: string }
 
 /**
  * Every component block in a note's lines, in order, each as `componentBlockAt` reads it: `end` is its closing
@@ -74,7 +75,7 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
     const block = open && componentBlockAt(text.slice(offsets[i]));
     if (open && block) {
       const end = i + block.raw.replace(/\n$/, "").split("\n").length - 1;
-      out.push({ name: open[1]!, args: open[2] ?? null, start: i, end });
+      out.push({ name: open[1]!, args: open[2] ?? null, start: i, end, ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}) });
       i = end;
       continue;
     }

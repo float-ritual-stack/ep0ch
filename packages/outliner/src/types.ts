@@ -2225,6 +2225,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "callouts.types" }
   /** The outline's heading styles (PIE-599): the built-ins and those its notes declare with [heading-style::name]. */
   | { id: string; action: "headings.styles" }
+  /** The outline's style sheets (PIE-673): each [style-for::…] note or line with its style.* fields; the cascade is outline-core's. */
+  | { id: string; action: "styles.list" }
   /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, and the extensions'. */
   | { id: string; action: "components.schemas" }
   /** What a rule note (its text, not saved) draws on a sample note's text: a component page's rule variations (PIE-618). */
