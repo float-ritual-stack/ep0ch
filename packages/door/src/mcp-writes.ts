@@ -18,7 +18,7 @@
 // machine applies them with this same `applyWrite` when it pulls them.
 //
 // Every write is `author: agent`, its actor `mcp:[<persona>/]<principal>` (the principal auth proved: the OAuth client, a URL client id by its host, so claude.ai's
-// reads `mcp:claude.ai`, or `claude-code@float-2` on stdio; the persona a declared label within it: `mcp:loki/claude-code@float-2`) and its session the OAuth subject, so the outline's activity, the door's flash and the gateway's
+// reads `mcp:claude.ai`, or `claude-code@float-2` on stdio; the persona a declared label within it: `mcp:loki/claude-code@float-2`) and its sessionId the OAuth subject and the call it came in (`<subject>#<call>`, PIE-685), so the outline's activity, the door's flash and the gateway's
 // log all say who wrote it.
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -26,7 +26,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseEnvFile } from "./backup/config";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
-import { composeActor, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { canonicalLocalMachineName } from "./machine-name";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { BoardAddress } from "./notes-cli";
@@ -40,7 +40,29 @@ export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
 /** Who asked, from the access token. */
-export interface McpCaller { sub: string; clientId?: string }
+export interface McpCaller {
+  sub: string;
+  clientId?: string;
+  /**
+   * The call it is making (PIE-685): the HTTP transport's `Mcp-Session-Id`, one per stdio connection, or the id the agent
+   * gave on the call (`call`), which wins. Trace only: it rides the write's sessionId after `#` (outline-core
+   * attribution.ts) and never changes who the caller is.
+   */
+  call?: string;
+  /** The call id was made for this one request (the caller sent none): the answer tells it to send `call` next time. */
+  freshCall?: boolean;
+}
+
+/** The `call` argument a request may carry: an id the agent keeps across its requests ("daddy-2026-10-09-0103-k7f"). */
+export const CALL_PROPERTY = {
+  type: "string", pattern: CALL_PATTERN.source, maxLength: 64,
+  description: "Optional. The id of this conversation's call, which you keep across requests: the one list_outlines or an earlier write told you (c-7f3a1c), or a name of your own (letters, digits, . _ -; for example daddy-2026-10-09-0103-k7f). Every write records it, `call:<id or handle>` finds what a call wrote, and outline_query leaves a call's own writes out of its recent-activity reads unless includeOwn. With none, each write is a call of its own and says so. It names a conversation and never who you are.",
+} as const;
+
+/** A caller whose call is the one the request names (`call`), else the one it already has. */
+export function withCall(caller: McpCaller, named: unknown): McpCaller {
+  return typeof named === "string" && CALL_PATTERN.test(named) ? { ...caller, call: named, freshCall: false } : caller;
+}
 
 /** The agent a write is attributed to (the outliner's AgentActor). */
 export interface WriteActor { actorId: string; sessionId?: string }
@@ -103,11 +125,14 @@ const PERSONAS = PERSONA_PATTERN;
 
 export const personaOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): string | undefined => personaClaim(caller, env, machine).persona;
 
-/** The attribution of a caller's write: `mcp:<persona>/<principal>` (outline-core's attribution.ts), its session the OAuth subject. */
+/** The attribution of a caller's write: `mcp:<persona>/<principal>` (outline-core's attribution.ts), its sessionId the subject and call. */
 export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): WriteActor => {
   const persona = personaOf(caller, env, machine);
-  return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine), mcp: true }), sessionId: caller.sub };
+  return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine), mcp: true }), sessionId: sessionIdOf(caller) };
 };
+
+/** A write's sessionId: the subject, and `#<call>` when the caller has one (outline-core attribution.ts). */
+export const sessionIdOf = (caller: McpCaller): string => composeSessionId({ subject: caller.sub, ...(caller.call ? { call: caller.call } : {}) });
 
 /**
  * What an outline's access setting means for this caller (PIE-679): the principal that made a scratch outline writes to it with
@@ -346,7 +371,7 @@ const REVISION = { type: "integer", minimum: 1, description: "The revision outli
 export function writeToolDefinitions(outline: Record<string, unknown>) {
   const addressed = (properties: Record<string, unknown>, required: string[]) => ({
     type: "object",
-    properties: { ...REF_ADDRESS, outline, ...properties },
+    properties: { ...REF_ADDRESS, outline, ...properties, call: CALL_PROPERTY },
     required,
     additionalProperties: false,
     oneOf: [{ required: ["ref"] }, { required: ["uri"] }],

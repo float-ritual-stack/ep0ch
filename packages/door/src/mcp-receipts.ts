@@ -14,7 +14,8 @@ import type { NetmailReceipt, NetmailSummary } from "./mcp-netmail";
 /** A proposal's `[proposal-status::…]` in the mirror (outliner's draft-patch.ts), or why it can't be said. */
 export type ProposalSeen = "open" | "applied" | "dismissed" | "missing";
 
-import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { actorLabel, callOf } from "@ep0ch/outline-core/attribution";
+import { callShown } from "./mcp-calls";
 
 export const PROPOSAL_STATUS_KEY = "proposal-status";
 export const proposalSeen = (properties: readonly { key: string; values: string[] }[] | undefined): ProposalSeen => {
@@ -34,6 +35,8 @@ export interface WriteStatus {
   queueId: string;
   /** Who wrote it: `loki (claude-code@float-2)` (a persona within the principal auth proved). */
   by: string;
+  /** The call that made the write, when it had one: its id and its handle. */
+  call?: { id: string; handle: string };
   state: WriteState;
   uri: string;
   tool: string;
@@ -73,7 +76,7 @@ function replaces(l: NetmailReceipt, e: NetmailReceipt): boolean {
  * one). `later`: this caller's writes about the same block, oldest first, this one among them.
  */
 export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary | null; proposal?: ProposalSeen; later: readonly NetmailReceipt[] }): WriteStatus {
-  const base = { queueId: r.id, uri: r.uri, tool: r.tool, queuedAt: r.queuedAt, by: actorLabel(r.actorId) };
+  const base = { queueId: r.id, uri: r.uri, tool: r.tool, queuedAt: r.queuedAt, by: actorLabel(r.actorId), ...(callOf(r.subject) ? { call: callShown(callOf(r.subject)!) } : {}) };
   const target = `${r.outline}@${r.machine}`;
   if (r.state === "queued") {
     const lastPull = ctx.summary?.lastPull ?? null;

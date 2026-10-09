@@ -681,6 +681,34 @@ A write to an outline whose home is another machine answers `queued` with a `que
   outline's access like the other reads, on a live outline or a mirror. The outline evaluates it (`blocks.query`,
   `views.read`, through `ep0ch find`'s own selection) and the answer is block records with `uri` and `revision`, `limit`
   (1 to 50, default 20), `offset`, `more`, `nextOffset` and `total`. A read-only copy now answers those three actions.
+- **Calls (PIE-685).** A caller's visit to the board is a *call*, and every write records which one made it, beside who
+  made it. The call id comes, in this order, from the `call` argument of a request (an id the agent keeps: the one
+  `list_outlines` or an earlier write returned, `c-7f3a1c`, or a name of its own such as `daddy-2026-10-09-0103-k7f`; it
+  wins), the HTTP transport's `Mcp-Session-Id` (the gateway issues one at `initialize`, and a client that sends it back
+  is one call; whether claude.ai keeps one per chat or opens a new one is read from the journal, below), and for stdio one
+  per connection. The gateway is stateless and keeps nothing between requests, so a write with none of these is a call of
+  its own and its answer returns the id with a line telling the agent to pass `call` next time. The call rides the write's
+  `sessionId` as `<oauth subject>#<call>` (the principal and persona stay in the actor id, display stays
+  `daddy (claude.ai)`); `outline-core/src/attribution.ts` composes and parses it. A call has a readable handle,
+  `leaping_otter_convergence`, minted once from the curated word lists in `outline-core/src/call-handles.ts` (the id seeds
+  the pick; no word comes from a chat's content) and stored id to handle under a unique index in
+  `<outlines>/.clients/mcp-calls/calls.sqlite` (`src/mcp-calls.ts`): a clash takes `_2` inside the same write, and the id
+  stays the key. `list_outlines`, a write's answer, a queued write's status and the gateway log show `call: {id, handle}`.
+  **Why it matters:** you can tell which chat a run of notes came from, and review or undo one chat's batch without
+  touching another's.
+  `call:<id or handle>` is a query atom (`outline_query`, views, `ep0ch find --query`): the blocks whose latest change, else
+  their creation, came from that call; the MCP server swaps a handle for its id before the service evaluates it.
+  **A recent-activity read leaves a call's own writes out:** an `outline_query` with an `updated` range or sort, or
+  `fold`, from a call that has an id drops the rows whose latest change is that call's own, saying so in `ownOmitted:
+  {call, handle, count, said}` ("12 of yours this call, omitted"); `includeOwn: true` keeps them. Another call's writes
+  (the same connector's other chats, loki, cowboy) always show, and so does a row someone else changed after. **Why it
+  matters:** an agent orienting after its own writing burst doesn't spend context re-reading what it just wrote.
+  Reading the journal: the gateway logs `mcp gateway: <subject> client=<oauth client> mcp-session-id=<what the client sent,
+  - on its first request> call=<id> [(new)] <methods>` per request and `mcp write: <actor> (<subject>) client=… call=<id>
+  (<handle>) <tool> …` per write. If every request of one chat shows the same `mcp-session-id` and a new chat shows a new
+  one, claude.ai opens a session per chat and the id alone is enough; if the same id spans chats, tell the chats apart with
+  `call`. The echo rule judges a block by its latest change only, not by everything since a time: a block you wrote
+  and someone else changed earlier in the window is omitted too.
 - **Orient (PIE-674).** An agent arriving cold reads the outline's recent changes, not a separate context store. The
   recipe, per outline: (1) run the orient query,
   `outline_query {query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true}` (or a

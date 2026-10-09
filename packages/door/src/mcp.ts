@@ -9,7 +9,7 @@ import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
-import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -21,7 +21,8 @@ import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type Net
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
-import { actorOf, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { callRegistry, callShown } from "./mcp-calls";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
@@ -371,7 +372,7 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
 
 /** outline_query: the views' grammar, or a saved view, over one outline; the service answers, records come back. */
-async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, scope?: ResponseScope): Promise<ToolResult> {
+async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, scope?: ResponseScope, caller?: McpCaller): Promise<ToolResult> {
   const query = stringField(args, "query")?.trim(), view = stringField(args, "view")?.trim();
   if (!query === !view) return toolError("Give query (the views' grammar: type=ticket NOT work-stage=done) or view (a saved view's block id), one of them.");
   const limit = limitOf(args.limit, QUERY_LIMIT_RULE);
@@ -400,8 +401,13 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
     try { under = (await resolveBoardRef(board, args.under.trim())).id; }
     catch (e) { return toolError(`under: ${(e as Error).message} (in ${board.address.outline}@${board.address.machine})`); }
   }
+  if (args.includeOwn !== undefined && typeof args.includeOwn !== "boolean") return toolError("includeOwn is true or false: true keeps the rows only your own call changed (they are left out of a recent-activity read by default).");
+  // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it.
+  const recent = !!query && /\bupdated\s*(?:<=|>=|<|>)/i.test(query) || sort?.field === "updated" || args.fold === true;
+  const omitOwn = recent && args.includeOwn !== true && !!caller?.call && !caller.freshCall && !!query ? caller.call : undefined;
   const answer = await queryPage(board, {
-    ...(query ? { query } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
+    ...(omitOwn ? { omitCall: omitOwn } : {}),
+    ...(query ? { query: callRegistry().resolveIn(query) } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
     ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
   });
   if ("error" in answer) return toolError(answer.error);
@@ -441,7 +447,7 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
   const mine = actorOf(caller);
   const receipt = queue?.receipt(id);
   // Not found and not yours read the same: another caller's writes are not for this one to list.
-  if (!queue || !receipt || receipt.subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`);
+  if (!queue || !receipt || parseSessionId(receipt.subject).subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`);
   let proposal: ProposalSeen | undefined;
   if (receipt.state === "proposed" && receipt.proposalUri) {
     const served = await outlines.board({ outline: receipt.outline, machine: receipt.machine });
@@ -740,6 +746,8 @@ function toolsFor(outlines: McpOutlines) {
         sort: { type: "string", description: `The order, by the service: "updated desc", "created", or "<property key> asc" (direction asc by default). Not with view: a saved view has its own order.` },
         fields: { type: ["string", "array"], items: { type: "string" }, description: `The columns of each row instead of the whole record: ${FIELD_NAMES.join(", ")}, or any property key ("id,title,updated,actor,path"). id and revision are always there; the body never is (outline_read).` },
         under: { type: "string", description: "Only blocks under this note (its subtree): its id, ((id)), [[page]] or Work ID, as ref names a block" },
+        includeOwn: { type: "boolean", default: false, description: "Keep the rows only your own call changed. A recent-activity read (an updated range or sort, or fold) leaves them out by default, with a count (ownOmitted), since what you just wrote isn't news to you; another session's writes always show" },
+        call: CALL_PROPERTY,
         fold: { type: "boolean", default: false, description: "Fold proposals, comments and deliveries into the note they belong to, with a count (changes: {count, proposals, comments, deliveries, summary, ids}); total counts folded rows" },
         seen: seenProperty,
         raw: rawProperty,
@@ -783,6 +791,7 @@ async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
     outlines: listed,
+    ...(caller?.call && !caller.freshCall ? { call: { ...callShown(caller.call), said: "This conversation's call: every write you make records its id, call:<id or handle> finds those writes in outline_query, and your own recent-activity reads leave them out unless includeOwn. Pass call (the id) on your requests to keep it; a name of your own works too and wins." } } : {}),
     tools: {
       writes,
       said: writes
@@ -829,16 +838,21 @@ function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown,
   return checked.ok ? { args: checked.args } : { error: checked.error };
 }
 
-async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
+async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
+  let caller = callerIn;
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const checked = checkedMcpArgs(outlines, params.name, params.arguments, caller);
   if (checked && "error" in checked) return toolError(checked.error);
   const args = checked?.args ?? objectFields(params.arguments) ?? {};
+  // The call a request names (PIE-685) is its call; the connection's is what it had before. A write with none gets a call
+  // of its own, which its answer returns (the gateway keeps nothing between requests that could tie it to a later one).
+  if (caller) caller = withCall(caller, args.call);
+  if (caller && !caller.call && isWriteTool(params.name)) caller = { ...caller, call: mintCallId(), freshCall: true };
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
-  if (params.name === "outline_query") return queryTool(outlines, args, scope);
+  if (params.name === "outline_query") return queryTool(outlines, args, scope, caller);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if ((params.name === "outline_new" || params.name === "outline_archive") && caller && outlines.admin) return adminTool(outlines, outlines.admin, params.name, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
@@ -906,11 +920,11 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       const entry = outlines.netmail.queue({
         machine: target.home.machine, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input,
         revision: shape.revision ?? null, mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: target.home.instanceId,
-        level: status.level, actorId: actor.actorId, subject: caller.sub, clientId: caller.clientId ?? null,
+        level: status.level, actorId: actor.actorId, subject: sessionIdOf(caller), clientId: caller.clientId ?? null,
       });
       const q = outlines.netmail.summary(target.home.machine);
       const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
-      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: queued ${entry.id}`);
+      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: queued ${entry.id}`);
       return toolText({
         outcome: "queued", id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
         waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base,
@@ -928,15 +942,15 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       try {
         outlines.netmail.live({
           machine: target.queuedFor, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input, revision: shape.revision ?? null,
-          mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: board.outlineInstanceId, level: status.level, actorId: actor.actorId, subject: caller.sub, clientId: caller.clientId ?? null,
+          mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: board.outlineInstanceId, level: status.level, actorId: actor.actorId, subject: sessionIdOf(caller), clientId: caller.clientId ?? null,
         }, { state: done.outcome, said: done.said, uri: done.uri, ...(done.outcome === "applied" && revision !== undefined ? { revision } : {}) });
       } catch (e) { outlines.log?.(`mcp write: couldn't record the live write for the mirror's overlay: ${(e as Error).message}`); }
     }
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
-    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
+    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
   } catch (e) {
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);
   }
 }
@@ -1130,9 +1144,11 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
     // No token on stdio: the caller is the client the MCP `initialize` names, written as `mcp:<client>` (and mapped by
     // EP0CH_MCP_PERSONAS) exactly as the gateway's callers are.
     let clientId: string | undefined;
+    // One call per stdio connection (PIE-685).
+    const call = mintCallId();
     for await (const line of io.input ?? stdinLines()) {
       clientId = clientNamed(line) ?? clientId;
-      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}) });
+      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}), call });
       if (answer?.reply) write(JSON.stringify(answer.reply));
     }
     return 0;
