@@ -883,6 +883,8 @@ export class AgentDrawer {
     const name = this.shownTabOf()?.name ?? this.name;
     const hint = watching
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
+      : this.entered && d?.linkingFrom()
+      ? `${fg(C.lmagenta)}alt+l · click the tile of the ${screen} above where ${d.nameOfPane(d.linkingFrom()!)}'s opens land (or its number) · click it again to unlink · esc cancels`
       : this.entered && d?.overlaid()
       ? `${fg(C.yellow)}the picker has the keys · ↑↓ ⏎ chooses · esc leaves it as it is`
       : this.entered && d?.waitsOnExit()
