@@ -12,6 +12,8 @@ import { BUILTIN_HEADING_STYLES, type HeadingStyle } from "./heading-styles";
 import { BUILTIN_CALLOUTS, CALLOUT_TONES, type CalloutType } from "./callouts";
 import { codeSpanRanges } from "./code-ranges";
 import { noteCodeFences } from "./component-block";
+import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
+import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query"] as const;
@@ -232,7 +234,7 @@ const SPARK: ComponentSchema = {
 };
 
 /** The components every outline has. */
-export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, METER, SPARK].map(s => ({ ...s, origin: "built-in" }));
+export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS].map(s => ({ ...s, origin: "built-in" }));
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────
 

@@ -1,6 +1,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service), the
 // `scripts/try-it.sh --showcase --reset` path putting it back, and the screen drawing each reuse-map
 // section with its real part, by keys, mouse and act. Scratch services only; the seed is fictional.
+import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -656,6 +657,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const values = () => (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.variations as any[]).map(v => v.values.heading);
     await until(() => (screen(), values().includes("plot")), "the outline's plot style among the values", 8000);
     await app.act({ action: "library.clear", args: {}, as: "test-agent" });
+    // Every component the readers draw has a page (PIE-701): the section lists as many as there are schemas, the figures and the box among them.
+    const listed = () => (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.components as string[]);
+    expect(listed()).toHaveLength(BUILTIN_COMPONENT_SCHEMAS.length);
+    for (const id of ["graph-stat", "graph-table", "graph-quadrant", "links", "box", "image", "hero-image", "embed", "code-fence"]) expect(listed()).toContain(id);
+    expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
+    await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
+    await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {

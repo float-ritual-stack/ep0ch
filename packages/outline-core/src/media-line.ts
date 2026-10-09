@@ -25,7 +25,9 @@ export interface MediaSpec {
 export type Focus = { x: number; y: number };
 export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt";
 const MEDIA_KEY = /^(img|image|video)$/i;
-const ATTRS = new Set<string>(["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt"]);
+/** The layout properties a media line takes beside its path: what the library's image schemas must document. */
+export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt"];
+const ATTRS = new Set<string>(MEDIA_ATTRS);
 const LEAD = /^\s*(?:[-*]\s+)?/;
 /** A block anchor ending a line (` ^beds`), kept as it is when the line is rewritten. */
 const ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;

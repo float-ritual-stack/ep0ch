@@ -69,6 +69,8 @@ export class LibraryPane implements Pane {
   axis = 0;
   gridAt = 0;
   width: number = 80;
+  /** Every variation drawn at all of WIDTHS, one under another (the narrow fallback beside what a wide screen gets). */
+  allWidths = false;
   /** The values picked per axis of the whole space, the cursor among the chips (an axis row, a value), the page. */
   filter: Record<string, string[]> = {};
   cursor = { row: 0, value: 0 };
@@ -113,10 +115,13 @@ export class LibraryPane implements Pane {
     const head = `${sel ? "▌" : " "} ${ellipsize(label, room)}`;
     out.push({ text: (sel ? selected(true) : fg(C.lcyan)) + pad(head, cut - width(copy)) + RESET + fg(C.dark) + copy + RESET, v: i,
       hits: [{ from: 0, to: cut - width(copy), action: "library.select", args: { n: i + 1 } }, { from: cut - width(copy), to: cut, action: "library.copy", args: { n: i + 1 } }] });
-    const drawn = drawVariation(v, this.width, src);
-    const wider = this.width + 2 > cut;
-    for (const l of drawn) out.push({ text: "  " + (wider ? pad(l, cut - 2) : l) + RESET, v: i });
-    if (wider) out.push({ text: fg(C.dark) + pad(`  ← drawn at ${this.width} columns, cut at ${cut - 2} · w changes the width`, cut) + RESET, v: i });
+    for (const cols of this.allWidths ? WIDTHS : [this.width]) {
+      const drawn = drawVariation(v, cols, src);
+      const wider = cols + 2 > cut;
+      if (this.allWidths) out.push({ text: fg(C.dark) + `  ${cols} columns` + RESET, v: i });
+      for (const l of drawn) out.push({ text: "  " + (wider ? pad(l, cut - 2) : l) + RESET, v: i });
+      if (wider) out.push({ text: fg(C.dark) + pad(`  ← drawn at ${cols} columns, cut at ${cut - 2} · w changes the width`, cut) + RESET, v: i });
+    }
     if (drawingWaits(v, src)) out.push({ text: fg(C.dark) + "  asking the outline how the rule draws…" + RESET, v: i });
     const source = (line: string, tag = "") => wrap(line || " ", Math.max(8, cut - 6 - width(tag))).map((l, j) => ({ text: fg(C.dark) + "  ┊ " + (j || !tag ? "" : fg(C.brown) + tag) + fg(C.grey) + l + RESET, v: i }));
     if (v.note) { out.push(...source(v.note, "note · ")); out.push({ text: fg(C.dark) + "  ┊" + RESET, v: i }); }
@@ -140,7 +145,7 @@ export class LibraryPane implements Pane {
     const head: Row[] = [];
     head.push(...chipRows(all.map(c => ({ label: shortTitle(c) + (c.origin && c.origin !== "built-in" ? " ·ext" : ""), on: c.id === s.id, hit: { action: "library.component", args: { name: c.id } } })), W));
     const parts = chipRows(PARTS.map(p => ({ label: `${p.key} ${p.label}`, on: p.part === this.part, hit: { action: "library.part", args: { part: p.part } } })), W);
-    const widths = chipRows(WIDTHS.map(n => ({ label: String(n), on: n === this.width, hit: { action: "library.width", args: { cols: n } } })), W, fg(C.dark) + "width" + RESET);
+    const widths = chipRows([...WIDTHS.map(n => ({ label: String(n), on: !this.allWidths && n === this.width, hit: { action: "library.width", args: { cols: n } } })), { label: "all", on: this.allWidths, hit: { action: "library.width", args: { all: true } } }], W, fg(C.dark) + "width" + RESET);
     // The widths at the right of the parts' row when they fit, else under it.
     const last = parts[parts.length - 1]!, room = W - width(last.text) - width(widths[0]!.text) - 1;
     if (widths.length === 1 && room >= 1) {
@@ -186,7 +191,7 @@ export class LibraryPane implements Pane {
       else {
         const [a, b] = g, laid = grid(s, a, b);
         // Side by side when the row's cells fit at the width drawn, else one under another.
-        const per = laid.rows[0]?.cells.length ?? 1, cellW = this.width + 4, side = per * cellW <= W;
+        const per = laid.rows[0]?.cells.length ?? 1, cellW = this.width + 4, side = !this.allWidths && per * cellW <= W;
         for (const row of laid.rows) {
           heading(`${a}: ${row.value}`);
           if (!side) { for (const c of row.cells) { body.push(...this.block(c, shown.length, this.labelOf(s, c, [b]), W, src, cut)); shown.push(c); } continue; }
@@ -292,7 +297,7 @@ export class LibraryPane implements Pane {
     const s = this.schema();
     const size = spaceSize(s, this.filter);
     return {
-      component: s.id, title: s.title, origin: s.origin ?? "built-in", part: this.part, width: this.width,
+      component: s.id, title: s.title, origin: s.origin ?? "built-in", part: this.part, width: this.allWidths ? "all" : this.width,
       components: this.schemas().map(c => c.id),
       ...(this.part === "property" ? { property: s.sweep[Math.min(this.axis, s.sweep.length - 1)] ?? null, properties: s.sweep } : {}),
       ...(this.part === "grid" ? { grid: s.grids[Math.min(this.gridAt, s.grids.length - 1)] ?? null, grids: s.grids } : {}),
@@ -326,7 +331,7 @@ const step = (at: number, by: number, n: number) => (n ? (((at + by) % n) + n) %
 /** What the library does: the keys, a click and `act` call the same actions. */
 export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.component": def({
-    summary: "show a component's page: name=<its id> (heading-style, callout, rule, graph-meter, graph-spark, an extension's), or by=1/-1 for the next or previous",
+    summary: "show a component's page: name=<its id> (heading-style, callout, rule, graph-stat, box, an extension's: library --brief lists them), or by=1/-1 for the next or previous",
     keys: ", . or a click on its tab", touches: "screen", replay: "safe", says: r => `showed the ${r.title} page`,
     args: { name: { type: "string", optional: true, about: "the component's id" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ name, by }, { pane }) {
@@ -464,14 +469,19 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.width": def({
-    summary: `draw the variations at cols=${WIDTHS.join(", ")} columns (without cols, the next): the narrow fallback, a reader, a wide screen; wider than the tile is cut at its edge`,
+    summary: `draw the variations at cols=${WIDTHS.join(", ")} columns, or all=true at every one of them one under another (without either, the next of these): the narrow fallback, a reader, a wide screen; wider than the tile is cut at its edge`,
     keys: "w, or a click on a width", touches: "screen", replay: "safe",
-    args: { cols: { type: "number", optional: true, about: WIDTHS.join(", ") } },
-    run({ cols }, { pane }) {
+    args: { cols: { type: "number", optional: true, about: WIDTHS.join(", ") }, all: { type: "boolean", optional: true, about: "draw at every width" } },
+    run({ cols, all }, { pane }) {
       const p = libraryOf(pane);
-      const to = cols ?? WIDTHS[step(WIDTHS.indexOf(p.width as never), 1, WIDTHS.length)]!;
-      if (!(WIDTHS as readonly number[]).includes(to)) throw new ActionRefused(`cols is ${WIDTHS.join(", ")}`);
-      p.width = to; p.reveal();
+      if (cols !== undefined && all) throw new ActionRefused("give cols or all, not both");
+      if (cols !== undefined && !(WIDTHS as readonly number[]).includes(cols)) throw new ActionRefused(`cols is ${WIDTHS.join(", ")}`);
+      // The cycle: each width, then all of them, then round again.
+      const at = p.allWidths ? WIDTHS.length : WIDTHS.indexOf(p.width as never);
+      const next = step(at, 1, WIDTHS.length + 1);
+      if (all || (cols === undefined && next === WIDTHS.length)) { p.allWidths = true; p.reveal(); return { width: "all" }; }
+      const to = cols ?? WIDTHS[next]!;
+      p.allWidths = false; p.width = to; p.reveal();
       return { width: to };
     },
   }),

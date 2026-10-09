@@ -199,7 +199,11 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   waterfall: (p, w) => {
     const items: Props[] = p.items ?? [];
     const lw = Math.max(...items.map(i => String(i.label).length));
-    const bw = Math.max(8, Math.min(36, w - lw - 10)), total = Math.max(...items.map(i => Math.abs(num(i.value))), 1);
+    // The scale holds the highest the running total gets to, not just the largest step (a rise past the first bar's
+    // height would draw past the bar's end).
+    let peak = 0, sum = 0;
+    for (const [i, it] of items.entries()) { sum = i === 0 || i === items.length - 1 ? num(it.value) : sum + num(it.value); peak = Math.max(peak, Math.abs(sum), Math.abs(num(it.value))); }
+    const bw = Math.max(8, Math.min(36, w - lw - 10)), total = Math.max(peak, 1);
     const cells = (v: number) => Math.round((Math.abs(v) / total) * bw);
     let run = 0;
     return items.flatMap((it, i) => {

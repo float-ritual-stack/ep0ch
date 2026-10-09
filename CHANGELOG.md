@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every component has a schema, so the library shows them all (PIE-701)
+
+- **New:** the component library, `ep0ch library --brief` and `outline_components` now cover every component a note can
+  draw: all the `::graph-*` figures (stat, kpi, rank, funnel, waterfall, plot, gantt, tree, check, timeline, table, tabs,
+  decision, chat, keys, uptime, activity, calendar, annotate, quadrant, matrix, compare, flow), `::links`, `::outlinks`,
+  `::resources`, `::backlinks`, `::box`, pictures, header images, embeds and references, code fences and tables. Each page
+  has a live minimal example, each property's values drawn, and the source to copy. *Why it matters:* an agent (or you)
+  finds a component's properties and values without reading code, and an extension's component joins the same list with
+  no code of ours.
+- **New:** the library draws at all three widths (40, 80, 160) one under another: `w` cycles to `all`, or click it.
+- **Fixed:** a `::graph-waterfall` whose running total rose past its first bar drew as "couldn't draw".
+- **Changed:** a test fails when a component the readers draw has no schema, so a new component cannot ship without a
+  library page. A figure's live form (`query:`) is not drawn in the library, which has no outline to ask; its page says so.
+- **Run:** nothing. No schema or protocol change.
+
 ### Every MCP write says which call made it, and your own writes stop coming back as news (PIE-685)
 
 - **New:** a caller's visit to the board is a call. Every MCP write (stdio and the gateway) records its call id beside who made

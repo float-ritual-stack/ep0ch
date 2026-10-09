@@ -423,9 +423,12 @@ dimmed: the door is dark-first, so write `[dim::0]` only when the person asks fo
 **Every component's properties, in one answer** (PIE-618). Discover components with `ep0ch library --brief
 [<component>…]` or the `outline_components` tool (the Claude mod's, and the MCP gateway's, which also serves each
 component as a resource: `ep0ch://<outline>@<machine>/components/<id>`). Per component: its purpose, where it goes,
-each property as `key: values (default) — meaning`, and one minimal example. They cover the heading styles,
-callouts, rules, `::graph-meter` and `::graph-spark`, the outline's own styles and types among the values, and any
-an extension ships. Read them before writing a component's properties instead of guessing a value.
+each property as `key: values (default) — meaning`, and one minimal example. They cover every component a note can hold: the heading styles, callouts, rules, each `::graph-*` figure
+(`graph-stat`, `graph-table`, `graph-tabs`, `graph-rank`, `graph-meter`, `graph-timeline`, `graph-check`, `graph-decision`,
+`graph-chat`, `graph-keys`, `graph-matrix`, `graph-quadrant`, `graph-compare`, `graph-flow`, `graph-uptime`,
+`graph-activity`, `graph-calendar`, …), `links`, `outlinks`, `resources`, `backlinks`, `box`, `image`, `hero-image`,
+`embed`, `code-fence` and `table`, the outline's own styles and types among the values, and any an extension ships.
+A component the readers draw can't lack an entry: a test fails when one does. Read them before writing a component's properties instead of guessing a value.
 `ep0ch library --json` prints the full schemas (each value's meaning too). The library screen
 (`ep0ch --screen library`) is for people: don't open it; it draws each value with its source.
 
