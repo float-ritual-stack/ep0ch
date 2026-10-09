@@ -77,7 +77,7 @@ export class TunePane implements Pane {
   constructor(public source: string) {}
 
   title() { return `tune · ${this.source}`; }
-  hint() { return "j k pick · + − nudge · tab level · w width · s save · u undo · x reset"; }
+  hint() { return "j k pick · + − nudge · v level · w width · s save · u undo · x reset"; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -152,7 +152,8 @@ export class TunePane implements Pane {
     if (isDown(k)) return this.run(desk, "tune.pick", { n: Math.min(TUNE_ROWS.length, this.sel + 2) }), true;
     if (c === "+" || c === "=" || c === "l" || k.kind === "right") return this.run(desk, "tune.nudge", { by: 1 }), true;
     if (c === "-" || c === "_" || c === "h" || k.kind === "left") return this.run(desk, "tune.nudge", { by: -1 }), true;
-    if (k.kind === "tab") return this.run(desk, "tune.level", { level: TUNE_LEVELS[(TUNE_LEVELS.indexOf(this.level) + 1) % TUNE_LEVELS.length] }), true;
+    // v, not tab: the desk takes tab to go to the next tile before a tile's own keys.
+    if (c === "v") return this.run(desk, "tune.level", { level: TUNE_LEVELS[(TUNE_LEVELS.indexOf(this.level) + 1) % TUNE_LEVELS.length] }), true;
     if (c === "w") return this.run(desk, "tune.width", { scope: this.scope === "all" ? "this" : "all" }), true;
     if (c === "s") return this.run(desk, "tune.save", {}), true;
     if (c === "u") return this.run(desk, "tune.undo", {}), true;
@@ -262,7 +263,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
         at = `${targetWords(a.target)}${a.variant ? `, ${a.variant} only` : ""}`;
         shadowed ??= a.shadowed;
       }
-      if (shadowed) desk.ctx.flash(`${shadowed}: tab to "where it's set" to change what shows`);
+      if (shadowed) desk.ctx.flash(`${shadowed}: v to "where it's set" changes what shows`);
       desk.redraw();
       if (actor.kind === "agent") desk.ctx.flash(says(actor, `tuned ${r.name} to ${shown.join(" ")} (${at}) · s saves`));
       return { row: r.name, value: shown.join(" "), at, unsaved: tuning.unsavedCount() };
@@ -295,7 +296,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.level": def({
     summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, or page (the note it shows)",
-    keys: "tab, a click on a level",
+    keys: "v, a click on a level",
     touches: "tile", replay: "safe",
     args: { level: { type: "string", about: "auto, global, tile, screen or page" } },
     run({ level }, { pane, desk }) {

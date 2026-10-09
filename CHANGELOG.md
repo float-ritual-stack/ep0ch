@@ -22,7 +22,7 @@ are its record. The outliner's entries from then are kept below, under
   edit to a style note restyles every door on the outline at once.
 - **New:** the tune inspector (`alt+y`, `^W o y`, or "tune its look" in a tile's ⋯ menu) beside a tile lists each value
   and where it comes from. `+` `−`, a click on `[−] [+]` or the wheel over a value nudge it, and the tile moves in the
-  next frame. A nudge goes where the value is set (or to the level you pick with tab), for every width or (w) this width
+  next frame. A nudge goes where the value is set (or to the level you pick with v), for every width or (w) this width
   only. `s` saves to the outline, `u` undoes, `x` resets. Quitting with nudges unsaved says so.
 - **Unchanged text:** spacing is drawn, never text. A drag, `y`, `Y`, `select.copy`, `peek` and `ep0ch export` give the
   note's words, a wrapped line joined, with no margin, gap or divider in them; a click lands on the character under it.

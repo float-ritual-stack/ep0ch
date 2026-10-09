@@ -934,7 +934,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | backlinks (links) | the links of what another tile shows (`tile:detail`): `→ outlinks`, `♦ resources`, `← backlinks` (grouped as Detail groups them): `j` `k` or a click show one where the tile's selection goes (a preview following it: a note, a ticket's block, a resource's stored content, never registering it), `⏎` or a double click opens it in the tile it came from (a tile linked to it as a target, else the detail it lists the links of), `alt+⏎` or an alt-, ctrl- or middle-click opens it in a new detail beside that one (`backlinks.open`; PIE-646); `.` folds a group; `/ s K w h n` and the header change the view (Kind, Stage and Sort apply to outlinks and resources by their target's kind, stage and dates as to backlinks; the counters say `N of M match` and `→a/b ♦c/d ←e/f`; each control keeps its slot) (`backlinks.pick`, `backlinks.open`, `backlinks.fold`, `backlinks.view`) |
 | board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
 | query | a saved view's cards with its own cursor (`view=<its block id>`; `^W o q` on a tile showing a view): a board lane, on the desk; `j k` pick, `⏎` opens where its opens go, `r` reads it again |
-| tune | the tune inspector on another tile (`source=tile:<name>`; `alt+y` or `^W o y` on the tile, or "tune its look" in its ⋯ menu): each look value (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints) and where it comes from; `j k` pick, `+ −` (a click on `[−] [+]`, the wheel over a value) nudge it live, `tab` the level, `w` this width only, `s` save, `u` undo, `x` reset (PIE-673) |
+| tune | the tune inspector on another tile (`source=tile:<name>`; `alt+y` or `^W o y` on the tile, or "tune its look" in its ⋯ menu): each look value (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints) and where it comes from; `j k` pick, `+ −` (a click on `[−] [+]`, the wheel over a value) nudge it live, `v` the level, `w` this width only, `s` save, `u` undo, `x` reset (PIE-673) |
 | thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
 
 | Keys (mouse) | Action |
@@ -1172,7 +1172,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   outline says otherwise); `pad` is inside a tile's frame, one row and two columns per step (cells are about twice as
   tall as wide); `[style.narrow.…]` and `[style.wide.…]` apply under 60 columns and from 140. `alt+y` opens the tune
   inspector beside a tile: each value and where it comes from, nudged with `+ −` (a click, the wheel over a value) and
-  drawn in the next frame, saved with `s` where it's set or to the level you pick (`tab`), `w` for this width only, `u`
+  drawn in the next frame, saved with `s` where it's set or to the level you pick (`v`), `w` for this width only, `u`
   undo, `x` reset; quitting with nudges unsaved says so. Spacing is drawn, never text: a drag, `y` and `Y`, `select.copy`,
   `peek` and `ep0ch export` give the note's words. **Known limit:** a terminal's own selection (a shift-drag in kitty,
   tmux or Herdr copy-mode) copies the screen's cells, so the margin and the measure's centring come as leading spaces and
