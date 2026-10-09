@@ -1232,6 +1232,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(row("pears")).toMatchObject({ depth: 2, label: "pears · Allotment notebook" });
     expect(row("pears").detail).toContain("a spine");
     expect((app as any).bar).toBeNull();
+    // / with nothing typed: the notes changed most recently, newest first, none twice; typed, the one search finds a work item by its id.
+    const recent = await app.act({ action: "bar.open", args: { scope: "notes" }, as: "test-agent" }) as any;
+    expect(recent.rows.length).toBeGreaterThan(3);
+    expect(new Set(recent.rows.map((x: any) => x.key)).size).toBe(recent.rows.length);
+    const byId = await app.act({ action: "bar.open", args: { scope: "notes", query: "PLOT-4" }, as: "test-agent" }) as any;
+    expect(byId.rows[0].label).toMatch(/^PLOT-4 .*Order the seed potatoes/);
     // The person's: ctrl+k, %pears, ⏎.
     press({ kind: "char", ch: "k", ctrl: true });
     for (const c of "%pears") press({ kind: "char", ch: c });

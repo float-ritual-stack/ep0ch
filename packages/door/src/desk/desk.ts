@@ -3669,7 +3669,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id);
       if (!p) return;
       const m = this.showing(p);
-      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m) } : null,
+      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}), ...(m.props.page ? { page: m.props.page } : {}) } : null,
         focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true });
     };
     const walk = (n: LNode, depth: number, docked: boolean) => {
@@ -4645,7 +4645,7 @@ const docked = ({ pinned, ...rest }: Record<string, unknown>) => ({ ...rest, ...
 /** A tile moving between screens (or into and out of the drawer) whole: its instance, its name, its spec, whether the person was typing in it. */
 /** One tile as the power bar lists it (Desk.tileOutline): its stable id, name, kind, depth in the tree, and what it shows. */
 export interface TileLine {
-  id: string; name: string; kind: string; depth: number; title: string; showing: { id: string; title: string } | null;
+  id: string; name: string; kind: string; depth: number; title: string; showing: { id: string; title: string; workId?: string; page?: string } | null;
   focused: boolean; collapsed: boolean; float: boolean; docked: boolean; tab: boolean; shown: boolean;
 }
 
