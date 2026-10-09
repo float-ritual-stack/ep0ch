@@ -132,6 +132,8 @@ export class ScreenTile implements Pane {
     } catch (e) { this.problem = e instanceof Error ? e.message : String(e); this.desk = desk; return; }
     this.given = null;
     if (this.home) (s as Desk).home = this.home;
+    // Its tiles' links across this tile's edge (a group's tile and one outside it) are by path through the desk holding it.
+    (s as Desk).holder = { tile: this, desk: () => (this.desk as unknown as Desk | null) };
     this.frame(s, desk);
     if (!this.preview) { this.framed!.open(); void this.ownPreview(false); }
   }

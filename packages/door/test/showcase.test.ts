@@ -2213,6 +2213,65 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 40_000);
 
+  test("gathering into a group (PIE-696): shift+click picks tiles and ^W G gathers them, a tile's title dragged onto a group goes in and back out, ^W G in a split asks, and a preview across the group's edge keeps following", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" })).toMatchObject({ key: "screen" });
+    await until(() => marks.screen!.every(m => screen().includes(m)), "the screen section");
+    const stage = () => S().stages.get(S().sel).top;
+    const at = () => S().stageRect;
+    const get = async () => (await app.act({ action: "layout.get", args: {}, as: "test-agent" })) as any;
+    const tile = async (name: string) => (await get()).tiles.find((t: any) => t.name === name);
+    const groups = async () => (await get()).tiles.filter((t: any) => t.mount?.group).map((t: any) => t.name) as string[];
+    const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => { press({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) }); sc.render(app); };
+    const drag = (a: [number, number], b: [number, number]) => { mouse("down", ...a); mouse("drag", a[0] + 1, a[1]); mouse("drag", ...b); mouse("up", ...b); };
+    const title = async (name: string): Promise<[number, number]> => { const r = (await tile(name)).rect; return [at().col + r.col + 3, at().row + r.row]; };
+    sc.render(app);
+    // The mounts test above left a group in the reader's tab: it comes out of the tab set (^W T) and spills, so the stage is as laid out.
+    for (const g of await groups()) { await stage().dispatch.press("layout.move", { to: g, where: "right" }, g); await stage().dispatch.press("tile.group", { on: false }, g); }
+    sc.render(app);
+    const focus0 = (await get()).focus;
+    mouse("down", ...(await title("lanes")), 4); mouse("up", ...(await title("lanes")), 4);
+    mouse("down", ...(await title("card")), 4); mouse("up", ...(await title("card")), 4);
+    expect((await tile("lanes")).picked).toBe(true);
+    expect((await tile("card")).picked).toBe(true);
+    expect((await get()).focus).toBe(focus0);                 // picking moves no keys
+    // An agent's pick of the same tile is its own, and shows beside the person's.
+    expect(await app.act({ action: "tile.select", tile: "card", args: {}, as: "test-agent" })).toMatchObject({ selected: ["card"] });
+    expect((await tile("card")).pickedBy).toEqual(["test-agent"]);
+    await app.act({ action: "tile.select", args: { clear: true }, as: "test-agent" });
+    // ^W G: the picked two, gathered side by side.
+    const before = await groups();
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "G" }); sc.render(app);
+    const made = (await groups()).find(g => !before.includes(g))!;
+    expect(made).toBeDefined();
+    const gt = await tile(made);
+    expect(gt.mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["card", "lanes"]);
+    // A tile's title dragged onto the group goes in where its drop zone says; the preview "card" follows the board across the edge.
+    expect(await tile("card")).toBeUndefined();
+    const reader = await title("reader"), r = (await tile(made)).rect;
+    drag(reader, [at().col + r.col + r.cols - 3, at().row + r.row + Math.floor(r.rows / 2)]);
+    expect((await tile(made)).mount.layout.tiles.map((t: any) => t.name)).toContain("reader");
+    // Out again by dragging its title past the group, onto the board's lower edge.
+    const g2 = (await tile(made)).mount.layout.tiles.find((t: any) => t.name === "reader").rect, g1 = (await tile(made)).rect;
+    const b = (await tile("board")).rect;
+    drag([at().col + g1.col + 1 + g2.col + 3, at().row + g1.row + 1 + g2.row], [at().col + b.col + b.cols - 2, at().row + b.row + Math.floor(b.rows / 2)]);
+    expect(await tile("reader")).toBeDefined();
+    // ^W G in a split asks: this tile or the whole split.
+    await stage().dispatch.press("tile.focus", {}, "board");
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "G" }); sc.render(app);
+    const ask = stage().overlays.top() as { name: string; items: { label: string }[] } | null;
+    expect(ask).toMatchObject({ name: "gather" });
+    expect(ask!.items[0]!.label).toMatch(/^this tile · board/);
+    expect(ask!.items[1]!.label).toMatch(/^the whole split · /);
+    press({ kind: "esc" });
+    expect(stage().overlays.top()).toBeFalsy();
+    // Spill the gathered group: the tiles are back as they were.
+    await stage().dispatch.press("tile.group", { on: false }, made);
+    sc.render(app);
+    expect(await tile("lanes")).toBeDefined();
+    expect(await tile("card")).toBeDefined();
+  }, 40_000);
+
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();
     const b = new SocketBoard(await other.start());

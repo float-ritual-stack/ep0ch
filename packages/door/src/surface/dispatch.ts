@@ -443,6 +443,8 @@ export class Dispatcher {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (!s.tile || typeof out[k] !== "string" || !tiles.length) continue;
+      // A path (`group/tile`, `../tile`) names a tile of another screen of the family: the action reads it (tile.link to=).
+      if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
       if (!hit) throw new ActionRefused(`no tile ${out[k]} here; ${this.which(tiles)}`);
       out[k] = hit.t.name;

@@ -109,16 +109,23 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }) { return d.layouts(); },
   }),
   "layout.move": def({
-    summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A docked tile moved this way is undocked. The person's focus stays where it is",
-    keys: "drag a header; ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out",
+    summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A docked tile moved this way is undocked. into=<group> moves it into a group whole (PIE-696: a running program, its agent policy, spine and links go with it), beside=<one of the group's tiles> where=right/left/up/down/tabs of it (default the group's focused tile, right); out=true on a tile of a group (tile=<group>/<tile>) moves it back out onto the screen holding the group, beside=<a tile there> (default the group). The person's focus stays where it is",
+    keys: "drag a header (onto a group to move into it, out of a group's frame to move out); ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out; ^W i into a group, or out of the one it's in",
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => { const w = whereOf(a.where, "layout.move", "right"); return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${a.to}`}`; },
     args: {
       to: { type: "string", optional: true, tile: true, about: "the tile it goes beside or into (not needed for an edge)" },
       where: { type: "string", optional: true, about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
       index: { type: "number", optional: true, about: "with where=tabs: the place among the tabs (0 first)" },
+      into: { type: "string", optional: true, tile: true, about: "a group tile on this screen: the tile goes into it whole" },
+      out: { type: "boolean", optional: true, about: "on a tile of a group: it goes out onto the screen holding the group" },
+      beside: { type: "string", optional: true, about: "with into=: the group's tile it goes beside or into; with out=true: the tile outside it goes beside (default the group)" },
     },
-    run({ to, where, index }, { d, reader }, actor) {
+    run({ to, where, index, into, out, beside }, { d, reader }, actor) {
+      if (into !== undefined && out) throw new ActionRefused("layout.move: into= or out=true, not both");
+      if (into !== undefined) return d.moveIntoGroup(reader, into, beside, whereOf(where, "layout.move", "right"), actor);
+      if (out) return d.moveOutOfGroup(reader, beside, whereOf(where, "layout.move", "right"), actor);
+      if (beside !== undefined) throw new ActionRefused("layout.move: beside= goes with into= or out=true; to= names the tile for an ordinary move");
       return d.moveTile(reader, to, whereOf(where, "layout.move", "right"), index, actor);
     },
   }),
@@ -455,11 +462,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.group": def({
-    summary: "gather tiles into a group (PIE-651): one tile holding them laid out as a screen of their own, so a tab set's tab can hold a split. tile=<tile> alone, or node=<a container's id or key> whole, takes the group's place; with=<another tile> joins it beside it (where=right, left, up, down). On a group (or on=false) its tiles spill back where it was. ^W e goes into a group; tile=<group>/<tile> names one of its tiles for act. A container filled from data (the board's lanes) isn't gathered: mount its screen's part instead (tile.open kind=screen part=)",
-    keys: "^W G (a group: spills it); a click on ■ spill on a group's header; the tile menu",
+    summary: "gather tiles into a group (PIE-651): one tile holding them laid out as a screen of their own, so a tab set's tab can hold a split. tile=<tile> alone, or node=<a container's id or key> whole (a split), takes the group's place; with=<another tile> joins it beside it (where=right, left, up, down); selected=true gathers the tiles this actor picked (tile.select), keeping their arrangement as far as a split allows, else side by side. ask=true (the keys and the menu): with tiles picked it gathers them, else in a split the person chooses this tile or the whole split. On a group (or on=false) its tiles spill back where it was. ^W e goes into a group; tile=<group>/<tile> names one of its tiles for act; layout.move into=<group> and out=true move one tile in or out. Links between a gathered tile and one outside are kept (tile.link to=<group>/<tile>, ../<tile>). A container filled from data (the board's lanes) isn't gathered: mount its screen's part instead (tile.open kind=screen part=)",
+    keys: "^W G (a group: spills it; picked tiles: gathers them; in a split: asks this tile or the whole split); a click on ■ spill on a group's header; the tile menu",
     touches: "shape", replay: "ask", confirms: true,
-    says: r => (r.spilled ? `spilled ${r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.tile}`),
-    menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", now: ({ d, reader }) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : null) },
+    says: r => (r.asked ? `${r.tile}: this tile or the whole split?` : r.spilled ? `spilled ${r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.tile}`),
+    menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", args: { ask: true }, now: ({ d, reader }, _t, actor) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : d.pickedBy(actor).length > 1 ? { label: `gather the ${d.pickedBy(actor).length} picked tiles into a group` } : null) },
     args: {
       on: { type: "boolean", optional: true, about: "true gathers, false spills a group back; default: a group spills, any other tile is gathered" },
       node: { type: "string", optional: true, about: "a container (its id from layout.get, or its key) to gather whole, in place of tile=" },
@@ -467,12 +474,47 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       where: { type: "string", optional: true, about: "with with=: right (default), left, up or down of it" },
       name: { type: "string", optional: true, about: "the group tile's name (default group, numbered)" },
       label: { type: "string", optional: true, about: "what its title says" },
+      selected: { type: "boolean", optional: true, about: "gather the tiles this actor picked (tile.select) instead of tile=" },
+      ask: { type: "boolean", optional: true, about: "the person is asked what to gather when there is a choice (picked tiles gather; in a split, this tile or the whole split); an agent's is never asked" },
     },
-    run({ on, node, with: w, where, name, label }, { d, reader }, actor) {
+    run({ on, node, with: w, where, name, label, selected, ask }, { d, reader }, actor) {
       const pl = whereOf(where, "tile.group", "right");
       if (pl === "tabs" || pl === "next" || pl.startsWith("edge-")) throw new ActionRefused("tile.group: where is right, left, up or down");
-      return (on ?? !d.isGroup(reader)) ? d.groupTile(reader, { node, with: w, where: pl as Dir, name, label }, actor) : d.ungroupTile(reader, actor);
+      if (!(on ?? !d.isGroup(reader))) return d.ungroupTile(reader, actor);
+      const alone = node === undefined && w === undefined;
+      if (selected || (ask && alone && d.pickedBy(actor).length > 1)) return d.groupTiles(d.pickedBy(actor), { where: pl as Dir, name, label }, actor);
+      if (ask && alone && actor.kind !== "agent") { const offer = d.gatherOffer(reader); if (offer) return d.askGather(reader, offer); }
+      return d.groupTile(reader, { node, with: w, where: pl as Dir, name, label }, actor);
     },
+  }),
+  "tile.into": def({
+    summary: "move tile=<tile> into a group on this screen whole (group=<its tile>; with several groups and none named, the person picks one), or, on a tile of a group's screen, back out onto the screen holding it. A shorthand for layout.move into=<group> / out=true, which also place it (beside=, where=)",
+    keys: "^W i; the tile menu",
+    touches: "shape", replay: "safe", confirms: true,
+    says: r => `moved ${r.tile} ${r.out ? `out of ${r.from}` : `into ${r.into}`}`,
+    menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
+    args: { group: { type: "string", optional: true, tile: true, about: "the group tile to move it into" } },
+    run({ group }, { d, reader }, actor) {
+      if (d.inGroup()) return d.moveOutOfGroup(reader, undefined, "right", actor);
+      const groups = d.groupsFor(reader);
+      if (!groups.length) throw new ActionRefused("tile.into: no group on this screen (^W G gathers tiles into one)");
+      if (group !== undefined) return d.moveIntoGroup(reader, group, undefined, "right", actor);
+      if (groups.length === 1) return d.moveIntoGroup(reader, groups[0]!, undefined, "right", actor);
+      if (actor.kind === "agent") throw new ActionRefused(`tile.into: group=<${groups.join(" or ")}>`);
+      return d.askGroup(reader, groups);
+    },
+  }),
+  "tile.select": def({
+    summary: "pick tile=<tile> to gather with others into a group (on=true picks, on=false lets go; default toggles), or let go of all of this actor's picks (clear=true). A pick is the person's own or this agent's own: an agent's never touches the person's, and picking moves no focus. tile.group selected=true (^W G with tiles picked) gathers them",
+    keys: "shift+click a tile's title; ^W space; esc lets go of the person's picks; the tile menu",
+    touches: "nothing", replay: "safe",
+    says: r => ((r.selected as string[] | undefined)?.length ? `picked ${(r.selected as string[]).join(", ")}` : "picked nothing"),
+    menu: { label: "pick for a group", group: TILE, key: "ctrl+w space", now: ({ d, reader }, _t, actor) => (d.isPicked(reader, actor) ? { label: "let go of the pick" } : null) },
+    args: {
+      on: { type: "boolean", optional: true, about: "true picks it, false lets it go; default toggles" },
+      clear: { type: "boolean", optional: true, about: "let go of all of this actor's picks" },
+    },
+    run({ on, clear }, { d, reader }, actor) { return d.selectTile(reader, on, !!clear, actor); },
   }),
   "tile.tune": def({
     summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
