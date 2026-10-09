@@ -69,6 +69,8 @@ function cut(s: string, w: number): [string, string] {
 
 /** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
 const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
+/** Stands in for a space that must not break a row (inside a property token) while `wrap` cuts it. */
+const HELD = "\uE0FF";
 const NO_ROOM = /[\uE000-\uE00A\u{100000}-\u{10FFFD}]/u;
 
 /**
@@ -96,8 +98,11 @@ function balanceCode(rows: string[]): string[] {
 export function wrap(text: string, w: number, { code = false }: { code?: boolean } = {}): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    if (!raw.length) { out.push(""); continue; }
+  for (const whole of text.split("\n")) {
+    if (!whole.length) { out.push(""); continue; }
+    // A property token that fits a row is not broken across two: colourBody colours a row alone, so a half of a
+    // chip would be drawn as plain text. Its spaces are held as NBSP-like placeholders while the line is cut.
+    const raw = whole.includes("::") ? whole.replace(propertyTokenPattern(), tok => (len(tok) <= w ? tok.replace(/\s/g, HELD) : tok)) : whole;
     // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
     // long paragraph's wrap quadratic).
     let line = "", n = 0;
@@ -109,7 +114,8 @@ export function wrap(text: string, w: number, { code = false }: { code?: boolean
       while (n > w) { const [head, tail] = cut(line, w); rows.push(head); line = tail; n = len(line); }
     }
     rows.push(line);
-    out.push(...(code ? balanceCode(rows) : rows));
+    const held = raw !== whole ? rows.map(r => r.replaceAll(HELD, " ")) : rows;
+    out.push(...(code ? balanceCode(held) : held));
   }
   // A link cut by the wrap is closed at each line's end and re-opened on the next, and a bold or italic
   // span carries on, so each row stands alone.

@@ -218,7 +218,7 @@ export class Rows {
 export class KeyDecoder {
   private pending = "";
   keyHandler: (k: Key) => void = () => {};
-  probing: { kitty: boolean | null; done: () => void } | null = null;
+  probing: { kitty: boolean | null; cursor?: number[]; done: () => void } | null = null;
   /**
    * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
    * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
@@ -312,7 +312,7 @@ export class KeyDecoder {
       if (m) { if (this.probing && m[1] === String(PROGRAM_STATUS_OSC) && isStatusQueryReply(m[2]!)) this.info.pst = true; this.pending = p.slice(m[0].length); continue; }
       // The cursor report that answers the text sizing probe (src/text-sizing.ts): only while probing, else it is a key.
       m = this.probing ? p.match(/^\x1b\[(\d+);(\d+)R/) : null;
-      if (m) { this.info.sized = sizedAnswer(Number(m[2])); this.pending = p.slice(m[0].length); continue; }
+      if (m) { const seen = (this.probing!.cursor ??= []); seen.push(Number(m[2])); this.info.sized = sizedAnswer(seen); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).

@@ -1710,7 +1710,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const at = rows.findIndex(l => /│A title you can find/.test(l));
     expect(at).toBeGreaterThan(0);
     expect(rows[at - 1]).toMatch(/│(…|top level|Kitchen sink|# )/);   // the breadcrumb, once its ancestors are read
-    expect(rows.slice(at + 1, at + 4).join("\n")).toMatch(/i \d+ properties/);
+    // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
+    expect(rows[at + 1]).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
     // The frame bar of a reader that shows its header says the tile, not the title again.
     const frames = rows.filter(l => /[╔┌].*(reader|detail)/.test(l));
@@ -1723,6 +1724,39 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(shades.length).toBe(2);
     expect(shades[0]).toBeGreaterThan(shades[1]! + 100);
   });
+
+  test("wrapping links (title section): a link that wraps keeps its colour and its click on every row, in the narrow reader too", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "title" }, as: "test-agent" })).toMatchObject({ key: "title" });
+    await until(() => screen().includes("winter") || screen().includes("valves"), "the links, read", 8000);
+    const raw = () => sc.render(app).lines as string[];
+    const sgr = (row: string, word: string, from = 0) => { const at = row.indexOf(word, from); return at < 0 ? null : row.slice(0, at).split("\x1b[").at(-1)!.split("m")[0]!; };
+    const rowsWith = (word: string) => raw().map((r, y) => ({ r, y })).filter(x => plain(x.r).includes(word));
+    // The first row of each link says its colour; every later word of it is drawn in the same one.
+    const lead = (word: string) => sgr(rowsWith(word)[0]!.r, word)!;
+    for (const [first, rest] of [["whiteboard,", ["valves", "Oct 9", "plan"]], ["Tyre pressures", ["winter", "summer", "valve notes"]]] as const) {
+      const colour = lead(first);
+      expect(colour).not.toBe(fg(C.grey).slice(2, -1));
+      for (const w of rest) for (const { r } of rowsWith(w)) expect(sgr(r, w)).toBe(colour);
+    }
+    // At least one of the links wraps in the narrow reader, so a continuation row was checked.
+    expect(rowsWith("valves").length + rowsWith("winter").length).toBeGreaterThan(2);
+    // The element list names every link once, wrapped or not (a wrapped link is one element).
+    const els = (await app.act({ action: "elements", tile: "reader", args: {}, as: "test-agent" }) as any).elements as any[];
+    expect(els.filter(e => /kitchen whiteboard/i.test(e.label)).length).toBe(1);
+    expect(els.filter(e => /Tyre pressures/.test(e.label)).length).toBe(1);
+    // A click on the last row of the reference, in the narrow reader, follows the same link as a click on its first row.
+    const panes = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes as any[]; };
+    const half = Math.floor(plain(raw()[0]!).length * 0.55);
+    const cont = raw().map((r, y) => ({ x: plain(r).indexOf("plan", half), y })).find(c => c.x >= 0)!;
+    expect(cont).toBeDefined();
+    expect(panes().map(p => p.showing?.title ?? p.title)).not.toContain("Kitchen whiteboard");
+    press({ kind: "mouse", action: "down", button: 0, x: cont.x, y: cont.y }); press({ kind: "mouse", action: "up", button: 0, x: cont.x, y: cont.y });
+    await until(() => panes().some(p => (p.showing?.title ?? p.title) === "Kitchen whiteboard"), "the click followed the link from its last row", 5000);
+    // The click put the person on the stage: back to the index, where the next section is chosen.
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 20_000);
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
     const id = seeded.notes.images.id, text = async () => (await board.get(id))!.text;

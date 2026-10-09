@@ -6,6 +6,7 @@
 import type { Rgba } from "./vga";
 import { headOf, tailFrom, visible, width } from "./style";
 import type { Placement } from "./kitty";
+import { nestLayers, parseLayer } from "./nest";
 
 /** What a sized placement draws: `text` at `scale`, in the style `sgr`. */
 export interface SizedText { text: string; sgr: string; scale: number }
@@ -17,16 +18,32 @@ export const NO_PICTURE: Rgba = { width: 1, height: 1, data: new Uint8Array(4) }
 export const isSized = (p: Placement): p is Placement & { sized: SizedText } => p.sized !== undefined;
 
 /**
- * Asked at start (after the cursor goes home): print one space at scale 2 and ask where the cursor is. A terminal that
- * scales text has moved two cells (column 3); one that doesn't know the sequence ignores it (column 1), and one that
- * knows only its width control moves less than two.
+ * Asked at start (after the cursor goes home), twice: print one space at scale 2 and ask where the cursor is, then one
+ * at scale 3 and ask again. A terminal that scales text has moved by the *scale* (two cells, then three: columns 3
+ * and 4). One that doesn't know the sequence ignores it (column 1), one that knows only its width control moves
+ * less or the same for both scales, and one that takes any OSC 66 for "two cells" fails the second. Only both
+ * answers right prove `scale` works (kitty's text sizing protocol: the cursor advances by scale times the width).
  */
-export const SIZED_QUERY = "\x1b[1;1H\x1b]66;s=2; \x1b\\\x1b[6n\x1b[1;1H";
-/** The cursor report that answers SIZED_QUERY: the protocol is there when it moved two cells. */
-export const sizedAnswer = (col: number) => col === 3;
+export const SIZED_QUERY = "\x1b[1;1H\x1b]66;s=2; \x1b\\\x1b[6n\x1b[1;1H\x1b]66;s=3; \x1b\\\x1b[6n\x1b[1;1H";
+/** The cursor reports that answer SIZED_QUERY, in order: the protocol is there when it moved by the scale both times. */
+export const sizedAnswer = (cols: readonly number[]) => cols.length === 2 && cols[0] === 3 && cols[1] === 4;
 
-/** EP0CH_SIZED=1 or 0 says outright; otherwise null: ask the terminal. */
-export const sizedHint = (env = process.env): boolean | null => (env.EP0CH_SIZED === "1" ? true : env.EP0CH_SIZED === "0" ? false : null);
+/**
+ * Whether this process runs inside a multiplexer, which may pass the probe's answer on and still not draw sized
+ * text: Herdr (HERDR_* in a pane, or a herdr layer in EP0CH_NEST), tmux or screen.
+ */
+export function multiplexed(env: Record<string, string | undefined> = process.env): boolean {
+  if (Object.keys(env).some(k => k.startsWith("HERDR_") && env[k])) return true;
+  if (env.TMUX || env.STY || /^(tmux|screen)/.test(env.TERM ?? "") || env.TERM_PROGRAM === "tmux") return true;
+  return nestLayers(env.EP0CH_NEST).some(l => parseLayer(l).kind === "herdr");
+}
+
+/**
+ * EP0CH_SIZED=1 or 0 says outright; inside a multiplexer it is off (null would ask, and a multiplexer may answer for
+ * the terminal behind it without scaling); otherwise null: ask the terminal.
+ */
+export const sizedHint = (env: Record<string, string | undefined> = process.env): boolean | null =>
+  env.EP0CH_SIZED === "1" ? true : env.EP0CH_SIZED === "0" ? false : multiplexed(env) ? false : null;
 
 /** `s`'s text with no escape or control in it: OSC 66 carries plain text only. */
 const plain = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, "");

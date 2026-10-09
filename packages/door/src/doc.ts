@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
-import { ADORN, balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -864,7 +864,7 @@ function chunk(s: string, w: number): string[] {
   if (vwidth(s) <= w) return [s];
   const out: string[] = [];
   for (let rest = s; rest; ) { const [head, tail] = splitVisible(rest, w); out.push(head); rest = tail; }
-  return balanceTags(out);
+  return balanceStyles(balanceTags(out));
 }
 
 function cells(row: string): string[] {
