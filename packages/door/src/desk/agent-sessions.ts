@@ -17,7 +17,7 @@
 //
 // Identity is the folder plus the program, so resuming is the program's own "continue the last conversation in this
 // folder" (`resumeArgs`), whoever started it and however.
-import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isAgentCmd, KNOWN_AGENTS, programName } from "./drawer-program";
@@ -142,13 +142,12 @@ export function stateOf(p: Pick<PtyPane, "status" | "lastOutput">, now = Date.no
  */
 export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: number } = {}): Omit<AgentSession, "id" | "shown" | "state" | "word"> | null {
   if (!p.running) return null;
-  const mark = p.run.session;
+  // The mark is the launch's: once the agent it started has exited, what runs in the shell left is read as it is.
+  const mark = p.agentExit === null ? p.run.session : undefined;
   // The launcher's tile shows an agent that runs in Herdr: its agent is the launcher's --agent, in the tile's folder.
   if (p.herdr) return { program: mark?.program ?? programName(p.run.cmd), folder: p.run.cwd ?? process.cwd(), persona: mark?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
   const proc = o.proc ?? "/proc";
   const live = proc !== "/proc" || hasProc() ? agentIn(p.pid, proc, o.now) : null;
-  // Started as one and its agent exited (the wrapper left the person in their shell): not a session now.
-  if (mark && p.agentExit !== null && !live) return null;
   if (!mark && !live) {
     // No /proc to look in (macOS): the tile's own command says, while its agent hasn't exited.
     if (proc === "/proc" && hasProc()) return null;
@@ -159,15 +158,20 @@ export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: n
   return { program, folder, persona: mark?.persona ?? live?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
 }
 
-/** Give each session its id: `<program>:<folder>`, a second of the same `#2`. */
-export function withIds<T extends { program: string; folder: string }>(rows: T[]): (T & { id: string })[] {
-  const n = new Map<string, number>();
-  return rows.map(r => {
-    const base = `${r.program}:${tildeOf(r.folder)}`;
-    const k = (n.get(base) ?? 0) + 1;
-    n.set(base, k);
-    return { ...r, id: k === 1 ? base : `${base}#${k}` };
-  });
+/** Each terminal's number among sessions, given once and kept wherever it moves: a second of the same is told apart by it. */
+const SEQ = new WeakMap<object, number>();
+let seqs = 0;
+const seqOf = (pane: object) => { let n = SEQ.get(pane); if (n === undefined) { n = ++seqs; SEQ.set(pane, n); } return n; };
+
+/**
+ * Give each session its id: `<program>:<folder>`, and when another of the same runs, `#<its number>`, a number kept for
+ * the terminal's life: an id an agent was given never names another session after one docks, exits or moves.
+ */
+export function withIds<T extends { program: string; folder: string; pane: object }>(rows: T[]): (T & { id: string })[] {
+  const base = (r: T) => `${r.program}:${tildeOf(r.folder)}`;
+  const count = new Map<string, number>();
+  for (const r of rows) count.set(base(r), (count.get(base(r)) ?? 0) + 1);
+  return rows.map(r => ({ ...r, id: count.get(base(r))! > 1 ? `${base(r)}#${seqOf(r.pane)}` : base(r) }));
 }
 
 /**
@@ -178,7 +182,10 @@ export function pickSession<T extends AgentSession>(rows: readonly T[], sel: str
   if (sel === undefined || sel === "") return null;
   if (typeof sel === "number" || /^\d+$/.test(String(sel))) return rows[Number(sel) - 1] ?? null;
   const s = String(sel);
-  const tiled = s.includes(":") ? `${s.slice(0, s.indexOf(":"))}:${tildeOf(untilde(s.slice(s.indexOf(":") + 1)))}` : s;
+  const seq = /#(\d+)$/.exec(s), plain = seq ? s.slice(0, seq.index) : s;
+  const tiled = plain.includes(":") ? `${plain.slice(0, plain.indexOf(":"))}:${tildeOf(untilde(plain.slice(plain.indexOf(":") + 1)))}` : plain;
+  // `#n` is that terminal's own number: it still names it when it's the only one left (its id is plain then).
+  if (seq) return rows.find(r => r.id.replace(/#\d+$/, "") === tiled && seqOf(r.pane) === Number(seq[1])) ?? null;
   return rows.find(r => r.id === s || r.id === tiled)
     ?? rows.find(r => r.shown.in !== "nowhere" && r.shown.tile === s)
     ?? rows.find(r => r.pane.tileId === s)
@@ -225,6 +232,12 @@ export const piSessionDir = (folder: string, home: string) => join(home, ".pi", 
 
 const hasEntry = (dir: string, test: (name: string) => boolean = () => true) => { try { return readdirSync(dir).some(test); } catch { return false; } };
 
+/** The first `n` bytes of a file (a session file's metadata line), never the whole transcript. */
+function head(path: string, n: number): string {
+  const fd = openSync(path, "r");
+  try { const buf = Buffer.alloc(n); const got = readSync(fd, buf, 0, n, 0); return buf.subarray(0, got).toString("utf8"); } finally { closeSync(fd); }
+}
+
 /** Whether Codex recorded a session in `folder` (the `cwd` of its session files, the newest 300 read). */
 function codexHas(folder: string, home: string): boolean {
   const root = join(home, ".codex", "sessions"), files: { path: string; at: number }[] = [];
@@ -240,7 +253,7 @@ function codexHas(folder: string, home: string): boolean {
   walk(root, 0);
   const want = `"cwd":${JSON.stringify(folder)}`;
   for (const f of files.sort((a, b) => b.at - a.at).slice(0, 300)) {
-    try { if (readFileSync(f.path, "utf8").slice(0, 4096).includes(want)) return true; } catch { /* gone */ }
+    try { if (head(f.path, 4096).includes(want)) return true; } catch { /* gone */ }
   }
   return false;
 }
@@ -257,12 +270,21 @@ export function resumeArgs(program: string, folder: string, env: Record<string, 
   return [];
 }
 
-/** The arguments `cmd` already resumes with (it was told what to continue): none are added. */
-const RESUMES = new Set(["-c", "--continue", "-r", "--resume", "resume"]);
-export const resumesAlready = (args: readonly string[]) => args.some(a => RESUMES.has(a) || a.startsWith("--resume="));
+/**
+ * `program` was told what to continue already (none is added then), by its own words: claude and pi `-c`, `--continue`,
+ * `-r`, `--resume[=…]`; codex a first word `resume` (its `-c` is a config override, not a continue).
+ */
+export function resumesAlready(program: string, args: readonly string[]): boolean {
+  if (program === "codex") return args[0] === "resume" || args[0] === "fork";
+  if (program === "claude" || program === "pi") return args.some(a => ["-c", "--continue", "-r", "--resume"].includes(a) || a.startsWith("--resume="));
+  return false;
+}
 
 /** A session's command: the program, its arguments, then what resumes its last conversation in `folder`. */
 export function sessionCommand(program: string, args: readonly string[], folder: string, env: Record<string, string | undefined> = process.env): string[] {
   const name = agentOf([program]) ?? basename(program);
-  return [program, ...args, ...(resumesAlready(args) ? [] : resumeArgs(name, folder, env))];
+  if (resumesAlready(name, args)) return [program, ...args];
+  const more = resumeArgs(name, folder, env);
+  // codex's resume is a subcommand: it comes first, the config's own options after it.
+  return name === "codex" && more.length ? [program, ...more, ...args] : [program, ...args, ...more];
 }

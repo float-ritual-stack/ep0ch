@@ -59,6 +59,9 @@ describe("the model, without a door", () => {
     expect(resumeArgs("fern-agent", garden, env, home)).toEqual([]);
     // A command told what to resume already gets nothing more.
     expect(sessionCommand("claude", ["--resume=abc"], garden, env)).toEqual(["claude", "--resume=abc"]);
+    // codex's -c is a config override, not a continue: its resume still comes, first, as its subcommand.
+    expect(sessionCommand("codex", ["-c", "model=x"], garden, env)).toEqual(["codex", "resume", "--last", "-c", "model=x"]);
+    expect(sessionCommand("codex", ["resume", "abc"], garden, env)).toEqual(["codex", "resume", "abc"]);
   });
 
   test("agent configs are notes with agent-config::, their program, args, persona and folder as written", () => {
@@ -73,18 +76,26 @@ describe("the model, without a door", () => {
     ]);
   });
 
-  test("a session's id is program:folder, a second #2; session= finds it by id, by program:folder, by tile, by n", () => {
+  test("a session's id is program:folder, a second of the same #<its own number>; session= finds it by id, by program:folder, by tile, by n", () => {
     const home = process.env.HOME ?? "/home/someone";
-    const rows = withIds([
-      { program: "claude", folder: `${home}/garden-shed`, shown: { in: "drawer", tile: "claude", own: false }, pane: { tileId: "k2" } },
-      { program: "claude", folder: `${home}/garden-shed`, shown: { in: "screen", screen: "desk", tile: "claude2", here: true }, pane: { tileId: "t4" } },
-    ] as any[]);
-    expect(rows.map(r => r.id)).toEqual(["claude:~/garden-shed", "claude:~/garden-shed#2"]);
-    expect(pickSession(rows as any, "claude:~/garden-shed")!.id).toBe("claude:~/garden-shed");
-    expect(pickSession(rows as any, `claude:${home}/garden-shed`)!.id).toBe("claude:~/garden-shed");
-    expect(pickSession(rows as any, "claude2")!.id).toBe("claude:~/garden-shed#2");
-    expect(pickSession(rows as any, "t4")!.id).toBe("claude:~/garden-shed#2");
-    expect(pickSession(rows as any, 2)!.id).toBe("claude:~/garden-shed#2");
+    const a = { tileId: "k2" }, b = { tileId: "t4" }, other = { tileId: "k9" };
+    const row = (pane: object, tile: string) => ({ program: "claude", folder: `${home}/garden-shed`, shown: { in: "drawer", tile, own: false }, pane });
+    const rows = withIds([row(a, "claude"), row(b, "claude2"), { ...row(other, "pi"), program: "pi" }] as any[]);
+    const [ida, idb] = rows.map(r => r.id);
+    expect(ida).toMatch(/^claude:~\/garden-shed#\d+$/);
+    expect(idb).toMatch(/^claude:~\/garden-shed#\d+$/);
+    expect(rows[2]!.id).toBe("pi:~/garden-shed");
+    // The ids stay each terminal's own whatever the order, and #n still names its terminal once it's the only one.
+    expect(withIds([row(b, "claude2"), row(a, "claude")] as any[]).map(r => r.id)).toEqual([idb, ida]);
+    const alone = withIds([row(b, "claude2")] as any[]);
+    expect(alone[0]!.id).toBe("claude:~/garden-shed");
+    expect(pickSession(alone as any, idb!)!.pane as object).toBe(b);
+    expect(pickSession(alone as any, ida!)).toBeNull();
+    expect(pickSession(rows as any, `claude:${home}/garden-shed`)).toBeNull();     // ambiguous: needs its #n
+    expect(pickSession(alone as any, `claude:${home}/garden-shed`)!.pane as object).toBe(b);
+    expect(pickSession(rows as any, "claude2")!.id).toBe(idb);
+    expect(pickSession(rows as any, "t4")!.id).toBe(idb);
+    expect(pickSession(rows as any, 2)!.id).toBe(idb);
     expect(pickSession(rows as any, "codex:~/x")).toBeNull();
     expect(tildeOf("/somewhere/else")).toBe("/somewhere/else");
   });
@@ -99,7 +110,7 @@ describe("the model, without a door", () => {
   test.skipIf(process.platform !== "linux")("an agent is found running under a terminal's process, with its folder and persona, as Herdr finds one", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-found-"));
     const claude = join(dir, "claude");
-    writeFileSync(claude, "#!/bin/sh\nsleep 30\n");
+    writeFileSync(claude, "#!/bin/sh\nwhile :; do sleep 1; done\n");
     chmodSync(claude, 0o755);
     const shell = Bun.spawn(["sh", "-c", `${claude}; true`], { cwd: dir, env: { ...process.env, EP0CH_AGENT: "fern", OUTLINER_ACTOR: "" }, stdout: "ignore", stderr: "ignore" });
     try {
@@ -107,7 +118,14 @@ describe("the model, without a door", () => {
       await until(() => !!(got = agentIn(shell.pid, "/proc/", Date.now())), "the fake claude under the shell");
       expect(got).toMatchObject({ program: "claude", cwd: dir, persona: "fern" });
       expect(agentIn(process.pid, "/proc/", Date.now())?.program ?? null).not.toBe("codex");
-    } finally { shell.kill(); rmSync(dir, { recursive: true, force: true }); }
+    } finally {
+      // Its own processes only: the fake claude it found (its loop's sleep ends within a second), then the shell.
+      const fake = agentIn(shell.pid, "/proc/", Date.now());
+      if (fake) { try { process.kill(fake.pid, "SIGTERM"); } catch { /* gone */ } }
+      shell.kill();
+      await shell.exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -216,7 +234,9 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       await until(() => d.text(d.app.drawer.sessions()[1]!.pane).includes("args --quiet"), "moss started with its config's args");
       const fresh = await d.app.act({ action: "agent.start", args: { program: "fern", fresh: true }, as: AS }) as any;
       expect(fresh.started).toBe(true);
-      expect((await d.list()).map(r => r.id).filter(id => id.includes("garden-shed"))).toEqual([`fern-agent:${tildeOf(join(work, "garden-shed"))}`, `fern-agent:${tildeOf(join(work, "garden-shed"))}#2`]);
+      const shed = (await d.list()).map(r => r.id).filter(id => id.includes("garden-shed"));
+      expect(shed).toHaveLength(2);
+      for (const id of shed) expect(id).toMatch(new RegExp(`^fern-agent:${tildeOf(join(work, "garden-shed")).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}#\\d+$`));
     } finally { end(d.app); }
   }, 30_000);
 
