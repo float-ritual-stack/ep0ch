@@ -101,7 +101,7 @@ interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNod
  */
 function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
-  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p.kind)));
+  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
