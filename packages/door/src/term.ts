@@ -1,7 +1,7 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
 import { SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
-import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
+import { isHyperReport, KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
 
@@ -25,6 +25,11 @@ export type Key =
    * passes cmd+c on when it has no selection of its own). Its own kind: cmd+c is never the plain `c`.
    */
   | { kind: "super"; ch: string }
+  /**
+   * Hyper (⌃⌥⇧⌘ held together, Kitty modifiers 15) with a printable key, read only while the layer is on (src/hyper.ts,
+   * PIE-699): `ch` is the base key (`=`, not `+`). The App takes it before any tile, a terminal tile's included.
+   */
+  | { kind: "hyper"; ch: string }
   /** `shift`: held with an arrow, Home or End (CSI 1;2 A…D H F): a draft selects as the cursor moves. Elsewhere it's the key. */
   | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true }
   /**
@@ -224,6 +229,8 @@ export class KeyDecoder {
    * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
    */
   kbd = false;
+  /** The bytes of the key just handed to `keyHandler` (`keys.probe` shows them: what a chord arrives as, PIE-699). */
+  lastSeq = "";
   constructor(private readonly info: TermInfo) {}
 
   /**
@@ -277,7 +284,9 @@ export class KeyDecoder {
       const seq = this.pending.slice(0, r.length);
       this.pending = this.pending.slice(r.length);
       const k = reportKey(r);
-      if (k?.kind === "char" && k.ctrl && k.ch === "]") this.keyHandler(k); else sink(seq);
+      // The escape chord, and a hyper chord (PIE-699: the door's, whatever the tile is typing), stay the door's.
+      if ((k?.kind === "char" && k.ctrl && k.ch === "]") || k?.kind === "hyper") { this.lastSeq = seq; this.keyHandler(k); }
+      else if (!isHyperReport(r)) sink(seq);                                           // a hyper chord's release is the door's too: dropped
       return true;
     }
     const m = this.pending.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/)!;
@@ -320,7 +329,7 @@ export class KeyDecoder {
       if (m) { if (this.probing) this.kbd = true; this.pending = p.slice(m[0].length); continue; }
       // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
       const report = parseReport(p);
-      if (report) { this.pending = p.slice(report.length); const k = reportKey(report); if (k) this.keyHandler(k); continue; }
+      if (report) { this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(report); if (k) this.keyHandler(k); continue; }
       if ((/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) || (/^\x1b\][^\x07\x1b]*\x1b?$/.test(p) && p.length < 4096)) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
         setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
@@ -340,13 +349,13 @@ export class KeyDecoder {
       let hit = false;
       for (const [re, key] of keys) {
         const k = p.match(re);
-        if (k) { this.pending = p.slice(k[0].length); this.keyHandler(key); hit = true; break; }
+        if (k) { this.lastSeq = k[0]; this.pending = p.slice(k[0].length); this.keyHandler(key); hit = true; break; }
       }
       if (hit) continue;
-      if (p[0] === "\x1b" && (p[1] === "\r" || p[1] === "\n")) { this.pending = p.slice(2); this.keyHandler({ kind: "alt-enter" }); continue; }
+      if (p[0] === "\x1b" && (p[1] === "\r" || p[1] === "\n")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-enter" }); continue; }
       // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
-      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
+      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
         const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);
@@ -359,6 +368,7 @@ export class KeyDecoder {
       if (hi && p.length < 2) return;
       const c = hi ? p.slice(0, 2) : p[0]!;
       this.pending = p.slice(c.length);
+      this.lastSeq = c;
       const code = c.charCodeAt(0);
       if (c === "\r" || c === "\n") this.keyHandler({ kind: "enter" });
       else if (c === "\t") this.keyHandler({ kind: "tab" });
@@ -381,6 +391,8 @@ export class Term extends Rows {
   }
   /** See KeyDecoder.kbd. */
   get kbd() { return this.decoder.kbd; }
+  /** See KeyDecoder.lastSeq. */
+  get lastSeq() { return this.decoder.lastSeq; }
   /** See KeyDecoder.rawSink. */
   get rawSink() { return this.decoder.rawSink; }
   set rawSink(f) { this.decoder.rawSink = f; }

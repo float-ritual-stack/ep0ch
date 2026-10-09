@@ -37,7 +37,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string; view?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; mode?: "held" | "pinned"; cwd?: string; view?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -135,7 +135,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.open": def({
-    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader, detail (note=<id>, or page=<name> to pin the note [[name]]), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
+    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
     keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
     touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
     args: {
@@ -144,8 +144,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
-      note: { type: "string", optional: true, about: "detail: the note it keeps" },
-      page: { type: "string", optional: true, about: "detail: the page it's pinned to, as in [[name]]" },
+      mode: { type: "string", optional: true, about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
+      note: { type: "string", optional: true, about: "reader, held: the note it keeps" },
+      page: { type: "string", optional: true, about: "reader, pinned: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
       screen: { type: "string", optional: true, about: "screen (a mount, PIE-651): the screen it mounts (board, river, brief, a screen you made…)" },
@@ -155,8 +156,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       to: { type: "string", optional: true, tile: true, about: "the tile it opens beside (default the focused one; tile= also names it)" },
       where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
-    async run({ kind, to, where, ...t }, { d, reader }, actor) {
-      return await d.openTile({ kind: kind as TileKindName, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
+    async run({ kind, to, where, mode, ...t }, { d, reader }, actor) {
+      return await d.openTile({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "held" | "pinned" } : {}), ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
     },
   }),
   "tile.close": def({
@@ -188,7 +189,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.zoom": def({
     summary: "zoom tile=<tile> to fill the screen (on=false, or again, unzooms). An agent zooms only the tile that has the person's keys, never one that would hide it",
-    keys: "^W z",
+    keys: "^W z, ✦z (hyper)",
     touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
@@ -221,7 +222,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.focus": def({
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
-    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →); esc q back home (a screen with a home: the board's lanes)",
+    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
     args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     run({ dir }, { d, reader }, actor) {
@@ -242,7 +243,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.collapse": def({
     summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. Only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
-    keys: "alt+h (alt+H a horizontal spine); the ◂ ▾ on a tile's frame (alt+click: horizontal); ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
+    keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the ◂ ▾ on a tile's frame (alt+click: horizontal); ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
@@ -258,7 +259,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.expand": def({
     summary: "open tile=<tile> from its spine, back at the size it had (tile.collapse on=false); what was in it is as it was left",
-    keys: "alt+h or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
+    keys: "alt+h, - + = or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `opened ${r.tile}`),
     args: {},
     run(_a, { d, reader }, actor) {
@@ -522,7 +523,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ on, clear }, { d, reader }, actor) { return d.selectTile(reader, on, !!clear, actor); },
   }),
   "tile.tune": def({
-    summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
+    summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and picture, heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens beside it",
     keys: "alt+y; ^W o y; the tile menu's \"tune its look\"",
     touches: "shape", replay: "ask", says: r => `· tuning ${r.tunes}`,
     menu: { label: "tune its look", group: TILE, key: "alt+y", now: ({ d, reader }) => (d.tileLook(reader ?? "") ? null : { hide: true }) },

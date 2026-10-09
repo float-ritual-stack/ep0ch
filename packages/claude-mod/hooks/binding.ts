@@ -37,8 +37,13 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
   if (!w || typeof w !== 'object' || typeof w.inDoor !== 'boolean') return null
   const door = w.door && typeof w.door === 'object' ? w.door : null
   const herdr = w.herdr && typeof w.herdr === 'object' && str(w.herdr.pane) ? w.herdr : null
+  const rules = ['control', 'folder', 'only', 'none']
+  const reach = w.reach && typeof w.reach === 'object' && rules.includes(w.reach.rule)
+    ? { rule: w.reach.rule as 'control' | 'folder' | 'only' | 'none', text: str(w.reach.text) ?? '', control: door?.answers === true ? str(door.control) : null }
+    : null
   return {
     inDoor: w.inDoor,
+    ...(reach ? { reach } : {}),
     here: { machine: str(w.here?.machine), folder: str(w.here?.folder) },
     herdr: herdr ? { pane: str(herdr.pane)!, label: str(herdr.label), agent: herdr.agent === true } : null,
     door: door ? {
@@ -119,6 +124,11 @@ function doorWords(f: BindingFacts): string {
   const herdr = w?.herdr
   const pane = herdr ? (herdr.label ? `Herdr pane ${herdr.label}` : 'a Herdr pane') : null
   if (!w) return `not checked: ${f.whereWhy ?? '`ep0ch where` did not answer'}`
+  // Not in a tile, but a door of this folder's outline (or the only one) answers (PIE-715): the door tools act there as an agent.
+  if (!w.inDoor && door?.answers && w.reach && (w.reach.rule === 'folder' || w.reach.rule === 'only')) {
+    const which = door.outline ? `the ${door.outline} door` : 'the door'
+    return [`not in a tile · reaches ${which} ${w.reach.rule === 'folder' ? 'by folder' : '(the only one running)'}, as an agent, never the person's keys`, pane && `in ${pane}`].filter(Boolean).join(' · ')
+  }
   if (!w.inDoor || !door) return ['not in a door', pane && `in ${pane}`].filter(Boolean).join(' · ')
   const which = door.outline ? `the ${door.outline} door` : 'a door'
   const seat = door.drawer ? `the drawer of ${which}` : door.tile ? `the "${door.tile}" tile of ${which}` : `a tile of ${which}`

@@ -110,9 +110,10 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   test("^W and ^W o show every part at once, above their row: every tile kind, with its key", () => {
     key(ctrl("w"));
     let all = lines();
-    expect(hintRow()).toMatch(/· …\s/);
+    // The row says only the way out (PIE-704); the box above it is the table's most-used keys, a line per group.
+    expect(hintRow()).toMatch(/\^W … · \? all keys · esc/);
     let box = all.slice(all.findIndex(l => l.includes("─ keys ")), ROWS - 2).join("\n");
-    expect(box).toContain("! shell");
+    expect(box).toContain("hjkl focus");
     expect(box).toContain("x close");
     key(char("o"));
     all = lines();

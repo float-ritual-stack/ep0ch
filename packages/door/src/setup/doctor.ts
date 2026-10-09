@@ -3,6 +3,7 @@
 import { basename, dirname, join, resolve } from "node:path";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
+import { hyperOn } from "../hyper";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DRAWER_TILE_ID } from "../desk/agent-env";
 import { CHANGE_AGENT } from "../desk/drawer-program";
@@ -128,6 +129,9 @@ export function doctorChecks(f: Facts): Check[] {
     else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);
   }
 
+  // The door a Claude started here would reach (`ep0ch where` says the same), and when there is none, the command that starts one.
+  if (f.door) add("ep0ch", "door", f.door.rule === "none" ? "info" : "ok", f.door.text);
+
   // other machines: each one's forward, as it is (doctor starts none)
   for (const m of f.machines ?? []) {
     const what = `${m.socket}${m.here ? " (this folder's)" : ""}`;
@@ -151,6 +155,14 @@ export function doctorChecks(f: Facts): Check[] {
       missing.length ? `add [[keys.command]] entries (type = "plugin_action", command = "${PLUGIN_ID}.<action>"), or run the Outliner's install.sh` : undefined);
     const unregistered = p ? KEYED_ACTIONS.filter(a => !p.actions.includes(a)) : [];
     if (unregistered.length) add("herdr", "actions", "behind", `the plugin doesn't register ${unregistered.join(", ")}`, "update the plugin (ep0ch install --apply)");
+  }
+
+  // The hyper layer (PIE-699): off unless asked for; Herdr passes the chord on unless its own config binds it.
+  {
+    const layer = hyperOn() ? "on (EP0CH_HYPER)" : "off · EP0CH_HYPER=1, or `ep0ch act hyper.set on=true` in a door, turns it on";
+    const taken = f.herdr.hyperChords ?? [];
+    if (taken.length) add("ep0ch", "hyper keys", "behind", `layer ${layer}; Herdr's ${f.herdr.configPath} binds ${taken.join(", ")}, which Herdr takes before a pane's program sees ⌃⌥⇧⌘ chords`, `remove or change those keys entries, then herdr server reload-config`);
+    else add("ep0ch", "hyper keys", "info", `layer ${layer}; ⌃⌥⇧⌘ and a key needs a terminal sending the Kitty keyboard protocol and a key mapped to ⌃⌥⇧⌘ (Raycast's Hyper Key, Karabiner)${f.herdr.path ? `; Herdr ${f.herdr.version ?? ""} passes them on as Kitty reports and binds none by default (checked with injected keys: a physical keyboard is yours to check)` : ""} · in a door, \`ep0ch act keys.probe\` shows what a chord arrives as`);
   }
 
   // Claude

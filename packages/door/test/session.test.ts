@@ -484,6 +484,9 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
     }
     await until(() => a.screen().includes("leeks-42"), "the tile's output on the client", 10_000);
+    // The desk starts with the person's keys in the reader: they go to the outline first, so the agent's open lands there.
+    a.type("1");
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "tree"; i++) await Bun.sleep(100);
     await control({ cmd: "act", action: "open", args: { id: plot }, as: "test-agent" });
     await until(() => a.screen().includes("Water the leeks before noon"), "the note in the reader", 10_000);
     // The person, on this client: the reader (2), edit (e), type, and leave it unsaved.
@@ -491,8 +494,8 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
     a.type("e");
     await until(() => a.screen().includes("ctrl+s"), "the edit open", 10_000);
-    a.type(" and net the brassicas");
-    await until(() => a.screen().includes("and net the brassicas"), "the typed text in the draft", 10_000);
+    a.type(" and nets");   // short: the reader beside the new terminal is narrow, and a longer line wraps
+    await until(() => a.screen().includes("and nets"), "the typed text in the draft", 10_000);
     const shape = async () => { const l = await control({ cmd: "act", action: "layout.get", as: "test-agent" }); return JSON.stringify({ rev: l.rev, tiles: (l.tiles ?? []).map((t: any) => [t.id, t.kind, t.name]) }); };
     const layout = await shape();
     a.send({ t: "detach" });
@@ -503,7 +506,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(info!.terminals.map(t => t.cmd)).toContain("sh");
     // Attach again, at another size: the same tiles, the program's scrollback, the draft still open and unsaved.
     const b = await RawClient.attach(sessionSocket(dir), 120, 40);
-    await until(() => b.screen().includes("leeks-42") && b.screen().includes("and net the brassicas"), "the tile's scrollback and the draft after attaching again", 10_000);
+    await until(() => b.screen().includes("leeks-42") && b.screen().includes("and nets"), "the tile's scrollback and the draft after attaching again", 10_000);
     expect(await shape()).toBe(layout);
     const peek = await control({ cmd: "peek" });
     expect(JSON.stringify(peek.screen.person)).toContain("typing");

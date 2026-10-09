@@ -25,14 +25,14 @@ import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
 import { openScreen } from "../desk/screen-specs";
 import { autoName, serializeTree } from "../desk/screen-layout";
-import { DetailPane, type SavedTree, type TileSpec } from "../desk/tiles";
+import { type SavedTree, type TileSpec } from "../desk/tiles";
 import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
 import type { NewNoteHow } from "../new-note";
 import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS, RiverColumn } from "../river/column";
-import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
+import { ActivityPane, ReaderPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { TunePane } from "../desk/tune";
 import { MessageReader, SHELL_ACTIONS } from "../screens";
@@ -57,6 +57,9 @@ type Notes = Partial<Record<SeedName, Msg>>;
  * The program status section's fake deploy (OSC 7501): it reports each step to its terminal tile, waits for the person
  * to approve production, and finishes done (y) or failed (anything else); then it's a shell, to run it again.
  */
+/** A reader held on the note opened into it (a detail): the exhibit builds one directly, as the desk would from `mode: held`. */
+const detailPane = (): ReaderPane => { const r = new ReaderPane(true); r.holdOn(); return r; };
+
 export const STATUS_DEMO = [
   `s() { printf '\\033]7501;%s\\033\\\\' "$1"; }`,
   `m() { printf '%s' "$1" | base64 | tr -d '\\n'; }`,
@@ -87,6 +90,9 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 /** Two panes side by side, the first `ratio` of the width. */
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
+/** The thread tile as it is now (PIE-693): a links tile listing the reader's note's Children alone. */
+const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
+
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
 interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[] }
 /**
@@ -95,7 +101,7 @@ interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNod
  */
 function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
-  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p.kind)));
+  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
@@ -224,8 +230,8 @@ export const SECTIONS: Section[] = [
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "a click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
-      // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
+      // The replies (a links tile with Children alone) and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
       // The outline is in a dock on the left (PIE-505): it slides shut when the keys leave it, and its handle
       // on the hint row opens it again; a header dropped on the handle goes into it.
       return deskOf({
@@ -235,10 +241,10 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
-    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
+    key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, bare - + = (PIE-699), a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
+    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile, and so do a bare - (fold) and + or = (open) wherever the tile takes no text; a tile's own - + = win (the tune inspector, an image, a figure) · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       // The outline beside the rest (a vertical spine), the reader over thread and activity side by side (a horizontal spine for the reader).
       return deskOf({
         title: "showcase · folds", panes: [tree, r, th, act],
@@ -322,14 +328,27 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "reader-modes", need: "choose whether a reader follows the current note, keeps one, or is pinned to a page", part: "the reader tile's mode (PIE-705): ReaderPane.followMode and setMode, the mode chip on its frame (headControls), `p`, reader.mode; a saved `detail` reads as a held reader (canonSpec)", files: "src/desk/panes.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts",
+    aside: "three readers, one kind: `reader` follows the outline's selection, `detail` is held on the shed note, `now` is pinned to the notebook's page · p in a reader toggles follows and held, a click on the chip on its frame (follows, held, pinned [[page]]) cycles all three, and `act reader.mode tile=<name> mode=follows|held|pinned` does it as an agent, attributed, without taking your keys · a detail is just a reader started held (^W o d); a layout saved before the merge with `kind: detail` comes back as a held reader (pinned if it had page=)",
+    stage(n, show) {
+      const tree = new TreePane(), follows = new ReaderPane(true), held = new ReaderPane(true), pinned = new ReaderPane(true);
+      held.holdOn();
+      if (n.notebook) pinned.pinTo(SEED.notebook);
+      return deskOf({
+        title: "showcase · reader modes", panes: [tree, follows, held, pinned], names: ["tree", "reader", "detail", "now"],
+        layout: ([t, f, h, p]) => pair("row", 0.26, leaf(t!), pair("row", 0.34, leaf(f!), pair("row", 0.5, leaf(h!), leaf(p!)))),
+      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); if (n.shed) held.hold(n.shed, d); });
+    },
+  },
+  {
     key: "screen", need: "mount a screen in another (the board on the desk), a part of one (its lanes), or a group of tiles a tab can hold; pop one out to its full screen and back", part: "the mount (PIE-651): ScreenTile over FramedScreen, the screen's own spec on its own desk inside the tile (partSpec for a part, groupSpec for a group); its title is its spine's label; tile.open kind=screen, mount.out (^W u, ▲ full), mount.enter (^W e, ⏎ in), screen.mount (^W M) and screen.part (^W I) on a full screen, tile.group (^W G), tile.select (shift+click, ^W space), tile.into (^W i), layout.move into=/out= (a drag onto or out of a group); tile=<mount>/<tile> for act, links across the edge by path (ExtLink in src/desk/desk.ts)", files: "src/desk/screen-tile.ts, src/desk/screen-spec.ts (partSpec, groupSpec), src/desk/screen-specs.ts (mountDesk), src/showcase/frame.ts",
-    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=thread` puts the thread beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included",
+    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=replies` puts the replies beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included",
     stage(n, show) {
       const args = n.hub ? { args: { hub: n.hub.id } } : {};
       const board = new ScreenTile("screen", { screen: "board", ...args }), lanes = new ScreenTile("screen", { screen: "board", part: "lanes", ...args });
-      const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
+      const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       return deskOf({
-        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "thread", "activity"],
+        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "replies", "activity"],
         layout: ([b, l, c, rd, h, a]) => pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
@@ -340,10 +359,10 @@ export const SECTIONS: Section[] = [
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; one links model (src/links.ts) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; one links model (src/links.ts: outlinks, resources, backlinks, children) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
     aside: "one model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's dock, section 5) and the shed note's own ::links are the same rows (src/links.ts linkRows, linkRowLine) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), links = new BacklinksPane("reader", true);
+      const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), links = new BacklinksPane("reader", true);
       return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
     },
   },
@@ -351,8 +370,16 @@ export const SECTIONS: Section[] = [
     key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in the origin reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it) over one preview following its selection; a tile link's role (tile.link role=preview|target), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (setCurrent, showFrom, openFrom), src/desk/screen-layout.ts (landing, defaultLinkRole)",
     aside: "the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (and the list now lists that note's links), alt+⏎ opens it in a new detail beside; tile.link role=target on a reader linked to the list keeps it still while the preview flips, and ⏎ lands in it · the header's Kind, Stage and Sort (K w s, or a click) narrow and order all three groups (a link's target decides: its kind, stage and dates), the counters X with →outlinks ♦resources ←backlinks beside it, and each control stays in its slot whatever its value · an agent's open is the same action, attributed, and never takes your keys",
     stage(n, show) {
-      const d = new DetailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
+      const d = detailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
       return deskOf({ title: "showcase · links-open", panes: [d, links, p], layout: ([a, b, c]) => pair("col", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [], dsk => { if (n.shed) d.hold(n.shed, dsk); });
+    },
+  },
+  {
+    key: "children", need: "list a note's children (a thread's replies) with its links; choose which groups a links tile lists", part: "the one links model's Children group (PIE-693): the notes under a block, with the kind and stage the service computes (blocks.facets), narrowed by Kind, Stage and Sort and counted with the rest; a links tile's groups (backlinks.groups: v, a click on the counters, the tile menu; saved with the layout); the thread tile is a links tile with Children alone", files: "src/links.ts (readChildren, ChildLink), src/desk/backlinks-pane.ts (groups, backlinks.groups), outliner src/store.ts (blockFacets)",
+    aside: "left: the seed swap thread · middle: its links, every group: outlinks, resources, backlinks and ↓ children, the counters →♦←↓ across them · right: the same tile with Children alone (the replies) · w steps Stage (open keeps Ana's and Cal's), K the kind, s the sort, on every group · v (or a click on the counters) lists the groups, a click switches one · j k preview, ⏎ opens a reply in the reader, alt+⏎ in a new detail · `act backlinks.groups tile=links show=children,backlinks` does it for an agent, attributed; it never takes your keys",
+    stage(n, show) {
+      const r = new ReaderPane(), links = new BacklinksPane("reader", true), replies = repliesTile();
+      return deskOf({ title: "showcase · children", panes: [r, links, replies], names: ["reader", "links", "replies"], layout: ([a, b, c]) => pair("row", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [[r, n.swap]]);
     },
   },
   {
@@ -394,7 +421,7 @@ export const SECTIONS: Section[] = [
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
-      const r = new ReaderPane(), th = new ThreadPane();
+      const r = new ReaderPane(), th = repliesTile();
       return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
     },
   },
@@ -525,6 +552,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "wkeys", need: "see every ^W key, find one by its letters, and run it by key, mouse or act", part: "the ^W keys (PIE-704): one table (desk/wkeys.ts, W_KEYS) that the chord handler reads, the keys box and hint row are generated from, and the tile menu's `ctrl+w` rows agree with; each key's words are joined from its action (the menu row, else the summary). `^W ?` or a click on \"all keys\" opens the power bar's actions scope on the ^W prefix, grouped, filtered by the bar's matcher, ⏎ pressing the key", files: "src/desk/wkeys.ts, src/desk/desk.ts (command, wSpecial, wRows, wChord), src/bar/sources.ts (wKeyRows), src/surface/dispatch.ts (defOf)",
+    aside: "press ^W: a box above the hint row lists the most-used keys, a line per group, and the hint row says only \"all keys · esc\" · ? (or a click on \"all keys\") opens the whole list: every ^W key under its group (focus & move, size & shape, tabs, open, mounts & groups, drawer, layouts & more) with its keycap · type to filter (\"gather\", \"drawer\", \"zoom\"), ⏎ or a click presses it, as the key would · a key that waits for another (m, t, o) leaves the desk waiting for it · `act bar.open scope=actions query=\"^W \"` answers the same rows to an agent, and `act bar.pick query=\"^W zoom\" scope=actions` runs one as the agent, never taking your focus",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = detailPane();
+      return deskOf({ title: "showcase · ^W keys", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
     key: "made", need: "make a screen of your own: start blank, build it, save it, open it by name", part: "the blank screen (one tile whose rows are blank.fill and blank.screens, the layout's replace) and screen notes: screen.save writes the screen as a [type::screen] note, its spec as data, which every door on the outline registers (screen.open, --screen, ^W r)", files: "src/desk/blank.ts, src/desk/screen-notes.ts, src/desk/screen-spec.ts, src/desk/tile-actions.ts",
     aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · name it the way you'd say it (allotment work is kept as typed and opened as allotment-work too; the prompt shows what it saves as, or why it can't, as you type) · `act blank.fill kind=tree tile=blank`, then `act screen.save name=allotment-work`: an agent builds and saves one the same way, and the answer says the slug",
     stage() { return openScreen("blank", { persist: false }); },
@@ -538,6 +573,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "refusals", need: "say why a key or click did nothing, where the person is looking", part: "the refusal path (PIE-727): Ctx.refuse, which the dispatcher's press calls for every refused action of the person's key or click (ActionRefused), and which nothingToClose, a spine's keys, the tile menu's dimmed rows, a frame's unsaved pop and the hyper layer call through refused(); the desk's tile frame says it on the focused tile's hint row in the warning tone (refusalHint), loud (bold, on the amber surface capped dark, the frame amber) when the same key is refused again, until a different key; the status bar keeps its copy", files: "src/app.ts (refuse, refusal), src/shell-keys.ts (refused), src/surface/dispatch.ts (asPerson), src/desk/desk.ts (drawTile, refusalHint)",
+    aside: "go in (⏎): the keys are on the shed note, folded to a spine, on a locked screen · press x: the spine has no edge to say it on, so the hint row under it says why, in amber (the status bar too) · Tab to the notebook and press ^W x: the screen is locked, and the reader's own bottom edge says so · ^W x again: it stays up, bold on a dim amber band, the frame amber, until you press a different key · a click on the dimmed close row of its ⋯ menu says why the same way · on a desk holding only a group, q leaves the screen as on any desk (it used to be refused, on the status bar alone)",
+    stage(n, show) {
+      const shed = detailPane(), a = new ReaderPane(true);
+      return deskOf({ title: "showcase · refusals", panes: [shed, a], names: ["shed", "reader"], layout: ([x, y]) => row(0.35, x!, y!) }, show, [[shed, n.shed], [a, n.notebook]], d => { d.collapseTile("shed", true, USER); d.lockScreen(true, USER); });
+    },
+  },
+  {
     key: "headings", need: "divide a page more strongly than a plain heading: a heading with a band, a rule that fades", part: "heading styles (PIE-599): ## text [heading::band] and --- [rule::fade] stay Markdown; the style (a glyph track of the figures', rows, alignment, padding, margin, tone, lettering) is the outline's, as callout types are (outline-core's built-ins plus [heading-style::name] declared on any line, headings.styles; a style can be a level's default; one heading's own [heading-tone::amber] restyles it alone), drawn by src/figures/banner.ts; under the figures' narrow tier, the heading or rule as written", files: "outline-core/src/heading-styles.ts, src/heading-styles.ts, src/outline-lists.ts, src/figures/banner.ts, src/doc.ts",
     aside: "the same note in two readers: the wide one draws the bands, the narrow one (under 48 columns) the headings as written · ( ) stops on a styled heading, f folds its section · three ways: a named style, one heading's own fields (Odd jobs takes amber, Tool shed its own pattern), and the plot style declared on a line of this note ([heading-style::plot], drawn as what it declares): change its [heading-pattern::] and the band changes, no door change · Detail and the publisher show the heading as written",
     stage(n, show) {
@@ -546,10 +589,10 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "style", need: "tune spacing and list density live, with no agent and no build: a tile's padding, a note's measure and margin, a list's gap, dividers and zebra, heading spacing, per width", part: "the style cascade (PIE-673): outline-core's style-cascade.ts resolves base → component → global → tile kind → screen → page → block, from [style-for::…] notes the service lists (styles.list, kept live as heading styles are), for every renderer; the desk draws a tile inside its padding and measure, the reader its margin and list rows, a list tile through one list painter; the tune inspector (alt+y, ^W o y, the tile menu, tile.tune) shows each value and where it comes from, nudges it in the next frame from memory, and saves it to the level picked", files: "outline-core/src/style-cascade.ts, src/look.ts, src/desk/tune.ts, src/list-look.ts, src/desk/desk.ts (contentRect), src/doc.ts, src/surface/note.ts",
-    aside: "the Spacing lab page uses the lab style ([style::lab]) the Looks lab note declares ([style-for::lab]): e there, change [style.list.gap::1] to 2, ctrl+s, and the page restyles in every door · the tune inspector beside it lists each value and its source (built-in, global, the tile's kind, the screen, the page, a box): j k pick, + − or the wheel over a value nudge it (a row is about two columns, so pad moves 1 row and 2 columns), v the level it saves to, w for this width only (the breakpoint it's in now), s save, u undo, x reset; quitting with nudges unsaved says so · spacing is drawn, never text: a drag copies the note's words, wrapped lines joined, with no margin, gap or divider in them (a terminal's own shift-drag copies the screen's spaces) · Detail and the publisher read the same tokens next (the publisher as CSS); ep0ch export leaves the look out",
+    key: "style", need: "tune spacing, list density, surfaces and frames live, with no agent and no build: a tile's padding, a note's measure and margin, a list's gap, dividers and zebra, a tile's or a box's background, border and edge, a header's surface and picture, heading spacing, per width", part: "the style cascade (PIE-673, PIE-675): outline-core's style-cascade.ts resolves base → component → global → tile kind → screen → page → block, from [style-for::…] notes the service lists (styles.list, kept live as heading styles are), for every renderer; the desk draws a tile inside its padding and measure, the reader its margin and list rows, a list tile through one list painter; the tune inspector (alt+y, ^W o y, the tile menu, tile.tune) shows each value and where it comes from, nudges it in the next frame from memory, and saves it to the level picked; surfaces are the theme's roles (theme.ts surfaceMix: raised, sunken or a tone, capped dark), a tile's under its content and yielding to a header's picture, a box's inside its frame", files: "outline-core/src/style-cascade.ts, src/look.ts, src/desk/tune.ts, src/list-look.ts, src/theme.ts (surfaces), src/canvas.ts (BORDER_BOXES, under), src/desk/desk.ts (contentRect, drawTile), src/doc.ts, src/surface/note.ts (headerSurface, heroSources)",
+    aside: "the Spacing lab page uses the lab style ([style::lab]) the Looks lab note declares ([style-for::lab]): e there, change [style.list.gap::1] to 2, ctrl+s, and the page restyles in every door · the tune inspector beside it lists each value and its source (built-in, global, the tile's kind, the screen, the page, a box): j k pick, + − or the wheel over a value nudge it (a row is about two columns, so pad moves 1 row and 2 columns), v the level it saves to, w for this width only (the breakpoint it's in now), s save, u and U undo and redo every nudge and save of the session (each said on the status line), x (or a row's ×) resets one value to what it inherits (a width variant first), X resets the level picked and R reverts every style note the session wrote (both asked in place: the key again, or [confirm]); with a level or a width picked, each row shows what that level says itself, and a row something nearer wins is marked ⊘: a nudge there offers a (anyway), o (nudge what wins) or c (clear it); levels go down to this tile (v to this tile, kept in the tile's spec) and this list (its heading or lead-in line, as Hardy ones does: [ ] onto its heading, v to this list); a surface's row shows a swatch of it, and + − on header.image steps through the note's pictures · the lab tile sits on a raised surface with a violet bar; its first box has a green stripe and bar, its second a sunken surface in a round amber frame with ✦ dividers; scroll the beds picture under the header and the header takes it, cropped 15% higher · quitting with nudges unsaved says so · spacing is drawn, never text: a drag copies the note's words, wrapped lines joined, with no margin, gap or divider in them (a terminal's own shift-drag copies the screen's spaces) · Detail and the publisher read the same tokens next (the publisher as CSS); ep0ch export leaves the look out",
     stage(n, show) {
-      const lab = new DetailPane(), tune = new TunePane("lab"), links = new BacklinksPane("lab", true), looks = new DetailPane();
+      const lab = detailPane(), tune = new TunePane("lab"), links = new BacklinksPane("lab", true), looks = detailPane();
       return deskOf({ title: "showcase · style", panes: [lab, tune, links, looks], names: ["lab", "tune", "links", "looks"], layout: ([a, b, c, e]) => pair("row", 0.55, leaf(a!), pair("col", 0.55, leaf(b!), row(0.5, c!, e!))) }, show, [], d => { if (n.spacingLab) lab.hold(n.spacingLab, d); if (n.looksLab) looks.hold(n.looksLab, d); });
     },
   },
@@ -564,12 +607,20 @@ export const SECTIONS: Section[] = [
     key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, @ screens, an extension's own prefix; tab cycles), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action needing no argument), the what-changed store, screen.list, and an extension's bar[] through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
     aside: "ctrl+k (or a click on ^K at the status bar's left), anywhere: with nothing typed, the tiles open on every screen and in your drawer, indented as each screen's layout tree (● has the keys, ▸ a spine, ⧉ a float, ⇤ docked), then what others changed · type to look through everything at once, or start with % / > + @ (tab cycles) for one source · ⏎ or a double click goes: a tile gets the keys (the folded detail here opens from its spine; one on a screen under this one brings it up), a note opens where opens land, an action runs; alt+⏎ zooms a tile or opens a note in a new detail · esc puts it away · with the outliner's glyphs example installed, ~shade lists its rows, and on a note it offers to rule it · every scope finds a note by what names it: its title, its work id (PLOT-4) and its page name, and its rows read the way /notes does, `PLOT-4 Order the seed potatoes` · / with nothing typed lists the notes changed most recently first (the service's recency and what others changed, agents included), so / then ⏎ opens the latest; type and it runs the one search · `act bar.open query=… scope=…` answers the rows to an agent and opens nothing; `act bar.pick n=… query=…` picks as the agent, never your keys",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), a = new DetailPane(), b = new DetailPane();
+      const tree = new TreePane(), r = new ReaderPane(true), a = detailPane(), b = detailPane();
       // The outline beside a reader over two details side by side: the tree's shape in the bar; the second detail folded to a spine.
       return deskOf({
         title: "showcase · power bar", panes: [tree, r, a, b], names: ["outline", "reader", "shed", "pears"],
         layout: ([t, rd, x, y]) => pair("row", 0.28, leaf(t!), pair("col", 0.5, leaf(rd!), pair("row", 0.5, leaf(x!), leaf(y!)))),
       }, show, [[a, n.shed], [b, n.notebook]], d => { if (n.whiteboard) d.setCurrent(n.whiteboard, { reveal: true }); void d.collapseTile("pears", true, USER); });
+    },
+  },
+  {
+    key: "hyper", need: "reach the door's own actions from anywhere, even while typing in a draft or a terminal tile, and see what a chord arrives as", part: "the hyper layer (PIE-699): ⌃⌥⇧⌘ and a key (Kitty modifiers 15) read before any tile's own keys, one keymap (HYPER_KEYS), optional and off by default (EP0CH_HYPER=1, or hyper.set on=true); keys.probe shows exactly what a chord arrived as; bare - + = fold and open the focused tile (the folds section)", files: "src/hyper.ts, src/key-probe.ts, src/kbd.ts, src/app.ts",
+    aside: "off by default: `ep0ch act hyper.set on=true` (or EP0CH_HYPER=1) turns it on, and the hint row ends ✦ hyper · then ✦p the power bar, ✦h ✦j ✦k ✦l move the keys, ✦1-✦9 a tile, ✦- ✦= fold and open it, ✦z zoom, ✦n a new note, ✦g a screen: from inside a draft (the edit is left or kept as a click away would) and from inside the shell on the right · each is also a key, a click and an act · `ep0ch act keys.probe` (or a click on the ✦ hyper chip) then any chord: the status bar shows its bytes, modifiers and the key the door read, which is how you learn what your terminal, Herdr and ssh pass · a terminal that sends no Kitty reports can't send hyper at all",
+    stage(n, show) {
+      const r = new ReaderPane(true), term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: with the layer on, a hyper chord still reaches the door from here'; exec sh"], label: "shell" });
+      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
 ];
@@ -789,6 +840,8 @@ export class Showcase implements Screen {
   }
   /** The shown stage's own new-note rule, and its edit where ctrl+n is still a note (PIE-591), while the keys are in it. */
   newNoteRule(): NewNoteRule | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.newNoteRule?.() ?? null : null; }
+  /** Screen.leaveTyping: a hyper chord moving the keys (PIE-699) leaves the stage's edit first. */
+  leaveTyping(): boolean { return this.focus !== "stage" || (this.stages.get(this.sel)?.top.leaveTyping?.() ?? true); }
   newNoteWhileTyping(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.newNoteWhileTyping?.(); }
   /** An agent's new note shown on the stage (note.new opens=), never taking the person's keys. */
   async showNew(m: Msg, opens: NewNoteOpens, actor: Actor): Promise<string | null> {

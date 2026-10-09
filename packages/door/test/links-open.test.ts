@@ -79,7 +79,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     await pickRow(hall.id);
     key({ kind: "alt-enter" });
     await until(() => get().tiles.length === before + 1, "a new detail");
-    const made = get().tiles.find((t: any) => t.kind === "detail" && t.name !== "reader");
+    const made = get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held" && t.name !== "reader");
     expect(made.showing.id).toBe(hall.id);
     expect(reader("reader").msg?.id).toBe(lamp.id);
     expect(D().layoutGet().focus).toBe("links");
@@ -93,7 +93,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     await pickRow(porch.id);
     key({ kind: "alt-enter" });
     await until(() => get().tiles.length === before + 1, "a new detail");
-    expect(get().tiles.find((t: any) => t.kind === "detail")?.showing.id).toBe(porch.id);
+    expect(get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held")?.showing.id).toBe(porch.id);
     expect(reader("reader").msg?.id).toBe(lamp.id);
     expect(tile("links").linkFrom).toBeUndefined();
     key({ kind: "enter" });

@@ -94,6 +94,7 @@ import {
   WHERE_WAIT_MS,
   whereSummaryOf,
   whereText,
+  reachText,
 } from './where'
 import {
   BINDING_BLOCK,
@@ -293,7 +294,10 @@ export function register(on: On, options: PluginOptions): void {
     // loaded on demand, so the session never waits for them. The door tools act in the door this Claude runs
     // in: only in a door tile, where EP0CH_CONTROL names it.
     $.clock.after(0, () => void (async () => {
-      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, ...((await $.env.get('EP0CH_CONTROL')) ? DOOR_TOOLS : [])]
+      // Offered when a door is reachable (PIE-715): EP0CH_CONTROL, or, for a Claude that does not descend from a tile
+      // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution.
+      const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
+      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })
       }
@@ -316,6 +320,7 @@ export function register(on: On, options: PluginOptions): void {
       ])
       const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
+      else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
       bindingGiven = bound ? bindingText(bound) : null
       blocks.push({
         name: BINDING_BLOCK,
@@ -402,8 +407,9 @@ export function register(on: On, options: PluginOptions): void {
 
   for (const tool of DOOR_TOOLS) {
     on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
-      const control = await $.env.get('EP0CH_CONTROL')
-      if (!control) return { deny: 'The door tools work only in an ep0ch-door tile (EP0CH_CONTROL is not set).' }
+      const reached = await doorReachFor($)
+      if (!reached.control) return { deny: `No door is reachable from here: ${reached.text}` }
+      const control = reached.control
       const checked = checkedInput(tool, e as Record<string, unknown>)
       if (typeof checked === 'string') return { deny: checked }
       try {
@@ -668,7 +674,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
       ...(ran.facts ? {} : { whereWhy: ran.why ?? '`ep0ch where` did not answer' }),
       cwd,
       ...(home ? { home } : {}),
-      doorTools: !!control?.trim(),
+      doorTools: !!control?.trim() || !!ran.facts?.reach?.control,
     }
     if (generation !== bindingGeneration) return facts
     await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
@@ -854,6 +860,21 @@ async function runOutlinerCli($: EngineInterface, workspace: Workspace, args: st
 }
 
 /**
+ * The door this session reaches now, by `ep0ch where --json` run in the session's folder (the one resolution, PIE-715):
+ * EP0CH_CONTROL or its outline's session, else the folder's outline's door, else the only one. A stale EP0CH_CONTROL
+ * never wins over a door that answers. `control` is null with no door, and `text` says why.
+ */
+async function doorReachFor($: EngineInterface): Promise<{ control: string | null; text: string }> {
+  const given = (await $.env.get('EP0CH_CONTROL'))?.trim() || null
+  const where = await runWhere($)
+  const reach = where.facts?.reach
+  if (reach?.control) return { control: reach.control, text: reach.text }
+  // `ep0ch where` too old to resolve (or not answering): EP0CH_CONTROL as it is.
+  if (!reach && given) return { control: given, text: 'EP0CH_CONTROL' }
+  return { control: null, text: reach?.text || where.why || '`ep0ch where` did not answer' }
+}
+
+/**
  * One door tool through `ep0ch` on this session's door (EP0CH_CONTROL, passed
  * explicitly). Acting and opening are attributed with --as; the door's
  * refusal (an agent never takes the person's focus) throws with its reason.
@@ -866,7 +887,7 @@ async function runDoorTool(
   option: PluginOptions,
 ): Promise<string> {
   const ep0ch = async (argv: string[], stdin?: string) => {
-    const ran = await $.process.run(argv, { env: { EP0CH_CONTROL: control }, ...(stdin === undefined ? {} : { stdin }), timeoutMs: 15_000 })
+    const ran = await $.process.run(argv, { cwd: await $.session.cwd(), env: { EP0CH_CONTROL: control }, ...(stdin === undefined ? {} : { stdin }), timeoutMs: 15_000 })
     if (ran.exitCode !== 0) throw Error(failureReasonOf(ran.stderr) || ran.stderr.trim() || `${argv.slice(0, 2).join(' ')} failed`)
     return ran.stdout
   }
@@ -891,7 +912,7 @@ async function runDoorTool(
       if (!uri) throw Error('Give the ref of the note to open: its id, ((id)), [[page]] or Work ID.')
       if (!references) await loadReferences($, option)
       try {
-        return shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, input)), ref)
+        return shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, input), control), ref)
       } catch (error) {
         throw Error(deniedText(error, ref))
       }
@@ -1022,18 +1043,20 @@ function shownText({ title, place, reader, waits }: Shown, reference: string): s
  * at a time, so concurrent clicks and tool calls open one Detail. Resolves to
  * the title and where it went; throws with the reason otherwise.
  */
-function openNote($: EngineInterface, workspace: Workspace | null, uri: string, actor: string): Promise<Shown> {
-  const shown = showQueue.then(() => openNow($, workspace, uri, actor))
+function openNote($: EngineInterface, workspace: Workspace | null, uri: string, actor: string, door?: string): Promise<Shown> {
+  const shown = showQueue.then(() => openNow($, workspace, uri, actor, door))
   showQueue = shown.catch(() => {})
   return shown
 }
 
-async function openNow($: EngineInterface, workspace: Workspace | null, uri: string, actor: string): Promise<Shown> {
-  const [{ EP0CH_CONTROL: control, HERDR_PANE_ID: paneId, HERDR_WORKSPACE_ID: herdrWorkspace }, tile, tileId] = await Promise.all([
+async function openNow($: EngineInterface, workspace: Workspace | null, uri: string, actor: string, door?: string): Promise<Shown> {
+  const [{ EP0CH_CONTROL: given, HERDR_PANE_ID: paneId, HERDR_WORKSPACE_ID: herdrWorkspace }, tile, tileId] = await Promise.all([
     routeEnvOf($),
     $.env.get('EP0CH_TILE'),
     $.env.get('EP0CH_TILE_ID'),
   ])
+  // `door`: the door the caller resolved (door_open, PIE-715), which beats a stale EP0CH_CONTROL.
+  const control = door ?? given
   // Found on first use: outside a door and Herdr, a block id needs no installed Outliner to be named.
   let installed: Promise<string | null> | undefined
   const outliner = async (args: string[]) => {

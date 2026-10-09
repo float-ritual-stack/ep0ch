@@ -7,12 +7,13 @@ import type { Rect } from "../canvas";
 import { keyCaption, keyName } from "../surface/actions";
 import type { MenuRow } from "../surface/dispatch";
 import { ListPicker } from "../surface/picker";
+import { refused } from "../shell-keys";
 import { C, chip, fg, pad, RESET, selected, width } from "../style";
 
 /** What the menu runs a row on: the person's press on the screen's dispatcher, and the status bar for a refusal. */
 export interface MenuHost {
   dispatch: { press(name: string, args?: Record<string, unknown>, tile?: string): Promise<unknown> };
-  ctx: { flash(msg: string): void };
+  ctx: { flash(msg: string): void; refuse?(msg: string): void };
 }
 
 /** Keys the list takes itself: a row bound to one still shows it as its keycap, but ⏎ runs the lit row and j k move. */
@@ -37,7 +38,8 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   const capW = Math.max(0, ...caps.map(width));
   const textW = Math.max(width(o.title) + 2, ...rows.map(r => width(r.label) + 2), ...rows.map(r => width(r.group) + 4));
   const groups = rows.filter((r, i) => i === 0 || rows[i - 1]!.group !== r.group).length;
-  const run = (r: MenuRow, h: H) => (r.refused ? h.ctx.flash(r.refused) : void h.dispatch.press(r.action, r.args, r.tile));
+  // A refused row says why as any refused key or click does (the focused tile's frame and the status bar, PIE-727).
+  const run = (r: MenuRow, h: H) => (r.refused ? refused(h.ctx, r.refused) : void h.dispatch.press(r.action, r.args, r.tile));
   // ^W, then the key after it: a row's chord (^W x closes).
   let chord = false;
   const p: ListPicker<MenuRow, H> = new ListPicker<MenuRow, H>({

@@ -242,15 +242,15 @@ describe('outline_components', () => {
 })
 
 describe('door tools', () => {
-  test('without EP0CH_CONTROL they are not offered, and a call is refused without running ep0ch', async ($, on) => {
+  test('without EP0CH_CONTROL or a door `ep0ch where` can reach they are not offered, and a call is refused after only asking `ep0ch where`', async ($, on) => {
     const session = sessionIn(on, () => undefined)
     await session.begin(() => $.session.start(START))
     for (const name of ['door_where', 'door_peek', 'door_act', 'door_open']) expect(session.registered).not.toContain(name)
     for (const name of ['door_where', 'door_peek', 'door_act', 'door_open']) {
       const denied = await $.tool.call({ tool: `mcp__pi-outliner__${name}`, action: 'layout.get', id: NOTE })
-      expect(denied.deny).toContain('only in an ep0ch-door tile')
+      expect(denied.deny).toContain('No door is reachable from here')
     }
-    expect(session.runs.filter(run => run.argv[0] === 'ep0ch')).toEqual([])
+    expect(session.runs.filter(run => run.argv[0] === 'ep0ch').every(run => run.argv[1] === 'where')).toBe(true)
   })
 
   test('in a door tile they run ep0ch on its control socket, attributed with --as', async ($, on) => {

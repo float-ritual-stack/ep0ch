@@ -21,9 +21,16 @@ export function shellKeyOf(name: "screen.back" | "video.cycle", here: Screen, ct
  * or logs off, so here it does nothing and says what leaves (or a frame around the screen takes it: `Ctx.nothingToClose`).
  * `leave`: the screen's own way out (the menu's is G).
  */
-export function nothingToClose(ctx: Pick<Ctx, "flash" | "nothingToClose">, leave = "q leaves") {
+export function nothingToClose(ctx: Pick<Ctx, "flash" | "nothingToClose" | "refuse">, leave = "q leaves") {
   if (ctx.nothingToClose) return ctx.nothingToClose(leave);
-  ctx.flash(nothingLeft(leave));
+  refused(ctx, nothingLeft(leave));
+}
+/**
+ * The person's key or click refused, and why (PIE-727): said where they look, the focused tile's frame, and on the status
+ * bar (Ctx.refuse); a Ctx without it (a test's) flashes it.
+ */
+export function refused(ctx: Pick<Ctx, "flash" | "refuse">, why: string) {
+  if (ctx.refuse) ctx.refuse(why); else ctx.flash(why);
 }
 /** What Esc says with nothing left to close. */
 export const nothingLeft = (leave: string) => `nothing to close · ${leave}`;

@@ -131,6 +131,8 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       await app.act({ action: "open", args: { id: notes.plot.id }, as: "new-note-test" });
       const reader = () => [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === notes.plot.id) as any;
       await until(() => !!reader(), "a reader on the plot notes");
+      // The desk starts with the person's keys in the reader: they move to the outline, so the reader is one they aren't in.
+      await desk.dispatch.act({ action: "tile.focus", tile: "tree" }, { kind: "user" });
       // An agent following its missing [[Bean diary]] in a reader the person isn't in: refused, naming page.create; nothing made.
       const rname = desk.describe().tiles?.find?.((t: any) => t.kind === "reader")?.name ?? "reader";
       await expect(app.act({ action: "link.follow", args: { n: 1 }, tile: rname, as: "new-note-test" })).rejects.toThrow("page.create");

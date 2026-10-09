@@ -36,7 +36,7 @@ export function registerBuiltinScreens(): void {
     const note = typeof args?.note === "string" ? args.note : "";
     return {
       name: "detail", title: "detail", lands: "detail", digits: false,
-      layout: { focus: "detail", root: { t: "leaf", kind: "detail", name: "detail", ...(note ? { note } : {}) } },
+      layout: { focus: "detail", root: { t: "leaf", kind: "reader", name: "detail", mode: "held", ...(note ? { note } : {}) } },
     };
   }, "note");
   // The home base (src/home.ts): what bare `ep0ch` opens where no outline is named; its args are where it was opened.

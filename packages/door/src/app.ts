@@ -1,19 +1,19 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { anyUnsavedTuning } from "./look";
+import { tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import type { Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
-import { Dispatcher } from "./surface/dispatch";
+import { Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
-import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
+import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
@@ -37,6 +37,8 @@ import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 import { confirms, disarms, type Arm } from "./arm";
+import { hyperBinding, hyperLabel, hyperOn, HYPER_KEYS } from "./hyper";
+import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
@@ -56,7 +58,7 @@ export interface Frame { lines: string[]; placements?: Placement[] }
  * client with the person's keys).
  */
 export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "invalidate" | "stop" | "resume">
-  & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink">>
+  & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink" | "lastSeq">>
   & {
     /** Let go of the terminal the person is typing on (a session's), or the one `from` names: true when one was attached. */
     detachActive?(from?: unknown): boolean;
@@ -95,6 +97,15 @@ export interface HostLayer {
 }
 
 /** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */
+/** A refusal of the person's key or click (Ctx.refuse), as the focused tile's frame says it. */
+export interface Refusal { text: string; loud: boolean }
+
+/** What a key or click is, to tell the same one pressed again: a key whole, a click by where it landed. Null: not a press. */
+export function pressOf(k: Key): string | null {
+  if (k.kind !== "mouse") return JSON.stringify(k);
+  return k.action === "down" ? `click:${k.button}:${k.x},${k.y}` : null;
+}
+
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
@@ -125,6 +136,16 @@ export interface Ctx {
   redraw(): void;
   flash(msg: string, ms?: number): void;
   /**
+   * The person's own key or click was refused (PIE-727): `msg` says why. The status bar has it, as `flash`'s, and the
+   * focused tile says it on its frame (`refusal`). The same key refused again makes it loud: it stays up, highlighted,
+   * until a different key. An agent's refusal is never this: it is said with who it is (`flash`).
+   */
+  refuse?(msg: string, at?: number): void;
+  /** Which of the person's keys or clicks is being answered now (refuse's `at`, taken as an action begins). */
+  pressNow?(): number;
+  /** The refusal said now, for the focused tile's frame to show: its words, and loud when the same key was refused again. */
+  refusal?(): Refusal | null;
+  /**
    * Esc reached a screen with nothing left to close (src/shell-keys.ts `nothingToClose`): what the frame around it does
    * instead of saying so (the showcase's stage hands the keys back to its index). The door's own Ctx leaves it out.
    */
@@ -136,6 +157,11 @@ export interface Ctx {
    */
   copy?(text: string | Uncopied, from?: string): boolean;
   cycleVideo(): void;
+  /**
+   * `keys.probe` (PIE-699): the next keys are described instead of run (the bytes they arrived as, the modifiers, what the
+   * door reads them as); esc, or the action again, ends it. `on` left out toggles. The new state.
+   */
+  probeKeys?(on?: boolean): boolean;
   /** Draw in this theme from now on (`theme.set`): every screen at once, the terminal's ground too, and kept for next time. */
   setTheme?(name: ThemeName): void;
   /**
@@ -241,6 +267,12 @@ export interface Screen {
   keepEdits?(): string[];
   /** The screen wants every key, even those a frame around it keeps (an edit, a comment, a property panel). */
   holdsKeys?(): boolean;
+  /**
+   * The person is typing in something here (an edit, a comment, a panel) and a hyper chord (PIE-699) is about to move the
+   * keys to another tile: leave it as a click elsewhere leaves it (saved, or kept as unsent). False when it can't be left
+   * (said), and the chord does nothing.
+   */
+  leaveTyping?(): boolean;
   /**
    * Where the person's keys are on this screen (PIE-514), by the names `tile=` uses: the tile with their focus, the
    * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
@@ -441,7 +473,7 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
     useCompletion(board, () => this.redraw());
@@ -542,7 +574,7 @@ export class App implements Ctx {
     // Quitting, a reader in the drawer's unsaved edit asks too (its programs are the drawer's own warning).
     const dirty = [...screens, ...(quitting && this.drawer.made ? [this.drawer.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
     // Quitting with the tune inspector's nudges unwritten (PIE-673): they live in memory, so say so once, never lose them silently.
-    const tuned = quitting ? anyUnsavedTuning() : 0;
+    const tuned = quitting ? tuningOf(this.board).unsavedCount() : 0;   // this door's own connection, never another App's in the same process
     const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null;
     const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
@@ -587,6 +619,59 @@ export class App implements Ctx {
   }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
   flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
+
+  // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
+  /**
+   * The person's gestures: a key or a click (pressOf), with the ones after it while the screen held the keys for it (^W
+   * then x, the ⋯ then a row of its menu) joined to it. `gestures` counts them; `pressCount` counts every press, so a
+   * refusal says which it answers.
+   */
+  private gesture: string[] = [];
+  private gestures = 0;
+  private pressCount = 0;
+  /** The screen held the keys after the last press (a chord waiting, a menu open): the next press continues its gesture. */
+  private heldAfter = false;
+  /** The refusal shown now (null once a key moved on), and the last one said: its words, its gesture, the flash after it. */
+  private refusedNow: (Refusal & { press: string | null }) | null = null;
+  private refusedLast: { text: string; gesture: string; n: number; flashes: number } | null = null;
+  /** Which key or click is being answered now: a refusal that lands later (an action's promise) says which it answers. */
+  pressNow(): number { return this.pressCount; }
+  /**
+   * `at`: the press it answers (pressNow when the action began). One that lands after another key came (the person moved
+   * on) is said on the status bar alone: it belongs to no tile now.
+   */
+  refuse(msg: string, at = this.pressCount) {
+    const text = printable(msg, " ");
+    if (at !== this.pressCount) { this.flash(msg); return; }
+    const gesture = this.gesture.join(" "), last = this.refusedLast;
+    // The same refusal again, by the same gesture right after it (x x on a spine, ^W x ^W x on a locked screen, the same
+    // menu row twice), with nothing else said between: loud, and up until a different key (Evan pressed q seven times
+    // before he saw why). A different key between them (x j x) starts over.
+    const loud = !!last && !!gesture && last.text === text && last.gesture === gesture && last.n === this.gestures - 1 && last.flashes === this.flashes;
+    this.refusedNow = { text, loud, press: this.gesture.at(-1) ?? null };
+    this.flash(msg, loud ? Infinity : 4000);
+    this.refusedLast = { text, gesture, n: this.gestures, flashes: this.flashes };
+  }
+  refusal(): Refusal | null {
+    const r = this.refusedNow;
+    // A quiet one goes with its status bar copy (its time ran out, or something else was said over it).
+    if (!r || (!r.loud && (this.message !== r.text || Date.now() > this.messageUntil))) return null;
+    return { text: r.text, loud: r.loud };
+  }
+  /**
+   * A key or click came: what the tile's frame said goes (it comes back, loud, if this gesture is refused the same way
+   * again); a loud one's status bar copy goes with a different key, and with the same one it times out as any message does.
+   */
+  private pressed(k: Key) {
+    const p = pressOf(k);
+    if (p === null) return;
+    const r = this.refusedNow;
+    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + 4000; }
+    this.refusedNow = null;
+    if (this.heldAfter && this.gesture.length && this.gesture.length < 4) this.gesture.push(p);
+    else { this.gesture = [p]; this.gestures++; }
+    this.pressCount++;
+  }
 
   // ── an armed edit (src/arm.ts): the next key opens it or lets it go ──
   private armedNow: { a: Arm; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -889,6 +974,7 @@ export class App implements Ctx {
     // Finding the owner can refuse too (a name both the screen and the drawer have): said like every refusal.
     let takes: boolean;
     try { takes = this.dispatch.takes(req); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
+    if (!takes && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
     try {
@@ -940,8 +1026,11 @@ export class App implements Ctx {
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
+    this.pressed(k);
     try { this.route(k); }
     finally {
+      // A chord waiting for its next key, a menu or picker open: the next press continues this gesture (refuse).
+      if (pressOf(k) !== null) this.heldAfter = !!this.stack.at(-1)?.holdsKeys?.();
       // Said once, after the key did its work, so the hint isn't covered by what the key said.
       if (k !== typed && !this.saidOptionKeys) {
         this.saidOptionKeys = true;
@@ -952,6 +1041,13 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private route(k: Key) {
+    // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
+    if (this.probing && k.kind !== "mouse") {
+      if (k.kind === "esc") this.probeKeys(false);
+      else if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
+      else { this.flash(describeKey(k, (this.term as { lastSeq?: string }).lastSeq ?? ""), 60_000); this.redraw(); }
+      return;
+    }
     // An armed edit (e in a reader, src/arm.ts) takes the next key first: ⏎ or the arming key again opens it; any
     // other key (a click too) lets it go, then does what it does, wherever it goes.
     const armed = this.armedNow?.a;
@@ -980,6 +1076,9 @@ export class App implements Ctx {
         return;
       }
     }
+    // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
+    // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
+    if (k.kind === "hyper") { this.hyper(k.ch); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
@@ -1015,10 +1114,27 @@ export class App implements Ctx {
       let ran = false;
       const said = this.flashes, stop = traceActions(() => { ran = true; });
       try { top.key(k, this); } finally { stop(); }
-      if (!ran && this.flashes === said) this.flash("nothing selected · drag across the text to copy it, or v and move then y");
+      if (!ran && this.flashes === said) this.refuse("nothing selected · drag across the text to copy it, or v and move then y");
       return;
     }
     top?.key(k, this);
+  }
+
+  private probing = false;
+  probeKeys(on = !this.probing): boolean {
+    this.probing = on;
+    this.flash(on ? `key probe · press a chord (hyper is ⌃⌥⇧⌘ and a key): it is described, not run · esc ends it · layer ${hyperOn() ? "on" : "off"}` : "key probe ended", on ? 60_000 : undefined);
+    this.redraw();
+    return on;
+  }
+
+  /** A hyper chord: its binding's action as the person, after leaving an edit when it moves the keys. */
+  private hyper(key: string) {
+    const b = hyperBinding(key), top = this.stack.at(-1);
+    if (top?.noDrawer) return;
+    if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
+    if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
+    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
   }
 
   /**
@@ -1194,7 +1310,9 @@ export class App implements Ctx {
     const changedFrom = cols - width(newPart + extPart + tail);
     this.changedAt = newCount && changedFrom >= 0 ? { from: changedFrom, to: changedFrom + width(`+${newCount} new`), row: this.term.info.rows - 1 } : null;
     this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
-    const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
+    // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
+    const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
+    const middle = this.message ? ` ${fg(C.yellow)}${loud ? BOLD : ""}${this.message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
 }

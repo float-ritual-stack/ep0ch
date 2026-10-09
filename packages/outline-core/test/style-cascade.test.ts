@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { headingStylesFromBlocks } from "../src/heading-styles";
 import {
-  BASE_STYLE, headingComponentLayer, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
+  BASE_STYLE, headingComponentLayer, listLayers, listOwners, listStart, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
   styleLayers, styleProperty, styleSheetsFromBlocks, styleValueText, type StyleLayer,
 } from "../src/style-cascade";
 
@@ -58,7 +58,7 @@ describe("the cascade", () => {
     const r = resolveStyle(layers, 80);
     expect(r.values["margin.x"]).toBe(2);
     expect(r.values["list.divider"]).toBe("none");
-    expect(r.problems).toEqual(['page: margin.x "lots" is a whole number, 0 to 24', 'page: list.divider "wavy" is one of none, line, dots']);
+    expect(r.problems).toEqual(['page: margin.x "lots" is a whole number, 0 to 24', 'page: list.divider "wavy" is one of none, line, dots, dashed, double, fade, glyph']);
   });
 
   test("an undeclared named style is said", () => {
@@ -121,7 +121,7 @@ describe("one system with heading styles (PIE-599)", () => {
 describe("a box's attributes (PIE-549's syntax)", () => {
   test("tokens, shorthands, variants, a bare flag and classes", () => {
     expect(parseStyleAttrs("margin.x=2 list.zebra narrow.list.gap=0 pad=1 .accent border=round")).toEqual({
-      fields: { "margin.x": "2", "list.zebra": "on", "narrow.list.gap": "0", "pad.y": "1", "pad.x": "2" }, classes: ["accent"], problems: [],
+      fields: { "margin.x": "2", "list.zebra": "on", "narrow.list.gap": "0", "pad.y": "1", "pad.x": "2", border: "round" }, classes: ["accent"], problems: [],
     });
     expect(parseStyleAttrs('pad="1 3" nope=1').fields).toEqual({ "pad.y": "1", "pad.x": "3" });
     expect(parseStyleAttrs("nope=1").problems).toEqual(["box: nope isn't a style token"]);
@@ -145,7 +145,7 @@ describe("nudging", () => {
     expect(nudgeStyleValue("measure", 88, -1)).toBe(84);
     expect(nudgeStyleValue("list.zebra", false, 1)).toBe(true);
     expect(nudgeStyleValue("list.divider", "none", 1)).toBe("line");
-    expect(nudgeStyleValue("list.divider", "none", -1)).toBe("dots");
+    expect(nudgeStyleValue("list.divider", "none", -1)).toBe("glyph");
     expect(nudgeStyleValue("heading.padding", { rows: 0, cols: 2 }, 1)).toEqual({ rows: 1, cols: 4 });
   });
 
@@ -154,5 +154,109 @@ describe("nudging", () => {
     expect(styleValueText({ top: 1, cols: 0, bottom: 2 })).toBe("1 0 2");
     expect(styleProperty("margin.x", "narrow")).toBe("style.narrow.margin.x");
     expect(BASE_STYLE["margin.x"]).toBe(1);
+  });
+});
+
+describe("surfaces, frames and the header (PIE-675)", () => {
+  test("a box's colours and frame are style fields; a role or tone, never a colour", () => {
+    const a = parseStyleAttrs("bg=amber bg.strength=3 border=round edge=bar tone=violet");
+    expect(a).toMatchObject({ fields: { bg: "amber", "bg.strength": "3", border: "round", edge: "bar", tone: "violet" }, problems: [] });
+    const r = resolveStyle([{ level: "block", label: "box", fields: a.fields }], 80);
+    expect(r.values).toMatchObject({ bg: "amber", "bg.strength": 3, border: "round", edge: "bar", tone: "violet" });
+    const bad = resolveStyle([{ level: "page", label: "page", fields: { bg: "#ffffff", "bg.strength": "9", border: "dotted" } }], 80);
+    expect(bad.values).toMatchObject({ bg: "none", "bg.strength": 2, border: "auto" });
+    expect(bad.problems).toHaveLength(3);
+  });
+
+  test("dividers: their styles, a glyph of one's own, where they sit; zebra's surface and strength", () => {
+    const r = resolveStyle([{ level: "global", label: "global", fields: { "list.divider": "glyph", "list.divider.glyph": "✦", "list.divider.align": "center", "list.zebra.bg": "sunken", "list.zebra.strength": "4" } }], 80);
+    expect(r.values).toMatchObject({ "list.divider": "glyph", "list.divider.glyph": "✦", "list.divider.align": "centre", "list.zebra.bg": "sunken", "list.zebra.strength": 4 });
+    expect(BASE_STYLE).toMatchObject({ "list.divider.align": "centre", "list.zebra.bg": "raised", "list.zebra.strength": 2, bg: "none", border: "auto", edge: "none", tone: "neutral" });
+    expect(resolveStyle([{ level: "page", label: "page", fields: { "list.zebra.bg": "none" } }], 80).values["list.zebra.bg"]).toBe("raised");
+    // A glyph's nudge steps through the presets; anything else is written by hand.
+    expect(nudgeStyleValue("list.divider.glyph", "·", 1)).toBe("•");
+    expect(nudgeStyleValue("list.divider.glyph", "@", 1)).toBe("·");
+    expect(resolveStyle([{ level: "page", label: "page", fields: { "list.divider.glyph": "]" } }], 80).problems).toHaveLength(1);
+  });
+
+  test("the header: its surface and opacity, its picture over the hero (as written), and the crop's offsets", () => {
+    const sheets = styleSheetsFromBlocks([{ id: "hhhh0001", properties: props({ "style-for": "tile:detail", "style.header.bg": "blue", "style.header.bg.opacity": "40", "style.header.image": "media/Shed Door.png", "style.header.image.x": "-15" }) }]);
+    expect(sheets.problems).toEqual([]);
+    const r = resolveStyle(styleLayers(sheets.sheets, { tile: "detail" }), 80);
+    expect(r.values).toMatchObject({ "header.bg": "blue", "header.bg.opacity": 40, "header.image": "media/Shed Door.png", "header.image.x": -15, "header.image.y": 0 });
+    expect(nudgeStyleValue("header.image.y", 0, -1)).toBe(-5);
+    expect(nudgeStyleValue("header.image.x", 50, 1)).toBe(50);
+  });
+
+  test("tier-keyed values: narrow | normal | wide in one field, its written variant winning", () => {
+    const sheets = styleSheetsFromBlocks([
+      { id: "tttt0001", properties: props({ "style-for": "global", "style.pad": "0 1 | 1 3 | 1 6", "style.bg": "none | raised | sunken", "style.wide.bg": "amber" }) },
+    ]);
+    expect(sheets.problems).toEqual([]);
+    const at = (w: number) => resolveStyle(styleLayers(sheets.sheets, {}), w).values;
+    expect(at(40)).toMatchObject({ "pad.y": 0, "pad.x": 1, bg: "none" });
+    expect(at(80)).toMatchObject({ "pad.y": 1, "pad.x": 3, bg: "raised" });
+    expect(at(160)).toMatchObject({ "pad.y": 1, "pad.x": 6, bg: "amber" });
+    expect(styleSheetsFromBlocks([{ id: "tttt0002", properties: props({ "style-for": "global", "style.list.gap": "0 | 1" }) }]).problems[0]).toContain("three values");
+    // Written out beats a shorthand beats a tier's written out beats a tier's shorthand, in either order on the note.
+    for (const order of [0, 1]) {
+      const fields = [["style.pad", "0 1 | 1 3 | 1 6"], ["style.wide.pad", "2 9"], ["style.pad.x", "5 | 7 | 8"], ["style.narrow.pad.y", "3"]] as [string, string][];
+      const sheet = styleSheetsFromBlocks([{ id: "tttt0003", properties: [{ key: "style-for", value: "global" }, ...(order ? fields.reverse() : fields).map(([key, value]) => ({ key, value }))] }]);
+      expect(sheet.problems).toEqual([]);
+      const v = (w: number) => resolveStyle(styleLayers(sheet.sheets, {}), w).values;
+      expect(v(160)).toMatchObject({ "pad.y": 2, "pad.x": 9 });
+      expect(v(80)).toMatchObject({ "pad.y": 1, "pad.x": 7 });
+      expect(v(40)).toMatchObject({ "pad.y": 3, "pad.x": 5 });
+    }
+  });
+
+  test("a reader, wide, gets padding 1 4 by its kind's own default; narrower, none", () => {
+    expect(resolveStyle(styleLayers([], { tile: "detail" }), 160).values).toMatchObject({ "pad.y": 1, "pad.x": 4 });
+    expect(resolveStyle(styleLayers([], { tile: "detail" }), 100).values).toMatchObject({ "pad.y": 0, "pad.x": 0 });
+    expect(resolveStyle(styleLayers([], { tile: "backlinks" }), 160).values).toMatchObject({ "pad.y": 0, "pad.x": 0 });
+  });
+});
+
+describe("this tile and this list (PIE-675)", () => {
+  test("this tile is over the page, under a block; a list's own over this tile", () => {
+    const layers = styleLayers([], { tile: "backlinks", page: { id: "p", properties: props({ "style.list.gap": "0" }) }, instance: { id: "t4", fields: { "list.gap": "2" } } });
+    const r = resolveStyle(layers, 80);
+    expect(r.values["list.gap"]).toBe(2);
+    expect(r.sources["list.gap"]).toMatchObject({ level: "instance", label: "this tile" });
+    const lines = ["## Seed trays [style.list.gap::1]", "- Tomatoes", "- Chillies"];
+    const own = resolveStyle([...layers, ...listLayers(lines, 1, "n1")], 80);
+    expect(own.values["list.gap"]).toBe(1);
+    expect(own.sources["list.gap"]).toMatchObject({ level: "block", label: "this list", block: "n1", line: 0 });
+  });
+
+  test("a list's owners by placement: its lead-in line, else its section's heading; only its list fields count", () => {
+    const lines = [
+      "## Beds [style.list.divider::dots]",   // 0
+      "Climbers: [style.list.gap::2] [style.margin.x::9]", // 1
+      "- runner beans",                      // 2
+      "  up the canes",                      // 3
+      "",                                    // 4
+      "- sweet peas",                        // 5
+      "Ground cover",                        // 6
+      "",                                    // 7
+      "- clover",                            // 8
+    ];
+    expect(listStart(lines, 5)).toBe(2);
+    expect(listStart(lines, 3)).toBe(2);
+    expect(listStart(lines, 6)).toBeNull();
+    expect(listStart(lines, 8)).toBe(8);
+    expect(listOwners(lines, 2)).toEqual({ lead: 1, heading: 0 });
+    expect(listOwners(lines, 8)).toEqual({ lead: null, heading: 0 });
+    const climbers = resolveStyle(listLayers(lines, 2), 80), clover = resolveStyle(listLayers(lines, 8), 80);
+    expect(climbers.values).toMatchObject({ "list.gap": 2, "list.divider": "dots", "margin.x": 1 });
+    expect(clover.values).toMatchObject({ "list.gap": 0, "list.divider": "dots" });
+    // A box's list stops at its box; one after a box looks past it to the section's heading.
+    const boxed = ["## Shed [style.list.gap::2]", "::box{pad=1}", "- rake", "::", "- hoe"];
+    expect(listOwners(boxed, 2)).toEqual({ lead: null, heading: null });
+    expect(listOwners(boxed, 4)).toEqual({ lead: null, heading: 0 });
+    // An example heading in a code fence owns nothing; the fence's closer isn't a lead-in.
+    const fenced = ["## Real", "```", "## Example [style.list.gap::2]", "```", "- one", "- two"];
+    expect(listOwners(fenced, 4)).toEqual({ lead: null, heading: 0 });
+    expect(listStart(fenced, 2)).toBeNull();
   });
 });

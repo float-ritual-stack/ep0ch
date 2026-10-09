@@ -59,6 +59,7 @@ export const SEED = {
   rota: "Greenhouse watering rota",
   hedge: "Hedge trimming plan",
   compost: "Compost bay rules",
+  swap: "Seed swap thread",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -835,6 +836,12 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
+  // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
+  notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread]\nWho brings what to the seed swap on Saturday. The table goes by [[${SEED.shed}]].`);
+  await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
+  await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
+  await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");
+  await make(notes.swap.id, "Dee: a question about the time\nIs it ten or eleven?");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
@@ -966,18 +973,37 @@ export const SPACING_LAB = [
   "- Basil by the kitchen window",
   "- Peppers, pricked out in May",
   "",
-  "::box{list.gap=0 list.zebra margin.x=4}",
-  "A box sets its own look: no gap, every other row tinted, four columns in.",
+  "## Hardy ones [style.list.gap::0] [style.list.divider::none]",
+  "This list is tight: its own heading says so (this list), whatever the lab style gives the page's other lists.",
+  "- Kale",
+  "- Leeks",
+  "",
+  "::box{list.gap=0 list.zebra list.zebra.bg=green list.zebra.strength=4 margin.x=4 edge=bar tone=green}",
+  "A box sets its own look: no gap, every other row on a green stripe, a green bar down its side, four columns in.",
   "- Leeks",
   "- Onion sets",
   "- Garlic",
   "::",
+  "",
+  "::box{bg=sunken border=round tone=amber pad=1 list.gap=2 list.divider=glyph list.divider.glyph=✦}",
+  "A sunken box in an amber frame. Its list's divider is a glyph of its own, centred in the gap.",
+  "- Broad beans",
+  "- Runner beans",
+  "::",
+  "",
+  "## The header's picture",
+  "Scroll this picture up under the title: the header takes it as its backdrop, cropped a little higher than its middle by the lab style's header.image.y, its own violet surface yielding to it.",
+  `[img::${SHOWCASE_ASSETS}/evening-beds.jpg] [alt::the beds at dusk, the shed lit]`,
+  "",
+  "The end of the lab.",
 ].join("\n");
 
 /** The style section's declaration: the named style the Spacing lab page uses, edited in place to restyle it live. */
 export const LOOKS_LAB = [
-  `${SEED.looksLab} [style-for::lab] [style.measure::64] [style.pad::1] [style.list.gap::1] [style.list.divider::dots] [style.narrow.list.gap::0]`,
+  `${SEED.looksLab} [style-for::lab] [style.measure::64] [style.pad::1] [style.list.gap::1] [style.list.divider::dots] [style.narrow.list.gap::0] [style.bg::raised] [style.edge::bar] [style.tone::violet] [style.header.bg::violet] [style.header.bg.opacity::40] [style.header.image::evening-beds.jpg] [style.header.image.y::-15]`,
   "This note declares the lab style, which [[Spacing lab]] uses. Its fields are the look: e here, change a value, ctrl+s, and every reader of that page restyles at once, in every door on the outline. Under 60 columns (narrow) the lab drops its list gap.",
+  "",
+  "Surfaces are theme roles, never colours: raised, sunken or a tone (blue, green, violet, amber, coral, neutral), each drawn dark in every theme. The lab tile sits on a raised surface with a violet bar down its side; its header on violet at 40%, taking the beds picture once it scrolls under, the crop moved up 15%.",
   "",
   "A tile kind has its own: `[style-for::tile:backlinks] [style.list.zebra::on]` on any line would stripe every links tile.",
 ].join("\n");

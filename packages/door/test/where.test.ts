@@ -6,6 +6,7 @@ import { tileEnv } from "../src/desk/pty";
 import { loginShell, shellCwd, shellEnv } from "../src/drop";
 import { appendNest, doorLayer, NEST_MAX, NEST_SEP, nestLayers, outerLayers, parseLayer } from "../src/nest";
 import { formatWhere, where, type WhereDeps } from "../src/where";
+import type { DoorResolution } from "../src/door-resolve";
 
 describe("EP0CH_NEST", () => {
   test("a layer is one line, and the nest stays under its cap with the first layer kept", () => {
@@ -293,5 +294,42 @@ describe("ep0ch where", () => {
   test("no Herdr on PATH: the Herdr layer is unknown, not gone", async () => {
     const w = await where(deps({ EP0CH_NEST: "herdr:w1:p1" }, { panes: null }));
     expect(w.layers[0]).toMatchObject({ kind: "herdr", live: null, why: "herdr isn't on PATH" });
+  });
+});
+
+describe("ep0ch where: a Claude that does not descend from a tile still reaches its folder's door (PIE-715)", () => {
+  // A background job: a stale Herdr pane id, no EP0CH_CONTROL, no EP0CH_NEST.
+  const job = { HERDR_PANE_ID: "w1:p2P", HERDR_WORKSPACE_ID: "w1" };
+  const folder: DoorResolution = { rule: "folder", path: "/s/sessions/local/pie/door.sock", outline: "pie",
+    text: "reached pie's door session by folder (the outline this folder names); you are not in a tile of it, so your keys are not the person's" };
+  const peek = { screen: { screen: "Desk", pid: 77, outline: "pie", state: { kind: "desk", focusName: "notes", inTerminal: null, panes: [{ name: "notes", id: "t1", kind: "pty", focused: true, shown: true, terminal: { pid: 5000 } }] } } };
+
+  test("the stale pane and the missing EP0CH_CONTROL fall through to the folder's door, and it says which rule matched", async () => {
+    const w = await where({ ...deps(job, { peek, panes: [] }), peek: async p => (p === folder.path ? peek : null), resolve: async () => folder });
+    expect(w.reach).toMatchObject({ rule: "folder" });
+    expect(w.door).toMatchObject({ control: folder.path, answers: true, outline: "pie" });
+    expect(w.keys.mine).toBe(false);
+    expect(w.keys.text).toContain("not in a tile of this door");
+    expect(w.layers.find(l => l.kind === "herdr")).toMatchObject({ live: false, why: "no such pane in Herdr now" });
+    const text = formatWhere(w);
+    expect(text).toContain("reached pie's door session by folder");
+    expect(text).not.toContain("not in a door\n");
+    expect(w.summary).toContain("your keys are not the person's");
+  });
+
+  test("with no door at all it says so, with the command that starts one", async () => {
+    const none: DoorResolution = { rule: "none", path: null, outline: null, text: "no door runs on pie · `ep0ch --ws pie` starts one" };
+    const w = await where({ ...deps(job, { panes: [] }), resolve: async () => none });
+    expect(w.reach.rule).toBe("none");
+    expect(w.door).toBeNull();
+    expect(w.summary).toContain("`ep0ch --ws pie` starts one");
+    expect(formatWhere(w)).toContain("`ep0ch --ws pie` starts one");
+  });
+
+  test("a door on EP0CH_CONTROL that answers is taken first: the folder is not asked", async () => {
+    let asked = 0;
+    const w = await where({ ...deps({ EP0CH_CONTROL: "/c/door.sock" }, { peek }), resolve: async () => { asked++; return folder; } });
+    expect(asked).toBe(0);
+    expect(w.reach.rule).toBe("control");
   });
 });

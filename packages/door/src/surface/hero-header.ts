@@ -8,6 +8,7 @@
 // colour): nothing. `reader.hero on=false` turns it off, kept for the next start as the theme is; `mode=follow` makes
 // the header follow the note's pictures: each one that scrolls under takes over, fading in over the one before.
 import { coverCrop } from "../doc";
+import { backgroundAfter } from "../canvas";
 import type { Placement } from "../kitty";
 import { cellColours, sized, type CellGrid, type Focus, type Look, type ReadyMedia } from "../media";
 import { bgRgb, glyphWidth, graphemes, pad, RESET } from "../style";
@@ -98,18 +99,4 @@ export function overColours(line: string, w: number, colours: readonly (readonly
   return out + RESET;
 }
 
-/**
- * Whether the line has a background of its own after SGR sequence `sgr`, given whether it had one before: its
- * parameters in order, a reset (0, or none) or 49 letting it go, 40–48 and 100–107 setting one, a colour's own
- * numbers after 38, 48 or 58 skipped.
- */
-export function backgroundAfter(sgr: string, own: boolean): boolean {
-  const ps = sgr.slice(2, -1).split(";").map(p => (p === "" ? 0 : Number(p)));
-  for (let i = 0; i < ps.length; i++) {
-    const p = ps[i]!;
-    if (p === 38 || p === 48 || p === 58) { if (p === 48) own = true; i += ps[i + 1] === 2 ? 4 : 2; continue; }
-    if (p === 0 || p === 49) own = false;
-    else if ((p >= 40 && p <= 47) || (p >= 100 && p <= 107)) own = true;
-  }
-  return own;
-}
+export { backgroundAfter } from "../canvas";
