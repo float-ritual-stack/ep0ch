@@ -132,7 +132,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too. */ refuse?(msg: string): void }
+export interface DispatchCtx { flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -332,10 +332,12 @@ export class Dispatcher {
 
   private asPerson(f: () => unknown, say: boolean | ((why: string) => string | null) = false): Promise<unknown> {
     const ctx = this.host.ctx();
+    // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
+    const at = ctx?.pressNow?.();
     const tell = (e: unknown) => {
       const why = e instanceof Error ? e.message : String(e), said = say === true ? null : say === false ? why : say(why);
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
-      if (said) (ctx?.refuse ? ctx.refuse(said) : ctx?.flash?.(said));
+      if (said) (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said));
       ctx?.redraw?.();
       return undefined;
     };

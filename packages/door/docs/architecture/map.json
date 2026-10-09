@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "45a6c554", "outliner": "45a6c554", "on": "2026-10-09" },
+  "verified": { "door": "8321edf5", "outliner": "8321edf5", "on": "2026-10-09" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -360,7 +360,7 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 213, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 161, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 935, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 956, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 576, "m": "export function draftRule" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1633, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
@@ -376,18 +376,18 @@
         { "r": "door", "p": "src/screens.ts", "l": 454, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 787, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 161, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 949, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 970, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 53, "m": "export async function runLoginShell" }
       ]
     },
     {
       "id": "door.refusals", "name": "Refusals said where the person looks", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": ["door.actions", "door.shell"],
       "does": "A refusal of the person's own key or click (an ActionRefused from their press, nothing to close, a spine's keys, a dimmed tile-menu row) is said on the focused tile's frame as well as the status bar; the same key refused again makes it loud (bold on the amber surface, capped dark, the frame amber) until a different key (PIE-727). An agent's refusal is thrown to it and said with who it is.",
-      "built": "Ctx.refuse and App.refusal (pressOf tells the same key or click again); the dispatcher's asPerson calls it; refused() in shell-keys for a Ctx without it; the desk's drawTile draws it on the focused tile's hint row (refusalHint), the screen's hint row for a spine; Pane.nestsTiles leaves it to a mount's own focused tile.",
+      "built": "Ctx.refuse and App.refusal (the same gesture again: pressOf, joined while the screen holds the keys; pressNow drops a late one to the status bar); the dispatcher's asPerson calls it; refused() in shell-keys for a Ctx without it; the desk's drawTile draws it on the focused tile's hint row (refusalHint), the screen's hint row for a spine; Pane.nestsTiles leaves it to a mount's own focused tile.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 627, "m": "refuse(msg: string) {" },
+        { "r": "door", "p": "src/app.ts", "l": 643, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 338, "m": "if (said) (ctx?.refuse" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 340, "m": "if (said) (ctx?.refuse" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 5429, "m": "export function refusalHint" }
       ]
     },
@@ -536,7 +536,7 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 534, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/app.ts", "l": 536, "m": "background: Screen[]" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 984, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
@@ -610,7 +610,7 @@
       "refs": [
         { "r": "door", "p": "src/door.ts", "l": 204, "m": "export function guardDoor" },
         { "r": "door", "p": "src/door.ts", "l": 219, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 613, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 615, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -766,8 +766,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 949, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 683, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 970, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 704, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

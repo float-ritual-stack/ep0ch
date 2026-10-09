@@ -4,7 +4,7 @@
 // its first screen hands the keys back to whoever framed it.
 import type { Ctx, Frame, Screen, Video } from "../app";
 import type { Key, TermInfo } from "../term";
-import { nothingLeft, refused } from "../shell-keys";
+import { nothingLeft } from "../shell-keys";
 import { NOBODY, screenKeys, within } from "../whereabouts";
 import type { Arm } from "../arm";
 
@@ -55,7 +55,7 @@ export class FramedScreen {
     this.refuse(nothingLeft(leave));
   }
   /** The person's key refused in the frame: said as the door says any (Ctx.refuse), the focused tile's frame too. */
-  refuse(msg: string) { refused(this.outer(), msg); }
+  refuse(msg: string, at?: number) { const c = this.outer(); if (c.refuse) c.refuse(msg, at); else c.flash(msg); }
   /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
   dispose() { this.outer().disarm?.(); for (const s of [...this.stack].reverse()) s.dispose?.(); }
   replace(s: Screen) { this.outer().disarm?.(); const was = this.stack.at(-1); if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } if (was !== s) was?.dispose?.(); this.outer().redraw(); }
@@ -100,7 +100,8 @@ function frameCtx(f: FramedScreen): Ctx {
     quit: () => o().quit(),
     redraw: () => o().redraw(),
     flash: (m, ms) => o().flash(m, ms),
-    refuse: m => f.refuse(m),
+    refuse: (m, at) => f.refuse(m, at),
+    pressNow: () => o().pressNow?.() ?? 0,
     refusal: () => o().refusal?.() ?? null,
     nothingToClose: leave => f.nothingToClose(leave),
     copy: (text, from) => o().copy?.(text, from) ?? false,

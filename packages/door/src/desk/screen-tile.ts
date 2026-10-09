@@ -251,8 +251,8 @@ export class ScreenTile implements Pane {
     this.framed?.dispose();
     this.framed = null;
   }
-  /** Its desk's focused tile says a refusal of the person's key (Pane.nestsTiles): a followed screen isn't a desk, so this frame does. */
-  nestsTiles() { return !!this.inner; }
+  /** Its desk's focused tile says a refusal of the person's key (Pane.nestsTiles) while that desk is shown; a followed screen or one pushed over it isn't a desk, so this frame does. */
+  nestsTiles() { const d = this.inner; return !!d && this.framed?.top === d; }
   /** Every key is its screen's now: it's in an edit, or the person went in. */
   holdsKeys() { return this.inside || !!this.framed?.top.holdsKeys?.(); }
   /** Programs run in it (a group's terminal): it holds work a new layout keeps. */

@@ -74,6 +74,29 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
     expect(app.refusal()).toBeNull();
     expect(A().message).not.toBe("nothing to close · q leaves");
     expect(frame()).not.toContain("✗ nothing to close");
+    // The same key with a different one between (esc j esc) starts over: quiet.
+    press({ kind: "esc" });
+    expect(app.refusal()).toMatchObject({ loud: false });
+    press({ kind: "char", ch: "j" }, { kind: "esc" });
+    expect(app.refusal()).toMatchObject({ loud: false });
+    // A refusal that lands after the person moved on (an action's promise) is said on the status bar alone.
+    await Bun.sleep(50);                                       // the j's own answer (this group's reader shows no note) lands
+    const at = app.pressNow();
+    press({ kind: "tab" });
+    app.refuse("a late refusal", at);
+    expect(app.refusal()).toBeNull();
+    expect(A().message).toBe("a late refusal");
+    // An agent's refusal is the agent's: thrown to it, said with who it is, never on the person's tile.
+    await expect(app.act({ action: "tile.zoom", tile: "nowhere-727", args: {}, as: "refusal-agent-727" })).rejects.toThrow();
+    expect(app.refusal()).toBeNull();
+    expect(A().message).toContain("refusal-agent-727");
+    // Inside the group (^W e, mount.enter), q comes out of it; the screen stays.
+    const g = D().pane(names()[0]);
+    press({ kind: "char", ch: "w", ctrl: true }, { kind: "char", ch: "e" });
+    expect(g.inside).toBe(true);
+    press({ kind: "char", ch: "q" });
+    expect(g.inside).toBe(false);
+    expect(top()).toBe(desk);
     // q leaves the screen, as on any desk (it was refused: "the group is a tile").
     press({ kind: "char", ch: "q" });
     expect(top()).toBeInstanceOf(MainMenu);
@@ -85,7 +108,9 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
     app.push(desk);
     frame();
     // The tile menu of the focused tile (its ⋯, ^W .); a row it would refuse is dimmed, and a click on it says why.
-    await mine("tile.menu");
+    const menu = () => press({ kind: "char", ch: "w", ctrl: true }, { kind: "char", ch: "." });
+    menu();
+    expect(D().overlays.top()?.name).toBe("tile menu");
     const rows = D().overlays.top().items as { label: string; refused?: string }[];
     const no = rows.find(r => r.refused);
     expect(no).toBeDefined();
@@ -96,8 +121,8 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
     click();
     expect(app.refusal()).toEqual({ text: no!.refused!, loud: false });
     expect(frame()).toContain(`✗ ${no!.refused!.slice(0, 20)}`);
-    // The same click again (the menu opened again, the same row): loud.
-    await mine("tile.menu");
+    // The same again, by the person's keys and click (^W ., the same row): loud.
+    menu();
     frame();
     click();
     expect(app.refusal()).toEqual({ text: no!.refused!, loud: true });
