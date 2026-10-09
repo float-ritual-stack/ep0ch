@@ -15,6 +15,7 @@
 // A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): what a screen note holds (a
 // screen a person made, PIE-565: src/desk/screen-notes.ts), which can't hold an override.
 import { isTileKind } from "./tile-kinds";
+import { canonKind } from "./layout";
 import type { LayoutSpec } from "./tiles";
 import { isKeyName } from "../surface/actions";
 
@@ -96,7 +97,7 @@ export function newNoteRule(spec: Pick<ScreenSpec, "newNote">, kind: string | un
 }
 
 const NAME = /^[A-Za-z][\w.-]{0,39}$/;
-const kinds = (x: unknown): string[] | undefined => (Array.isArray(x) && x.every(k => typeof k === "string") ? [...x] : undefined);
+const kinds = (x: unknown): string[] | undefined => (Array.isArray(x) && x.every(k => typeof k === "string") ? x.map(canonKind) : undefined);
 
 /**
  * A spec as data (what a note would hold): its fields as they are, nothing that isn't data. A spec is already plain
@@ -150,7 +151,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     ...(o.layouts === true ? { layouts: true as const } : {}),
     ...(o.stays === true ? { stays: true as const } : {}),
   };
-  if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(k)) throw new Error(`screen ${name}: no tile kind ${k} here`);
+  if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(canonKind(k))) throw new Error(`screen ${name}: no tile kind ${k} here`);
   // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
   const tiles = new Set(leafNames(layout.root)), places = new Set([...tiles, ...containerKeys(layout.root)]);
   // `all`: every tile (tile.collapse on=false tile=all reopens every spine); a container by its key: the tile last in it.

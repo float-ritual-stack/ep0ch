@@ -543,6 +543,12 @@ describe("the doctor", () => {
     expect(c["ep0ch/ep0ch on PATH"]).toMatchObject({ status: "behind", fix: "ln -sfn /home/evan/projects/ep0ch/packages/door/src/main.ts /home/evan/.local/bin/ep0ch" });
   });
 
+  test("the door a Claude started here reaches: the rule that matched, or the command that starts one (PIE-715)", () => {
+    const folder = "reached garden's door session by folder (the outline this folder names); you are not in a tile of it, so your keys are not the person's";
+    expect(byName({ ...current(), door: { rule: "folder", text: folder } })["ep0ch/door"]).toMatchObject({ status: "ok", detail: folder });
+    expect(byName({ ...current(), door: { rule: "none", text: "no door runs on garden · `ep0ch --ws garden` starts one" } })["ep0ch/door"]!.detail).toContain("starts one");
+  });
+
   test("this folder: the outline it opens and why, or the init it would offer", () => {
     expect(byName({ ...current(), here: { folder: "/w/garden", outline: "garden", why: "the outline garden (/w/garden/.ep0ch)" } })["outlines/this folder"]!.detail)
       .toBe("/w/garden opens the outline garden (/w/garden/.ep0ch)");

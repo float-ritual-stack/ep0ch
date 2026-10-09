@@ -26,11 +26,13 @@ export interface TileSpec {
   name?: string;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
   id?: string;
-  /** A detail's note (block id). */
+  /** A held reader's note (block id): it starts on it and keeps it. */
   note?: string;
+  /** How a reader shows notes (PIE-705): omitted it follows the current note; `held` keeps `note`; `pinned` keeps the page named by `page`. */
+  mode?: "held" | "pinned";
   /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
   nav?: unknown;
-  /** A detail pinned to a page: the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
+  /** A reader pinned to a page (`mode: pinned`): the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
   page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
   cmd?: string[];
@@ -64,6 +66,8 @@ export interface TileSpec {
   collapsed?: true | "h";
   /** What an agent may do to this tile (PIE-639): `edit` or `off`; left out, the container's or the screen's `agents` says, else `free`. */
   agents?: "free" | "edit" | "off";
+  /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, over the page's, under a list's. */
+  look?: Record<string, string>;
   /** What its title calls it, where its kind lets a screen say (a preview's "preview · follows the board"; a pinned page's). */
   label?: string;
   /** A river column's filter (its clauses, as `/` takes them). */
@@ -112,41 +116,21 @@ export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
  * loaded yet or gone) is a tile that says so and runs nothing; the desk keeps its spec and makes it again when
  * the kind comes.
  */
-export function makeTile(s: Partial<TileSpec> & { kind: TileKindName }): Pane {
+export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pane {
+  const s = canonSpec(given);
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   return k.make(s);
 }
 export { isTileKind };
 
-/** A reader that keeps its note: opened on purpose, the current note never moves it (the board's detail). */
-export class DetailPane extends ReaderPane {
-  override readonly kind: TileKindName = "detail";
-  /** The note it should show once the desk can read it (a restored layout). */
-  want: string | null = null;
-  /** The page it's pinned to, if any: it shows that page each time it starts, not the last note it held. */
-  page: string | null = null;
-  constructor() { super(true); this.holdOn(); }
-  /** Opened into a container (the board's readers row): what it's called there ("detail 1"); null otherwise. */
-  label: string | null = null;
-  /** Set by the desk as it draws: an open there lands here (shown when there are two or more), and it floats. */
-  opensHere = false;
-  floating = false;
-  /** Made for a new note (PIE-591, `note.new`): its id and the note it was made from; it closes with its edit, and goes when the note is trashed unwritten. */
-  newNote: { id: string; context: string | null } | null = null;
-  override title(): string {
-    if (this.label === null) return this.msg ? "detail" : "detail · empty";
-    // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
-    if (this.floating) return this.msg ? subject(this.msg) || this.label : "float";
-    return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", this.surface.state()].filter(Boolean).join(" · ");
-  }
-  override select() {}
-  /** The note it was laid out with, when the outline has no such note (gone, or a screen saved on another outline). */
-  missing: string | null = null;
-  protected override emptyFor(): string {
-    return this.missing ? `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it` : super.emptyFor();
-  }
-  override spec(): Record<string, unknown> { return this.page ? { page: this.page } : { ...(this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}), ...super.spec() }; }
+/**
+ * A spec as a saved layout, a screen spec or an agent wrote it, in the kinds there are now. `detail` was a kind of its
+ * own (PIE-705): it reads as a reader that starts held, or pinned when it names a `page`.
+ */
+export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "held" | "pinned" }>(s: S): S {
+  if (s.kind !== "detail") return s;
+  return { ...s, kind: "reader", mode: s.mode ?? (s.page ? "pinned" : "held") };
 }
 
 export const shell = () => process.env.SHELL || "sh";
@@ -183,9 +167,9 @@ export function builtin(name: string): LayoutSpec | null {
       // The agent is the host layer's (alt+a), beside the desk, never a tile of its own here (PIE-513).
       name, rule: "current", focus: "tree", policy: { host: "beside" },
       root: serial(splitOf("row", [
-        T("detail", "now", { link: "middle", page: nowPage().address }),
-        splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("detail", "middle")], [0.6, 0.4]),
-        splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("detail", "side", { link: "middle" })], [0.6, 0.4]),
+        T("reader", "now", { link: "middle", mode: "pinned", page: nowPage().address }),
+        splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("reader", "middle", { mode: "held" })], [0.6, 0.4]),
+        splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("reader", "side", { link: "middle", mode: "held" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
     };
   }

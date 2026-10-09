@@ -4,6 +4,7 @@
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
+import { surfaceBg } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -422,6 +423,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
+    "reader-modes": ["outline", "· held", "· pinned"],
     screen: ["board ·", "· lanes", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
@@ -460,6 +462,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
     // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
     esc: ["Allotment notebook", "Bike shed"],
+    // The shed note folded to a spine (the keys on it) beside the notebook: a key the spine refuses says why on its frame.
+    refusals: ["Allotment notebook", "Bike shed"],
     // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
     headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
     // The Spacing lab page in its look, the tune inspector beside it, the links tile, the Looks lab note that declares it.
@@ -609,6 +613,65 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 30_000);
 
+  test("the style section's surfaces and frames (PIE-675): a raised tile with a violet bar, a box's stripe, a round amber frame with ✦ dividers, a row taken back and the header's picture moved, all through act; the drawing is never copied", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
+    await until(() => screen().includes("Broad beans") && screen().includes("╭"), "the lab's boxes", 8000);
+    const raw = () => sc.render(app).lines;
+    const labPane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("lab") as any;
+    const peekHeader = () => labPane()?.surface.headerBackdrop() as { backdrop: { image: string; focus?: { x: number; y: number } } | null } | undefined;
+    const rows = screen().split("\n");
+    // The second box: a round frame round its text, its list's divider a ✦ row centred in the gap, all drawn.
+    const beans = rows.findIndex(l => l.includes("Broad beans")), runner = rows.findIndex(l => l.includes("Runner beans"));
+    expect(rows[beans]).toMatch(/│ +∙ Broad beans +│/);
+    expect(rows.slice(beans + 1, runner).some(l => /(✦ ){4}/.test(l))).toBe(true);
+    expect(rows.slice(0, beans).some(l => /╭─+╮/.test(l))).toBe(true);
+    // Their surfaces, theme roles drawn dark: the box's sunken one inside its frame, the lab tile's raised one under its text.
+    const sunken = surfaceBg("sunken", 2), raised = surfaceBg("raised", 2);
+    expect(raw()[beans]).toContain(sunken);
+    // The lab tile's violet bar down its left side (edge=bar, tone=violet from the lab style).
+    const lab = rows.findIndex(l => l.includes("This page is drawn by the lab style"));
+    expect(raw()[lab]).toContain(raised);
+    expect(rows[lab]).toMatch(/^.*▌/);
+    // The inspector lists the new values and where each comes from, a swatch beside a surface's.
+    await until(() => /bg +raised .*← style lab/.test(screen()), "the bg row", 5000);
+    const tunePane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("tune") as any;
+    expect(tunePane().describe(S().stage(SECTIONS.findIndex(s => s.key === "style")).top).values).toMatchObject({ "header.image": { value: "evening-beds.jpg", from: "style lab" }, "header.image.y": { value: "-15" } });
+    // An agent sets the zebra's surface, then takes the tile's bg back to the level under it: the built-in none.
+    expect(await app.act({ action: "tune.set", args: { row: "bg", value: "amber" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "amber", at: "style lab" });
+    await until(() => raw().some(l => l.includes(surfaceBg("amber", 2))), "the amber surface drawn", 5000);
+    // Reset value: the lab style's own bg is taken away (not just the nudge): what it inherits, the built-in none.
+    expect(await app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).toMatchObject({ row: "bg", value: "none", from: "built-in" });
+    await until(() => !raw()[lab]!.includes(raised) && !raw()[lab]!.includes(surfaceBg("amber", 2)), "the tile's surface taken away", 5000);
+    await expect(app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).rejects.toThrow(/built-in already/);
+    // Two steps back: the amber nudge, then the lab's raised.
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg taken away → amber at style lab" });
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg amber → the outline's at style lab" });
+    await until(() => raw()[lab]!.includes(raised), "the surface back", 5000);
+    // The header's picture: scrolled under the title, the header takes it, its crop moved up by header.image.y.
+    // End twice: the last line on the edge, then in the middle (PIE-622), so the picture's line is above the top.
+    await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" });
+    expect(await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" })).toMatchObject({ atEnd: true });
+    await until(() => { screen(); return peekHeader()?.backdrop?.image === "evening-beds.jpg"; }, "the header's backdrop", 8000);
+    expect(peekHeader()?.backdrop).toMatchObject({ image: "evening-beds.jpg", focus: { x: 0.5, y: 0.35 } });
+    // A drag over the framed box copies the list as written: no frame, no ✦, no padding.
+    const before = written.length;
+    const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
+    await app.act({ action: "scroll", args: { to: "top" }, tile: "lab", as: "test-agent" });
+    // Down until the whole box is in view (the page is longer than the tile).
+    for (let i = 0; i < 20 && !(screen().includes("Broad beans") && screen().includes("Runner beans")); i++) await app.act({ action: "scroll", args: { by: 2 }, tile: "lab", as: "test-agent" });
+    await until(() => screen().includes("Broad beans") && screen().includes("Runner beans"), "the box in view", 5000);
+    const now = screen().split("\n"), y0 = now.findIndex(l => l.includes("Broad beans")), y1 = now.findIndex(l => l.includes("Runner beans"));
+    const x0 = now[y0]!.indexOf("∙ Broad"), x1 = now[y1]!.indexOf("Runner beans") + "Runner beans".length;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y: y0 });
+    press({ kind: "mouse", action: "drag", button: 0, x: x0 + 3, y: y0 });
+    press({ kind: "mouse", action: "drag", button: 0, x: x1, y: y1 });
+    press({ kind: "mouse", action: "up", button: 0, x: x1, y: y1 });
+    await until(() => copies().length > 0, "the drag copied");
+    expect(copies()).toEqual([osc52("- Broad beans\n- Runner beans")]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "scroll" }, as: "test-agent" })).toMatchObject({ key: "scroll" });
@@ -695,7 +758,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
     await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "reader")?.showing?.id === seeded.notes.notebook.id, "the notebook in the reader", 5000);
     const r = await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" }) as any;
-    expect(r).toMatchObject({ tile: "reader-preview", kind: "detail", from: "reader" });
+    expect(r).toMatchObject({ tile: "reader-preview", kind: "reader", from: "reader" });
     const tiles = () => stage().layoutGet().tiles as any[];
     expect(tiles().find(t => t.name === "reader").link).toBe("reader-preview");
     // A link followed in the reader lands in the preview; the reader still shows the notebook.
@@ -706,6 +769,25 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Again: that preview, not a second one.
     expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
     expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("reader modes (PIE-705): the section's readers follow, hold and pin; an agent switches each by reader.mode, attributed, and never takes the person's keys", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "reader-modes" }, as: "test-agent" })).toMatchObject({ key: "reader-modes" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "reader-modes")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const tile = (name: string) => tiles().find(t => t.name === name);
+    await until(() => tile("now")?.showing?.id === seeded.notes.notebook.id && tile("detail")?.showing?.id === seeded.notes.shed.id, "the held and the pinned reader on their notes", 5000);
+    expect(tile("reader")).toMatchObject({ kind: "reader", mode: "follows" });
+    expect(tile("detail")).toMatchObject({ kind: "reader", mode: "held" });
+    expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: seeded.notes.notebook.props.page });
+    // The held one lets go and follows the outline's selection; held again, it keeps what it shows.
+    expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "detail", mode: "follows", held: false });
+    expect((app as any).message).toContain("test-agent");
+    expect(tile("detail").mode).toBe("follows");
+    expect(await app.act({ action: "reader.mode", tile: "reader", args: { mode: "held" }, as: "test-agent" })).toMatchObject({ tile: "reader", mode: "held", held: true });
+    expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "now", mode: "follows" });
     expect(S().focus).toBe("index");
   }, 20_000);
 
@@ -809,7 +891,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const before = tiles().length;
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
     await until(() => tiles().length === before + 1, "a new detail", 5000);
-    expect(tiles().find(t => t.kind === "detail" && t.name !== "detail")?.showing?.id).toBe(first.id);
+    expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(first.id);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
     // ⏎ opens it in the detail the links came from, and the links tile lists that note's links now.
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
@@ -955,12 +1037,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     // d: a detail in the blank's place (its row, as the person picks it).
     press({ kind: "char", ch: "d" });
-    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "detail"), "a detail in the blank's place");
+    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "reader" && t.mode === "held"), "a detail in the blank's place");
     await until(() => screen().includes("+ New note"), "the empty detail's + New note");
     // A click on + New note, as a mouse event on the screen: the same note.new ctrl+n runs.
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("+ New note")), x = rows[y]!.indexOf("+ New note") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "detail").name);
+    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "reader" && t.mode === "held").name);
     await until(() => !!detail()?.surface?.draft, "the new note's edit in the detail, by the click", 8000);
     const id = detail().surface.draft.blockId;
     expect(await board.get(id)).toBeTruthy();
@@ -982,7 +1064,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "blank.fill", tile: "blank", args: { kind: "tree" }, as: "test-agent" });
     await app.act({ action: "tile.open", tile: "tree", args: { kind: "detail", where: "right" }, as: "test-agent" });
     await app.act({ action: "tile.link", tile: "tree", args: { to: "detail" }, as: "test-agent" });
-    expect(tiles().map(t => t.kind)).toEqual(["tree", "detail"]);
+    expect(tiles().map(t => t.kind)).toEqual(["tree", "reader"])   // kind=detail opens a held reader (PIE-705); the tile keeps the name "detail";
     const saved = await app.act({ action: "screen.save", args: { name: "Allotment work" }, as: "test-agent" }) as any;
     // Named the way it is typed: the title is kept, the answer says the slug it saved under.
     expect(saved).toMatchObject({ screen: "allotment-work", title: "Allotment work", slug: "allotment-work", created: true, tiles: ["tree", "detail"] });
@@ -1154,6 +1236,65 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
+  }, 20_000);
+
+  test("the refusals section (PIE-727): a key the spine refuses says why on its frame, loud the second time, gone on another key; the status bar keeps its copy", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "refusals" }, as: "test-agent" });
+    await until(() => marks.refusals!.every(m => screen().includes(m)), "the refusals section");
+    const stage = () => S().stages.get(S().sel).top;
+    await until(() => stage().describe().panes.find((p: any) => p.name === "shed")?.collapsed === true, "the shed folded to a spine");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    expect(stage().layoutGet().focus).toBe("shed");
+    // x on the spine: refused, said on the spine's own frame (where the keys are) and on the status bar.
+    press({ kind: "char", ch: "x" });
+    const why = app.refusal()!;
+    expect(why).toMatchObject({ loud: false });
+    expect(why.text).toContain("is collapsed to a spine");
+    expect((app as any).message).toBe(why.text);
+    await until(() => screen().includes(`✗ ${why.text.slice(0, 12)}`), "the refusal on the spine's frame");
+    // x again: loud (bold, on the warning surface), and it stays.
+    press({ kind: "char", ch: "x" });
+    expect(app.refusal()).toEqual({ text: why.text, loud: true });
+    const raw = sc.render(app).lines.find(l => plain(l).includes(`✗ ${why.text.slice(0, 12)}`))!;
+    expect(raw).toContain("\x1b[1m");
+    expect(raw).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
+    // Another key (Tab, to the notebook): gone.
+    press({ kind: "tab" });
+    expect(app.refusal()).toBeNull();
+    expect(screen()).not.toContain(`✗ ${why.text.slice(0, 12)}`);
+    expect(stage().layoutGet().focus).toBe("reader");
+    // ^W x on the notebook's reader: the screen is locked, and the reader's own bottom edge says so; again, loud.
+    const close = () => { press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "x" }); };
+    close();
+    const locked = app.refusal()!;
+    expect(locked).toMatchObject({ loud: false });
+    const edge = () => screen().split("\n").find(l => l.includes(`✗ ${locked.text.slice(0, 12)}`)) ?? null;
+    await until(() => edge() !== null, "the refusal on the reader's frame");
+    expect(edge()).toMatch(/[╚└]/);
+    close();
+    expect(app.refusal()).toEqual({ text: locked.text, loud: true });
+    expect(stage().layoutGet().tiles.map((t: any) => t.name)).toEqual(expect.arrayContaining(["shed", "reader"]));
+    // A click (the mouse is first-class): the reader's ⋯, then its dimmed close row, says why the same way.
+    press({ kind: "char", ch: "j" });
+    expect(app.refusal()).toBeNull();
+    const at = S().stageRect;
+    sc.render(app);
+    const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    click(at.col + b.from, at.row + b.row);
+    await until(() => stage().overlays.top()?.name === "tile menu", "the reader's menu");
+    const row = (stage().overlays.top().items as any[]).find(r => r.action === "tile.close");
+    expect(row?.refused).toBeTruthy();
+    const lines = sc.render(app).lines.map(plain), y = lines.findIndex(l => l.includes(` ${row.label} `) && l.includes("^W x"));
+    expect(y).toBeGreaterThan(0);
+    const x = lines[y]!.indexOf(` ${row.label} `) + 2;
+    click(x, y);
+    expect(app.refusal()).toEqual({ text: row.refused, loud: false });
+    await until(() => screen().includes(`✗ ${String(row.refused).slice(0, 12)}`), "the click's refusal on the reader's frame");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("a screen in a tile (the screen section's board): Esc with nothing left in the board goes on to the desk's steps (its zoom), then back to the index", async () => {
@@ -1773,7 +1914,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const titleRows = () => raw().filter(l => plain(l).includes("│An evening on the plot"));
     const titleRow = () => titleRows()[0]!;
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
-    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null }, on: true, mode: "first" });
+    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
     // Scrolled past it (an agent's scroll, through act): the header takes it, in this terminal's cells, by steps.
     await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });

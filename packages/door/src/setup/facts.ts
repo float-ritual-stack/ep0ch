@@ -610,6 +610,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     databases: dbs,
     schema: await part("the outlines' schema", schemaFacts(repo, dbs, env)),
     here,
+    door: await part("the door this folder reaches", import("../door-resolve").then(m => m.resolveDoor(env, o.cwd ?? process.cwd())).catch(() => undefined)).then(r => (r ? { rule: r.rule, text: r.text } : undefined)),
     // What this folder's outline's drawer runs: its session's saved choice, else the person's default, as the drawer reads them.
     drawer: await (async () => {
       const root = env.EP0CH_STATE ?? defaultStateDir(env);

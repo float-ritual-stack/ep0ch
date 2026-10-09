@@ -149,7 +149,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /**
    * What the door shows: the screen's rows, and the status bar under them (its `+N ext` and the agent chip
    * take clicks). Of the bar, not what changes by itself: the clock, the uptime, how many changes came in, the
-   * agent chip's words (its agent working or not), and the message a key flashes (it runs out on a timer).
+   * agent chip's words (its agent working or not), and the message a key flashes (it runs out on a timer), with its copy
+   * on the focused tile's frame when it was a refusal (PIE-727: Ctx.refuse).
    */
   const snap = (mask: Set<number>): Snap => {
     const top = A().stack.at(-1) as Screen | undefined;
@@ -157,7 +158,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     try {
       if (top) {
         const { cols, rows } = A().term.info;
-        lines = top.render(app).lines.slice(0, rows - 1).map(ageless);
+        const refused = A().refusedNow;
+        A().refusedNow = null;
+        try { lines = top.render(app).lines.slice(0, rows - 1).map(ageless); } finally { A().refusedNow = refused; }
         while (lines.length < rows - 1) lines.push("");
         const drawer = A().drawer;
         drawer.active = !top.noDrawer;

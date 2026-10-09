@@ -16,7 +16,7 @@ import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
-import { DetailPane, dailyDraft, editor, shell } from "./tiles";
+import { dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 import { WAITING_YOU_KIND } from "./waiting-you";
@@ -61,29 +61,40 @@ const builtins = (): TileKind[] => [
     // The outline as a screen shows it: open (on screen), pinned (in the layout, not in a dock), its side, and its rows when shown.
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
-  { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: s => { const r = new ReaderPane(true); if (s.nav) r.wantNav = s.nav; return r; }, ...reading, actions: READER_ACTIONS,
+  {
+    kind: "reader", about: "a reader of notes: it follows the current note, is held on one (a detail), or is pinned to a page (mode=follows|held|pinned; note=<id> for a held one, page=<name> for a pinned one)",
+    keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
+    make: s => {
+      const r = new ReaderPane(true);
+      if (s.mode === "pinned" && s.page) r.pinTo(s.page);
+      else if (s.mode === "held" || s.mode === "pinned") { r.holdOn(); if (s.note) r.want = s.note; }
+      if (s.label) r.label = s.label;
+      if (s.nav) r.wantNav = s.nav;
+      return r;
+    },
+    ...reading, actions: READER_ACTIONS,
+    // layout.get and peek say how it shows notes (PIE-705): follows, held, or pinned to a page.
+    describe: (p, full) => { const r = p as ReaderPane; return { ...reading.describe!(p, full), ...(r.follows ? { mode: r.followMode, ...(r.pinPage ? { page: r.pinPage } : {}) } : {}) }; },
     // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
     start: (p, env) => {
-      const r = p as ReaderPane, want = r.wantNote();
-      // The outline's first selection may be shown first: the saved note replaces it, once, while the reader still wants it.
-      if (want) env.desk.ctx.board.get(want).then(m => { if (m && r.wantNote() === want) { r.show(m, env.desk); env.desk.redraw(); } r.dropWant(); }, () => r.dropWant());
-    },
-  },
-  {
-    kind: "detail", about: "a reader that keeps its note (note=<id>, or page=<name> to pin [[name]])", keys: [{ key: "d", label: "detail" }],
-    make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; if (s.label) r.label = s.label; if (s.nav) r.wantNav = s.nav; return r; },
-    ...reading,
-    start: (p, env) => {
-      const d = p as DetailPane;
-      if (d.page && !d.msg) {
-        const page = d.page;
-        env.desk.ctx.board.resolvePage(page).then(r => { if (r.status === "resolved" && r.block && !d.msg) { d.hold(r.block, env.desk); env.desk.redraw(); } }, () => {});
+      const r = p as ReaderPane;
+      if (r.pinPage && !r.msg) {
+        const page = r.pinPage;
+        env.desk.ctx.board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinned(res.block, env.desk); env.desk.redraw(); } }, () => {});
       }
-      if (d.want && !d.msg) {
-        const want = d.want;
+      if (r.want && !r.msg && !r.pinPage) {
+        const want = r.want;
         // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
-        env.desk.ctx.board.get(want).then(m => { if (m && !d.msg) d.hold(m, env.desk); else if (!m && !d.msg) d.missing = want; env.desk.redraw(); }, () => {});
+        env.desk.ctx.board.get(want).then(m => {
+          // Still the held reader that wanted it (a switch to following, or a note opened into it, meanwhile, wins).
+          const wanted = !r.msg && r.want === want && r.followMode === "held";
+          if (m && wanted) r.hold(m, env.desk); else if (!m && wanted) r.missing = want;
+          env.desk.redraw();
+        }, () => {});
       }
+      const want = r.wantNote();
+      // The outline's first selection may be shown first: the saved note replaces it, once, while the reader still wants it.
+      if (want && !r.want && !r.pinPage) env.desk.ctx.board.get(want).then(m => { if (m && r.wantNote() === want) { r.show(m, env.desk); env.desk.redraw(); } r.dropWant(); }, () => r.dropWant());
     },
   },
   {
@@ -176,7 +187,7 @@ const builtins = (): TileKind[] => [
     describe: p => (p as QueryPane).describe(),
   },
   {
-    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing and list values, where each comes from, nudged and saved (PIE-673)",
+    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",
     keys: [{ key: "y", label: "tune", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new TunePane(src && "tile" in src ? src.tile : "reader"); },
     actions: TUNE_ACTIONS,

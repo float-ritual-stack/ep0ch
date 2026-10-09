@@ -30,7 +30,8 @@ describe.skipIf(!outliner)("holding a reader", () => {
     pane.select(one, d);
     expect(pane.hint()).toContain("p hold");
     expect(pane.key(char("p"), d)).toBe(true);
-    expect(pane.title()).toBe("reader · held");
+    expect(pane.followMode).toBe("held");
+    expect(pane.title()).toBe("detail");                // a held reader is the glossary's detail; the chip on the frame says held
     expect(pane.hint()).toContain("p follow");
 
     d.current = two;
@@ -38,6 +39,7 @@ describe.skipIf(!outliner)("holding a reader", () => {
     expect(pane.msg?.id).toBe(one.id);          // held: stays on its note
 
     pane.key(char("p"), d);
+    expect(pane.followMode).toBe("follows");
     expect(pane.title()).toBe("reader");
     expect(pane.msg?.id).toBe(two.id);          // let go: catches up with the current note
   });

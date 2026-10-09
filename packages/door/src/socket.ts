@@ -226,7 +226,8 @@ export interface PropertyToken { key: string; value: string; ordinal: number; sc
 /** The outliner's PropertyPatchOperation. */
 export type PropertyPatch =
   | { op: "replace"; ordinal: number; value: string }
-  | { op: "append"; key: string; value: string };
+  | { op: "append"; key: string; value: string }
+  | { op: "remove"; ordinal: number };
 
 /** One property change a planned move makes: `from` null when the key is appended. */
 export interface PlannedChange { key: string; to: string; from: string | null }

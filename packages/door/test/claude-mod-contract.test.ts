@@ -2,7 +2,8 @@
 // change to this CLI could break the mod and pass both suites (#174 did). Here the mod's own readers read the real
 // CLI, on a scratch host, the way the mod runs it: one argv per command it runs, with Claude Code's FORCE_COLOR.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
 import { Scratch, scratchDir } from "./scratch";
@@ -61,6 +62,32 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const where = await run(["ep0ch", "where", "--json"], { cwd, env }).finally(() => rmSync(cwd, { recursive: true, force: true }));
     expect(where.exitCode).toBe(0);
     expect(whereFactsOf(where.stdout)).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null });
+  });
+
+  test("where --json: a stale pane and no EP0CH_CONTROL still reach the folder's door, and the mod's reader says so (PIE-715)", async () => {
+    const { whereFactsOf } = await mod("binding.ts");
+    const root = scratchDir("ep0ch-reach-");
+    const state = join(root, "state"), folder = join(root, "folder");
+    const place = join(state, "sessions", "local", "garden");
+    mkdirSync(place, { recursive: true, mode: 0o700 });
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\n');
+    const peek = { ok: true, result: { screen: { screen: "Desk", pid: 77, outline: "garden", state: { kind: "desk", panes: [] } }, text: [] } };
+    const door = createServer(c => c.on("data", () => c.end(JSON.stringify(peek) + "\n")));
+    await new Promise<void>(r => door.listen(join(place, "door.sock"), r));
+    const base = { ...env, EP0CH_WS: "garden", EP0CH_STATE: state, HERDR_PANE_ID: "w1:p2P", HERDR_WORKSPACE_ID: "w1" };
+    try {
+      const reached = await run(["ep0ch", "where", "--json"], { cwd: folder, env: base });
+      expect(reached.exitCode).toBe(0);
+      const facts = whereFactsOf(reached.stdout);
+      expect(facts).toMatchObject({ inDoor: false, reach: { rule: "folder", control: join(place, "door.sock") }, door: { answers: true, outline: "garden" } });
+      expect(facts!.reach!.text).toContain("not in a tile of it");
+      // The door goes away: it says so, with the command that starts one.
+      await new Promise(r => door.close(r));
+      const none = await run(["ep0ch", "where", "--json"], { cwd: folder, env: base });
+      expect(whereFactsOf(none.stdout)).toMatchObject({ inDoor: false, reach: { rule: "none", control: null }, door: null });
+      expect(JSON.parse(none.stdout).reach.text).toContain("starts one");
+    } finally { door.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
   test("show --cells: whole rows of cells the block view draws", async () => {

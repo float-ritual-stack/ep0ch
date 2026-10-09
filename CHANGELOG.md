@@ -10,6 +10,71 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A refused key says why on the tile you're looking at; q leaves a desk holding only a group (PIE-727)
+
+- **Fixed:** on a desk whose only tile is a group (`tile.group`), `q` was refused ("the group is a tile") and `Esc` said
+  `q leaves`, so the screen couldn't be left by keys. `q` in a group or a mounted screen now leaves the screen holding it,
+  as on any desk; from inside a mount (`^W e`) it comes out.
+- **Changed:** when the door refuses your key or click (a refused action, `nothing to close`, a spine's keys, a dimmed
+  tile-menu row), the focused tile says why on its bottom edge, in amber, as well as on the status bar. Press the same key
+  again and it gets loud: bold on a dim amber band, the frame amber, and it stays until you press a different key. Dark
+  only, never a bright flash. *Why it matters:* it took seven presses of `q` before the one-line status bar message was
+  noticed; the reason is now where you're looking. The showcase's `refusals` section shows it.
+
+### One reader, three modes: follows, held or pinned to a page, instead of reader and detail (PIE-705)
+
+- **Changed:** a detail is no longer a kind of tile of its own. The `reader` tile has a mode, shown as a chip on its frame:
+  `follows` the current note, `held` on the note it shows, or `pinned [[page]]` (shown again each time it starts). `p`
+  toggles follows and held in any reader, a click on the chip cycles all three, and `act reader.mode tile=<name>
+  mode=follows|held|pinned [page=<name>]` does it as an agent, attributed. `^W o d` still opens a reader started held, and
+  `tile.open kind=detail` (and `kind: detail` in a saved layout or a screen note, with or without `page=`) reads as a held
+  (or pinned) reader. *Why it matters:* you pick follow or hold on the tile you are looking at, and the old refusal
+  "reader.hold is for readers" for a detail is gone, because every reader can switch.
+- **Changed:** `reader.hold` is now `reader.mode` (its `on=` is `mode=held` or `mode=follows`). A detail you let go of now
+  follows the current note again (it used to stay put); a held reader is saved with its note and comes back held.
+  A pinned reader that is opened into another note than its page is held on it, not pinned.
+- **Run:** nothing: no protocol or schema change; saved layouts of the old form load as they are.
+
+
+### Your look, part two: surfaces, frames, edges and the header, tuned live (PIE-675)
+
+- **New:** a tile or a box can sit on a surface (`[style.bg::raised]`, `sunken`, or a tone: blue, green, violet, amber,
+  coral, neutral) at a strength of 1 to 6 (`bg.strength`), get a frame (`border`: line, round, heavy, double, none; a
+  tile's `auto` is its screen's) and an accent in its tone (`edge`: a bar down its left side, or the whole frame; `tone`).
+  Surfaces are theme roles, never colours: each theme draws them dark, under a brightness cap, with every word at 4.5:1
+  or better on them, and a tile's yields under a header's picture. In a note: `::box{bg=sunken border=round tone=amber}`.
+- **New:** a list's divider can be dashed, double, a fade (the `--- [rule::fade]` track) or a glyph of your own
+  (`[style.list.divider::glyph] [style.list.divider.glyph::✦]`), at the top, centre (now the default) or bottom of the gap
+  (`list.divider.align`). The zebra stripe takes a surface and a strength (`list.zebra.bg`, `list.zebra.strength`), so it
+  shows on a near-black theme.
+- **New:** a reader's sticky header (title, byline, crumbs) gets a surface of its own (`header.bg`, `header.bg.opacity`),
+  and its picture can be chosen (`header.image`: one of the note's pictures by its file's name, or a path) and its crop
+  moved (`header.image.x`, `header.image.y`, in % of the picture).
+- **New: a look per list and per tile, not for every list in the system.**
+  - **This list:** a list's own tokens go on the heading of its section or its lead-in line, by placement:
+    `## Seed trays [style.list.gap::1] [style.list.divider::dots]`. A sibling list stays as the page has it.
+  - **This tile:** one tile's own look is kept in its tile spec and saved with the layout, so one links tile or one
+    reader can be airy while the rest stay tight.
+  - **Order:** the nearest wins: built-in, global, the tile's kind, the screen, the page, this tile, this list (or a box).
+  - **In the inspector:** both are levels (`v`), and the source column names them. With the reader's `[ ]` on a list or
+    its heading, "this list" saves onto that line.
+- **New:** one field, three widths: `[style.pad::0 1 | 1 3 | 1 6]` is narrow, normal and wide. A reader in a wide tile
+  gets padding 1 4 by default.
+- **Changed in the tune inspector, back to "as if I had done nothing":**
+  - `u` and `U` (or `ctrl+r`) undo and redo every nudge and save of the session, one step at a time, each said on the
+    status line ("undo: pad.x 6 → 4 at this page"). Undoing a save writes the note back; a note changed since is refused.
+  - `x` (or a row's ×, or `[reset value]`) resets a value to what it inherits: what sets it is taken off the note that
+    wrote it, a width variant before its plain value; the save removes the property.
+  - `X` (`[reset level]`) clears every value the picked level sets here, off its style notes; `R` (`[revert all]`)
+    puts every style note the session wrote back as it was, saved changes included, and refuses, naming the note, when
+    one changed since. Both ask in place: the key again, or `[confirm]`.
+- **New in the tune inspector:** with a level (`v`) or one width (`w`) picked, each row shows what that level says
+  itself beside the value in force, and a row something nearer wins is marked ⊘ ("page overrides", "narrow overrides
+  at this width"). A nudge there asks first: `a` nudges anyway, `o` nudges what wins instead, `c` clears it. A surface's
+  row shows a swatch of it, and `+ −` on `header.image` step through the note's pictures.
+- **Run:** PROTOCOL 125 (the cascade's tokens). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for
+  float-hub) restarts the host on the new code. No schema change.
+
 ### A note's children join its links; the thread tile is a links tile with Children alone (PIE-693, slice 1)
 
 - **New:** the links tile lists a fourth group, `↓ children`: the notes under the note (a thread's replies; comments stay

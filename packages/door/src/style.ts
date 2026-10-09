@@ -1,7 +1,8 @@
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
 import { glyph, VGA_RGB, type Cell } from "./ansi";
-import { contrast, luminance, theme, type Rgb, type Theme } from "./theme";
+import { contrast, luminance, surfaceRgb, theme, type Rgb, type Theme } from "./theme";
+import type { Surface } from "@ep0ch/outline-core/style-cascade";
 
 const rgb = (i: number) => theme().palette[i & 15]!.join(";");
 export const fg = (i: number) => `\x1b[38;2;${rgb(i)}m`;
@@ -9,6 +10,8 @@ export const bg = (i: number) => `\x1b[48;2;${rgb(i)}m`;
 /** A colour that isn't a palette entry, as text or as a background. */
 export const fgRgb = (c: Rgb) => `\x1b[38;2;${c.join(";")}m`;
 export const bgRgb = (c: Rgb) => `\x1b[48;2;${c.join(";")}m`;
+/** A look's surface (PIE-675) as a background: the theme's role at `strength`, capped dark; "" for none. */
+export const surfaceBg = (role: Surface, strength: number) => { const c = surfaceRgb(role, strength); return c ? bgRgb(c) : ""; };
 /** One of the theme's tints as a background: a selection, an agent's, the ruler, a thread, an embed, an idle row. */
 export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
 /**

@@ -15,6 +15,7 @@ import { HOST_AGENT } from "./whereabouts";
 import { reachControl } from "./control";
 import type { AgentLevel } from "./surface/agent-level";
 import type { DoorReach } from "@ep0ch/outline-core/door-reach";
+import { resolveDoor, type DoorResolution } from "./door-resolve";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
@@ -22,7 +23,10 @@ export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: 
 export interface AgentLimit { level: AgentLevel; by: string }
 export interface WhereKeys { mine: boolean | null; typing: boolean | null; tile: string | null; text: string }
 export interface Where {
+  /** This process runs in a door's tile (or its drawer/shell): it has the door's variables. See `reach` for a door it can use anyway. */
   inDoor: boolean;
+  /** Which door this reaches and by which rule (PIE-715): the nest's door answered, or the folder's outline's, or the only one; `none` with the command to start one. */
+  reach: { rule: DoorResolution["rule"]; text: string };
   /** EP0CH_NEST as this process got it (null: unset). */
   recorded: string | null;
   /** The nest with the outer layers the environment shows and the nest lacks (a shell ssh'd straight in). */
@@ -62,6 +66,8 @@ export interface WhereDeps {
   peek(control: string): Promise<any | null>;
   /** Which door EP0CH_CONTROL and EP0CH_PLACE reach now (outline-core's door-reach.ts); left out: EP0CH_CONTROL as it is. */
   reach?(env: Record<string, string | undefined>): Promise<DoorReach>;
+  /** The folder's outline's door, else the only one (door-resolve.ts), asked when the door on EP0CH_CONTROL doesn't answer; left out: not asked. */
+  resolve?(env: Record<string, string | undefined>): Promise<DoorResolution>;
   /** Herdr, when there's one to ask (read-only commands only). */
   herdr: HerdrRun | null;
   alive(pid: number): boolean;
@@ -112,6 +118,7 @@ export const realDeps = (): WhereDeps => {
   const bin = herdrBin();
   return {
     env: process.env, pid: process.pid, peek: p => peekDoor(p), reach: env => reachControl(env),
+    resolve: env => resolveDoor(env, process.cwd()),
     herdr: bin ? herdrRunner(bin, 3000) : null,
     alive, ttyExists: t => existsSync(`/dev/${t}`), ancestors: procAncestors,
     hostname, cwd: () => process.cwd(),
@@ -127,7 +134,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   const parsed = nestLayers(nest).map(parseLayer);
   // The door as it is now: by the outline's session (EP0CH_PLACE) when EP0CH_CONTROL went stale.
   const reached = d.reach ? await d.reach(env) : null;
-  const control = reached?.path ?? (env.EP0CH_CONTROL || null);
+  let control = reached?.path ?? (env.EP0CH_CONTROL || null);
   const doors = parsed.filter((l): l is Extract<Layer, { kind: "door" }> => l.kind === "door");
   const inner = doors.at(-1) ?? null;
   const herdrs = parsed.filter((l): l is Extract<Layer, { kind: "herdr" }> => l.kind === "herdr");
@@ -136,18 +143,30 @@ export async function where(d: WhereDeps): Promise<Where> {
   // A door's drop shell (`screen.shell`): the nest ends in `shell:<door pid>`, with the door waiting under it.
   const inShell = parsed.at(-1)?.kind === "shell";
 
-  const [peek, panes] = await Promise.all([
+  let [peek, panes] = await Promise.all([
     control ? d.peek(control) : Promise.resolve(null),
     d.herdr && herdrs.length ? d.herdr(["pane", "list"]).then(r => (r.code === 0 ? json(r.out)?.result?.panes : null), () => null) : Promise.resolve(null),
   ]);
   const paneList: any[] | null = Array.isArray(panes) ? panes : null;
+  // The door on EP0CH_CONTROL doesn't answer (none given, a stale one, a Herdr pane that is gone, a job that doesn't
+  // descend from a tile): fall through to the folder's outline's door, then the only door (PIE-715).
+  let via: DoorResolution | null = null;
+  if (!peek && d.resolve) {
+    const res = await d.resolve(env).catch(() => null);
+    if (res?.path) {
+      const found = await d.peek(res.path);
+      if (found) { via = res; control = res.path; peek = found; }
+    } else if (res) via = res;
+  }
+  const folderDoor = !!via?.path;
 
   // ── the door and the tile, from the door that answers ──
   const state = peek?.screen?.state;
   const desk = state?.kind === "desk" ? state : null;
   const tilePanes: any[] = Array.isArray(desk?.panes) ? desk.panes : [];
-  const myTileId = inner?.tileId ?? env.EP0CH_TILE_ID ?? null;
-  const myTileName = inner?.tile ?? env.EP0CH_TILE ?? null;
+  // A door reached by folder isn't the one the inherited tile variables name: only the process table can place us in a tile of it.
+  const myTileId = folderDoor ? null : inner?.tileId ?? env.EP0CH_TILE_ID ?? null;
+  const myTileName = folderDoor ? null : inner?.tile ?? env.EP0CH_TILE ?? null;
   const ancestors = d.ancestors(d.pid);
   // The door's drawer (PIE-498): a tile the App owns, on every screen, up (`shown`) or put away.
   const dv = peek?.screen?.drawer;
@@ -168,7 +187,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
-  const inDoor = !!(inner || control);
+  const inDoor = !!(inner || (control && !folderDoor));
   // The nest's door is gone and its outline's door answers from another process: the session was handed over or
   // restarted, and this is its successor (the same door, its tiles kept), not a door that took this pane.
   // (The old daemon may linger as a zombie its starter hasn't reaped: another pid answering is what counts.) Only a
@@ -182,7 +201,7 @@ export async function where(d: WhereDeps): Promise<Where> {
     reached?.stale ?? null,
   ].filter(Boolean).join("; ");
   const tpid = typeof tile?.terminal?.pid === "number" ? tile.terminal.pid : null;
-  const door: Where["door"] = inDoor ? {
+  const door: Where["door"] = inDoor || folderDoor ? {
     pid: answeringPid ?? inner?.pid ?? null, control, answers: !!peek, moved,
     stale: stale ? `this environment is stale (${stale}): it answers for ${peek ? now : "no door now"}` : null,
     screen: peek?.screen?.screen ?? null, outline: peek?.screen?.outline ?? null, workspace: peek?.screen?.workspace ?? null,
@@ -226,7 +245,7 @@ export async function where(d: WhereDeps): Promise<Where> {
     } else layers.push({ kind: "other", raw: l.raw, label: l.raw, live: null, why: l.raw === ELIDED ? "older layers left out (EP0CH_NEST keeps the first and the newest)" : "not a layer this door knows" });
   }
   // A door older than EP0CH_NEST: the tile from its variables alone.
-  if (!inner && control && !inShell) {
+  if (!inner && control && !inShell && !folderDoor) {
     layers.push({ kind: "door", raw: "", label: `${answeringPid ? `pid ${answeringPid}` : "a door"}${peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: peek ? true : null, why: peek ? "its control socket answers (a door older than EP0CH_NEST)" : "its control socket doesn't answer" });
     layers.push(tileLayer(myTileId, myTileName ?? "?", door!.tile, peek, desk, false));
   }
@@ -237,15 +256,18 @@ export async function where(d: WhereDeps): Promise<Where> {
       live: peek ? !!t?.found : null, why: !peek ? "no door answers on EP0CH_CONTROL (the agent runs on in Herdr)" : t?.found ? "the tile attached to this pane" : "no tile of the door shows this pane" });
   }
 
-  const keys = inShell && peek?.screen?.suspended === "shell"
+  const keys: WhereKeys = folderDoor && !door?.tile?.found
+    ? { ...keysOf(peek, desk, door, agentPane, paneList, env), mine: false, text: `not in a tile of this door, so these are not the person's keys; ${keysOf(peek, desk, door, agentPane, paneList, env).text.replace(/, not this one$/, "")}` }
+    : inShell && peek?.screen?.suspended === "shell"
     ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
     : keysOf(peek, desk, door, agentPane, paneList, env);
-  const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null);
+  const reach = { rule: (via ? via.rule : inDoor ? "control" : "none") as DoorResolution["rule"], text: via ? via.text : inDoor ? "reached the door on EP0CH_CONTROL" : "no door to reach" };
+  const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null, via);
   const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null };
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
   const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null, agent: agentPane !== null } : null;
-  return { inDoor, recorded, nest, here, herdr, layers, door, keys, summary };
+  return { inDoor, reach, recorded, nest, here, herdr, layers, door, keys, summary };
 }
 
 function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]>["tile"], peek: any, desk: any, moved: boolean): WhereLayer {
@@ -286,11 +308,11 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
   return { mine: null, typing: null, tile: null, text: "unknown: no door and no Herdr pane to ask" };
 }
 
-function summaryOf(nest: string, layers: WhereLayer[], keys: WhereKeys, inDoor: boolean, stale: string | null): string {
+function summaryOf(nest: string, layers: WhereLayer[], keys: WhereKeys, inDoor: boolean, stale: string | null, via: DoorResolution | null): string {
   const gone = layers.filter(l => l.live === false).map(l => `${l.kind} ${l.label}`);
   return [
     nest ? `stack: ${nest}` : "stack: (nothing recorded)",
-    !inDoor ? "not in a door" : null,
+    via?.path ? via.text : via ? `no door reached: ${via.text}` : !inDoor ? "not in a door" : null,
     stale,
     gone.length ? `gone: ${gone.join(", ")}` : null,
     `keys: ${keys.text}`,
@@ -301,7 +323,11 @@ const MARK = (live: boolean | null) => (live === true ? "✓" : live === false ?
 
 export function formatWhere(w: Where): string {
   const out = [w.nest ? `you are in: ${w.nest}` : "you are in: (no layers recorded: EP0CH_NEST is unset and no ssh or Herdr is seen)"];
-  if (!w.inDoor) out.push("not in a door");
+  if (w.reach.rule === "folder" || w.reach.rule === "only") out.push(w.reach.text);
+  else {
+    if (!w.inDoor) out.push("not in a door");
+    if (w.reach.rule === "none" && w.reach.text !== "no door to reach") out.push(`no door to reach: ${w.reach.text}`);
+  }
   const width = Math.max(0, ...w.layers.map(l => l.label.length));
   for (const l of w.layers) out.push(`  ${MARK(l.live)} ${l.kind.padEnd(5)} ${l.label.padEnd(width)}  ${l.why}`);
   if (w.door?.stale) out.push(w.door.stale);
