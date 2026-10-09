@@ -287,19 +287,21 @@ function shorthand(key: string, value: string, variant: string): Record<FieldKey
  * `heading-*` spellings too (a style note does; a heading line's own are its style's, read by heading-styles.ts).
  */
 export function styleFieldsOf(props: readonly { key: string; value: string }[], where: string, problems: string[], aliases = true): Record<FieldKey, string> {
-  const fields: Record<FieldKey, string> = {};
-  const put = (k: FieldKey, v: string) => { if (!(k in fields)) fields[k] = v; };
+  // A field written out (`style.pad.x`) beats a shorthand's (`style.pad`) wherever each is on the note.
+  const fields: Record<FieldKey, string> = {}, short: Record<FieldKey, string> = {};
+  const put = (into: Record<FieldKey, string>, k: FieldKey, v: string) => { if (!(k in into)) into[k] = v; };
   for (const p of props) {
     const k = p.key.toLowerCase();
-    if (aliases && HEADING_ALIASES[k]) { put(HEADING_ALIASES[k]!, p.value); continue; }
+    if (aliases && HEADING_ALIASES[k]) { put(fields, HEADING_ALIASES[k]!, p.value); continue; }
     if (!k.startsWith("style.")) continue;
     const rest = k.slice(6), vm = /^((?:narrow|wide)\.)?(.*)$/.exec(rest)!;
-    const short = shorthand(vm[2]!, p.value, vm[1] ?? "");
-    if (short) { for (const [sk, sv] of Object.entries(short)) put(sk, sv); continue; }
+    const both = shorthand(vm[2]!, p.value, vm[1] ?? "");
+    if (both) { for (const [sk, sv] of Object.entries(both)) put(short, sk, sv); continue; }
     const f = parseFieldKey(rest);
     if (!f) { problems.push(`${where}: ${k} isn't a style token (${STYLE_TOKEN_NAMES.join(", ")}, or pad and margin for both axes; narrow. or wide. before one for a width)`); continue; }
-    put(fieldKey(f.token, f.variant), p.value);
+    put(fields, fieldKey(f.token, f.variant), p.value);
   }
+  for (const [k, v] of Object.entries(short)) put(fields, k, v);
   return fields;
 }
 

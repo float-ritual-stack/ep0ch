@@ -33,6 +33,11 @@ export interface SelectRows {
   cuts?(row: number): readonly (readonly [number, number, string?])[] | undefined;
   /** A row that is only decoration (a frame's top or bottom edge): left out of a copy, no blank line in its place. */
   edge?(row: number): boolean;
+  /**
+   * What joins `row` to the row after it in a copy when they are one line of text soft-wrapped (PIE-673): `" "` where
+   * the wrap took a space, `""` where it cut a word; undefined: a line break (a newline).
+   */
+  joins?(row: number): string | undefined;
 }
 
 /** Cell `col` of `row` is drawn decoration (rows.cuts). */
@@ -52,7 +57,9 @@ export let AGENT_BG = "";
 export let RULER_BG = "";
 /** A comment thread's quoted passage while the thread is expanded under it (PIE-420): a quiet olive. */
 export let THREAD_BG = "";
-themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); THREAD_BG = tint("thread"); });
+/** Every other list item with the look's `list.zebra` on (PIE-673): just off the ground. */
+export let ZEBRA_BG = "";
+themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); THREAD_BG = tint("thread"); ZEBRA_BG = tint("zebra"); });
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;
@@ -101,8 +108,12 @@ export class Selection {
   /** The selected text as drawn: rows joined by newlines, each without the margin or trailing blanks. */
   text(rows: SelectRows): string {
     const s = this.start, e = this.end, out: string[] = [];
+    // The row before carried on into this one (a soft wrap): this row joins it, not a new line.
+    let carry: string | undefined;
     for (let r = s.row; r <= e.row && r < rows.count; r++) {
       if (rows.edge?.(r)) continue;
+      const joining = carry;
+      carry = rows.joins?.(r);
       const cells = rows.cells(r), m = rows.margin?.(r) ?? 0;
       const from = Math.max(m, r === s.row ? s.col : 0), to = Math.min(cells.length, r === e.row ? e.col + 1 : cells.length);
       const cuts = rows.cuts?.(r);
@@ -113,7 +124,9 @@ export class Selection {
         if (!cut) kept.push(cells[c]!);
         else if (cut[2] && c === Math.max(cut[0], from)) kept.push(cut[2]);
       }
-      out.push(kept.join("").trimEnd());
+      const text = kept.join("").trimEnd();
+      if (joining !== undefined && out.length) out[out.length - 1] += (out[out.length - 1] && text ? joining : "") + text.trimStart();
+      else out.push(text);
     }
     return out.join("\n");
   }

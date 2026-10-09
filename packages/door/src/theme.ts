@@ -43,6 +43,8 @@ export interface Theme {
     idle: Rgb;
     /** A search or backlinks row selected while its tile doesn't have the keys. */
     idleRow: Rgb;
+    /** Every other item of a list with the look's `list.zebra` on (PIE-673): just off the ground, never a light band. */
+    zebra: Rgb;
   };
   /**
    * A tile's frame (PIE-535's clearer edges): `tile`, every frame's line, a mid-tone that shows where one tile ends and
@@ -74,7 +76,7 @@ const CLASSIC: Theme = {
   text: null,
   tint: {
     select: [46, 72, 132], agent: [78, 40, 88], ruler: [58, 50, 26], thread: [40, 52, 30], embed: [18, 24, 44],
-    idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
+    idle: [22, 30, 58], idleRow: VGA_RGB[8]!, zebra: [16, 16, 26],
   },
   edge: { tile: [112, 112, 136], focus: [232, 148, 48] },
   external: [140, 140, 255],
@@ -109,7 +111,7 @@ const CALM: Theme = {
   text: [200, 202, 206],
   tint: {
     select: [34, 50, 82], agent: [66, 40, 78], ruler: [56, 50, 30], thread: [36, 50, 34], embed: [20, 26, 38],
-    idle: [30, 38, 54], idleRow: [30, 38, 54],
+    idle: [30, 38, 54], idleRow: [30, 38, 54], zebra: [22, 26, 34],
   },
   edge: { tile: [98, 112, 136], focus: [236, 152, 72] },
   external: [156, 150, 226],
@@ -143,7 +145,7 @@ const NIGHT: Theme = {
   text: [166, 166, 170],
   tint: {
     select: [26, 36, 58], agent: [50, 30, 58], ruler: [40, 36, 22], thread: [28, 40, 28], embed: [16, 20, 28],
-    idle: [24, 28, 38], idleRow: [24, 28, 38],
+    idle: [24, 28, 38], idleRow: [24, 28, 38], zebra: [17, 19, 25],
   },
   edge: { tile: [86, 96, 114], focus: [206, 134, 66] },
   external: [140, 134, 200],

@@ -47,6 +47,8 @@ export const SEED = {
   newNotes: "New notes from anywhere",
   recentFiles: "Files a session touched",
   headings: "Headings and dividers",
+  spacingLab: "Spacing lab",
+  looksLab: "Looks lab",
   rules: "Allotment committee, Saturday",
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
@@ -887,6 +889,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     notes[name] = await board.update(first.id, k.after, first.revision!);
   }
   notes.headings = await make(notes.root.id, HEADINGS);
+  notes.looksLab = await make(notes.root.id, LOOKS_LAB);
+  notes.spacingLab = await make(notes.root.id, SPACING_LAB);
   notes.overscroll = await make(notes.root.id, OVERSCROLL);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
@@ -945,6 +949,36 @@ export const HEADING_STYLE_LINE = "# Plot style [heading-style::plot] [heading-p
  * the base style), and a style the outline declares on a line of this note (the seed order's), so the look changes
  * with no door change; a styled rule, a plain one and a plain heading; each with a body to fold.
  */
+/**
+ * The style section's page (PIE-673): drawn by the named style the Looks lab note declares ([style::lab]): a paragraph
+ * long enough to wrap at any width, a list for the gap and dividers, and a box with a look of its own.
+ */
+export const SPACING_LAB = [
+  `${SEED.spacingLab} [page::${SEED.spacingLab}] [style::lab]`,
+  "This page is drawn by the lab style, which the Looks lab note declares: its measure holds the text to 64 columns, centred in a wide tile, its padding keeps it off the frame, and its list has a blank row and a dotted line between items. Nudge any value in the tune inspector beside it and the page moves in the next frame; s writes it to the level you pick, and every door on the outline draws it.",
+  "",
+  "## Seed trays",
+  "- Tomatoes on the warm shelf, the ones from [[Headings and dividers]]",
+  "- Chillies in the propagator",
+  "- Basil by the kitchen window",
+  "- Peppers, pricked out in May",
+  "",
+  "::box{list.gap=0 list.zebra margin.x=4}",
+  "A box sets its own look: no gap, every other row tinted, four columns in.",
+  "- Leeks",
+  "- Onion sets",
+  "- Garlic",
+  "::",
+].join("\n");
+
+/** The style section's declaration: the named style the Spacing lab page uses, edited in place to restyle it live. */
+export const LOOKS_LAB = [
+  `${SEED.looksLab} [style-for::lab] [style.measure::64] [style.pad::1] [style.list.gap::1] [style.list.divider::dots] [style.narrow.list.gap::0]`,
+  "This note declares the lab style, which [[Spacing lab]] uses. Its fields are the look: e here, change a value, ctrl+s, and every reader of that page restyles at once, in every door on the outline. Under 60 columns (narrow) the lab drops its list gap.",
+  "",
+  "A tile kind has its own: `[style-for::tile:backlinks] [style.list.zebra::on]` on any line would stripe every links tile.",
+].join("\n");
+
 const HEADINGS = [
   `${SEED.headings} [page::${SEED.headings}]`,
   "A heading keeps its Markdown; a style draws it inside a band. Name a style, give one heading its own fields, or declare a style on any line. Narrow, it is the heading as written.",
