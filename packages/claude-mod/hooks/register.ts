@@ -11,6 +11,9 @@ import {
   sessionWorkspaceOf,
   type Workspace,
   doorWorkspaceOf,
+  MACHINE_NAME,
+  namedWorkspaceOf,
+  OUTLINE_NAME,
   workspaceEnvOf,
   workspaceForCwd,
 } from './mention-message'
@@ -23,7 +26,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { actorOf, doorActorOf, machineNameOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
+import { actorOf, BIND_TOOL, doorActorOf, machineNameOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -100,6 +103,8 @@ import {
 import {
   BINDING_BLOCK,
   BINDING_COMMAND,
+  bindCall,
+  bindHint,
   type BindingFacts,
   bindingText,
   cardLines,
@@ -220,7 +225,7 @@ export function register(on: On, options: PluginOptions): void {
   on('ui.render', { component: 'Pane', requestId: MENTIONS_PANE }, async ($, e) => {
     const [, history] = await Promise.all([mentionsListOf($), detailHistoryOf($)])
     const workspace = references?.workspace
-    if (!workspace) return $.ui.resolve(e).Text({ dimColor: true, children: references ? NOT_BOUND : "Finding this folder's outline…" })
+    if (!workspace) return $.ui.resolve(e).Text({ dimColor: true, children: references ? NOT_BOUND_SHORT : "Finding this folder's outline…" })
     // A drawing that throws makes the engine drop the pane (`ui.close`, origin unload): say why in it instead.
     try {
       // No door or Herdr around: a note opened here shows in the pane in place of the list (hooks/detail-view.ts).
@@ -277,6 +282,7 @@ export function register(on: On, options: PluginOptions): void {
     const result = await next(e)
     reportStatus($, sessionStarted())
     sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
+    rebound = null
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
     $.clock.after(0, () => void startMentionsOnce($, option))
@@ -298,7 +304,7 @@ export function register(on: On, options: PluginOptions): void {
       // Offered when a door is reachable (PIE-715): EP0CH_CONTROL, or, for a Claude that does not descend from a tile
       // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution.
       const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
-      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, ...(door ? DOOR_TOOLS : [])]
+      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })
       }
@@ -348,7 +354,13 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   // `/outline`: the card again, read anew, and its words in the transcript.
-  on('command.run', { command: BINDING_COMMAND }, async ($) => {
+  on('command.run', { command: BINDING_COMMAND }, async ($, e) => {
+    // `/outline <name> [machine]` binds this session to that outline (PIE-756); bare `/outline` is the card.
+    const [name, machine, ...extra] = String(e.args ?? '').trim().split(/\s+/).filter(Boolean)
+    if (name) {
+      if (extra.length) return { text: 'Usage: /outline [<name> [<machine>]]  (ep0ch outline list --all lists the names)' }
+      try { return { text: await bindSession($, option, name, machine) } } catch (error) { return { text: error instanceof Error ? error.message : String(error) } }
+    }
     const facts = await readBinding($, option, true)
     await $.state.set(BINDING_STATE, { shown: true, facts })
     return { text: cardLines(facts).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
@@ -362,7 +374,7 @@ export function register(on: On, options: PluginOptions): void {
       if (typeof command === 'string') return { deny: command }
       if (!references?.workspace) await loadReferences($, option)
       const workspace = references?.workspace
-      if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
+      if (!workspace) return { deny: await notBoundText($, references?.why) }
       try {
         return { result: await runWorkCommand($, workspace, command, await actorFor($, {})) }
       } catch (error) {
@@ -380,7 +392,7 @@ export function register(on: On, options: PluginOptions): void {
       if (typeof command === 'string') return { deny: command }
       if (!references?.workspace) await loadReferences($, option)
       const workspace = references?.workspace
-      if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
+      if (!workspace) return { deny: await notBoundText($, references?.why) }
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
       const actor = await actorFor($, tool.name === 'outline_changes' ? {} : input)
       try {
@@ -399,11 +411,22 @@ export function register(on: On, options: PluginOptions): void {
     if (typeof command === 'string') return { deny: command }
     if (!references?.workspace) await loadReferences($, option)
     const workspace = references?.workspace
-    if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
+    if (!workspace) return { deny: await notBoundText($, references?.why) }
     const ran = await $.process.run(command.argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 })
       .catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
     if (ran.exitCode !== 0) return { deny: failureReasonOf(ran.stderr) || ran.stderr.trim() || 'ep0ch library --brief failed' }
     return { result: ran.stdout.trim() }
+  })
+
+  // Binds the session's outline by name; works with nothing bound, which is when it is needed.
+  on('tool.call', { tool: `mcp__pi-outliner__${BIND_TOOL.name}` }, async ($, e) => {
+    const checked = checkedInput(BIND_TOOL, e as Record<string, unknown>)
+    if (typeof checked === 'string') return { deny: checked }
+    try {
+      return { result: await bindSession($, option, String(checked.input.name).trim(), typeof checked.input.machine === 'string' && checked.input.machine.trim() ? checked.input.machine.trim() : undefined) }
+    } catch (error) {
+      return { deny: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   for (const tool of DOOR_TOOLS) {
@@ -614,7 +637,69 @@ async function mentionsBand($: EngineInterface, e: AbovePromptRender, next: (e: 
   }
 }
 
-const NOT_BOUND = "This session's folder is not bound to an Outliner outline (bind it with the choose-outline action), or it is opted out."
+const NOT_BOUND = "This session is not bound to an Outliner outline (nothing names one: no EP0CH_WS, no .ep0ch in the folder it started in, no outline_bind), or its folder is opted out."
+const NOT_BOUND_SHORT = 'No outline: /outline <name> binds one.'
+
+/**
+ * Why the outline tools are off and the exact call that turns them on (PIE-756): the name EP0CH_WS gives, else the
+ * door's outline, else the outlines `ep0ch outline list` shows, with a real one as the example.
+ */
+async function notBoundText($: EngineInterface, why?: string): Promise<string> {
+  const base = why ? `No Outliner outline for this session: ${why}.` : NOT_BOUND
+  const ws = (await $.env.get('EP0CH_WS'))?.trim()
+  const machine = (await $.env.get('EP0CH_MACHINE'))?.trim()
+  const door = (await (whereLoad ?? Promise.resolve(null)))?.facts?.door
+  const given = ws && OUTLINE_NAME.test(ws) ? { name: ws, machine: machine && MACHINE_NAME.test(machine) ? machine : null }
+    : door?.outline ? { name: door.outline, machine: door.machine } : null
+  const listed = given ? [] : await outlinesListed($).then(l => ('outlines' in l ? l.outlines : []), () => [])
+  return `${base.replace(/\.\.$/, '.')} ${bindHint(given, listed)}`
+}
+
+/** Every outline `ep0ch outline list --all --lines` shows (this machine's, then each machine opened), or why it could not. */
+async function outlinesListed($: EngineInterface): Promise<{ outlines: { name: string; machine: string | null }[] } | { why: string }> {
+  const ran = await $.process.run(['ep0ch', 'outline', 'list', '--all', '--lines'], { cwd: await startFolderOf($), timeoutMs: 15_000 })
+    .catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
+  if (ran.exitCode !== 0) return { why: failureReasonOf(ran.stderr) || ran.stderr.trim() || '`ep0ch outline list` failed' }
+  const outlines = ran.stdout.split('\n').flatMap(line => {
+    const [name, machine] = line.split('\t')
+    return name && OUTLINE_NAME.test(name) ? [{ name, machine: machine?.trim() || null }] : []
+  })
+  return { outlines }
+}
+
+/**
+ * `/outline <name> [machine]` and outline_bind: this session's outline is the one named, for the rest of the session,
+ * over EP0CH_WS and every folder. An outline nobody has made is refused (a write would otherwise make it), with the
+ * ones that exist. Returns the words to say; throws with the reason when it does not bind.
+ */
+function bindSession($: EngineInterface, option: PluginOptions, name: string, machine?: string): Promise<string> {
+  // One at a time: two overlapping binds would each read back the other's outline.
+  const run = bindQueue.then(() => bindSessionNow($, option, name, machine))
+  bindQueue = run.catch(() => undefined)
+  return run
+}
+let bindQueue: Promise<unknown> = Promise.resolve()
+
+async function bindSessionNow($: EngineInterface, option: PluginOptions, name: string, machine?: string): Promise<string> {
+  if (!OUTLINE_NAME.test(name)) throw Error(`"${name}" isn't an outline name (lowercase letters, digits and hyphens, up to 32). ${bindHint(null, [])}`)
+  if (machine && !MACHINE_NAME.test(machine)) throw Error(`"${machine}" isn't an ssh config name (a Host in ~/.ssh/config). Leave machine out for an outline on this machine.`)
+  const listed = await outlinesListed($)
+  if ('why' in listed) throw Error(`could not check that ${name} exists: ${listed.why}. Try \`ep0ch outline list --all\`.`)
+  const same = (o: { name: string; machine: string | null }) => o.machine === (machine ?? null) || (!machine && !o.machine)
+  if (!listed.outlines.some(o => o.name === name && same(o))) {
+    const here = listed.outlines.filter(o => same(o)).map(o => o.name)
+    const other = listed.outlines.filter(o => o.name === name && !same(o)).map(o => o.machine)
+    throw Error(`there is no outline "${name}"${machine ? ` on ${machine}` : ' on this machine'}${other.length ? ` (a "${name}" is on ${other.map(m => m ?? 'this machine').join(', ')}: ${bindCall(name, other[0])})` : ''}. ${here.length ? `Here: ${here.join(', ')}; e.g. ${bindCall(here[0]!, machine)}.` : 'Run `ep0ch outline list --all`.'}`)
+  }
+  await loadingReferences?.catch(() => {})
+  rebound = { outline: name, ...(machine ? { machine } : {}) }
+  const facts = await readBinding($, option, true)
+  await $.state.set(BINDING_STATE, { shown: true, facts })
+  await refreshMentions($, option)
+  const ws = references?.workspace
+  if (!ws || ws.outline !== name || (ws.machine ?? undefined) !== machine) throw Error(`bound to ${name}, but the session's outline reads back as ${ws?.outline ?? 'none'}${references?.why ? `: ${references.why}` : ''}`)
+  return `This session's outline tools now use ${name}${machine ? ` on ${machine}` : ''} (bound by call; a shell cd does not move it).`
+}
 
 const PLUGIN_ID = 'float.pi-outliner'
 
@@ -668,6 +753,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
       void loadReferences($, option)
       await loadingWorkspace
     }
+    // The shell's folder now, shown on the card as where Claude is; no decision about an outline reads it (PIE-756).
     const [ran, cwd, home, control] = await Promise.all([where, $.session.cwd(), $.env.get('HOME'), $.env.get('EP0CH_CONTROL')])
     const facts: BindingFacts = {
       folder: folderFactsOf(),
@@ -738,6 +824,14 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
   const listed = effectiveWorkspaces(options.workspaces, listedEnv, home)
   const mode = mentionsModeOf(options.mode, modeEnv, listed)
   const listedHere = workspaceForCwd(cwd, listed)
+  // A call (/outline, outline_bind) names the outline outright, over an opted-out folder too (PIE-756).
+  if (rebound) return namedWorkspaceOf(cwd, rebound, undefined, undefined)
+  // So does EP0CH_WS for the tools (order: call, EP0CH_WS, the folder the session started in). An opted-out folder only
+  // keeps its mentions from feeding; strict mode keeps its own folder list.
+  if (purpose === 'tools' && mode === 'folder') {
+    const named = await namedFromEnv($, cwd)
+    if (named) return named
+  }
   // In folder mode a listed folder is opted out: said on the binding card as it is, never worked out again there.
   if (mode === 'folder' && listedHere !== null) note.optedOut = listedHere
   // Strict mode limits what feeds Recent Mentions; the tools and links still work in any bound folder.
@@ -745,7 +839,12 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
   // A remote socket in Claude's environment would take every CLI run elsewhere than the folder's binding.
   const socket = await $.env.get('EP0CH_SOCKET')
   if (socket?.trim()) {
-    throw Error("EP0CH_SOCKET in Claude's environment would send it to another machine's host than this folder's outline; unset it, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
+    throw Error("EP0CH_SOCKET in Claude's environment would send it to another machine's host than this session's outline; unset it, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
+  }
+  // Mentions follow EP0CH_WS too, once the folder is not opted out; it beats the door's outline and any .ep0ch.
+  if (purpose === 'mentions') {
+    const named = await namedFromEnv($, cwd)
+    if (named) return named
   }
   const root = await outlinerRootOf($)
   if (!root) return null
@@ -767,6 +866,20 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
     return doorWorkspaceOf((await (whereLoad ?? runWhere($))).facts?.door, cwd, folderWorkspace)
   }
   return folderWorkspace
+}
+
+/**
+ * The workspace EP0CH_WS (with EP0CH_MACHINE) names, or null (PIE-756). The order is a call, EP0CH_WS, the folder the
+ * session started in; nothing reads the shell's current folder to pick an outline.
+ */
+async function namedFromEnv($: EngineInterface, cwd: string): Promise<Workspace | null> {
+  const ws = await $.env.get('EP0CH_WS')
+  if (!ws?.trim()) return null
+  // A remote socket in Claude's environment would take every CLI run elsewhere than the outline named.
+  if ((await $.env.get('EP0CH_SOCKET'))?.trim()) {
+    throw Error("EP0CH_SOCKET in Claude's environment would send it to another machine's host than EP0CH_WS names; unset it, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
+  }
+  return namedWorkspaceOf(cwd, null, ws, await $.env.get('EP0CH_MACHINE'))
 }
 
 /**
@@ -902,7 +1015,7 @@ async function runDoorTool(
   option: PluginOptions,
 ): Promise<string> {
   const ep0ch = async (argv: string[], stdin?: string) => {
-    const ran = await $.process.run(argv, { cwd: await $.session.cwd(), env: { EP0CH_CONTROL: control }, ...(stdin === undefined ? {} : { stdin }), timeoutMs: 15_000 })
+    const ran = await $.process.run(argv, { cwd: await startFolderOf($), env: { EP0CH_CONTROL: control }, ...(stdin === undefined ? {} : { stdin }), timeoutMs: 15_000 })
     if (ran.exitCode !== 0) throw Error(failureReasonOf(ran.stderr) || ran.stderr.trim() || `${argv.slice(0, 2).join(' ')} failed`)
     return ran.stdout
   }
@@ -1079,7 +1192,7 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     if (!root) throw Error('the Outliner plugin is disabled')
     return $.process.run(
       ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args],
-      { cwd: workspace?.root ?? await $.session.cwd(), ...(workspace ? { env: envFor(workspace) } : {}), timeoutMs: 30_000 },
+      { cwd: workspace?.root ?? await startFolderOf($), ...(workspace ? { env: envFor(workspace) } : {}), timeoutMs: 30_000 },
     )
   }
   let target: { id: string; title?: string } | undefined
@@ -1296,7 +1409,8 @@ async function startMentions($: EngineInterface, option: PluginOptions): Promise
   // Here too, so a module reloaded mid-session (which starts mentions from its first draw) has it.
   await $.command.register({
     name: BINDING_COMMAND,
-    description: 'Where this Claude is bound: the outline its tools use and its machine, why, where Claude runs, the door and Herdr pane',
+    description: 'Where this Claude is bound: the outline its tools use and its machine, why, where Claude runs, the door and Herdr pane; with a name, binds this session to that outline',
+    argumentHint: '[<outline> [<machine>]]',
   })
   const kept = prefsOf(await $.store.get(PREFS_STORE_KEY))
   await $.state.set(MENTIONS_PREFS, kept)
@@ -1555,6 +1669,8 @@ const snapshots = new Map<string, string>()
 const toplevels = new Map<string, string>()
 /** The session's folder, as its rows name files relative to it. */
 let sessionCwd: string | null = null
+/** The outline this session was bound to by `/outline <name>` or outline_bind (PIE-756): it beats EP0CH_WS and every folder. */
+let rebound: { outline: string; machine?: string } | null = null
 
 /**
  * Records one touch in the session's outline: `agent touch-file` through the installed CLI, as this session. Only in
@@ -1564,7 +1680,7 @@ async function recordTouch($: EngineInterface, option: PluginOptions, touch: Ret
   if (!references?.workspace) await loadReferences($, option)
   const workspace = references?.workspace
   if (!workspace) return
-  const cwd = sessionCwd ?? (sessionCwd = await $.session.cwd())
+  const cwd = await startFolderOf($)
   const dir = touch.path.slice(0, touch.path.lastIndexOf('/')) || '/'
   let top = toplevels.get(dir)
   if (top === undefined) {
@@ -1619,7 +1735,7 @@ async function openToolTarget($: EngineInterface, ref: string, surface: RenderSu
   const workspace = references?.workspace
   if (!uri) return
   if (!workspace) {
-    $.ui.toast(NOT_BOUND, { timeoutMs: 6000 })
+    $.ui.toast(await notBoundText($), { timeoutMs: 8000 })
     return
   }
   await openUri($, workspace, uri, surface)

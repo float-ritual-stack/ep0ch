@@ -370,6 +370,29 @@ export function componentsArgv(input: Record<string, unknown>): { argv: string[]
   return { argv: ['ep0ch', 'library', '--brief', ...(names as string[])] }
 }
 
+/**
+ * `outline_bind`: points this session's outline tools at the outline `name` (on `machine`, when another machine's),
+ * for the rest of the session. The mod's own handler (hooks/register.ts) runs it; `/outline <name>` is the same call.
+ */
+export const BIND_TOOL = {
+  name: 'outline_bind',
+  example: { name: 'garden' } as Json,
+  description:
+    "Bind this session's outline, workboard and mention tools to the outline `name` (`ep0ch outline list` lists them), " +
+    'on `machine` (an ssh config name) only for an outline on another machine. It stays for the rest of the session, ' +
+    'over EP0CH_WS and any folder, and a shell `cd` never moves it. Use it when a tool says this session is not bound ' +
+    'or is bound to the wrong outline. An outline nobody has made is refused, never created.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'The outline name: lowercase letters, digits and hyphens (garden)' },
+      machine: { type: 'string', description: 'An ssh config name, only for an outline on another machine' },
+    },
+    required: ['name'],
+    additionalProperties: false,
+  } as Json,
+} as const
+
 export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   {
     name: 'door_where',

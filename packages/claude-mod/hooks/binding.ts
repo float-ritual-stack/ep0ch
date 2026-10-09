@@ -95,6 +95,23 @@ function sameOutline(f: BindingFacts): boolean {
   return ws.outline === door.outline && (ws.machine ?? null) === doorMachine(f)
 }
 
+/** The call that binds this session to an outline, with a real name: `outline_bind {"name":"garden"}`. */
+export function bindCall(name: string, machine?: string | null): string {
+  return `outline_bind ${JSON.stringify({ name, ...(machine ? { machine } : {}) })}`
+}
+
+/**
+ * What to do when the session is bound to no outline: the exact call. `preferred` is the name already known (EP0CH_WS,
+ * else the door's outline); with none, the outlines `ep0ch outline list` showed, the first as the example.
+ */
+export function bindHint(preferred: { name: string; machine?: string | null } | null, listed: readonly { name: string; machine?: string | null }[]): string {
+  const pick = preferred ?? listed[0] ?? null
+  if (!pick) return 'Bind it for this session with outline_bind {"name":"<outline>"} (or /outline <outline>); `ep0ch outline list` lists the names.'
+  const slash = `/outline ${pick.name}${pick.machine ? ` ${pick.machine}` : ''}`
+  const names = !preferred && listed.length ? ` Outlines: ${listed.map(o => o.machine ? `${o.name} (on ${o.machine})` : o.name).join(', ')}.` : ''
+  return `Bind it for this session: ${bindCall(pick.name, pick.machine)} (or ${slash}).${names}`
+}
+
 /** The command that binds Claude's folder to an outline: the door's when Claude is in one, else a name to choose. */
 export function initCommand(f: BindingFacts): string {
   const door = f.where?.door
@@ -103,6 +120,16 @@ export function initCommand(f: BindingFacts): string {
   return 'ep0ch init <name>'
 }
 
+/** What named the session's outline, in words (PIE-756): a call, EP0CH_WS, or the folder's .ep0ch. */
+function namedBy(ws: { root: string; via?: 'env' | 'call' }, home?: string): string {
+  if (ws.via === 'call') return 'outline_bind (or /outline) bound it for this session'
+  if (ws.via === 'env') return "EP0CH_WS names it, whatever folder the shell is in"
+  return `${short(ws.root, home)}/.ep0ch names it`
+}
+
+/** The start of the yellow line: who names the outline. */
+const subject = (ws: { via?: 'env' | 'call' }) => (ws.via === 'call' ? 'this session is bound to' : ws.via === 'env' ? 'EP0CH_WS names' : 'this folder names')
+
 /** The folder names one outline and the door is on another: the yellow line, or null. */
 export function mismatchOf(f: BindingFacts): string | null {
   const door = f.where?.door
@@ -110,11 +137,11 @@ export function mismatchOf(f: BindingFacts): string | null {
   const ws = f.folder.workspace
   const here = f.where?.here.machine ?? null
   if (ws.outline !== door.outline) {
-    return `this folder names ${ws.outline}; you're in ${door.outline}'s door. The outline tools write to ${ws.outline}; the door tools act in ${door.outline}'s door.`
+    return `${subject(ws)} ${ws.outline}; you're in ${door.outline}'s door. The outline tools write to ${ws.outline}; the door tools act in ${door.outline}'s door.`
   }
   const folderAt = `${ws.outline} on ${machineShort(ws.machine, here)}`
   const doorAt = `${door.outline} on ${machineShort(doorMachine(f), here)}`
-  return `this folder names ${folderAt}; the door you're in shows ${doorAt}. The outline tools write to ${folderAt}; the door tools act in that door.`
+  return `${subject(ws)} ${folderAt}; the door you're in shows ${doorAt}. The outline tools write to ${folderAt}; the door tools act in that door.`
 }
 
 /** Where Claude sits in the door: its drawer, a tile, or not in one; and its Herdr pane. */
@@ -154,7 +181,7 @@ export function cardLines(f: BindingFacts, compact = false): CardLine[] {
       const ws = f.folder.workspace
       if (ws.outline) {
         lines.push({ label: 'outline', text: `${ws.outline}, on ${machineWords(ws.machine, here)}` })
-        lines.push({ label: 'why', text: `${short(ws.root, f.home)}/.ep0ch names it${sameOutline(f) ? ", and the door you're in is on it too" : ''}` })
+        lines.push({ label: 'why', text: `${namedBy(ws, f.home)}${sameOutline(f) ? ", and the door you're in is on it too" : ''}` })
       } else {
         lines.push({ label: 'outline', text: `the one the Outliner finds for ${short(ws.root, f.home)}` })
         lines.push({ label: 'why', text: `${short(ws.root, f.home)} is in the mod's folder list, in strict mode (only listed folders feed)` })
@@ -170,7 +197,10 @@ export function cardLines(f: BindingFacts, compact = false): CardLine[] {
           ? `${short(f.folder.root, f.home)} is opted out in the mod's folder list`
           : `nothing names one in ${short(f.cwd, f.home)} or above it (no .ep0ch)${door?.outline ? `; the door tools still act in the ${door.outline} door` : ''}`,
       })
-      if (f.folder.kind === 'unbound') lines.push({ label: 'bind it', text: initCommand(f), tone: 'command' })
+      if (f.folder.kind === 'unbound') {
+        lines.push({ label: 'bind it', text: initCommand(f), tone: 'command' })
+        lines.push({ label: 'or now', text: door?.outline ? `${bindCall(door.outline, doorMachine(f))} · /outline ${door.outline}` : 'outline_bind {"name":"<outline>"} · /outline <outline> (ep0ch outline list)', tone: 'command' })
+      }
       break
     case 'failed':
       lines.push({ label: 'outline', text: 'not known: the outline tools are off' })
@@ -199,7 +229,8 @@ export function statusLine(f: BindingFacts | null): string {
       const ws = f.folder.workspace
       if (!ws.outline) return `outline: the Outliner's for ${short(ws.root, f.home)} · folder list`
       const at = `${ws.outline} @ ${machineShort(ws.machine, here)}`
-      const via = !doorAt ? 'folder' : sameOutline(f) ? 'folder, door' : `folder · ⚠ door is ${doorAt}`
+      const how = ws.via === 'call' ? 'bound by call' : ws.via === 'env' ? 'EP0CH_WS' : 'folder'
+      const via = !doorAt ? how : sameOutline(f) ? `${how}, door` : `${how} · ⚠ door is ${doorAt}`
       return `outline: ${at} · ${via}`
     }
     case 'unbound':
@@ -217,7 +248,7 @@ export function bindingText(f: BindingFacts): string {
   return [
     'Which outline this Claude session is bound to (the ep0ch Claude mod, from the folder\'s .ep0ch as its tools find it and `ep0ch where --json`):',
     ...lines.map(l => `- ${l.label ? `${l.label}: ` : ''}${l.text}`),
-    'The outline, workboard and mention tools use the folder\'s outline; the door tools (door_*) act in the door named above. Trust this over guesses; the person sees the same on a card and in the status line.',
+    'The outline, workboard and mention tools use this outline (a call, else EP0CH_WS, else the folder the session started in; a shell cd never moves it); the door tools (door_*) act in the door named above. To change it: outline_bind {"name":"<outline>"}. Trust this over guesses; the person sees the same on a card and in the status line.',
   ].join('\n')
 }
 

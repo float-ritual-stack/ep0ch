@@ -36,8 +36,13 @@ export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING", "EP0CH_AGE
  * (its EP0CH_CONTROL is a link each door re-points), and one started before it isn't stale for lacking it.
  */
 export const PLACE_VAR = "EP0CH_PLACE";
-/** Passed on as they are when the door has them, so the agent's `ep0ch` uses the door's state and outline. */
-export const CARRIED_VARS = ["EP0CH_STATE", "EP0CH_SOCKET"] as const;
+/**
+ * Passed on as they are when the door has them, so the agent's `ep0ch` uses the door's state and outline. EP0CH_WS
+ * (and EP0CH_MACHINE, only for an outline on another machine) name the door's outline, so a program in a tile
+ * never finds its outline from the folder its shell is in now (PIE-756): the door sets both once it is connected
+ * (`connectTarget`, src/door.ts).
+ */
+export const CARRIED_VARS = ["EP0CH_STATE", "EP0CH_SOCKET", "EP0CH_WS", "EP0CH_MACHINE"] as const;
 
 export interface AgentAt {
   /** The tile's name (EP0CH_TILE). */
