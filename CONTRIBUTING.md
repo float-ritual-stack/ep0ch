@@ -256,4 +256,4 @@ tables, its hint rows and UI-GRAMMAR §7), protocol or schema invariants, proces
 shipped versus planned behavior. Don't duplicate the roadmap into Markdown: the workboard is canonical; repository
 docs describe durable architecture and workflow. After a big push, refresh the READMEs and CHANGELOG, the demo
 hubs, the fresh-outline seed, the showcase and skills, and the regenerated architecture map
-(`bun packages/door/scripts/architecture-map.ts`).
+(in packages/door: `bun scripts/architecture-map.ts --sync` moves the citations and stamps the commit, `bun scripts/architecture-map.ts` checks and draws it; the push-review round runs the line-exact `--check`; `test/architecture-map.test.ts` fails only on a missing file or marker).

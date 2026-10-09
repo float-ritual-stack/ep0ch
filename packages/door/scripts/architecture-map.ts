@@ -6,6 +6,10 @@
 //   bun scripts/architecture-map.ts --out <file>    check, then write <file>
 //   bun scripts/architecture-map.ts --check         check only
 //   bun scripts/architecture-map.ts --no-check      draw without checking (a draft)
+//   bun scripts/architecture-map.ts --sync          move every citation's line to where its marker is now
+//                                                   (the marker, a snippet of the cited code, is the identity;
+//                                                   the line is its address and is never typed by hand), stamp
+//                                                   the checked commit, then check; what no marker finds is listed
 //
 //   bun scripts/architecture-map.ts --allow-dirty   draw from a checkout with changes, stamped "dirty"
 //
@@ -127,7 +131,8 @@ export function shapeProblems(d: MapData): string[] {
 }
 
 /** Every citation checked against the checkouts: the cited line must contain what the map says is there. */
-export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
+export function citationProblems(d: MapData, checkout = CHECKOUT, o: { exactLine?: boolean } = {}): string[] {
+  const exact = o.exactLine ?? true;
   const out: string[] = [];
   const cache = new Map<string, string[] | null>();
   const lines = (r: RepoId, p: string) => {
@@ -142,6 +147,10 @@ export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
     const ls = lines(ref.r, ref.p);
     if (!ls) return out.push(`${where}: ${ref.r} ${ref.p} doesn't exist in ${checkout[ref.r]}`);
     const at = ls[ref.l - 1];
+    if (!exact) {
+      if (!ls.some(l => l.includes(ref.m))) out.push(`${where}: ${ref.p} no longer has ${JSON.stringify(ref.m)}`);
+      return;
+    }
     if (at === undefined || !at.includes(ref.m)) {
       const found = ls.findIndex(l => l.includes(ref.m));
       out.push(`${where}: ${ref.p}:${ref.l} doesn't contain ${JSON.stringify(ref.m)}${found >= 0 ? ` (it's at line ${found + 1})` : " (not in the file)"}`);
@@ -155,6 +164,48 @@ export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
   }
   for (const r of ["door", "outliner"] as const) if (!existsSync(checkout[r])) out.unshift(`no ${r} checkout at ${checkout[r]}${r === "outliner" ? " (set EP0CH_OUTLINER)" : ""}`);
   return out;
+}
+
+/** The line a marker is on now: the nearest to where it was cited, so a repeated snippet keeps its place. */
+function markerLine(ls: string[], m: string, near: number): number | undefined {
+  let best: number | undefined;
+  ls.forEach((l, i) => { if (l.includes(m) && (best === undefined || Math.abs(i + 1 - near) < Math.abs(best - near))) best = i + 1; });
+  return best;
+}
+
+/** Moves every citation (and each finding's line in its review) to its marker's current line, in place. Returns what
+ * it moved and what no marker finds (those need a person: the code they cited is gone or reworded). */
+export function syncCitations(d: MapData, checkout = CHECKOUT, text?: { value: string }): { moved: number; lost: string[] } {
+  let moved = 0;
+  const lost: string[] = [];
+  const cache = new Map<string, string[] | null>();
+  const lines = (r: RepoId, p: string) => {
+    const key = `${r}:${p}`;
+    if (!cache.has(key)) { const f = join(checkout[r], p); cache.set(key, existsSync(f) ? readFileSync(f, "utf8").split("\n") : null); }
+    return cache.get(key)!;
+  };
+  const sync = (where: string, ref: { r: RepoId; p: string; l: number; m: string }, set: (l: number) => void) => {
+    const ls = lines(ref.r, ref.p);
+    const at = ls ? markerLine(ls, ref.m, ref.l) : undefined;
+    if (at === undefined) return void lost.push(`${where}: ${ref.p} no longer has ${JSON.stringify(ref.m)}`);
+    if (at !== ref.l) { set(at); moved++; }
+  };
+  // The file is patched where it stands, number for number, so its hand-set layout and every other byte stay.
+  const patch = (from: string, to: string) => {
+    if (!text) return;
+    // The same citation can stand twice (a structure and a trace step): one patch moves both, the second finds it done.
+    if (!text.value.includes(from) && !text.value.includes(to)) throw new Error(`can't find ${from} to patch`);
+    text.value = text.value.split(from).join(to);
+  };
+  const cited = (ref: Ref, l: number) => `"r": ${JSON.stringify(ref.r)}, "p": ${JSON.stringify(ref.p)}, "l": ${l}, "m": ${JSON.stringify(ref.m)}`;
+  const ref = (where: string, r: Ref) => sync(where, r, l => { patch(cited(r, r.l), cited(r, l)); r.l = l; });
+  for (const s of d.structures) for (const r of s.refs) ref(s.id, r);
+  for (const st of d.trace.steps) ref(`trace "${st.label}"`, st.ref);
+  for (const f of d.findings) {
+    const review = d.reviews[f.id.split("-")[0]!];
+    if (review && !review.kept) sync(f.id, { r: "door", p: review.path, l: f.line, m: `${f.id.split("-")[1]} ` }, l => { patch(`"id": ${JSON.stringify(f.id)}, "line": ${f.line}`, `"id": ${JSON.stringify(f.id)}, "line": ${l}`); f.line = l; });
+  }
+  return { moved, lost };
 }
 
 // ── counting ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -648,6 +699,19 @@ if (import.meta.main) {
   const outAt = args.indexOf("--out");
   const out = resolve(outAt >= 0 && args[outAt + 1] ? args[outAt + 1]! : join(ROOT, "out/architecture-map.html"));
   const d = loadMap();
+  if (args.includes("--sync")) {
+    const text = { value: readFileSync(MAP, "utf8") };
+    const { moved, lost } = syncCitations(d, CHECKOUT, text);
+    writeFileSync(MAP, text.value);
+    // The stamp says "checked at this commit": only a map that now passes both checks gets it.
+    const after = [...shapeProblems(loadMap()), ...citationProblems(loadMap())];
+    const head = git(ROOT, "rev-parse", "--short=8", "HEAD");
+    if (!after.length && head) {
+      writeFileSync(MAP, text.value.replace(/"verified": \{[^}]*\}/, `"verified": { "door": "${head}", "outliner": "${head}", "on": "${new Date().toISOString().slice(0, 10)}" }`));
+    }
+    console.log(`architecture map: ${moved} citation(s) moved${after.length ? `, not stamped: ${after.length} problem(s) for a person to fix:\n${[...lost, ...after.filter(p => !lost.some(l => l.startsWith(p.split(":")[0]!)))].map(p => `  ${p}`).join("\n")}` : `; stamped ${head}`}`);
+    process.exit(after.length ? 1 : 0);
+  }
   const problems = [...shapeProblems(d), ...(noCheck ? [] : citationProblems(d))];
   if (problems.length) {
     console.error(`architecture map: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`);

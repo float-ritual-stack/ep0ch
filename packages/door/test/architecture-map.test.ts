@@ -1,8 +1,12 @@
-// The architecture map's data holds together and draws. Its citations are checked by the generator itself
-// (`bun scripts/architecture-map.ts --check`), not here: code moving under a citation shouldn't fail an
-// unrelated change; it fails the next regeneration, which is when the map is redrawn.
+// The architecture map's data holds together, draws, and still points at the code it names. A citation is a file, a
+// marker (a snippet of the cited code) and a line; the marker is the identity and the line its address, so code that
+// moves is the push-review round's to fix (`--check` is line-exact; `--sync` moves the lines), not every PR's: this test
+// fails only on rot that misleads, a cited file that is gone or one that no longer holds its marker (PIE-711).
 import { describe, expect, test } from "bun:test";
-import { counts, loadMap, payload, render, shapeProblems, type Pins } from "../scripts/architecture-map";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { citationProblems, counts, loadMap, payload, render, shapeProblems, syncCitations, type Pins } from "../scripts/architecture-map";
 import { depths, isoLayout } from "../scripts/architecture-map/iso";
 
 // Made-up commits: the page never needs the checkouts to draw.
@@ -17,6 +21,38 @@ describe("architecture map", () => {
 
   test("every id, chapter, group, finding, route and hand-set cell it names exists", () => {
     expect(shapeProblems(d)).toEqual([]);
+  });
+
+  test("every cited file exists and still holds the code its citation names", () => {
+    const problems = citationProblems(d, undefined, { exactLine: false });
+    expect(problems.length ? `${problems.length} citation(s) lost their code; rewrite them (\`bun scripts/architecture-map.ts --sync\` lists them)\n${problems.slice(0, 20).join("\n")}` : "").toBe("");
+  });
+
+  test("the stamp names a commit", () => {
+    expect(d.verified.door).toMatch(/^[0-9a-f]{7,40}$/);
+    expect(d.verified.outliner).toMatch(/^[0-9a-f]{7,40}$/);
+  });
+
+  test("--sync moves a citation to its marker, keeps the nearest of a repeated one, and lists what no marker finds", () => {
+    const root = mkdtempSync(join(tmpdir(), "archmap-"));
+    try {
+      mkdirSync(join(root, "door"), { recursive: true });
+      mkdirSync(join(root, "outliner"));
+      writeFileSync(join(root, "door/a.ts"), ["// new first line", "// and another", "export const A = 1;", "x();", "x();", "x();"].join("\n"));
+      const checkout = { door: join(root, "door"), outliner: join(root, "outliner") };
+      const ref = (p: string, l: number, m: string) => ({ r: "door" as const, p, l, m });
+      const base = loadMap();
+      const map = {
+        ...base, findings: [], structures: [{ ...base.structures[0]!, refs: [ref("a.ts", 1, "export const A"), ref("a.ts", 6, "x();"), ref("a.ts", 3, "gone()"), ref("b.ts", 1, "x")] }],
+        trace: { ...base.trace, steps: [] },
+      };
+      const { moved, lost } = syncCitations(map, checkout);
+      expect(map.structures[0]!.refs.map(r => r.l)).toEqual([3, 6, 3, 1]);
+      expect(moved).toBe(1);
+      expect(lost.length).toBe(2);
+      expect(citationProblems(map, checkout).length).toBe(2);
+      expect(citationProblems({ ...map, structures: [{ ...map.structures[0]!, refs: [ref("a.ts", 5, "export const A")] }] }, checkout, { exactLine: false })).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   test("draws one page with every structure, chapter and trace step, and no outside resources", async () => {
