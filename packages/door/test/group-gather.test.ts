@@ -49,8 +49,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await until(() => { render(); return !!tile("shell")?.terminal?.running; }, "the shell");
     const pty = D().pane("shell");
     await act("tile.agent", { policy: "edit" }, "shell");
-    const g = await act("tile.group", { with: "thread", where: "down" }, "activity");
-    expect(g.grouped).toEqual(["activity", "thread"]);
+    const g = await act("tile.group", { with: "replies", where: "down" }, "activity");
+    expect(g.grouped).toEqual(["activity", "replies"]);
     render();
     // Into the group: beside its activity tile, to the right.
     const r = await me("layout.move", { into: g.tile, beside: "activity", where: "right" }, "shell");
@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("layout.move", { out: true }, `${g.tile}/shell`);
     await act("tile.group", { on: false }, g.tile);
     render();
-    expect(names()).toEqual(expect.arrayContaining(["tree", "reader", "thread", "activity", "shell"]));
+    expect(names()).toEqual(expect.arrayContaining(["tree", "reader", "replies", "activity", "shell"]));
     expect(D().pane("shell")).toBe(pty);
     await me("tile.close", {}, "shell").catch(() => {});
     await me("tile.close", {}, "shell");
@@ -89,7 +89,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const innerAt = (g: string, name: string) => { const o = tile(g).rect, r = inner(g, name).rect; return { col: o.col + 1 + r.col, row: o.row + 1 + r.row, cols: r.cols, rows: r.rows }; };
 
   test("by mouse: a tile's title dragged onto a group goes in where the drop zone says, one dragged out of it onto the screen goes back out; esc cancels", async () => {
-    const g = (await act("tile.group", { with: "thread", where: "down" }, "activity")).tile;
+    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).tile;
     render();
     const reader = tile("reader").rect, grp = tile(g).rect;
     // Esc mid-drag: nothing moves.
@@ -136,12 +136,12 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     // The pick shows on the frame and in the title.
     expect(D().peek?.() ?? "").toBeDefined();
     // An agent's picks are its own: it picks thread, and clearing its picks leaves the person's.
-    expect(await act("tile.select", {}, "thread")).toMatchObject({ selected: ["thread"], by: `agent:${AS}` });
-    expect(tile("thread")).toMatchObject({ pickedBy: [AS] });
-    expect(tile("thread").picked).toBeUndefined();
+    expect(await act("tile.select", {}, "replies")).toMatchObject({ selected: ["replies"], by: `agent:${AS}` });
+    expect(tile("replies")).toMatchObject({ pickedBy: [AS] });
+    expect(tile("replies").picked).toBeUndefined();
     expect(tile("tree").pickedBy).toBeUndefined();
     await act("tile.select", { clear: true });
-    expect(tile("thread").pickedBy).toBeUndefined();
+    expect(tile("replies").pickedBy).toBeUndefined();
     expect(tile("tree").picked).toBe(true);
     expect(tile("reader").picked).toBe(true);
     // ^W G: the picked two, side by side as they were.
@@ -155,22 +155,22 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(g);
     expect(tile("tree").picked).toBeUndefined();
     // esc lets go of the person's picks, and only the person's.
-    await act("tile.select", {}, "thread");
+    await act("tile.select", {}, "replies");
     await mine("tile.focus", {}, "tree");
     chord(" ");                                                // ^W space picks the focused tile too
     expect(tile("tree").picked).toBe(true);
     press({ kind: "esc" } as Key);
     expect(tile("tree").picked).toBeUndefined();
-    expect(tile("thread").pickedBy).toEqual([AS]);
+    expect(tile("replies").pickedBy).toEqual([AS]);
     // An agent gathers its own picks: thread and activity, stacked as they were; the person's focus stays.
     await act("tile.select", {}, "activity");
-    const ag = await act("tile.group", { selected: true }, "thread");
-    expect(ag.grouped.sort()).toEqual(["activity", "thread"]);
+    const ag = await act("tile.group", { selected: true }, "replies");
+    expect(ag.grouped.sort()).toEqual(["activity", "replies"]);
     render();
     expect(tile(ag.tile).mount.layout.tree).toMatchObject({ split: "col" });
     expect(get().focus).toBe("tree");
     await spill(ag.tile);
-    await expect(act("tile.group", { selected: true }, "thread")).rejects.toThrow(/no tiles selected/);
+    await expect(act("tile.group", { selected: true }, "replies")).rejects.toThrow(/no tiles selected/);
     // Tiles not next to each other gather side by side, as far as a split allows: tree and activity.
     await me("tile.select", {}, "tree"); await me("tile.select", {}, "activity");
     const far = await me("tile.group", { selected: true }, "tree");
@@ -185,10 +185,10 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await mine("tile.focus", {}, "activity");
     chord("G");
     expect(overlay()).toMatchObject({ name: "gather" });
-    expect(overlay()!.items.map((i: any) => i.label)).toEqual([expect.stringMatching(/^this tile · activity/), expect.stringMatching(/^the whole split · (activity, thread|thread, activity)/)]);
+    expect(overlay()!.items.map((i: any) => i.label)).toEqual([expect.stringMatching(/^this tile · activity/), expect.stringMatching(/^the whole split · (activity, replies|replies, activity)/)]);
     press({ kind: "down" } as Key, { kind: "enter" } as Key);
     const g = groupName()!;
-    expect(tile(g).mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["activity", "thread"]);
+    expect(tile(g).mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["activity", "replies"]);
     expect(tile(g).mount.layout.tree).toMatchObject({ split: "col" });
     await spill(g);
     // This tile alone.
@@ -211,7 +211,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("^W i moves the tile into the only group, or asks which; in a group it takes the tile back out; a group's last tile spills it", async () => {
     await fresh();
-    const g = (await act("tile.group", { with: "thread", where: "down" }, "activity")).tile;
+    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).tile;
     render();
     await mine("tile.focus", {}, "tree");
     chord("i");
@@ -253,9 +253,9 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const [a, b] = [seeded.notes.hub.id, seeded.notes.root.id];
     await act("tile.link", { to: "reader" }, "tree");
     expect(tile("tree")).toMatchObject({ link: "reader" });
-    await act("tile.open", { kind: "preview", source: "tile:tree", name: "pv" }, "activity");
-    // Gather the reader (with the thread): the tree's link goes through the path.
-    const g = (await act("tile.group", { with: "thread", where: "down" }, "reader")).tile;
+    await act("tile.open", { kind: "preview", source: "tile:tree", name: "pv" }, "replies");
+    // Gather the reader (with the activity: a tile whose opens have no origin of their own, unlike the replies list): the tree's link goes through the path.
+    const g = (await act("tile.group", { with: "activity", where: "down" }, "reader")).tile;
     render();
     expect(tile("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
     expect(inner(g, "reader")).toBeDefined();
@@ -263,7 +263,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(showing(g) ?? inner(g, "reader").showing?.id).toBe(a);
     expect(inner(g, "reader").showing?.id).toBe(a);
     // The preview moves into the group too: it still follows the tree, outside.
-    await me("layout.move", { into: g, beside: "thread" }, "pv");
+    await me("layout.move", { into: g, beside: "activity" }, "pv");
     render();
     expect(inner(g, "pv")).toBeDefined();
     // The tree's selection moves to b: the preview in the group follows it, and so does the reader the link previews in.
@@ -274,8 +274,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     // A tile of the group opening into one outside: reader -> a detail beside the tree, by `../` path.
     await act("tile.open", { kind: "detail", name: "det" }, "tree");
     render();
-    await act("tile.link", { to: "../det" }, `${g}/thread`);
-    expect(inner(g, "thread")).toMatchObject({ link: "../det", linkAcross: "true" });
+    await act("tile.link", { to: "../det" }, `${g}/activity`);
+    expect(inner(g, "activity")).toMatchObject({ link: "../det", linkAcross: "true" });
     // Saved by path, and back after a restart.
     D().save();
     const again = new Desk() as any;
@@ -283,7 +283,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     again.render(again.ctx);
     const there = (n: string) => again.layoutGet().tiles.find((x: any) => x.name === n);
     expect(there("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
-    expect(there(g).mount.layout.tiles.find((x: any) => x.name === "thread")).toMatchObject({ link: "../det" });
+    expect(there(g).mount.layout.tiles.find((x: any) => x.name === "activity")).toMatchObject({ link: "../det" });
     expect(there(g).mount.layout.tiles.find((x: any) => x.name === "pv").source).toBe("tile:../tree");
     app.pop();
     // Moved out again: the preview and the tree are on one desk, the link is the layout's own.
@@ -297,7 +297,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(g);
     expect(tile("tree")).toMatchObject({ link: "reader" });
     expect(tile("tree").linkAcross).toBeUndefined();
-    expect(tile("thread")).toMatchObject({ link: "det" });
+    expect(tile("activity")).toMatchObject({ link: "det" });
     await act("open", { id: b, from: "tree" });
     expect(tile("reader").showing?.id).toBe(b);
     await mine("tile.focus", {}, "tree"); await act("tile.close", {}, "pv"); await act("tile.close", {}, "det");
