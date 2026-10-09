@@ -132,7 +132,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts }
+export interface DispatchCtx { flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -302,8 +302,8 @@ export class Dispatcher {
   }
 
   /**
-   * The person's key or click: the same action an agent's `act` runs, as `you`. A refusal is said on the status bar,
-   * never thrown at the key handler; the screen is redrawn either way. Resolves to the answer, or undefined when refused.
+   * The person's key or click: the same action an agent's `act` runs, as `you`. A refusal is said on the status bar and
+   * the focused tile's frame (Ctx.refuse), never thrown at the key handler; the screen is redrawn either way. Resolves to the answer, or undefined when refused.
    */
   press(name: string, args: Record<string, unknown> = {}, tile?: string): Promise<unknown> {
     return this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true));
@@ -332,9 +332,12 @@ export class Dispatcher {
 
   private asPerson(f: () => unknown, say: boolean | ((why: string) => string | null) = false): Promise<unknown> {
     const ctx = this.host.ctx();
+    // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
+    const at = ctx?.pressNow?.();
     const tell = (e: unknown) => {
       const why = e instanceof Error ? e.message : String(e), said = say === true ? null : say === false ? why : say(why);
-      if (said) ctx?.flash?.(said);
+      // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
+      if (said) (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said));
       ctx?.redraw?.();
       return undefined;
     };

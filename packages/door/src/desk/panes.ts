@@ -55,6 +55,11 @@ export interface DeskApi {
   hasFocus?(p: Pane): boolean;
   /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
   escaped?(): void;
+  /**
+   * q found nothing left to leave in a tile's own screen (a mount's, a group's): the screen holding it goes back, as q does
+   * on any desk (PIE-727: a desk holding only a group took seven presses, each refused on the status bar).
+   */
+  leave?(): void;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
   routes?(pane: Pane): boolean;
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
@@ -139,6 +144,11 @@ export interface Pane {
    * while its current element is a live figure's (its tabs, its density).
    */
   claims?(k: Key): boolean;
+  /**
+   * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
+   * there (PIE-727), so this tile's frame doesn't say it again.
+   */
+  nestsTiles?(): boolean;
   click?(x: number, y: number, desk: DeskApi): void;
   wheel?(dir: 1 | -1, desk: DeskApi): void;
   select?(m: Msg | null, desk: DeskApi): void;

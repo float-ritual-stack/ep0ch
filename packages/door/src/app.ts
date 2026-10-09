@@ -13,7 +13,7 @@ import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./wh
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
-import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
+import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
@@ -97,6 +97,15 @@ export interface HostLayer {
 }
 
 /** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */
+/** A refusal of the person's key or click (Ctx.refuse), as the focused tile's frame says it. */
+export interface Refusal { text: string; loud: boolean }
+
+/** What a key or click is, to tell the same one pressed again: a key whole, a click by where it landed. Null: not a press. */
+export function pressOf(k: Key): string | null {
+  if (k.kind !== "mouse") return JSON.stringify(k);
+  return k.action === "down" ? `click:${k.button}:${k.x},${k.y}` : null;
+}
+
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
@@ -126,6 +135,16 @@ export interface Ctx {
   quit(): void;
   redraw(): void;
   flash(msg: string, ms?: number): void;
+  /**
+   * The person's own key or click was refused (PIE-727): `msg` says why. The status bar has it, as `flash`'s, and the
+   * focused tile says it on its frame (`refusal`). The same key refused again makes it loud: it stays up, highlighted,
+   * until a different key. An agent's refusal is never this: it is said with who it is (`flash`).
+   */
+  refuse?(msg: string, at?: number): void;
+  /** Which of the person's keys or clicks is being answered now (refuse's `at`, taken as an action begins). */
+  pressNow?(): number;
+  /** The refusal said now, for the focused tile's frame to show: its words, and loud when the same key was refused again. */
+  refusal?(): Refusal | null;
   /**
    * Esc reached a screen with nothing left to close (src/shell-keys.ts `nothingToClose`): what the frame around it does
    * instead of saying so (the showcase's stage hands the keys back to its index). The door's own Ctx leaves it out.
@@ -601,6 +620,59 @@ export class App implements Ctx {
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
   flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
 
+  // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
+  /**
+   * The person's gestures: a key or a click (pressOf), with the ones after it while the screen held the keys for it (^W
+   * then x, the ⋯ then a row of its menu) joined to it. `gestures` counts them; `pressCount` counts every press, so a
+   * refusal says which it answers.
+   */
+  private gesture: string[] = [];
+  private gestures = 0;
+  private pressCount = 0;
+  /** The screen held the keys after the last press (a chord waiting, a menu open): the next press continues its gesture. */
+  private heldAfter = false;
+  /** The refusal shown now (null once a key moved on), and the last one said: its words, its gesture, the flash after it. */
+  private refusedNow: (Refusal & { press: string | null }) | null = null;
+  private refusedLast: { text: string; gesture: string; n: number; flashes: number } | null = null;
+  /** Which key or click is being answered now: a refusal that lands later (an action's promise) says which it answers. */
+  pressNow(): number { return this.pressCount; }
+  /**
+   * `at`: the press it answers (pressNow when the action began). One that lands after another key came (the person moved
+   * on) is said on the status bar alone: it belongs to no tile now.
+   */
+  refuse(msg: string, at = this.pressCount) {
+    const text = printable(msg, " ");
+    if (at !== this.pressCount) { this.flash(msg); return; }
+    const gesture = this.gesture.join(" "), last = this.refusedLast;
+    // The same refusal again, by the same gesture right after it (x x on a spine, ^W x ^W x on a locked screen, the same
+    // menu row twice), with nothing else said between: loud, and up until a different key (Evan pressed q seven times
+    // before he saw why). A different key between them (x j x) starts over.
+    const loud = !!last && !!gesture && last.text === text && last.gesture === gesture && last.n === this.gestures - 1 && last.flashes === this.flashes;
+    this.refusedNow = { text, loud, press: this.gesture.at(-1) ?? null };
+    this.flash(msg, loud ? Infinity : 4000);
+    this.refusedLast = { text, gesture, n: this.gestures, flashes: this.flashes };
+  }
+  refusal(): Refusal | null {
+    const r = this.refusedNow;
+    // A quiet one goes with its status bar copy (its time ran out, or something else was said over it).
+    if (!r || (!r.loud && (this.message !== r.text || Date.now() > this.messageUntil))) return null;
+    return { text: r.text, loud: r.loud };
+  }
+  /**
+   * A key or click came: what the tile's frame said goes (it comes back, loud, if this gesture is refused the same way
+   * again); a loud one's status bar copy goes with a different key, and with the same one it times out as any message does.
+   */
+  private pressed(k: Key) {
+    const p = pressOf(k);
+    if (p === null) return;
+    const r = this.refusedNow;
+    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + 4000; }
+    this.refusedNow = null;
+    if (this.heldAfter && this.gesture.length && this.gesture.length < 4) this.gesture.push(p);
+    else { this.gesture = [p]; this.gestures++; }
+    this.pressCount++;
+  }
+
   // ── an armed edit (src/arm.ts): the next key opens it or lets it go ──
   private armedNow: { a: Arm; timer: ReturnType<typeof setTimeout> } | null = null;
   arm(a: Arm) {
@@ -954,8 +1026,11 @@ export class App implements Ctx {
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
+    this.pressed(k);
     try { this.route(k); }
     finally {
+      // A chord waiting for its next key, a menu or picker open: the next press continues this gesture (refuse).
+      if (pressOf(k) !== null) this.heldAfter = !!this.stack.at(-1)?.holdsKeys?.();
       // Said once, after the key did its work, so the hint isn't covered by what the key said.
       if (k !== typed && !this.saidOptionKeys) {
         this.saidOptionKeys = true;
@@ -1039,7 +1114,7 @@ export class App implements Ctx {
       let ran = false;
       const said = this.flashes, stop = traceActions(() => { ran = true; });
       try { top.key(k, this); } finally { stop(); }
-      if (!ran && this.flashes === said) this.flash("nothing selected · drag across the text to copy it, or v and move then y");
+      if (!ran && this.flashes === said) this.refuse("nothing selected · drag across the text to copy it, or v and move then y");
       return;
     }
     top?.key(k, this);
@@ -1057,9 +1132,9 @@ export class App implements Ctx {
   private hyper(key: string) {
     const b = hyperBinding(key), top = this.stack.at(-1);
     if (top?.noDrawer) return;
-    if (!b) return void this.flash(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
+    if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
     if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
-    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.flash(e instanceof Error ? e.message : String(e)));
+    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
   }
 
   /**
@@ -1235,7 +1310,9 @@ export class App implements Ctx {
     const changedFrom = cols - width(newPart + extPart + tail);
     this.changedAt = newCount && changedFrom >= 0 ? { from: changedFrom, to: changedFrom + width(`+${newCount} new`), row: this.term.info.rows - 1 } : null;
     this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
-    const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
+    // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
+    const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
+    const middle = this.message ? ` ${fg(C.yellow)}${loud ? BOLD : ""}${this.message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
 }

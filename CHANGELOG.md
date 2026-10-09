@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A refused key says why on the tile you're looking at; q leaves a desk holding only a group (PIE-727)
+
+- **Fixed:** on a desk whose only tile is a group (`tile.group`), `q` was refused ("the group is a tile") and `Esc` said
+  `q leaves`, so the screen couldn't be left by keys. `q` in a group or a mounted screen now leaves the screen holding it,
+  as on any desk; from inside a mount (`^W e`) it comes out.
+- **Changed:** when the door refuses your key or click (a refused action, `nothing to close`, a spine's keys, a dimmed
+  tile-menu row), the focused tile says why on its bottom edge, in amber, as well as on the status bar. Press the same key
+  again and it gets loud: bold on a dim amber band, the frame amber, and it stays until you press a different key. Dark
+  only, never a bright flash. *Why it matters:* it took seven presses of `q` before the one-line status bar message was
+  noticed; the reason is now where you're looking. The showcase's `refusals` section shows it.
+
 ### One reader, three modes: follows, held or pinned to a page, instead of reader and detail (PIE-705)
 
 - **Changed:** a detail is no longer a kind of tile of its own. The `reader` tile has a mode, shown as a chip on its frame:

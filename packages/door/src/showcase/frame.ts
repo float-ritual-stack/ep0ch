@@ -39,7 +39,7 @@ export class FramedScreen {
     const top = this.stack.at(-1);
     if (this.stack.length === 1) { this.leave(); this.outer().redraw(); return; }
     // An inner screen holding a draft stays: the person gets the outer unsaved guard's message instead.
-    if (top?.unsaved?.()) { this.outer().flash("an edit isn't saved · ctrl+s saves it"); return; }
+    if (top?.unsaved?.()) { this.refuse("an edit isn't saved · ctrl+s saves it"); return; }
     this.outer().disarm?.();
     this.stack.pop();
     top?.dispose?.();
@@ -52,8 +52,10 @@ export class FramedScreen {
    */
   nothingToClose(leave: string) {
     if (this.escaped && this.stack.length === 1) return this.escaped();
-    this.outer().flash(nothingLeft(leave));
+    this.refuse(nothingLeft(leave));
   }
+  /** The person's key refused in the frame: said as the door says any (Ctx.refuse), the focused tile's frame too. */
+  refuse(msg: string, at?: number) { const c = this.outer(); if (c.refuse) c.refuse(msg, at); else c.flash(msg); }
   /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
   dispose() { this.outer().disarm?.(); for (const s of [...this.stack].reverse()) s.dispose?.(); }
   replace(s: Screen) { this.outer().disarm?.(); const was = this.stack.at(-1); if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } if (was !== s) was?.dispose?.(); this.outer().redraw(); }
@@ -97,7 +99,10 @@ function frameCtx(f: FramedScreen): Ctx {
     replace: s => f.replace(s),
     quit: () => o().quit(),
     redraw: () => o().redraw(),
-    flash: m => o().flash(m),
+    flash: (m, ms) => o().flash(m, ms),
+    refuse: (m, at) => f.refuse(m, at),
+    pressNow: () => o().pressNow?.() ?? 0,
+    refusal: () => o().refusal?.() ?? null,
     nothingToClose: leave => f.nothingToClose(leave),
     copy: (text, from) => o().copy?.(text, from) ?? false,
     cycleVideo: () => o().cycleVideo(),
