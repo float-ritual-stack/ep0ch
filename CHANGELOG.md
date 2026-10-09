@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note's children join its links; the thread tile is a links tile with Children alone (PIE-693, slice 1)
+
+- **New:** the links tile lists a fourth group, `↓ children`: the notes under the note (a thread's replies; comments stay
+  under Backlinks, kind Comment). Kind, Stage, Sort and the filter narrow it as every group, by the kind and stage the
+  service computes, and the counters count it (`↓3/4`).
+- **New:** which groups a links tile lists is the tile's own, saved with the layout: `v`, a click on the counters (a list
+  whose rows switch a group, one click each), the tile menu's "choose its groups", `act backlinks.groups show=|toggle=`.
+- **Changed:** the thread tile is gone. A layout saved with one gets a links tile with Children alone (`^W o h` opens
+  one); the desk layout's `replies` tile is one. Its pick and open are `backlinks.pick` and `backlinks.open` (⏎ where the
+  list's opens land, alt+⏎ a new detail); `thread.pick` and `thread.up` are gone (`u` in the reader goes up).
+- **Run:** PROTOCOL 123 (`blocks.facets`, new). After `ep0ch install --apply` on each machine, restart the host, then the
+  doors. No schema change.
 ### A chain of linked readers: what-changed opens into reader 9, reader 9's links into reader 10 (PIE-700)
 
 - Opening a note from outside a reader (the what-changed list in the drawer, `ep0ch open`) no longer asks the link of the reader your keys were last in. Before, with the keys last in reader 9 (linked to reader 10), ⏎ on a what-changed row moved both 9 and 10; now it opens in the reader that follows the current note and 10 only changes when a link is followed in 9.
