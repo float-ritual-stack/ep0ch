@@ -13,13 +13,14 @@
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
-import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import type { HostedOutlineList, HostedOutlineSummary, McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
-import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
+import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
-import { writesAt } from "./mcp-writes";
+import { levelFor, writesAt } from "./mcp-writes";
+import { localAdmin, type McpOutlineAdmin } from "./mcp-outlines";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME } from "./socket";
 
@@ -141,7 +142,7 @@ const localNames = async () => {
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
   /** An outline's machine as answers name it: what it calls itself once its host has answered live, else its ssh name. */
@@ -204,6 +205,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   return {
     kind: "remote",
     machine,
+    ...(admin ? { admin } : {}),
     ...(defaultOutline ? { defaultOutline } : {}),
     internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
     async board(named?: NamedOutline) {
@@ -228,15 +230,18 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       },
     } : {}),
     log,
-    async list() {
+    async list(caller) {
       const rows: McpOutlineListing[] = [];
-      const access = async (target: McpBoard | { error: string }) => "error" in target ? undefined : (await target.board.mcpAccessStatus().catch(() => undefined))?.level;
+      const access = async (target: McpBoard | { error: string }) => { if ("error" in target) return undefined; const s = await target.board.mcpAccessStatus().catch(() => undefined); return s && levelFor(s, caller); };
+      // Who made each outline and why (outline_new's), from the host's own list.
+      const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       // An outlines folder that can't be read fails the list (the gateway logs why), never a list without them.
       for (const name of await names()) {
         const target = await local(name);
         if ("error" in target) { rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, source: "unreachable", note: target.error }); continue; }
         const level = await access(target), writes = level ? writesAt(level) : null;
-        rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...target.served, access: level, ...(writes ? { writes } : {}) });
+        const about = abouts.get(name);
+        rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...target.served, access: level, ...(writes ? { writes } : {}), ...(about ? { about: aboutListing(about) } : {}) });
       }
       const queues = summaries();
       for (const m of mirrors) {
@@ -396,7 +401,7 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
   const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
   const live = mirrors.length ? liveFromEnv(io.env ?? process.env, err) : null;
-  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined, live);
+  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined, live, localAdmin(io.env ?? process.env));
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }

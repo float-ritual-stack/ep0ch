@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { normalizePropertyQueryScope, parsePropertyFilterClause } from "./block-query";
 import {
@@ -18,7 +19,7 @@ import { attachNamedOutline, importHostedOutline, listHostedOutlines, outlineHos
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
 import type { MentionCollection } from "./mentions-types";
-import type { BlockActivityKind, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
+import type { BlockActivityKind, HostedOutlineArchival, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
   createWorkItem,
@@ -47,7 +48,7 @@ while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
   process.env.EP0CH_WS = value;
   process.argv.splice(2, argument === "--ws" ? 2 : 1);
 }
-const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>] [--create]";
+const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | archive <name> | unarchive <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>] [--create]";
 
 /** `outliner --help`, `-h`, `help` and a bare `outliner`: what it does, never a command run on the folder's outline. */
 const USAGE = `usage: outliner [--ws <name>] <command> [options]
@@ -290,7 +291,8 @@ const paths = resolveClientPaths();
 
 function describeHostedOutline(outline: HostedOutlineSummary): string {
   const flags = [outline.open ? "open" : "closed", ...(outline.default ? ["default"] : [])];
-  return [`${outline.name}  ${flags.join("  ")}`, `  database ${outline.database}`, `  folder   ${outline.folder}`].join("\n");
+  return [`${outline.name}  ${flags.join("  ")}`, `  database ${outline.database}`, `  folder   ${outline.folder}`,
+    ...(outline.about ? [`  made by  ${actorLabel(outline.about.createdBy)}: ${outline.about.purpose}`] : [])].join("\n");
 }
 
 
@@ -348,6 +350,9 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
     } else if (operation === "close" && positionals.length === 1) {
       const closed = await hostOrThrow().request<HostedOutlineSummary>({ action: "outlines.close", name: positionals[0]! });
       print(closed, `closed outline ${closed.name}; its next request opens it again`);
+    } else if ((operation === "archive" || operation === "unarchive") && positionals.length === 1) {
+      const moved = await hostOrThrow().request<HostedOutlineArchival>({ action: `outlines.${operation}`, name: positionals[0]! });
+      print(moved, moved.archived ? `archived outline ${moved.name} to ${moved.movedTo}; \`outline unarchive ${moved.name}\` brings it back` : `restored outline ${moved.name} (${moved.movedTo})`);
     } else if (operation === "delete" && positionals.length === 1) {
       const deleted = await hostOrThrow().request<HostedOutlineDeletion>({ action: "outlines.delete", name: positionals[0]! });
       print(deleted, `moved outline ${deleted.name} to ${deleted.movedTo}`);

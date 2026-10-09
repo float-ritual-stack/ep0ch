@@ -539,9 +539,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const { actorOf, applyWrite } = await import("../src/mcp-writes");
     const note = seeded.notes.remoteWrites;
     await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Compost delivered.", requestId: "showcase-flash" } }, { level: "full", actor: actorOf(REMOTE_CLIENT), uri: id => id });
-    await until(() => String((app as any).message ?? "").includes("mcp:chat.example.test"), "the remote write said", 8000);
+    await until(() => String((app as any).message ?? "").includes("chat.example.test"), "the remote write said", 8000);
     await until(() => String((app as any).message).includes("commented on “Remote writes"), "the comment said by its note", 8000);
-    expect((app as any).message).toBe("mcp:chat.example.test commented on “Remote writes and the netmail queue” · a remote MCP write");
+    expect((app as any).message).toBe("chat.example.test commented on “Remote writes and the netmail queue” · a remote MCP write");
+    // A persona within its principal is said with it (PIE-679).
+    await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Seeds ordered.", requestId: "showcase-persona" } }, { level: "full", actor: actorOf({ sub: "stdio", clientId: "claude-code" }, { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki" }, "float-2"), uri: id => id });
+    await until(() => String((app as any).message).startsWith("loki (claude-code@float-2) commented on"), "the persona said with its principal", 8000);
   });
 
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {

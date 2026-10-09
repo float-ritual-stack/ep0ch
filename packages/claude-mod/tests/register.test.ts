@@ -65,6 +65,8 @@ function sessionIn(
   on('session.cwd', () => ({ value: cwd }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('process.run', async ($, e) => {
+    // This machine's name, which a write's principal carries (claude-code@garden-host).
+    if (e.argv[0] === 'hostname') return { value: result(0, 'garden-host\n') }
     if (e.argv.includes('bound-folder')) {
       bindings.push(e)
       return { value: binding(e.argv.at(-1)!) }
@@ -861,7 +863,7 @@ describe('register', () => {
     expect(run.argv).toEqual([
       '/bin/sh', '/opt/outliner/scripts/run-bun.sh', '/opt/outliner/src/cli.ts',
       'work', 'stage', '--expected', '3',
-      '--author', 'agent', '--actor', 'claude-code', '--session', 'session-1', '--', 'PIE-8', 'review',
+      '--author', 'agent', '--actor', 'claude-code@garden-host', '--session', 'session-1', '--', 'PIE-8', 'review',
     ])
     expect(run.init?.cwd).toBe(WORKSPACE)
     expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })

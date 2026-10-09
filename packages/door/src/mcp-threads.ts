@@ -5,9 +5,11 @@
 //
 // The service doesn't record whether a comment asks for an answer (PIE-551 isn't built), so no field here says so:
 // whoever reads a thread decides from its last comment, which is why outline_read shows each thread's latest.
+import { actorHandle, actorLabel, parseActor } from "@ep0ch/outline-core/attribution";
 import type { Comment, IndexBlock } from "./socket";
 
-export interface ThreadComment { id: string; author: string; at: string | null; body: string }
+/** `author` is the actor id as recorded; `by` how a person reads it (`loki (claude-code@float-2)`). */
+export interface ThreadComment { id: string; author: string; by: string; at: string | null; body: string }
 export interface ThreadRow {
   /** The thread's id: what outline_reply and outline_resolve_thread take. */
   thread: string;
@@ -28,7 +30,7 @@ export function threadRows(comments: Comment[]): ThreadRow[] {
     status: t.open ? "open" : "resolved",
     quote: t.quote,
     anchored: t.start !== null,
-    comments: [{ id: t.id, author: t.author, at: iso(t.at), body: t.body }, ...t.replies.map(r => ({ id: r.id, author: r.author, at: iso(r.at), body: r.body }))],
+    comments: [{ id: t.id, author: t.author, by: actorLabel(t.author), at: iso(t.at), body: t.body }, ...t.replies.map(r => ({ id: r.id, author: r.author, by: actorLabel(r.author), at: iso(r.at), body: r.body }))],
   }));
 }
 
@@ -40,14 +42,18 @@ export function threadSummary(rows: ThreadRow[]) {
   const latest = (r: ThreadRow) => {
     const last = r.comments.at(-1)!;
     const body = last.body.replace(/\s+/g, " ");
-    return { thread: r.thread, status: r.status, quote: r.quote.slice(0, 80), comments: r.comments.length, last: { by: last.author, at: last.at, body: body.length > SNIPPET ? `${body.slice(0, SNIPPET - 1)}…` : body } };
+    return { thread: r.thread, status: r.status, quote: r.quote.slice(0, 80), comments: r.comments.length, last: { by: last.by, at: last.at, body: body.length > SNIPPET ? `${body.slice(0, SNIPPET - 1)}…` : body } };
   };
   return { open: open.length, resolved: rows.length - open.length, latest: [...open, ...rows.filter(r => r.status === "resolved").slice(0, 1)].slice(0, 10).map(latest), said: rows.length ? "outline_threads reads every comment; outline_reply and outline_resolve_thread answer" : "no comment threads" };
 }
 
 /** A person or agent id as the filters compare it: case-folded, a gateway's `mcp:` prefix off (`mcp:daddy` is `daddy`). */
-const idOf = (who: string) => who.trim().replace(/^mcp:/i, "").toLowerCase();
-export const sameWho = (a: string, b: string) => idOf(a) === idOf(b);
+const idOf = (who: string) => actorHandle(who);
+/** The same person or agent: by name (`daddy` is `mcp:daddy` and `mcp:daddy/claude.ai`), or by principal when the filter names one (`claude-code@float-2`). */
+export const sameWho = (a: string, b: string) => {
+  const [x, y] = [parseActor(a), parseActor(b)];
+  return y.principal?.includes("@") && !y.persona ? y.principal === x.principal : idOf(a) === idOf(b);
+};
 
 /** Whether a text mentions `@name` (the @ is optional in the filter), as a word. */
 export function mentions(text: string, name: string): boolean {

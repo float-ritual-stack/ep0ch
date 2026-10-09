@@ -82,9 +82,11 @@ ${MCP_USAGE}
                                    name this folder's outline: attach to it (creating it when nobody has; on
                                    another machine only with --create), and write .ep0ch; without a name, the
                                    folder's (or its repository's)
-  ep0ch outline list [--all] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name>
-                | stop <name> | delete <name> [--yes]      [--json]
-                                   the host's outlines: --all lists every machine's (this one's, then each
+  ep0ch outline list [--all] [--archived] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name>
+                | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]      [--json]
+                                   the host's outlines (one an agent made over MCP shows who made it and why;
+                                   archive hides one and keeps its database, unarchive restores it, --archived
+                                   lists them): --all lists every machine's (this one's, then each
                                    machine opened before, one not connected said, nothing started), --lines
                                    as name<TAB>machine<TAB>problem; attach opens the door on one (the same as
                                    --ws <name>; on another machine --create makes one it lacks); import makes a new outline from an older database (its

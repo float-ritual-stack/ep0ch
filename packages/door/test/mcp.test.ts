@@ -5,6 +5,7 @@ import { canonicalLocalMachineName } from "../src/notes-cli";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { answerMcp, mcpCommand } from "../src/mcp";
 import { machineOutlines } from "../src/mcp-gateway";
+import { localAdmin } from "../src/mcp-outlines";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -93,7 +94,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(fields(response(4)?.result).serverInfo).toMatchObject({ name: "ep0ch" });
     expect(fields(response(4)?.result).protocolVersion).toBe("2025-11-25");
     const listed = fields(response(5)?.result).tools as { name: string; inputSchema?: any }[];
-    expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components"]);
+    expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_new", "outline_archive"]);
     expect(listed[1]!.inputSchema.oneOf).toEqual([{ required: ["ref"] }, { required: ["uri"] }]);
 
     const find = JSON.parse(tool(response(6)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
@@ -171,7 +172,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(names((await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }])).find(r => r.id === 2))).not.toContain("outline_patch");
       await setAccess("read");
       const readOnly = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }, patch(3, await revisionOf(), "Ready for local tools", "Ready")]);
-      expect(names(readOnly.find(r => r.id === 2))).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components"]);
+      expect(names(readOnly.find(r => r.id === 2))).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_new", "outline_archive"]);
       expect(called(readOnly.find(r => r.id === 3)).isError).toBe(true);
 
       await setAccess("propose");
@@ -187,7 +188,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(called(full.find(r => r.id === 5)).json).toMatchObject({ outcome: "applied", machine });
       expect((await board.records([target.id])).records[0]!.text).toContain("Ready for stdio writes");
       const child = (await board.records([made.uri.split("/b/")[1]])).records[0]!;
-      expect(child).toMatchObject({ author: "agent", actor: "mcp:claude-desktop" });
+      expect(child).toMatchObject({ author: "agent", actor: `mcp:claude-desktop@${machine}` });
       // A stale revision is a proposal, never an overwrite: the same check the gateway makes.
       const stale = await stdio([hello, patch(6, 1, "Ready for stdio writes", "Overwritten")]);
       expect(called(stale.find(r => r.id === 6)).json.outcome).toBe("proposed");
@@ -195,20 +196,20 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await setAccess("read");
     }, 60_000);
 
-    test("EP0CH_MCP_PERSONAS maps the client name as it does for the gateway", async () => {
+    test("EP0CH_MCP_PERSONAS maps the principal (the client on this machine) to a persona", async () => {
       await setAccess("full");
       const was = process.env.EP0CH_MCP_PERSONAS;
-      process.env.EP0CH_MCP_PERSONAS = "claude-desktop=desk";
+      process.env.EP0CH_MCP_PERSONAS = `claude-desktop@${machine}=desk`;
       try {
         const r = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Named by persona" } } }]);
         const child = (await board.records([called(r.find(x => x.id === 2)).json.uri.split("/b/")[1]])).records[0]!;
-        expect(child.actor).toBe("mcp:desk");
+        expect(child.actor).toBe(`mcp:desk/claude-desktop@${machine}`);
       } finally { if (was === undefined) delete process.env.EP0CH_MCP_PERSONAS; else process.env.EP0CH_MCP_PERSONAS = was; await setAccess("read"); }
     }, 30_000);
 
     test("stdio and the HTTP gateway list the same tools for the same grant and caller, at every level", async () => {
       const sock = scratch.sock;
-      const gateway = machineOutlines(scratch.name, () => {}, async () => Object.assign(new SocketBoard(sock), { address: { outline: scratch.name, machine } }) as any, [], async () => [scratch.name]);
+      const gateway = machineOutlines(scratch.name, () => {}, async () => Object.assign(new SocketBoard(sock), { address: { outline: scratch.name, machine } }) as any, [], async () => [scratch.name], undefined, undefined, localAdmin());
       try {
         for (const level of ["none", "read", "propose", "full"]) {
           await setAccess(level);

@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Agents make outlines of their own over MCP, and every write says who made it (PIE-679)
+
+- **New:** `outline_new` over MCP (stdio and the gateway): an agent makes a scratch outline on this machine for link sprees,
+  the day's discourse and other fleeting things, with `full` for itself and `read` for the other principals. Its root note
+  says who made it and why (`[created-by::…] [purpose::…] [kind::scratch]`), and the door's home base, `ep0ch outline list`
+  and `list_outlines` show the same. A taken name is refused with the nearest names; `EP0CH_MCP_SCRATCH_CAP` (default 5 a
+  week per principal) is a soft cap. `outline_archive` and `ep0ch outline archive|unarchive <name>` put one away and bring it
+  back, keeping the database; nothing deletes over MCP.
+- **Changed:** a write's actor id carries the principal auth proved and the persona it declared: `mcp:loki/claude-code@float-2`,
+  `mcp:claude.ai`, the mod's `cowboy/claude-code@laptop`. The door, receipts, proposals and threads show
+  `loki (claude-code@float-2)`. `EP0CH_MCP_PERSONAS` keys are principals now (`claude-code@float-2=loki`; a bare client name
+  still works for the gateway's); a persona can't be claimed across principals. Older writes keep their ids.
+- **Run:** PROTOCOL 117. After `ep0ch install --apply` on each machine, restart the Claude mod's sessions and reconnect MCP
+  clients to see `outline_new`. No schema change.
+
 ### Your look, tuned live: spacing and list density from notes, with a tune inspector (PIE-673)
 
 - **New:** a tile's padding, a note's measure (the widest its text runs, centred in a wider tile; a reader's is 88 by

@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { openSchema, OUTLINE_INSTANCE_ID_KEY } from "./schema";
-import { MCP_ACCESS_METADATA_KEY, OutlinerStore } from "./store";
+import { MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, OutlinerStore } from "./store";
 import { OUTLINE_OPEN_TOKEN_KEY } from "./outline-instance";
 
 /*
@@ -67,6 +67,8 @@ const SKIPPED_METADATA = new Set([
   "resource_retention_payload_migration",
   // An MCP grant is a disclosure decision about that outline (ADR 0002 §4); a new one starts at none.
   MCP_ACCESS_METADATA_KEY,
+  // Who made an outline over MCP belongs to that outline, not to what is imported from it.
+  OUTLINE_ABOUT_METADATA_KEY,
 ]);
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;

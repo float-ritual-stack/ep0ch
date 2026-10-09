@@ -1839,6 +1839,8 @@ export class OutlinerServer {
         case "outlines.attach":
         case "outlines.close":
         case "outlines.delete":
+        case "outlines.archive":
+        case "outlines.unarchive":
         case "outlines.pane":
           throw new Error(`${action} is answered by the outline host, never by one outline`);
         case "blocks.query":

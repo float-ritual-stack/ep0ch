@@ -12,21 +12,24 @@ import { DOT_EP0CH, formatDotEp0ch, isMachineName, mayCreate, missingOutline, to
 import { homedir, hostname } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
+import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { everyOutline, forwardTo, remoteArgs } from "./machine";
 import type { HomeArgs, HomeChoice } from "./home";
 
 /** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
 export type OutlineCommand = { machine?: string } & (
-  | { op: "list"; json: boolean; all?: boolean; lines?: boolean }
+  | { op: "list"; json: boolean; all?: boolean; lines?: boolean; archived?: boolean }
   | { op: "attach"; name: string; json: boolean; create?: boolean; noCreate?: string | true }
   | { op: "create"; name: string; json: boolean }
   | { op: "import"; path: string; name: string; json: boolean }
   | { op: "stop"; name: string; json: boolean }
   | { op: "delete"; name: string; yes: boolean; json: boolean }
+  | { op: "archive" | "unarchive"; name: string; json: boolean }
   | { op: "init"; name?: string; json: boolean; create?: boolean; noCreate?: string | true }
   | { op: "status"; json: boolean });
 
-export const OUTLINE_USAGE = "ep0ch outline list [--all] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>] [--create]";
+export const OUTLINE_USAGE = "ep0ch outline list [--all] [--archived] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name> | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>] [--create]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
 export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
@@ -52,8 +55,8 @@ function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { 
     case "status": return rest.length ? { error: "status takes no arguments" } : { op: "status", json };
     case "list": {
       if (rest.length) return { error: "outline list takes no arguments" };
-      const all = args.includes("--all"), lines = args.includes("--lines");
-      return { op: "list", json, ...(all ? { all } : {}), ...(lines ? { lines } : {}) };
+      const all = args.includes("--all"), lines = args.includes("--lines"), archived = args.includes("--archived");
+      return { op: "list", json, ...(all ? { all } : {}), ...(lines ? { lines } : {}), ...(archived ? { archived } : {}) };
     }
     case "init": {
       if (rest.length > 1) return { error: "init takes [<name>]" };
@@ -61,7 +64,7 @@ function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { 
       return { op: "init", ...(rest[0] ? { name: rest[0] } : {}), json, ...create, ...noCreate };
     }
     case "attach": { const bad = named(1); return bad ?? { op, name: rest[0]!, json, ...create, ...noCreate }; }
-    case "create": case "stop": { const bad = named(1); return bad ?? { op, name: rest[0]!, json }; }
+    case "create": case "stop": case "archive": case "unarchive": { const bad = named(1); return bad ?? { op, name: rest[0]!, json }; }
     case "delete": { const bad = named(1); return bad ?? { op, name: rest[0]!, yes, json }; }
     case "import": { const bad = named(2); return bad ?? { op, path: resolve(cwd, rest[0]!), name: rest[1]!, json }; }
     default: return { error: op ? `unknown outline command ${op}; ${OUTLINE_USAGE}` : OUTLINE_USAGE };
@@ -69,10 +72,12 @@ function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { 
 }
 
 const flags = (o: HostedOutline) => [o.open ? "open" : "closed", ...(o.default ? ["default"] : [])].join(" · ");
+/** An outline an agent made over MCP says who and why beside its row: `made by loki (claude-code@float-2): burps and links`. */
+export const madeBy = (a: OutlineAbout | undefined) => a ? `made by ${actorLabel(a.createdBy)}: ${a.purpose}` : "";
 export function formatOutlines(outlines: readonly HostedOutline[]): string {
   if (!outlines.length) return `no outlines in ${outlinesDir()}`;
   const w = Math.max(...outlines.map(o => o.name.length));
-  return outlines.map(o => `${o.name.padEnd(w)}  ${flags(o).padEnd(14)}  ${o.database}`).join("\n");
+  return outlines.map(o => `${o.name.padEnd(w)}  ${flags(o).padEnd(14)}  ${o.database}${o.about ? `\n${"".padEnd(w + 18)}${madeBy(o.about)}` : ""}`).join("\n");
 }
 
 /** What `delete` does to this outline, in words, before it's done (in its host's outlines folder, on its machine). */
@@ -169,6 +174,11 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
       case "list": {
         const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
         if (cmd.lines) { for (const o of list.outlines) out([o.name, cmd.machine ?? "", ""].join("\t")); return 0; }
+        if (cmd.archived) {
+          const archived = (list as { archived?: { name: string; about?: OutlineAbout }[] }).archived ?? [];
+          print({ archived }, archived.length ? archived.map(o => `${o.name}${o.about ? `  ${madeBy(o.about)}` : ""}`).join("\n") : "nothing is archived");
+          return 0;
+        }
         print(list, formatOutlines(list.outlines));
         return 0;
       }
@@ -195,6 +205,11 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
       case "stop": {
         const r = await hostRequest<HostedOutline>(path, "outlines.close", { name: cmd.name });
         print(r, `stopped outline ${r.name}; its database is released until its next request`);
+        return 0;
+      }
+      case "archive": case "unarchive": {
+        const r = await hostRequest<{ name: string; archived: boolean; movedTo: string }>(path, `outlines.${cmd.op}`, { name: cmd.name });
+        print(r, r.archived ? `archived outline ${r.name}${on}: out of every list, its database kept in ${r.movedTo}; \`ep0ch outline unarchive ${r.name}\` brings it back` : `restored outline ${r.name}${on}`);
         return 0;
       }
       case "delete": {

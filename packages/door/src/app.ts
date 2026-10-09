@@ -1,4 +1,5 @@
 // The door: a stack of screens, one status bar, one paint per change.
+import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { anyUnsavedTuning } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
@@ -762,7 +763,7 @@ export class App implements Ctx {
     const said = this.remoteSaid, now = this.now();
     if (verb === "changed" && said && said.id === r?.id && said.verb !== "changed" && now - said.at < 3000) return;
     this.remoteSaid = { id: r?.id, verb, at: now };
-    this.flash(`${w.actor} ${verb} ${r?.title ? `“${r.title.slice(0, 48)}”` : "a note"} · a remote MCP write`, 6000);
+    this.flash(`${actorLabel(w.actor)} ${verb} ${r?.title ? `“${r.title.slice(0, 48)}”` : "a note"} · a remote MCP write`, 6000);
   }
   private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 

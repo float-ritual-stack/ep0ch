@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { type LocationReader, outlineLayout, outlinesFolder, whichOutline } from "@ep0ch/outline-core/outline-location";
 import { forwardPaths } from "@ep0ch/outline-core/machine";
+import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { hostRequest, type HostStatus } from "./socket";
 
 export { slugifyOutlineName as slugOutlineName } from "@ep0ch/outline-core/outline-location";
@@ -41,11 +42,12 @@ export const disk: LocationReader = {
  * What the host at `path` says about itself, or null when nothing answers there or it isn't a host. It asks
  * `outlines.list`, which only a host answers.
  */
-export async function hostLive(path: string, timeoutMs = 1500): Promise<HostStatus | null> {
+export async function hostLive(path: string, timeoutMs = 1500): Promise<(HostStatus & { abouts?: Record<string, OutlineAbout> }) | null> {
   if (!existsSync(path)) return null;
   try {
-    const list = await hostRequest<{ defaultOutline?: string; outlines: { name: string }[] }>(path, "outlines.list", {}, timeoutMs);
-    return { socket: path, ...(list.defaultOutline ? { defaultOutline: list.defaultOutline } : {}), outlines: list.outlines.map(o => o.name) };
+    const list = await hostRequest<{ defaultOutline?: string; outlines: { name: string; about?: OutlineAbout }[] }>(path, "outlines.list", {}, timeoutMs);
+    const abouts = Object.fromEntries(list.outlines.flatMap(o => o.about ? [[o.name, o.about]] : []));
+    return { socket: path, ...(list.defaultOutline ? { defaultOutline: list.defaultOutline } : {}), outlines: list.outlines.map(o => o.name), ...(Object.keys(abouts).length ? { abouts } : {}) };
   } catch { return null; }
 }
 
