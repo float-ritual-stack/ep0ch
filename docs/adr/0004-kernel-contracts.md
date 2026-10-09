@@ -1,6 +1,6 @@
 # 0004: Kernel contracts: what every built-in and every extension is made of
 
-Status: proposed, 2026-10-09.
+Status: accepted, 2026-10-09, with Evan's amendment: the door context for sources is in (contract 4).
 
 ## Context
 
@@ -81,7 +81,8 @@ Each finds the passage its own way.
 A part climbs chat → skill → helper and API → kernel, and only on evidence (pie `3684a9fe`, "Coherence", and
 `23cfe45d`, "Progressive determinization"). The evidence is one of: a prompt can't hold the boundary; runs disagree;
 writes race; it's too slow; it must be audited; a second workflow needs it. Here, **built-ins that already need a
-contract count as its second use.** Each contract below names its evidence. What has none yet is listed under
+contract count as its second use**, and so does **what Evan has asked for again and again**: the ladder guards against
+guessing, not against a need he has stated for months. Each contract below names its evidence. What has none yet is listed under
 [Not yet](#not-yet-stays-a-convention-or-a-kit) with what would make it climb.
 
 Two tests from the same note hold for every contract:
@@ -334,6 +335,10 @@ state.
   filters. Seven built-in uses of one shape.
 - The bar has two row types for one job (`BarRow`, `source.ts:13`; `ExtensionBarRow`, `protocol.ts:238`).
 - Evan asked for it by name (PIE-734): "how do custom components add to the existing autocomplete?"
+- **The door context is part of it.** Evan's stated end state, for months: the power bar as a Raycast-like launcher
+  that extensions extend, agents writing UI in the moment, and the bar's own tiles, actions, recent and screens
+  sources being things an extension could have written (PIE-734). Their door-side copies are the first users of
+  the context; an extension asking "the note in front of me and the tiles beside it" is the second.
 
 **A source answers rows for typed words. The bar and the completer ask sources; nothing is rebuilt per feature.**
 Component schemas are the declarative tier of completion; sources are the dynamic tier.
@@ -351,6 +356,8 @@ SourceDecl = {
 input = { source, query, limit, context?,       // context: the note in front of the viewer
           trigger?: { kind, key?, component?, target?: string } }  // key: a value's property; component: a YAML key's;
                                                   // target: `((note#` / `((note^`'s note part, parsed by outline-core
+// context.door, on the picking person's own ask only (never an agent's, never cached), read-only:
+//   { screen, focused: tile, tiles: [{ name, kind, showing?: id, title }], recent: id[], selection?: passage }
 value = { rows: SourceRow[] }               // ≤ 50, checked: text cleaned, one activation each, an `open` that
                                             // exists, a `run` that is the extension's own and can run on that row,
                                             // an `insert` of one line, ≤ 500 characters, no control characters
@@ -373,8 +380,10 @@ value = { rows: SourceRow[] }               // ≤ 50, checked: text cleaned, on
     (the bar's `/`);
   - declarative, from schemas and the outline's lists: `properties` (`[key`, `key::`, YAML keys), `callouts` (`> [!`),
     `components` (`::`);
-  - in the door, because they read the door: `tiles` (`%`), `actions` (`>`), `recent` (`+`), `screens` (`@` in the
-    bar; the bar's prefixes and completion's triggers are separate namespaces).
+  - in the door: `tiles` (`%`), `actions` (`>`), `recent` (`+`), `screens` (`@` in the bar; the bar's prefixes and
+    completion's triggers are separate namespaces). They are written on the same contract an extension uses, reading
+    `context.door`, so an extension can do what they do; moving them into an extension folder later is a move, not a
+    rewrite.
 
 **Moves onto it.** The bar's five sources and the extension binding (`extensions.ts:295-341`), the completer's
 per-kind branches, both trigger detectors.
@@ -434,7 +443,6 @@ Each of these was asked for. None has the evidence yet. Each says what would mak
 
 | Part | Rung now | Stays as | Climbs when |
 |---|---|---|---|
-| **A door context for sources** (tiles, recent, actions sent with an extension's ask) | 0 | the four door-side built-ins, on the row contract, in the door | an extension needs the door's tiles or recent and a skill can't get them through `ep0ch peek` / `act`. Then it is sent only to the picking viewer's own ask, never cached, with every returned action re-checked against the picker's rules |
 | **Span decorations and a margin place** (`place: span`, `place: margin`) | 1: marginalia is a mock | a kit's rule drawing `above`/`below` and a component in the note | marginalia's kit fails the cold-start test because a highlight can't be drawn on the words (PIE-735 F) |
 | **Component outputs and dataflow** (`((id^name)).field`, one-way, cycles refused) | 1: the showcase repeats queries | each component asks its own question (contract 1 makes that cheap: watched and coalesced) | two components in real notes need one value and their answers disagree, or `{{ }}` interpolation (PIE-533) lands and needs a value to read |
 | **Bindings** (a property whose value is a link reads that block's record, PIE-533) | 2: designed | properties as written | the same: PIE-533's first slice |
