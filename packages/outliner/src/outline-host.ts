@@ -503,7 +503,10 @@ export class OutlineHost {
   /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed, owner-locked, Litestream paused. */
   private async relocate(name: string, from: string, to: string, archived: boolean): Promise<HostedOutlineArchival> {
     const database = join(from, `${name}.sqlite`);
-    if (!lstatOrUndefined(database)) throw new Error(archived ? `No outline named "${name}" in ${this.outlinesFolder}` : `No archived outline named "${name}"; ep0ch outline list --all shows them`);
+    if (!lstatOrUndefined(database)) throw new Error(archived ? `No outline named "${name}" in ${this.outlinesFolder}` : `No archived outline named "${name}"; ep0ch outline list --archived shows them`);
+    // Checked before anything moves: a destination that already holds something would fail half way and split the outline.
+    const taken = [`${name}.sqlite`, `${name}.sqlite-wal`, `${name}.sqlite-shm`, name].find(f => lstatOrUndefined(join(to, f)) && !(f === name && archived === false && this.isEmptyDirectory(join(to, f))));
+    if (taken) throw new Error(`${join(to, taken)} exists already; nothing was moved: move it away, then ${archived ? "archive" : "unarchive"} ${name} again`);
     if (this.busy.has(name)) throw new Error(`Outline "${name}" is already being changed`);
     this.busy.add(name);
     try {
@@ -515,16 +518,30 @@ export class OutlineHost {
       try {
         return await withLitestreamPaused([database, join(to, `${name}.sqlite`)], `${archived ? "archiving" : "restoring"} the outline ${name}`, () => {
           mkdirSync(to, { recursive: true });
-          for (const suffix of ["", "-wal", "-shm"]) {
-            if (lstatOrUndefined(`${database}${suffix}`)) renameSync(`${database}${suffix}`, join(to, `${name}.sqlite${suffix}`));
+          const moved: [string, string][] = [];
+          try {
+            for (const suffix of ["", "-wal", "-shm"]) {
+              if (lstatOrUndefined(`${database}${suffix}`)) { renameSync(`${database}${suffix}`, join(to, `${name}.sqlite${suffix}`)); moved.push([`${database}${suffix}`, join(to, `${name}.sqlite${suffix}`)]); }
+            }
+            if (lstatOrUndefined(join(from, name))) {
+              if (!archived) rmSync(join(to, name), { recursive: true, force: true });   // an empty folder the outline's name left behind
+              renameSync(join(from, name), join(to, name)); moved.push([join(from, name), join(to, name)]);
+            }
+          } catch (error) {
+            // Put back what moved, so the outline is whole where it was.
+            for (const [was, now] of moved.reverse()) { try { renameSync(now, was); } catch { /* the error below says what is where */ } }
+            throw new Error(`${(error as Error).message}; the outline was put back as it was`, { cause: error });
           }
-          if (lstatOrUndefined(join(from, name))) renameSync(join(from, name), join(to, name));
           for (const file of lock.files) rmSync(file, { force: true });
           if (!archived) rmSync(from, { recursive: true, force: true });
           return { name, archived, movedTo: archived ? to : join(to, `${name}.sqlite`) };
         });
       } finally { release(); }
     } finally { this.busy.delete(name); }
+  }
+
+  private isEmptyDirectory(path: string): boolean {
+    try { return lstatSync(path).isDirectory() && readdirSync(path).length === 0; } catch { return false; }
   }
 
   /**

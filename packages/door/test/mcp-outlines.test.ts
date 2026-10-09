@@ -160,6 +160,14 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     } finally { setEnv({}); await board.configureMcpAccess("read"); }
   }, 60_000);
 
+  test("two outline_new at once can't both take the last place under the cap", async () => {
+    setEnv({ EP0CH_MCP_SCRATCH_CAP: "1" });
+    const racer = { sub: "stdio", clientId: "racer" } satisfies McpCaller;
+    const [a, b] = await Promise.all([call(racer, "outline_new", { name: "race-a", purpose: "a" }), call(racer, "outline_new", { name: "race-b", purpose: "b" })]);
+    expect([a.isError, b.isError].sort()).toEqual([false, true]);
+    setEnv({});
+  }, 60_000);
+
   test("stdio: an outline made in the session is served in it, listed on the same connection", async () => {
     const bound = boundOutlines(Object.assign(boardOn("pie-like"), { address: { outline: "pie-like", machine: HERE } }) as any, admin());
     const run = async (name: string, args: Record<string, unknown>) => {
@@ -174,6 +182,11 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     expect(rows[1]).toMatchObject({ access: "full", about: { purpose: "stdio scratch" } });
     const root = (await boardOn("stdio-pad").roots()).find(r => r.text.includes("[kind::scratch]"))!;
     expect((await run("outline_create", { ref: root.id, outline: "stdio-pad", text: "scribble" })).json.outcome).toBe("applied");
+    // Put away, it leaves the session's list; brought back, it returns to it.
+    expect((await run("outline_archive", { name: "stdio-pad" })).json.outcome).toBe("archived");
+    expect(((await run("list_outlines", {})).json.outlines as { outline: string }[]).map(r => r.outline)).toEqual(["pie-like"]);
+    expect((await run("outline_archive", { name: "stdio-pad", restore: true })).json.outcome).toBe("restored");
+    expect(((await run("list_outlines", {})).json.outlines as { outline: string }[]).map(r => r.outline)).toEqual(["pie-like", "stdio-pad"]);
     setEnv({});
   }, 60_000);
 

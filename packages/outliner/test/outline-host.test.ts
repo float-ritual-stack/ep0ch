@@ -487,3 +487,19 @@ test("archive hides an outline and keeps its database; unarchive restores it; it
   expect(text).toContain("[kind::scratch]");
   expect((await send(host.socketPath, { action: "outlines.unarchive", name: "gurgle" })).ok).toBe(false);
 });
+
+test("a restore that can't be whole moves nothing: a folder already in the way is said before the database moves", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await send(host.socketPath, { action: "outlines.create", name: "gurgle", about: ABOUT });
+  await send(host.socketPath, { action: "outlines.archive", name: "gurgle" });
+  const layout = layoutOf(root);
+  mkdirSync(layout.folder("gurgle"), { recursive: true });
+  writeFileSync(join(layout.folder("gurgle"), "notes.txt"), "mine");
+  const refused = await send(host.socketPath, { action: "outlines.unarchive", name: "gurgle" });
+  expect(refused.ok).toBe(false);
+  expect((refused as { error?: string }).error).toContain("nothing was moved");
+  expect(existsSync(join(layout.archived("gurgle"), "gurgle.sqlite"))).toBe(true);
+  expect(existsSync(layout.database("gurgle"))).toBe(false);
+  expect(readFileSync(join(layout.folder("gurgle"), "notes.txt"), "utf8")).toBe("mine");
+});

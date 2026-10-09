@@ -92,7 +92,15 @@ export const OUTLINE_ADMIN_EXAMPLES: Record<string, Record<string, unknown>> = {
 
 const describe = (n: string, a: OutlineAbout | undefined) => `${n}${a ? ` (${a.purpose}; made ${a.created.slice(0, 10)})` : ""}`;
 
-export async function outlineNew(admin: McpOutlineAdmin, args: Record<string, unknown>, caller: McpCaller): Promise<Outcome> {
+/** One outline_new at a time per server: the weekly cap counts what the host lists, so two at once would both see room. */
+const making = new WeakMap<McpOutlineAdmin, Promise<unknown>>();
+export function outlineNew(admin: McpOutlineAdmin, args: Record<string, unknown>, caller: McpCaller): Promise<Outcome> {
+  const run = (making.get(admin) ?? Promise.resolve()).catch(() => undefined).then(() => makeOutline(admin, args, caller));
+  making.set(admin, run);
+  return run;
+}
+
+async function makeOutline(admin: McpOutlineAdmin, args: Record<string, unknown>, caller: McpCaller): Promise<Outcome> {
   const name = typeof args.name === "string" ? args.name.trim() : "";
   const purpose = typeof args.purpose === "string" ? args.purpose.trim() : "";
   if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(args.name)} isn't an outline name: lowercase letters, digits and hyphens, up to 32 (${OUTLINE_NAME.source}).` };

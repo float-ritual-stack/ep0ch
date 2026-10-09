@@ -122,6 +122,8 @@ export interface McpOutlines {
   admin?: McpOutlineAdmin;
   /** A server bound to boards (stdio) takes an outline just made into what it serves, so list_outlines shows it on the same session. */
   adopt?(board: Board): void;
+  /** An outline put away (outline_archive): no longer served in this session. */
+  release?(name: string): void;
   /** The outline a find or bare ref reads when none is named, if this server has one. */
   defaultOutline?: string;
   /** What a caller is told of an unexpected failure (the gateway logs it and says less); else its message. */
@@ -149,6 +151,7 @@ export function boundOutlines(board: Board, admin?: McpOutlineAdmin): McpOutline
     defaultOutline: bound.outline,
     ...(admin ? { admin } : {}),
     adopt(b) { if (admin && b.address) made.set(b.address.outline, b); },
+    release(name) { made.get(name)?.close(); made.delete(name); },
     async board(named) {
       if (!named || namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return { board, served: servedLive() };
       const other = made.get(named.outline);
@@ -850,10 +853,11 @@ async function adminTool(outlines: McpOutlines, admin: McpOutlineAdmin, tool: "o
     const done = tool === "outline_new" ? await outlineNew(admin, args, caller) : await outlineArchive(admin, args, caller);
     if ("error" in done) { outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}): refused: ${done.error}`); return toolError(done.error); }
     outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}) ${String(args.name)}: ${String(done.ok.outcome)}`);
-    if (tool === "outline_new" && outlines.adopt) {
-      const board = await admin.open(String(args.name));
-      if (!("error" in board)) outlines.adopt(board as unknown as Board);
-    }
+    // A server bound to boards (stdio) serves what it made or brought back, and lets go of what it put away.
+    if (tool === "outline_new" || (tool === "outline_archive" && args.restore === true)) {
+      const board = outlines.adopt ? await admin.open(String(args.name)) : undefined;
+      if (board && !("error" in board)) outlines.adopt!(board as unknown as Board);
+    } else outlines.release?.(String(args.name));
     return toolText({ ...done.ok, by: actorLabel(actor.actorId) });
   } catch (e) { return toolError((e as Error).message); }
 }
