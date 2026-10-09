@@ -1,5 +1,5 @@
 import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
-import { QueryAtomError, isQueryAtomWord, parseQueryAtom, QUERY_RELATION_PREFIX, tagMatches } from "@ep0ch/outline-core/query-atoms";
+import { QueryAtomError, isQueryAtomWord, parseQueryAtom, tagMatches } from "@ep0ch/outline-core/query-atoms";
 import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
   Block,
@@ -212,8 +212,7 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
       continue;
     }
     // `links:[[a page]]` and `under:[[a page]]` keep a page name's spaces.
-    if (character === "[" && input[index + 1] === "[" && QUERY_RELATION_PREFIX.test(input.slice(start, index)) &&
-      QUERY_RELATION_PREFIX.exec(input.slice(start, index))![0].length === index - start) {
+    if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|under):$/i.test(input.slice(start, index))) {
       const close = input.indexOf("]]", index + 2);
       if (close >= 0 && !input.slice(index, close).includes("\n")) { index = close + 1; continue; }
     }
@@ -650,11 +649,11 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       return (_subject, properties) => tagMatches(properties.filter(p => p.key === "tag").map(p => p.value), tag);
     }
     case "title": {
-      const needle = expression.text.trim().toLowerCase();
+      const needle = expression.text.toLowerCase();
       return subject => titleOf(subject.text ?? "").toLowerCase().includes(needle);
     }
     case "text": {
-      const needle = expression.text.trim().toLowerCase();
+      const needle = expression.text.toLowerCase();
       return subject => (subject.text ?? "").toLowerCase().includes(needle);
     }
     case "links": {

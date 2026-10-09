@@ -76,6 +76,16 @@ describe("relation atoms in the query grammar", () => {
     expect(titles("under:[[projects]]", { filters: [{ key: "status" }] })).toEqual(["Order seeds #jazz/hands"]);
   });
 
+  test("a page name with spaces survives groups, and a quoted needle keeps its spaces", () => {
+    store.create("Seed shelf [page::seed shelf]");
+    store.create("Count the tins on the [[seed shelf]]");
+    store.create("The cat sat");
+    store.create("Concatenate strings");
+    expect(titles("(links:[[seed shelf]] OR #nothing) AND NOT (title~zzz)")).toEqual(["Count the tins on the [[seed shelf]]"]);
+    expect(titles('title~" cat "')).toEqual(["The cat sat"]);
+    expect(titles("title~cat")).toEqual(["The cat sat", "Concatenate strings"]);
+  });
+
   test("query.matches evaluates the same atoms for given blocks", () => {
     const s = seed();
     const ids = [s.deep.id, s.loose.id, s.linked.id];

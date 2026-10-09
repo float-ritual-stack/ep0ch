@@ -31,9 +31,6 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
 ];
 
-/** A word starting `links:` or `under:`: its `[[page name]]` may hold spaces, so the tokenizer keeps it whole. */
-export const QUERY_RELATION_PREFIX = /^(?:links|under):/i;
-
 const ATOM_HEAD = /^(?:#|(?:links|under):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
