@@ -74,11 +74,13 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     outline(join(laptop.outlines, "garden.sqlite"), ["Plant the tomatoes", "Water the beans"]);
     const s = readBackupState(laptop.state);
     const said: string[] = [];
-    const r = await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN });
+    const r = await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN, verbose: true });
     expect(r).toEqual({ uploaded: [], failed: [], relayed: ["garden"] });
+    expect(said.join("\n")).toContain("garden: relayed via hub-box because ");
+    expect(said.join("\n")).toContain("repository check: ");
     expect(s.outlines.garden).toMatchObject({ seq: 2, schema: 3, relayed: { via: "hub-box", uploaded: true, why: expect.stringContaining("doesn't answer") } });
     expect(s.outlines.garden!.pendingSince).toBeUndefined();
-    expect(said.join("\n")).toContain("relayed via hub-box");
+    expect(said.join("\n")).toContain("via hub-box");
     // The hub holds it as its mirror, checked, and made the snapshot in the laptop's repository under the laptop's name.
     expect(changeSeq(hubCopy())).toBe(2);
     expect(schemaVersion(hubCopy())).toBe(3);
@@ -88,7 +90,10 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(readBackupState(hub.state).mirrors["laptop/garden"]).toMatchObject({ seq: 2, source: "relay" });
     // The incoming folder is private and left empty.
     expect(existsSync(join(hub.state, "incoming", "laptop", ".garden.sqlite.part-1"))).toBe(false);
-    // Unchanged: nothing is sent again.
+    // Unchanged: nothing is sent again, and --verbose says so.
+    const again: string[] = [];
+    expect(await snapshot(laptop, s, { say: l => again.push(l), probe: DOWN, verbose: true })).toEqual({ uploaded: [], failed: [], relayed: [] });
+    expect(again.join("\n")).toMatch(/garden: unchanged since change 2 \(Oct|garden: unchanged since change 2 \(\w{3} \d+/);
     expect(await snapshot(laptop, s, { say, probe: DOWN })).toEqual({ uploaded: [], failed: [], relayed: [] });
   }, 120_000);
 
@@ -102,8 +107,9 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(s.lastRun?.detail).toContain("relayed garden via hub-box");
     expect(alertMark(readAlert(laptop.state), t + 3 * 3_600_000)?.text ?? null).not.toBe("✗ backup");
     const lines = statusLines(laptop).join("\n");
-    expect(lines).toContain("relayed via hub-box");
-    expect(lines).toContain("the repository: objects.example.test doesn't answer");
+    expect(lines).toContain("via hub-box");
+    expect(lines).toContain("went through hub-box");
+    expect(lines).toContain("didn't answer");
     expect(changeSeq(hubCopy())).toBe(3);
   }, 120_000);
 
@@ -195,7 +201,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
       expect(s.outlines.cellar!.relayed).toMatchObject({ uploaded: false, uploadError: expect.any(String) });
       expect(existsSync(join(hub.mirrorsDir, "laptop", "cellar.sqlite"))).toBe(true);
       writeBackupState(laptop.state, s);
-      expect(statusLines(laptop).join("\n")).toContain("couldn't upload it either");
+      expect(statusLines(laptop).join("\n")).toContain("not in the repository yet");
     } finally {
       hubEnv.EP0CH_RESTIC = saved!;
       writeFileSync(join(dir, "bin", "ep0ch"), `#!/bin/sh\nexec env ${Object.entries(hubEnv).map(([k, v]) => `${k}='${v}'`).join(" ")} ${process.execPath} ${join(DOOR, "src/main.ts")} "$@"\n`);

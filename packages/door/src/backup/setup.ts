@@ -9,6 +9,8 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
 import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
+import { plainReason } from "./plain";
+import { verdict } from "./verdict";
 import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf, parseEnvFile } from "./config";
 
 export const UNIT_MARK = "Written by `ep0ch install`";
@@ -202,6 +204,9 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   else out.push({ name: "restic job", status: "ok", detail: p.why });
   if (!f.state) { out.push({ name: "restic", status: "info", detail: `no run recorded in ${f.stateDir} yet` }); return out; }
   const s = f.state;
+  // The same verdict `ep0ch backup status` leads with (verdict.ts): one line, the worst thing true now, the command.
+  const v = verdict(s, f.alert, now, { machine: f.config.machine, repo: f.repo, hub: f.config.kept?.EP0CH_MCP_HUB ?? parseEnvFile(f.config.text ?? "").EP0CH_MCP_HUB ?? null });
+  out.push({ name: "restic verdict", status: v.level === "ok" ? "ok" : v.level === "bad" ? "missing" : "behind", detail: [v.headline, ...v.problems.map(p => p.text)].join(": "), ...(v.fix ? { fix: v.fix } : {}) });
   const hours = (iso: string) => (now - Date.parse(iso)) / 3_600_000;
   const ago = (iso: string) => { const h = hours(iso); return h < 1 ? `${Math.round(h * 60)}m ago` : h < 48 ? `${h.toFixed(1)}h ago` : `${Math.round(h / 24)}d ago`; };
   if (s.lastRun) out.push({ name: "restic last run", status: s.lastRun.ok ? (hours(s.lastRun.at) > 1 ? "behind" : "ok") : "missing",
@@ -211,7 +216,7 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   const machine = f.config.machine;
   for (const [name, o] of Object.entries(s.outlines).sort()) {
     const inc = incidents.get(`outline:${machine}/${name}`);
-    const newest = o.at ? `newest ${o.relayed ? "backup" : "snapshot"} ${ago(o.at)} (change ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via}: the repository ${o.relayed.why}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${o.relayed.uploadError ?? "?"})`}` : ""}` : "never snapshotted";
+    const newest = o.at ? `newest ${o.relayed ? "backup" : "snapshot"} ${ago(o.at)} (change ${o.seq ?? "?"})${o.relayed ? `, relayed via ${o.relayed.via} because ${plainReason(o.relayed.why, { repo: f.repo, hub: o.relayed.via })}${o.relayed.uploaded ? "" : `; ${o.relayed.via} couldn't upload it either (${plainReason(o.relayed.uploadError ?? "?", { repo: f.repo, hub: o.relayed.via })})`}` : ""}` : "never snapshotted";
     out.push(inc ? { name: `restic ${name}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `restic ${name}`, status: "ok", detail: `${newest}${o.pendingSince ? `; changes since ${ago(o.pendingSince)} upload with the next run${o.error ? ` (the last try: ${o.error})` : ""}` : ", as the outline"}` });
   }

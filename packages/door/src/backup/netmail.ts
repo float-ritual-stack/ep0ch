@@ -38,15 +38,16 @@ export async function pull(c: BackupConfig, s: BackupState, o: { now?: () => num
 }
 
 /** The job's netmail part: the queues held here, then this machine's own pull. Each stands alone. */
-export async function netmailStep(c: BackupConfig, s: BackupState, o: { now?: () => number; say?: Say } = {}): Promise<void> {
+export async function netmailStep(c: BackupConfig, s: BackupState, o: { now?: () => number; say?: Say; verbose?: boolean } = {}): Promise<void> {
   const say = o.say ?? (() => {});
   try {
     const queues = readQueues(c, s);
     s.netmail = { ...s.netmail, queues };
-    for (const [m, q] of Object.entries(queues ?? {})) if (q.waiting) say(`netmail: ${q.waiting} queued for ${m} since ${q.oldest} (its last pull: ${q.lastPull ?? "never"})`);
+    for (const [m, q] of Object.entries(queues ?? {})) if (q.waiting || o.verbose) say(`netmail: ${q.waiting} queued for ${m}${q.oldest ? ` since ${q.oldest}` : ""} (its last pull: ${q.lastPull ?? "never"})`);
   } catch (e) { say(`✗ netmail queues: ${(e as Error).message}`); }
+  if (o.verbose && !c.hub) say("netmail: no gateway named (EP0CH_MCP_HUB), nothing to pull");
   const r = await pull(c, s, o).catch(e => { say(`✗ netmail pull: ${(e as Error).message}`); return null; });
-  if (r && (r.taken || !r.ok)) say(`${r.ok ? "✓" : "✗"} netmail from ${c.hub}: ${r.detail}`);
+  if (r && (r.taken || !r.ok || o.verbose)) say(`${r.ok ? "✓" : "✗"} netmail from ${c.hub}: ${r.detail}`);
 }
 
 /** `ep0ch mcp pull [--from <ssh-name>]`: one pull now, as the job's run does it (one at a time). */
