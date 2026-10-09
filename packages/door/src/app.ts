@@ -1,6 +1,6 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { anyUnsavedTuning } from "./look";
+import { tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import type { Placement } from "./kitty";
@@ -555,7 +555,7 @@ export class App implements Ctx {
     // Quitting, a reader in the drawer's unsaved edit asks too (its programs are the drawer's own warning).
     const dirty = [...screens, ...(quitting && this.drawer.made ? [this.drawer.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
     // Quitting with the tune inspector's nudges unwritten (PIE-673): they live in memory, so say so once, never lose them silently.
-    const tuned = quitting ? anyUnsavedTuning() : 0;
+    const tuned = quitting ? tuningOf(this.board).unsavedCount() : 0;   // this door's own connection, never another App's in the same process
     const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null;
     const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;

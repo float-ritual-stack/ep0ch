@@ -1006,7 +1006,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | backlinks (links) | the links of what another tile shows (`tile:detail`): `→ outlinks`, `♦ resources`, `← backlinks` (grouped as Detail groups them), `↓ children` (the notes under it, a thread's replies; PIE-693): `j` `k` or a click show one where the tile's selection goes (a preview following it: a note, a ticket's block, a resource's stored content, never registering it), `⏎` or a double click opens it in the tile it came from (a tile linked to it as a target, else the detail it lists the links of), `alt+⏎` or an alt-, ctrl- or middle-click opens it in a new detail beside that one (`backlinks.open`; PIE-646); `.` folds a group; `/ s K w h n` and the header change the view (Kind, Stage and Sort apply to outlinks and resources by their target's kind, stage and dates as to backlinks; the counters say `N of M match` and `→a/b ♦c/d ←e/f ↓g/h`; each control keeps its slot); `v` or a click on the counters chooses which groups the tile lists, saved with the layout (`^W o h` opens one with Children alone: the replies, where the thread tile was) (`backlinks.pick`, `backlinks.open`, `backlinks.fold`, `backlinks.view`, `backlinks.groups`) |
 | board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
 | query | a saved view's cards with its own cursor (`view=<its block id>`; `^W o q` on a tile showing a view): a board lane, on the desk; `j k` pick, `⏎` opens where its opens go, `r` reads it again |
-| tune | the tune inspector on another tile (`source=tile:<name>`; `alt+y` or `^W o y` on the tile, or "tune its look" in its ⋯ menu): each look value (measure, padding, margin, list gap, zebra and dividers, heading spacing, breakpoints) and where it comes from; `j k` pick, `+ −` (a click on `[−] [+]`, the wheel over a value) nudge it live, `v` the level, `w` this width only, `s` save, `u` undo, `x` reset (PIE-673) |
+| tune | the tune inspector on another tile (`source=tile:<name>`; `alt+y` or `^W o y` on the tile, or "tune its look" in its ⋯ menu): each look value (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and picture, heading spacing, breakpoints) and where it comes from; `j k` pick, `+ −` (a click on `[−] [+]`, the wheel over a value) nudge it live, `v` the level, `w` this width only, `s` save, `u` `U` undo and redo every step of the session, `x` resets a value to what it inherits, `X` resets the picked level, `R` reverts the session's style notes (asked in place); a level or a width picked shows its own column and marks ⊘ a row something nearer wins, where a nudge offers `a` `o` `c` (PIE-673, PIE-675) |
 | thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
 
 | Keys (mouse) | Action |
@@ -1245,11 +1245,22 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   tall as wide); `[style.narrow.…]` and `[style.wide.…]` apply under 60 columns and from 140. `alt+y` opens the tune
   inspector beside a tile: each value and where it comes from, nudged with `+ −` (a click, the wheel over a value) and
   drawn in the next frame, saved with `s` where it's set or to the level you pick (`v`), `w` for this width only, `u`
-  undo, `x` reset; quitting with nudges unsaved says so. Spacing is drawn, never text: a drag, `y` and `Y`, `select.copy`,
+  undo and `U` redo every step, `x` resets a value to what it inherits, `X` resets the picked level and `R` reverts every style note the session wrote (both asked in place); quitting with nudges unsaved says so. Spacing is drawn, never text: a drag, `y` and `Y`, `select.copy`,
   `peek` and `ep0ch export` give the note's words. **Known limit:** a terminal's own selection (a shift-drag in kitty,
   tmux or Herdr copy-mode) copies the screen's cells, so the margin and the measure's centring come as leading spaces and
   the gaps as blank lines; the door can't see that copy. Use the door's own drag, which copies the text over OSC 52; the
   default insets are kept small for this.
+- **Surfaces and frames.** A tile or a `::box` can sit on a surface, `[style.bg::raised]` (`sunken`, or a tone: blue,
+  green, violet, amber, coral, neutral) at `bg.strength` 1 to 6, with a frame (`border`: line, round, heavy, double, none)
+  and an accent in its `tone` (`edge`: a bar down its left side, or the frame). Surfaces are theme roles, drawn dark in
+  every theme with every word at 4.5:1 or better on them (test/theme-contrast.test.ts), never a colour of a note's own; a
+  tile's yields under a header's picture. A list's divider is `line`, `dots`, `dashed`, `double`, `fade` or `glyph`
+  (`list.divider.glyph`), at the top, centre or bottom of the gap (`list.divider.align`); the zebra stripe takes
+  `list.zebra.bg` and `list.zebra.strength`. A reader's header takes `header.bg` at `header.bg.opacity`, and
+  `header.image` (one of the note's pictures, or a path) with `header.image.x` and `.y` moving its crop. A list's own look goes on its section's heading or its lead-in line
+  (`## Seed trays [style.list.gap::1]`), and one tile's own is kept in its tile spec, so a single list or a single
+  links tile can be airy while the rest stay tight ("this list" and "this tile" in the inspector). Any field can
+  give three widths at once: `[style.pad::0 1 | 1 3 | 1 6]` (narrow, normal, wide). (PIE-675)
 - **What changed.** The status bar's `+N new` is the notes an agent, another client or an extension changed since you last
   looked (your own edits aren't news), from the service's change feed. A click on it, or `alt+o`, opens the **what-changed
   list** as a tab in your drawer (`changes.open`): who changed each note, what and when; `⏎` or a double click opens the note

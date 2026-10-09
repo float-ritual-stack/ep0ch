@@ -4,6 +4,7 @@
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
+import { surfaceBg } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -608,6 +609,65 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 30_000);
+
+  test("the style section's surfaces and frames (PIE-675): a raised tile with a violet bar, a box's stripe, a round amber frame with ✦ dividers, a row taken back and the header's picture moved, all through act; the drawing is never copied", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
+    await until(() => screen().includes("Broad beans") && screen().includes("╭"), "the lab's boxes", 8000);
+    const raw = () => sc.render(app).lines;
+    const labPane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("lab") as any;
+    const peekHeader = () => labPane()?.surface.headerBackdrop() as { backdrop: { image: string; focus?: { x: number; y: number } } | null } | undefined;
+    const rows = screen().split("\n");
+    // The second box: a round frame round its text, its list's divider a ✦ row centred in the gap, all drawn.
+    const beans = rows.findIndex(l => l.includes("Broad beans")), runner = rows.findIndex(l => l.includes("Runner beans"));
+    expect(rows[beans]).toMatch(/│ +∙ Broad beans +│/);
+    expect(rows.slice(beans + 1, runner).some(l => /(✦ ){4}/.test(l))).toBe(true);
+    expect(rows.slice(0, beans).some(l => /╭─+╮/.test(l))).toBe(true);
+    // Their surfaces, theme roles drawn dark: the box's sunken one inside its frame, the lab tile's raised one under its text.
+    const sunken = surfaceBg("sunken", 2), raised = surfaceBg("raised", 2);
+    expect(raw()[beans]).toContain(sunken);
+    // The lab tile's violet bar down its left side (edge=bar, tone=violet from the lab style).
+    const lab = rows.findIndex(l => l.includes("This page is drawn by the lab style"));
+    expect(raw()[lab]).toContain(raised);
+    expect(rows[lab]).toMatch(/^.*▌/);
+    // The inspector lists the new values and where each comes from, a swatch beside a surface's.
+    await until(() => /bg +raised .*← style lab/.test(screen()), "the bg row", 5000);
+    const tunePane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("tune") as any;
+    expect(tunePane().describe(S().stage(SECTIONS.findIndex(s => s.key === "style")).top).values).toMatchObject({ "header.image": { value: "evening-beds.jpg", from: "style lab" }, "header.image.y": { value: "-15" } });
+    // An agent sets the zebra's surface, then takes the tile's bg back to the level under it: the built-in none.
+    expect(await app.act({ action: "tune.set", args: { row: "bg", value: "amber" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "amber", at: "style lab" });
+    await until(() => raw().some(l => l.includes(surfaceBg("amber", 2))), "the amber surface drawn", 5000);
+    // Reset value: the lab style's own bg is taken away (not just the nudge): what it inherits, the built-in none.
+    expect(await app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).toMatchObject({ row: "bg", value: "none", from: "built-in" });
+    await until(() => !raw()[lab]!.includes(raised) && !raw()[lab]!.includes(surfaceBg("amber", 2)), "the tile's surface taken away", 5000);
+    await expect(app.act({ action: "tune.unset", args: { row: "bg" }, tile: "tune", as: "test-agent" })).rejects.toThrow(/built-in already/);
+    // Two steps back: the amber nudge, then the lab's raised.
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg taken away → amber at style lab" });
+    expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg amber → the outline's at style lab" });
+    await until(() => raw()[lab]!.includes(raised), "the surface back", 5000);
+    // The header's picture: scrolled under the title, the header takes it, its crop moved up by header.image.y.
+    // End twice: the last line on the edge, then in the middle (PIE-622), so the picture's line is above the top.
+    await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" });
+    expect(await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" })).toMatchObject({ atEnd: true });
+    await until(() => { screen(); return peekHeader()?.backdrop?.image === "evening-beds.jpg"; }, "the header's backdrop", 8000);
+    expect(peekHeader()?.backdrop).toMatchObject({ image: "evening-beds.jpg", focus: { x: 0.5, y: 0.35 } });
+    // A drag over the framed box copies the list as written: no frame, no ✦, no padding.
+    const before = written.length;
+    const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
+    await app.act({ action: "scroll", args: { to: "top" }, tile: "lab", as: "test-agent" });
+    // Down until the whole box is in view (the page is longer than the tile).
+    for (let i = 0; i < 20 && !(screen().includes("Broad beans") && screen().includes("Runner beans")); i++) await app.act({ action: "scroll", args: { by: 2 }, tile: "lab", as: "test-agent" });
+    await until(() => screen().includes("Broad beans") && screen().includes("Runner beans"), "the box in view", 5000);
+    const now = screen().split("\n"), y0 = now.findIndex(l => l.includes("Broad beans")), y1 = now.findIndex(l => l.includes("Runner beans"));
+    const x0 = now[y0]!.indexOf("∙ Broad"), x1 = now[y1]!.indexOf("Runner beans") + "Runner beans".length;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y: y0 });
+    press({ kind: "mouse", action: "drag", button: 0, x: x0 + 3, y: y0 });
+    press({ kind: "mouse", action: "drag", button: 0, x: x1, y: y1 });
+    press({ kind: "mouse", action: "up", button: 0, x: x1, y: y1 });
+    await until(() => copies().length > 0, "the drag copied");
+    expect(copies()).toEqual([osc52("- Broad beans\n- Runner beans")]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
 
   test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {
     (app as any).lastInput = 0;
@@ -1766,7 +1826,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const titleRows = () => raw().filter(l => plain(l).includes("│An evening on the plot"));
     const titleRow = () => titleRows()[0]!;
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
-    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null }, on: true, mode: "first" });
+    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
     // Scrolled past it (an agent's scroll, through act): the header takes it, in this terminal's cells, by steps.
     await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });
