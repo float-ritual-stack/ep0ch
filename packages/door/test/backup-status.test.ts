@@ -1,11 +1,13 @@
 // `ep0ch backup status` and the run's progress lines in plain words (PIE-702): golden outputs for a person to read.
 // Pure: a described history in a scratch state folder, a fixed clock, fictional machines.
 import { afterAll, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type Alert, type BackupState, writeAlert, writeBackupState } from "../src/backup/alert";
-import { backupCommand, statusLines } from "../src/backup/cli";
+import { BACKUP_FLAGS, backupCommand, statusLines } from "../src/backup/cli";
 import { backupConfig, type BackupConfig } from "../src/backup/config";
+import { changeSeq, snapshot } from "../src/backup/jobs";
 import { plainFailure, plainReason } from "../src/backup/plain";
 import { resticChecks } from "../src/backup/setup";
 import { failedLine, relayedLine, verdict } from "../src/backup/verdict";
@@ -153,5 +155,40 @@ describe("the run says the same thing", () => {
     const line = checks.find(x => x.name === "restic verdict")!;
     expect(line).toMatchObject({ status: "missing", fix: "ep0ch backup run" });
     expect(line.detail).toStartWith("✗ failing: pie: not backed up: Hetzner didn't answer");
+  });
+});
+
+describe("flags are never ignored", () => {
+  test("every subcommand refuses an unknown flag, naming it and the valid ones", async () => {
+    const c = world({});
+    for (const sub of Object.keys(BACKUP_FLAGS)) {
+      const err: string[] = [], out: string[] = [];
+      expect(await backupCommand(["backup", sub, "--bogus"], { out: s => out.push(s), err: s => err.push(s) }, c.env)).toBe(2);
+      expect(err.join("\n")).toContain(`ep0ch backup ${sub}: unknown flag --bogus; ${sub} takes `);
+      expect(out).toEqual([]);
+    }
+    const err: string[] = [];
+    await backupCommand(["backup", "run", "--verbos"], { out: () => {}, err: s => err.push(s) }, c.env);
+    expect(err.join("")).toContain("--drill, --verbose");
+    // A value is a value, not a flag; a known flag passes.
+    const out: string[] = [];
+    expect(await backupCommand(["backup", "status", "--verbose"], { out: s => out.push(s), err: () => {} }, c.env)).toBe(0);
+  });
+
+  test("run --verbose says each outline's decision and the repository check", async () => {
+    const dir = join(root, "verbose");
+    const c = backupConfig({ HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_BACKUP_MACHINE: "float-hub", EP0CH_BACKUP_REPO: join(dir, "repos", "{machine}") });
+    if ("error" in c) throw new Error(c.error);
+    mkdirSync(c.outlines, { recursive: true });
+    const path = join(c.outlines, "pie.sqlite");
+    const db = new Database(path);
+    db.run("CREATE TABLE change_feed (change_id INTEGER PRIMARY KEY AUTOINCREMENT, sequence INTEGER)");
+    db.run("INSERT INTO change_feed (sequence) VALUES (1)"); db.run("PRAGMA user_version = 3"); db.close();
+    const s: BackupState = { repo: c.repoOf("float-hub"), outlines: { pie: { seq: changeSeq(path), schema: 3, at: "2026-10-08T23:33:00Z" } }, mirrors: {} };
+    const quiet: string[] = [], loud: string[] = [];
+    await snapshot(c, s, { say: l => quiet.push(l) });
+    await snapshot(c, s, { say: l => loud.push(l), verbose: true });
+    expect(quiet.join("\n")).not.toContain("unchanged since");
+    expect(loud).toContain("pie: unchanged since change 1 (Oct 8 23:33Z), nothing to send");
   });
 });

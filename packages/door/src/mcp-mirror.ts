@@ -327,7 +327,7 @@ export class OutlineMirror {
       // with what puts it right: the home machine uploads a current snapshot.
       const migrated = await this.migrate(served);
       if (migrated && "error" in migrated) {
-        throw new Error(`the copy is schema ${migrated.from ?? "?"} and can't be taken up to this build's: ${migrated.error}${migrated.newer ? "" : `. Fix: on ${this.machine}: ep0ch backup run --force   (it uploads a current snapshot, and the mirror here takes it on its next run)`}`);
+        throw new Error(`the copy is schema ${migrated.from ?? "?"} and can't be taken up to this build's: ${migrated.error}${migrated.newer ? "" : `. Fix: on ${this.machine}: ep0ch backup snapshot --force   (it uploads a current snapshot, and the mirror here takes it on its next run)`}`);
       }
       if (migrated) this.log(`mcp mirror ${this.outline}@${this.machine}: migrated the served copy of ${this.relative(from)} from schema ${migrated.from} to ${migrated.to} (the mirror itself is untouched)`);
       const homeInstanceId = instanceIdOf(served);

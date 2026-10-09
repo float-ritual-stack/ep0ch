@@ -16,8 +16,8 @@ import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { alive } from "../state";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
-import { plainReason } from "./plain";
-import { failedLine, relayedLine } from "./verdict";
+import { plainReason, repoHost } from "./plain";
+import { failedLine, moment, relayedLine } from "./verdict";
 import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
@@ -99,7 +99,7 @@ export async function ensureRepo(c: BackupConfig, repo: string, say: Say): Promi
  * ssh: it installs it as its mirror and uploads it on this machine's behalf (relay.ts). A relayed outline is `relayed`,
  * not `failed`: the backup exists, off this machine and checked.
  */
-export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ uploaded: string[]; failed: string[]; relayed: string[] }> {
+export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boolean; verbose?: boolean; now?: () => number; say?: Say; step?: Step; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ uploaded: string[]; failed: string[]; relayed: string[] }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [], relayed: string[] = [];
@@ -117,10 +117,18 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
     else { delete st.pendingSince; delete st.error; }
     return moved;
   });
+  // --verbose: the decision for each outline and its reason (the raw reasons, not the plain ones).
+  const note = (line: string) => { if (o.verbose) say(line); };
+  for (const x of outlines) {
+    if (changed.some(y => y.name === x.name)) continue;
+    const st = s.outlines[x.name];
+    note(`${x.name}: unchanged since change ${st?.seq ?? "?"}${st?.at ? ` (${moment(st.at)})` : ""}, nothing to send`);
+  }
   if (!changed.length) { say(`no outline changed since its newest snapshot (${outlines.map(x => x.name).join(", ") || "none here"})`); return { uploaded, failed, relayed }; }
   // The repository, or why not: a quick look at its host first when there's a hub to relay through (restic itself waits minutes).
   let direct: string | null = (c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null) ?? null;
   if (!direct) direct = await ensureRepo(c, repo, say);
+  note(direct ? `repository check: ${repo} failed: ${direct}` : `repository check: ${repo} answered`);
   if (direct) say(`${plainReason(direct, { repo })}${c.hub ? `; sending the changes through ${c.hub} instead` : ""}`);
   const tmp = tempDir(c);
   try {
@@ -135,19 +143,22 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       let why = direct;
       if (!why) {
         o.step?.(`${x.name}: uploading to restic`);
+        const began = Date.now();
         const r = await backupFile(c, repo, copy, x.name, x.seq, x.schema);
-        if ("error" in r) { why = direct = r.error; }
+        if ("error" in r) { why = direct = r.error; note(`${x.name}: direct upload to ${repoHost(repo)} failed after ${((Date.now() - began) / 1000).toFixed(1)}s: ${r.error}`); }
         else {
           rmSync(copy, { force: true });
           Object.assign(st, { seq: x.seq, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
           delete st.pendingSince; delete st.error; delete st.relayed;
           uploaded.push(x.name);
+          note(`${x.name}: sent direct to ${repoHost(repo)} in ${((Date.now() - began) / 1000).toFixed(1)}s`);
           say(`✓ ${x.name} (change ${x.seq ?? "?"}) → snapshot ${r.id.slice(0, 8)}`);
           continue;
         }
       }
       if (c.hub) {
         o.step?.(`${x.name}: relaying through ${c.hub}`);
+        note(`${x.name}: relayed via ${c.hub} because ${why}`);
         const { relay } = await import("./relay");
         const r = await relay(c, c.hub, copy, { outline: x.name, seq: x.seq, schema: x.schema });
         rmSync(copy, { force: true });
@@ -416,7 +427,7 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
 }
 
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
-export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; step?: Step; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns; heartbeat?: (c: BackupConfig) => Promise<void>; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ ok: boolean; alert: Alert }> {
+export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; step?: Step; drill?: boolean; verbose?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns; heartbeat?: (c: BackupConfig) => Promise<void>; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ ok: boolean; alert: Alert }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const release = takeLock(c);
   if (typeof release === "string") {
@@ -434,13 +445,13 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
       for (const g of s.guard) say(`✗ Litestream ${g.unit} is stopped and didn't start (${g.error}): ${g.fix}`);
     } catch (e) { say(`✗ Litestream guard: ${(e as Error).message}`); }
     // Each part stands alone: one failing never stops the others.
-    const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
+    const snap = await snapshot(c, s, { now, say, step: o.step, probe: o.probe, ...(o.verbose ? { verbose: true } : {}) }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"], relayed: [] }; });
     writeBackupState(c.state, s);
     if (c.mirrors.length) { o.step?.(`mirroring ${c.mirrors.length} machine${c.mirrors.length === 1 ? "" : "s"}`); await mirror(c, s, { now, say, follower: o.follower }).catch(e => say(`✗ mirror: ${(e as Error).message}`)); writeBackupState(c.state, s); }
     // The remote MCP gateway's queued writes: those held here for other machines, and this machine's own pull (PIE-615).
     const { netmailStep } = await import("./netmail");
     o.step?.("netmail queues");
-    await netmailStep(c, s, { now, say });
+    await netmailStep(c, s, { now, say, ...(o.verbose ? { verbose: true } : {}) });
     writeBackupState(c.state, s);
     const due = o.drill ?? (!s.drill || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
     if (due && Object.values(s.outlines).some(x => x.snapshot)) {

@@ -234,7 +234,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
         const gateway = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => [], queue);
         const row = (JSON.parse((await answerList(gateway)).text).outlines as Record<string, unknown>[])[0]!;
         expect(row).toMatchObject({ source: "unreachable", access: "full", writes: "queued" });
-        expect(row.note).toContain(`on ${FAR}: ep0ch backup run --force`);
+        expect(row.note).toContain(`on ${FAR}: ep0ch backup snapshot --force`);
         expect(row.note).toContain("no migration script takes schema 2 to 3");
         expect(row.note).not.toContain("install --apply");
         expect(version(file)).toBe(2);

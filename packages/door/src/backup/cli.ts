@@ -54,7 +54,7 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
   switch (sub) {
     case "snapshot": {
       const s = readBackupState(c.state);
-      const r = await snapshot(c, s, { say, force: args.includes("--force") });
+      const r = await snapshot(c, s, { say, force: args.includes("--force"), ...(args.includes("--verbose") ? { verbose: true } : {}) });
       writeBackupState(c.state, s);
       return r.failed.length ? 1 : 0;
     }
@@ -76,8 +76,37 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
   }
 }
 
+/** The flags each subcommand takes (`value`: followed by one). An unknown one is refused, never ignored (PIE-660's rule). */
+export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> = {
+  run: { bare: ["--drill", "--verbose"], value: [] },
+  snapshot: { bare: ["--force", "--verbose"], value: [] },
+  mirror: { bare: [], value: [] },
+  drill: { bare: [], value: [] },
+  status: { bare: ["--json", "--verbose"], value: [] },
+  list: { bare: [], value: ["--machine"] },
+  restore: { bare: [], value: ["--machine", "--at", "--to"] },
+  receive: { bare: [], value: ["--machine", "--outline", "--seq", "--schema", "--sha256"] },
+};
+
+/** The refusal for the first flag a subcommand doesn't take, or null. */
+export function unknownFlag(sub: string, rest: readonly string[]): string | null {
+  const known = BACKUP_FLAGS[sub];
+  if (!known) return null;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (!a.startsWith("-")) continue;
+    if (known.value.includes(a)) { i++; continue; }
+    if (known.bare.includes(a)) continue;
+    const valid = [...known.bare, ...known.value.map(v => `${v} <value>`)];
+    return `ep0ch backup ${sub}: unknown flag ${a}; ${valid.length ? `${sub} takes ${valid.join(", ")}` : `${sub} takes no flags`}`;
+  }
+  return null;
+}
+
 export async function backupCommand(args: readonly string[], io: IO = { out: console.log, err: console.error }, env: Env = process.env): Promise<number> {
   const sub = args[1];
+  const refused = sub ? unknownFlag(sub, args.slice(2)) : null;
+  if (refused) { io.err(refused); return 2; }
   const c = backupConfig(env);
   if ("error" in c) { io.err(`ep0ch backup: ${c.error}`); return 2; }
   const say = (s: string) => io.out(s);
@@ -104,7 +133,7 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const step = (title: string) => { task?.end(true); task = progress.task({ mark: "·", title }); status.report({ state: "working", msg: title }); };
       const line = (s: string) => { if (task && progress.mode === "live") { if (/^[✓✗!]/.test(s)) task.say(s); else task.child(s); } else say(s); };
       try {
-        const r = await runAll(c, { say: line, step, ...(args.includes("--drill") ? { drill: true } : {}) });
+        const r = await runAll(c, { say: line, step, ...(args.includes("--drill") ? { drill: true } : {}), ...(args.includes("--verbose") ? { verbose: true } : {}) });
         (task as ReturnType<Progress["task"]> | null)?.end(r.ok);
         task = null;
         status.report(r.ok ? { state: "done", msg: "backup run finished" } : { state: "error", msg: "backup run failed: ep0ch backup status says what" });

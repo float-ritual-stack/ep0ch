@@ -74,8 +74,10 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     outline(join(laptop.outlines, "garden.sqlite"), ["Plant the tomatoes", "Water the beans"]);
     const s = readBackupState(laptop.state);
     const said: string[] = [];
-    const r = await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN });
+    const r = await snapshot(laptop, s, { say: l => said.push(l), probe: DOWN, verbose: true });
     expect(r).toEqual({ uploaded: [], failed: [], relayed: ["garden"] });
+    expect(said.join("\n")).toContain("garden: relayed via hub-box because ");
+    expect(said.join("\n")).toContain("repository check: ");
     expect(s.outlines.garden).toMatchObject({ seq: 2, schema: 3, relayed: { via: "hub-box", uploaded: true, why: expect.stringContaining("doesn't answer") } });
     expect(s.outlines.garden!.pendingSince).toBeUndefined();
     expect(said.join("\n")).toContain("via hub-box");
@@ -88,7 +90,10 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(readBackupState(hub.state).mirrors["laptop/garden"]).toMatchObject({ seq: 2, source: "relay" });
     // The incoming folder is private and left empty.
     expect(existsSync(join(hub.state, "incoming", "laptop", ".garden.sqlite.part-1"))).toBe(false);
-    // Unchanged: nothing is sent again.
+    // Unchanged: nothing is sent again, and --verbose says so.
+    const again: string[] = [];
+    expect(await snapshot(laptop, s, { say: l => again.push(l), probe: DOWN, verbose: true })).toEqual({ uploaded: [], failed: [], relayed: [] });
+    expect(again.join("\n")).toMatch(/garden: unchanged since change 2 \(Oct|garden: unchanged since change 2 \(\w{3} \d+/);
     expect(await snapshot(laptop, s, { say, probe: DOWN })).toEqual({ uploaded: [], failed: [], relayed: [] });
   }, 120_000);
 
