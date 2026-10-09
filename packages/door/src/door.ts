@@ -116,10 +116,6 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
   if ("error" in target) return { error: target.error };
   if ("unnamed" in target) return { error: unnamedHelp(target) };
   const machine = target.machine;
-  // The door's outline is named for everything it starts (tile programs, the drawer agent, the Herdr launcher):
-  // `agentVars` carries these, so none of them guesses an outline from its shell's folder (PIE-756).
-  if (target.outline) process.env.EP0CH_WS = target.outline;
-  if (machine) process.env.EP0CH_MACHINE = machine; else delete process.env.EP0CH_MACHINE;
   let forwarded: string | null = null;
   if (machine) {
     try { forwarded = forwardSaying(machine, await forwardTo(machine)); }
