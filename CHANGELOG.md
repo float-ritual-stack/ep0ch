@@ -15,6 +15,10 @@ are its record. The outliner's entries from then are kept below, under
 - Opening a note from outside a reader (the what-changed list in the drawer, `ep0ch open`) no longer asks the link of the reader your keys were last in. Before, with the keys last in reader 9 (linked to reader 10), ⏎ on a what-changed row moved both 9 and 10; now it opens in the reader that follows the current note and 10 only changes when a link is followed in 9.
 - `alt+l` works across the drawer's edge: in the drawer, `alt+l` on what-changed, then a click on a reader above (or its number), and that reader takes the list's `⏎` whatever has the keys, kept through the drawer shut and opened, another screen, a restart and a saved layout. `tile.link to=@chain/reader9` does it for agents (`@drawer/<tile>` the other way). The frames show it: `what-changed → reader9`, `reader10 ← reader9`; an unlinked list says which reader its `⏎` lands in now.
 
+### The ^W keys come from one list, and `^W ?` opens it to filter (PIE-704)
+
+After `^W`, the keys box now shows the most-used keys grouped (focus and move, size, tabs, open), and the status line no longer repeats them: it says `^W … · ? all keys · esc`. `^W ?`, or a click on "all keys", opens every `^W` key as a list on the power bar: grouped, each with its key, typing filters it, ⏎ presses the key. The box, the tile menu and the list are generated from one table, so they agree; the old hand-written hint lacked `G`, `i`, `space`, `e`, `u`, `M` and `I`. Nothing to run.
+
 ### Every component has a schema, so the library shows them all (PIE-701)
 
 - **New:** the component library, `ep0ch library --brief` and `outline_components` now cover every component a note can

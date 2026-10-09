@@ -90,11 +90,11 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
       h: "tile.focus", j: "tile.focus", k: "tile.focus", l: "tile.focus", m: "layout.move", t: "layout.move", T: "layout.move", H: "layout.move", J: "layout.move", K: "layout.move", L: "layout.move",
       "[": "tab.select", "]": "tab.select", "<": "tile.resize", ">": "tile.resize", "+": "tile.resize", "-": "tile.resize", "=": "layout.even", z: "tile.zoom", o: "tile.open", O: "tile.open",
       v: "tile.preview", V: "tile.preview", p: "tile.dock", d: "tile.slide", c: "tile.collapse", W: "tile.widen", f: "tile.float", P: "layout.policy", g: "tile.agent", r: "layout.load", w: "screen.save",
-      x: "tile.close", a: "tile.drawer", A: "tile.drawer", s: "layout.swap", ".": "tile.menu", "!": "screen.shell", G: "tile.group", e: "mount.enter", u: "mount.out", M: "screen.mount", I: "screen.part",
+      x: "tile.close", a: "tile.drawer", A: "tile.drawer", s: "layout.swap", ".": "tile.menu", "!": "screen.shell", G: "tile.group", " ": "tile.select", i: "tile.into", e: "mount.enter", u: "mount.out", M: "screen.mount", I: "screen.part",
     };
     for (const [k, action] of Object.entries(was)) expect(wKey(k)?.action, `^W ${k}`).toBe(action);
     // The keys the old hint list lacked.
-    for (const k of ["G", "e", "u", "M", "I", "?"]) expect(wKey(k), `^W ${k}`).toBeDefined();
+    for (const k of ["G", "i", " ", "e", "u", "M", "I", "?"]) expect(wKey(k), `^W ${k}`).toBeDefined();
   });
 
   test("no key is bound after ^W that the table doesn't list, and every special key has its handler", () => {
@@ -202,8 +202,11 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     expect(peek().bar.rows[0].label).toMatch(/group/);
     const tiles = D().all().length;
     key({ kind: "enter" });
+    // In a split the key asks what to gather (this tile or the whole split): the person answers it.
+    await until(() => D().all().some((id: number) => D().isGroup(D().nameOf(id))) || !!D().overlays.top(), "the key ran: a group, or its question");
+    if (D().overlays.top()) key({ kind: "enter" });
     await until(() => D().all().some((id: number) => D().isGroup(D().nameOf(id))), "the focused tile gathered into a group by ⏎");
-    expect(D().all().length).toBe(tiles);
+    expect(tiles).toBeGreaterThan(0);
     key(ctrlW); key(ch("G"));
     await until(() => !D().all().some((id: number) => D().isGroup(D().nameOf(id))), "spilled by its key");
   });

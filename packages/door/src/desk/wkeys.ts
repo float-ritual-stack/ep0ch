@@ -105,7 +105,7 @@ export type WSpecialKey = Extract<Entry, { how: { k: "special" } }>["key"];
 export const wKey = (key: string): WKey | undefined => (W_KEYS as readonly WKey[]).find(e => e.key === key);
 
 /** A key as it is shown after ^W. */
-export const wCaption = (key: string): string => `^W ${key}`;
+export const wCaption = (key: string): string => `^W ${key === " " ? "space" : key}`;
 
 /** A summary's first clause: what the popup says under a label. */
 export const clause = (summary: string): string => summary.split(/[.:;(]/)[0]!.trim().slice(0, 90);
