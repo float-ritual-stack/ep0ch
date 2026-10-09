@@ -112,7 +112,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A docked tile moved this way is undocked. into=<group> moves it into a group whole (PIE-696: a running program, its agent policy, spine and links go with it), beside=<one of the group's tiles> where=right/left/up/down/tabs of it (default the group's focused tile, right); out=true on a tile of a group (tile=<group>/<tile>) moves it back out onto the screen holding the group, beside=<a tile there> (default the group). The person's focus stays where it is",
     keys: "drag a header (onto a group to move into it, out of a group's frame to move out); ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out; ^W i into a group, or out of the one it's in",
     touches: "shape", replay: "safe", confirms: true,
-    says: (r, a) => { const w = whereOf(a.where, "layout.move", "right"); return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${a.to}`}`; },
+    says: (r, a) => {
+      if (r.into) return `moved ${r.tile} into ${r.into}`;
+      if (r.out) return `moved ${r.tile} out of ${r.from ?? "its group"}`;
+      const w = whereOf(a.where, "layout.move", "right");
+      return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${a.to}`}`;
+    },
     args: {
       to: { type: "string", optional: true, tile: true, about: "the tile it goes beside or into (not needed for an edge)" },
       where: { type: "string", optional: true, about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
@@ -466,7 +471,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "^W G (a group: spills it; picked tiles: gathers them; in a split: asks this tile or the whole split); a click on ■ spill on a group's header; the tile menu",
     touches: "shape", replay: "ask", confirms: true,
     says: r => (r.asked ? `${r.tile}: this tile or the whole split?` : r.spilled ? `spilled ${r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.tile}`),
-    menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", args: { ask: true }, now: ({ d, reader }, _t, actor) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : d.pickedBy(actor).length > 1 ? { label: `gather the ${d.pickedBy(actor).length} picked tiles into a group` } : null) },
+    menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", args: { ask: true }, now: ({ d, reader }, _t, actor) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : d.pickedBy(actor).length >= 1 ? { label: `gather the ${d.pickedBy(actor).length} picked tiles into a group` } : null) },
     args: {
       on: { type: "boolean", optional: true, about: "true gathers, false spills a group back; default: a group spills, any other tile is gathered" },
       node: { type: "string", optional: true, about: "a container (its id from layout.get, or its key) to gather whole, in place of tile=" },
@@ -482,7 +487,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       if (pl === "tabs" || pl === "next" || pl.startsWith("edge-")) throw new ActionRefused("tile.group: where is right, left, up or down");
       if (!(on ?? !d.isGroup(reader))) return d.ungroupTile(reader, actor);
       const alone = node === undefined && w === undefined;
-      if (selected || (ask && alone && d.pickedBy(actor).length > 1)) return d.groupTiles(d.pickedBy(actor), { where: pl as Dir, name, label }, actor);
+      if (selected || (ask && alone && d.pickedBy(actor).length >= 1)) return d.groupTiles(d.pickedBy(actor), { where: pl as Dir, name, label }, actor);
       if (ask && alone && actor.kind !== "agent") { const offer = d.gatherOffer(reader); if (offer) return d.askGather(reader, offer); }
       return d.groupTile(reader, { node, with: w, where: pl as Dir, name, label }, actor);
     },
@@ -491,7 +496,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "move tile=<tile> into a group on this screen whole (group=<its tile>; with several groups and none named, the person picks one), or, on a tile of a group's screen, back out onto the screen holding it. A shorthand for layout.move into=<group> / out=true, which also place it (beside=, where=)",
     keys: "^W i; the tile menu",
     touches: "shape", replay: "safe", confirms: true,
-    says: r => `moved ${r.tile} ${r.out ? `out of ${r.from}` : `into ${r.into}`}`,
+    says: r => `moved ${r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`,
     menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
     args: { group: { type: "string", optional: true, tile: true, about: "the group tile to move it into" } },
     run({ group }, { d, reader }, actor) {
