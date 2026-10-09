@@ -103,6 +103,9 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - **No parallel implementation:** does it add a second reader, body renderer, pane model, search, editor,
   completion, presence view, parser or action path next to an existing one? A parallel implementation needs a
   reason written in the PR.
+- **Properties are open:** does a filter, group, sort or picker work for any property name, through the query
+  grammar and the service's facets? A list of property keys in client code is a finding
+  ([AGENTS.md](AGENTS.md#properties-are-open)).
 - **One grammar:** do keys, layout operations and terms match the glossary and the other screens? For layout,
   the words are block, tile, container and screen ([Layout](packages/door/docs/UI-GRAMMAR.md#layout-block-tile-container-screen)).
 - **Did you really?** List each shared part the brief or PR said it would use, and check the diff actually uses

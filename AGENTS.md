@@ -105,6 +105,23 @@ page links, components). It makes no promise of Markdown compatibility and devia
 Markdown is a render target (export, the publisher, MCP), not the source's definition. Say "Blockdown" for the
 source; the grammars are outline-core's ([glossary](packages/door/docs/UI-GRAMMAR.md#reading-and-editing-the-note-surface)).
 
+## Properties are open
+
+The schema is fluid: a note's properties are whatever its author wrote (`[key::value]`), and new keys appear every day.
+So no client or component hard-codes which properties can be filtered, grouped or sorted on.
+
+- Anything that narrows, groups or sorts notes takes the views' query grammar (`where=`/`query=`, the outliner's
+  `block-query.ts` with outline-core's atoms) and a property *name* (`group=`, `sort=`), and the service answers it
+  (`blocks.query`, `blocks.facets`). A control that offers choices lists the properties and values the rows actually
+  have (facets), never a list in code.
+- A familiar filter (Kind, Stage, the bookkeeping fold) is a saved query or a rule note in the outline, not a branch in
+  a client.
+- A property's *meaning* is still allowed in code where a part owns it: the workboard owns `work-stage` and `work-id`,
+  the outbox its states. What's not allowed is a filter, group or sort that works for those keys and not for the next
+  one someone writes.
+- A query that names a property nobody has written answers "no notes have `<key>`" with the nearest keys that do
+  exist, never a silent empty list.
+
 ## Mouse and agents are first-class
 
 - Every action works by mouse, by keys and through `act`. Define it as an action in an `ActionSet`
