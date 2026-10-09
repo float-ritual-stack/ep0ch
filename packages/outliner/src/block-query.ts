@@ -1,4 +1,5 @@
-import { matchesFilters, normalizePropertyKey } from "./properties";
+import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
+import { QueryAtomError, isQueryAtomWord, parseQueryAtom, tagMatches } from "@ep0ch/outline-core/query-atoms";
 import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
   Block,
@@ -210,6 +211,11 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
       quoteStart = index;
       continue;
     }
+    // `links:[[a page]]` and `under:[[a page]]` keep a page name's spaces.
+    if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|under):$/i.test(input.slice(start, index))) {
+      const close = input.indexOf("]]", index + 2);
+      if (close >= 0 && !input.slice(index, close).includes("\n")) { index = close + 1; continue; }
+    }
     if (/\s/.test(character)) {
       tokens.push({ text: input.slice(start, index), start });
       start = -1;
@@ -335,6 +341,7 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
         simple = false;
       } else {
         tokens.push({ kind: "word", text, start });
+        if (isQueryAtomWord(text)) simple = false;
       }
     }
     for (let index = 0; index < closing; index += 1) {
@@ -515,6 +522,14 @@ class ExpressionParser {
       }
       return { kind: "time", field, op: comparison.op, value: value.text };
     }
+    if (isQueryAtomWord(token.text)) {
+      try {
+        return parseQueryAtom(token.text)!;
+      } catch (error) {
+        if (error instanceof QueryAtomError) syntaxError(error.message, token.start);
+        throw error;
+      }
+    }
     // `child:key=value` holds when a direct child has the property. `:` was never
     // valid in a key, so no query that parsed before changes meaning.
     const relation = /^child:/i.test(token.text) ? "child" as const : undefined;
@@ -566,6 +581,24 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
       parseQueryTime(expression.value);
       return { kind: "time", field: expression.field, op: expression.op, value: expression.value.trim() };
     }
+    case "tag":
+    case "links":
+    case "under":
+    case "title":
+    case "text": {
+      if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
+      const word = expression.kind === "tag" ? `#${String(expression.tag)}`
+        : expression.kind === "links" || expression.kind === "under" ? `${expression.kind}:${String(expression.target)}`
+        : `${expression.kind}~"${String(expression.text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+      try {
+        const atom = parseQueryAtom(word);
+        if (!atom || atom.kind !== expression.kind) throw new BlockQueryError(`Query atom ${word} is not a ${expression.kind} atom`);
+        return atom;
+      } catch (error) {
+        if (error instanceof QueryAtomError) throw new BlockQueryError(error.message);
+        throw error;
+      }
+    }
     case "not":
       return { kind: "not", operand: normalizeQueryExpression(expression.operand, depth + 1, leaves) };
     case "and":
@@ -581,7 +614,21 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
   }
 }
 
+/**
+ * What the relation atoms read, from the service: a target named the way a person types it resolved to a block id (it
+ * throws a corrective error when none is), the ids of the blocks linking to it (the backlink index), and whether a block
+ * sits in a subtree. Without it `links:` and `under:` hold for nothing, and `title~`, `text~` and `#tag` still answer from
+ * the block itself.
+ */
+export interface QueryRelations {
+  resolve(atom: "links" | "under", target: string): string;
+  linkSources(blockId: string): ReadonlySet<string>;
+  within(blockId: string, rootId: string): boolean;
+}
+
 export interface QueryExpressionSubject {
+  id?: string;
+  text?: string;
   createdAt: string;
   updatedAt: string;
   /** The block's active direct children's properties, for `child:` clauses; without it they never match. */
@@ -595,8 +642,30 @@ export type CompiledQueryExpression = (
 ) => boolean;
 
 /** Resolve relative times once, at `now`, and return a predicate over one block. */
-export function compileQueryExpression(expression: QueryExpression, now = Date.now()): CompiledQueryExpression {
+export function compileQueryExpression(expression: QueryExpression, now = Date.now(), relations?: QueryRelations): CompiledQueryExpression {
   switch (expression.kind) {
+    case "tag": {
+      const tag = expression.tag;
+      return (_subject, properties) => tagMatches(properties.filter(p => p.key === "tag").map(p => p.value), tag);
+    }
+    case "title": {
+      const needle = expression.text.toLowerCase();
+      return subject => titleOf(subject.text ?? "").toLowerCase().includes(needle);
+    }
+    case "text": {
+      const needle = expression.text.toLowerCase();
+      return subject => (subject.text ?? "").toLowerCase().includes(needle);
+    }
+    case "links": {
+      if (!relations) return () => false;
+      const sources = relations.linkSources(relations.resolve(expression.kind, expression.target));
+      return subject => subject.id !== undefined && sources.has(subject.id);
+    }
+    case "under": {
+      if (!relations) return () => false;
+      const root = relations.resolve(expression.kind, expression.target);
+      return subject => subject.id !== undefined && relations.within(subject.id, root);
+    }
     case "property": {
       const filter = [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
       if (expression.relation === "child") {
@@ -629,15 +698,15 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       };
     }
     case "not": {
-      const operand = compileQueryExpression(expression.operand, now);
+      const operand = compileQueryExpression(expression.operand, now, relations);
       return (subject, properties, scope) => !operand(subject, properties, scope);
     }
     case "and": {
-      const operands = expression.operands.map(operand => compileQueryExpression(operand, now));
+      const operands = expression.operands.map(operand => compileQueryExpression(operand, now, relations));
       return (subject, properties, scope) => operands.every(operand => operand(subject, properties, scope));
     }
     case "or": {
-      const operands = expression.operands.map(operand => compileQueryExpression(operand, now));
+      const operands = expression.operands.map(operand => compileQueryExpression(operand, now, relations));
       return (subject, properties, scope) => operands.some(operand => operand(subject, properties, scope));
     }
   }
@@ -648,9 +717,19 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
   switch (expression.kind) {
     case "property": return expression.relation ? [] : [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
     case "time":
+    case "tag":
+    case "links":
+    case "under":
+    case "title":
+    case "text":
     case "not": return [];
     default: return expression.operands.flatMap(positivePropertyFilters);
   }
+}
+
+/** A block's title: its first line without property tokens. */
+function titleOf(text: string): string {
+  return firstLineWithoutPropertyTokens(text)?.trim() ?? "";
 }
 
 export function normalizeBlockSearchQuery(

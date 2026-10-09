@@ -154,7 +154,7 @@ one.
 
 - A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
   `[sort::]`, `[limit::]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
-  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d`. Its rows are the canonical
+  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d` and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `under:[[page]]` (the subtree) and `title~text` / `text~text` (caseless substrings; quote spaces). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged. Its rows are the canonical
   blocks, not copies: to change what's in a view, change the blocks' properties.
 - A **board** is any block with two or more view children: the **hub**. Each view is a column (a lane), in
   order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it; its

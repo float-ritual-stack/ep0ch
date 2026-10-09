@@ -506,7 +506,7 @@ const PLOT_JOBS_NOTE = [
   ...fig("tabs", ["title: Plot jobs", 'query: "type=plot-job"', "group: stage", "order: [doing, review, validate]", "columns: [title, priority]", "sort: created", "direction: asc"]),
 ].join("\n").trimEnd();
 
-function figuresText(gardenViewId: string): string {
+function figuresText(gardenViewId: string, choresId: string): string {
   return [
     `${SEED.figures} [page::${SEED.figures}]`,
     "",
@@ -522,6 +522,7 @@ function figuresText(gardenViewId: string): string {
     ...fig("meter", ["title: Chores done (live)", 'query: "type=chore"', 'done: "stage=done"']),
     ...fig("table", ["title: Chore queue by rank (live)", 'query: "type=chore"', "sort: rank", "direction: asc", "columns: [title, rank, area]", "headers: [Chore, Rank, Area]"]),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
+    ...fig("check", ["title: Chores still to do, by relation (live)", `query: "under:((${choresId})) type=chore NOT stage=done NOT title~hob"`, "note: due"]),
     ...fig("funnel", ["title: Seed to plate", "steps:", "  - { label: sown, value: 40 }", "  - { label: sprouted, value: 31 }", "  - { label: planted out, value: 24 }", "  - { label: harvested, value: 18 }"]),
     ...fig("waterfall", ["title: The food budget", "items:", "  - { label: start, value: 120 }", "  - { label: market, value: -45 }", "  - { label: plot saved, value: 20 }", "  - { label: end, value: 95 }"]),
     ...fig("spark", ["title: Rain this week (mm)", "data: [2, 0, 5, 11, 3, 0, 7]", "caption: Mon to Sun"]),
@@ -837,7 +838,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
-  notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
+  notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
   notes.recipe = await make(notes.root.id, RECIPE);
