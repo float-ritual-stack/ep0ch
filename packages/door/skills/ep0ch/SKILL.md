@@ -94,6 +94,10 @@ only when the person asked for it.
   names (its `door.sock` in `~/.local/state/ep0ch-door/sessions/<local or machine>/<name>/`), else the only door
   running — **usually the person's own door.** With several running and none named, the command prints the
   `EP0CH_CONTROL=…` to use for each.
+  A dead `EP0CH_CONTROL` or a stale Herdr pane id falls through to the next rule, so a Claude that doesn't descend from a
+  tile (a background job, a resumed session) still reaches its folder's door. `ep0ch where` (and `ep0ch doctor`) say which
+  rule matched, and that you are not in a tile of it, so your keys are not the person's; the Claude mod then offers
+  `door_*`, acting as an agent. With no door running it says so, with the command that starts one.
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
   it with `ep0ch try … --copy` or against a scratch service with `--no-daemon` (else it runs as a session that

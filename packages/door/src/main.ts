@@ -220,11 +220,12 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
       process.exit(args[0] === "open" && args.includes("--json") ? 0 : 1);
     }
     process.env.EP0CH_CONTROL = at;
-  } else if (process.env.EP0CH_PLACE) {
+  } else {
     // A program in a door's tile: its door as it is now, by its outline's session, never the socket it started with
     // alone (a handover or restart moves the door to a new process; PIE-604). `ep0ch where` says when that happened.
-    const { reachControl } = await import("./control");
-    const reached = await reachControl();
+    // An EP0CH_CONTROL with no door (a stale one, PIE-715) falls through to the folder's outline's door, then the only one.
+    const { resolveDoor } = await import("./door-resolve");
+    const reached = await resolveDoor();
     if (reached.path) process.env.EP0CH_CONTROL = reached.path;
   }
   process.exit(await controlClient(args));
