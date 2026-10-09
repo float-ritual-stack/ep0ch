@@ -657,7 +657,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const here = this.pathDown(pane);
     if (here !== undefined) return here;
     const h = this.holder?.desk();
-    if (h) { const up = h.pathTo(pane); return up === undefined ? undefined : `../${up}`; }
+    if (h) { const up = h.pathTo(pane); return up === undefined ? undefined : up.startsWith("@") ? up : `../${up}`; }
     const host = this.ctx?.hostLayer;
     for (const d of host?.desks() ?? []) {
       if (d.top() === this) continue;
@@ -678,7 +678,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       if (part === "..") { d = d.holder?.desk() ?? null; if (!d) return undefined; continue; }
-      if (part.startsWith("@") && i === 0) { d = this.hostDesk(part.slice(1)) ?? null; if (!d) return undefined; continue; }
+      if (part.startsWith("@")) { d = this.hostDesk(part.slice(1)) ?? null; if (!d) return undefined; continue; }
       const p = d.pane(part);
       if (i === parts.length - 1) return p;
       d = p instanceof ScreenTile ? p.inner : null;
@@ -692,10 +692,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!e) return undefined;
     if (!e.pane && e.path) e.pane = this.paneAtPath(e.path);
     if (!e.pane) return undefined;
-    const desk = this.relatives().find(d => d.idOf(e.pane!) !== undefined);
+    let desk = this.relatives().find(d => d.idOf(e.pane!) !== undefined);
+    // A tile that went with its desk (the drawer's made again, the screen replaced) may be back under its path already.
+    if (!desk && e.path?.includes("@")) { e.pane = this.paneAtPath(e.path); desk = e.pane ? this.relatives().find(d => d.idOf(e.pane!) !== undefined) : undefined; }
     // A link across the host's edge (the drawer's list → a reader of the screen) waits for its tile: the screen shown can
     // change, the drawer shut and opened, and the link is still its path (PIE-700).
-    if (!desk) { if (e.path?.includes("@")) e.pane = undefined; else if (e.found) this.ext.delete(id); return undefined; }
+    if (!desk || !e.pane) { if (e.path?.includes("@")) e.pane = undefined; else if (e.found) this.ext.delete(id); return undefined; }
     e.found = true;
     return { pane: e.pane, desk, role: e.role };
   }
