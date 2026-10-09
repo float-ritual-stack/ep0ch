@@ -522,7 +522,7 @@ function figuresText(gardenViewId: string, choresId: string): string {
     ...fig("meter", ["title: Chores done (live)", 'query: "type=chore"', 'done: "stage=done"']),
     ...fig("table", ["title: Chore queue by rank (live)", 'query: "type=chore"', "sort: rank", "direction: asc", "columns: [title, rank, area]", "headers: [Chore, Rank, Area]"]),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
-    ...fig("check", ["title: Chores still to do, by relation (live)", `query: "under:((${choresId})) NOT stage=done NOT title~hob"`, "note: due"]),
+    ...fig("check", ["title: Chores still to do, by relation (live)", `query: "under:((${choresId})) type=chore NOT stage=done NOT title~hob"`, "note: due"]),
     ...fig("funnel", ["title: Seed to plate", "steps:", "  - { label: sown, value: 40 }", "  - { label: sprouted, value: 31 }", "  - { label: planted out, value: 24 }", "  - { label: harvested, value: 18 }"]),
     ...fig("waterfall", ["title: The food budget", "items:", "  - { label: start, value: 120 }", "  - { label: market, value: -45 }", "  - { label: plot saved, value: 20 }", "  - { label: end, value: 95 }"]),
     ...fig("spark", ["title: Rain this week (mm)", "data: [2, 0, 5, 11, 3, 0, 7]", "caption: Mon to Sun"]),
