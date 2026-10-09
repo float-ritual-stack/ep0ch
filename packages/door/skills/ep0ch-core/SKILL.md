@@ -27,7 +27,7 @@ use `ep0ch`.
 | build or change an extension | packages/outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
 | change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": one `PROTOCOL` in outline-core, bumped by any wire change, and a mismatch refused; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/`, run by `ep0ch install --apply` on each machine and deleted. No runtime compat, ever |
 | change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client |
-| need the whole picture | the architecture map, `packages/door/docs/architecture/map.json`: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` in packages/door checks its citations and draws it; after code moves, `--sync` moves each citation to its marker and stamps the commit, and a new shared part gets a structure in the map |
+| need the whole picture | the architecture map, `packages/door/docs/architecture/map.json`: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` in packages/door checks its citations and draws it; after code moves, `--sync` (in the push-review round, with `--check`) moves each citation to its marker and stamps the commit, and a new shared part gets a structure in the map |
 
 Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
 

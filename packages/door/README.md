@@ -41,7 +41,7 @@ marker (a snippet of the cited code) and a line: in packages/door, `bun scripts/
 every line to where its marker is now and stamps the commit (it lists the markers the code no longer has, for a
 person to rewrite), then `bun scripts/architecture-map.ts` checks the citations against both checkouts and draws
 the isometric map as one page, `out/architecture-map.html` (open it in a browser; `#ch13` shows every part).
-`test/architecture-map.test.ts` fails when a citation has drifted, and says to run `--sync`.
+`test/architecture-map.test.ts` fails only when a cited file or marker is gone; the line-exact `--check` is the push-review round's, so one PR's line shifts don't fail another.
 
 ## Getting started
 

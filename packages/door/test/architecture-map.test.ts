@@ -1,7 +1,7 @@
 // The architecture map's data holds together, draws, and still points at the code it names. A citation is a file, a
 // marker (a snippet of the cited code) and a line; the marker is the identity and the line its address, so code that
-// moves under a citation fails the test below with the one command that fixes it (`--sync`), and a file or symbol that
-// is gone fails with what to rewrite. The map can't quietly rot (PIE-711: 192 of its citations had).
+// moves is the push-review round's to fix (`--check` is line-exact; `--sync` moves the lines), not every PR's: this test
+// fails only on rot that misleads, a cited file that is gone or one that no longer holds its marker (PIE-711).
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,9 +23,9 @@ describe("architecture map", () => {
     expect(shapeProblems(d)).toEqual([]);
   });
 
-  test("every citation is on the line of the code it names, in a file that exists", () => {
-    const problems = citationProblems(d);
-    expect(problems.length ? `${problems.length} citation(s) drifted; run \`bun scripts/architecture-map.ts --sync\` in packages/door, then fix what it lists\n${problems.slice(0, 20).join("\n")}` : "").toBe("");
+  test("every cited file exists and still holds the code its citation names", () => {
+    const problems = citationProblems(d, undefined, { exactLine: false });
+    expect(problems.length ? `${problems.length} citation(s) lost their code; rewrite them (\`bun scripts/architecture-map.ts --sync\` lists them)\n${problems.slice(0, 20).join("\n")}` : "").toBe("");
   });
 
   test("the stamp names a commit", () => {
@@ -51,6 +51,7 @@ describe("architecture map", () => {
       expect(moved).toBe(1);
       expect(lost.length).toBe(2);
       expect(citationProblems(map, checkout).length).toBe(2);
+      expect(citationProblems({ ...map, structures: [{ ...map.structures[0]!, refs: [ref("a.ts", 5, "export const A")] }] }, checkout, { exactLine: false })).toEqual([]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -131,7 +131,8 @@ export function shapeProblems(d: MapData): string[] {
 }
 
 /** Every citation checked against the checkouts: the cited line must contain what the map says is there. */
-export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
+export function citationProblems(d: MapData, checkout = CHECKOUT, o: { exactLine?: boolean } = {}): string[] {
+  const exact = o.exactLine ?? true;
   const out: string[] = [];
   const cache = new Map<string, string[] | null>();
   const lines = (r: RepoId, p: string) => {
@@ -146,6 +147,10 @@ export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
     const ls = lines(ref.r, ref.p);
     if (!ls) return out.push(`${where}: ${ref.r} ${ref.p} doesn't exist in ${checkout[ref.r]}`);
     const at = ls[ref.l - 1];
+    if (!exact) {
+      if (!ls.some(l => l.includes(ref.m))) out.push(`${where}: ${ref.p} no longer has ${JSON.stringify(ref.m)}`);
+      return;
+    }
     if (at === undefined || !at.includes(ref.m)) {
       const found = ls.findIndex(l => l.includes(ref.m));
       out.push(`${where}: ${ref.p}:${ref.l} doesn't contain ${JSON.stringify(ref.m)}${found >= 0 ? ` (it's at line ${found + 1})` : " (not in the file)"}`);
