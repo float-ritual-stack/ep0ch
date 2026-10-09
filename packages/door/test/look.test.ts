@@ -413,6 +413,14 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await until(() => v("pad.x").from === "page", "the variant reset first", 5000);
       d.key({ kind: "char", ch: "x" });
       await until(() => v("pad.x").from === "screen detail", "then the plain value: the screen's shows", 5000);
+      // Reset level asks in place, in the person's inspector: X shows [confirm]; any other key keeps them.
+      d.key({ kind: "char", ch: "+" });
+      await until(() => tuningOf(b2).unsavedCount() > 0, "a nudge on the page", 5000);
+      d.key({ kind: "char", ch: "X" });
+      await until(() => d.lines().some(l => l.includes("[confirm]")), "asked in place", 5000);
+      expect(tune().describe(d.desk).armed).toMatchObject({ action: "tune.resetlevel" });
+      d.key({ kind: "char", ch: "j" });
+      await until(() => !tune().describe(d.desk).armed, "kept", 5000);
       d.key({ kind: "tab" });
     } finally { d.close(); b2.close(); }
   }, 40_000);
@@ -448,14 +456,26 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(tuningOf(b3).unsavedCount()).toBe(1);
       await act("tune.redo");
       expect(await text(target)).toContain(`[style.measure::${m0 + 8}]`);
+      // Two saves to one note, both taken back and done again: each step names the revision the session left it at.
+      await act("tune.nudge", { row: "list.gap", by: 1 }); await act("tune.save");
+      await act("tune.nudge", { row: "list.gap", by: -1 }); await act("tune.save");
+      const gap2 = (await text(target)).match(/\[style\.list\.gap::(\d)\]/)![1];
+      const back4 = async () => { const said: string[] = []; for (let i = 0; i < 4; i++) said.push((await act("tune.undo")).words); return said; };
+      expect(await back4()).toEqual([expect.stringContaining("save of style.list.gap"), expect.stringContaining("list.gap"), expect.stringContaining("save of style.list.gap"), expect.stringContaining("list.gap")]);
+      expect(await text(target)).not.toContain("[style.list.gap::");
+      for (let i = 0; i < 4; i++) await act("tune.redo");
+      expect(await text(target)).toContain(`[style.list.gap::${gap2}]`);
+      await back4();
+      expect(await text(target)).not.toContain("[style.list.gap::");
       // Reset value: the page's own measure taken away, then saved off the note.
       expect(await act("tune.unset", { row: "measure" })).toMatchObject({ row: "measure" });
       await act("tune.save");
       expect(await text(target)).not.toContain("[style.measure::");
       // Reset level, asked in place: the screen's style notes lose every value they set here; undone, back.
       await act("tune.level", { level: "screen" });
-      expect(await act("tune.resetlevel")).toMatchObject({ armed: true, words: expect.stringMatching(/^reset screen detail: \d+ values off \d+ style notes?/) });
-      await until(() => d.lines().some(l => l.includes("[confirm]")), "asked in place", 5000);
+      // An agent is told to confirm; the person's inspector isn't armed by it.
+      expect(await act("tune.resetlevel")).toMatchObject({ armed: true, confirm: expect.stringContaining("confirm=true"), words: expect.stringMatching(/^reset screen detail: \d+ values off \d+ style notes?/) });
+      expect(tune().describe(d.desk).armed).toBeUndefined();
       expect(await text(level.id)).toContain("[style.list.gap::2]");
       expect(await act("tune.resetlevel", { confirm: true })).toMatchObject({ reset: "screen detail" });
       expect(await text(level.id)).not.toMatch(/\[style\./);

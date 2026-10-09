@@ -70,10 +70,10 @@ const copyOf = (m: Snapshot): Snapshot => new Map([...m].map(([k, v]) => [k, new
 
 /**
  * One note's style properties written by the inspector (a save, a level reset, a revert, or one of their undos):
- * property → value before and after (null: not set), and the revision the note was left at, which an undo or redo
- * names so a note changed since is refused, never overwritten.
+ * property → its values before and after, in order (none: not set; a key written twice keeps both), and the revision the
+ * note was left at.
  */
-export interface NoteWrite { note: string; before: Record<string, string | null>; after: Record<string, string | null>; revision: number }
+export interface NoteWrite { note: string; before: Record<string, string[]>; after: Record<string, string[]>; revision: number }
 
 /**
  * A step of the session's history (PIE-675): a nudge (or a value taken away or let go) in memory, or a write to the
@@ -101,8 +101,12 @@ export class Tuning {
   layers: Snapshot = new Map();
   private history: TuneStep[] = [];
   private redos: TuneStep[] = [];
-  /** Each style note this session wrote: its style properties before the first write, and the revision it was left at. */
-  readonly baseline = new Map<string, Record<string, string | null>>();
+  /**
+   * Each style note this session wrote: its style properties as they were before the first write (read at the revision
+   * that write patched, kept only once it succeeded), and the revision the session last left it at: what an undo, a redo
+   * and a revert name, so a note changed since by anyone else is refused.
+   */
+  readonly baseline = new Map<string, Record<string, string[]>>();
   readonly last = new Map<string, number>();
   /** Bumped by every change: a reader's layout cache keys on it. */
   gen = 0;
@@ -338,40 +342,47 @@ export interface StyleWriteBoard {
 /** Words for a target: `global`, `tile detail`, `screen desk`, `this page`. */
 export const targetWords = (t: TuneTarget) => (t === "global" ? "global" : t.startsWith("page:") ? "this page" : t.includes(":") ? t.replace(":", " ") : `style ${t}`);
 
-/** A note's style properties (`style.…`), each as written (its first value). */
-function styleProps(m: Msg): Record<string, string> {
-  return Object.fromEntries(Object.entries(m.props ?? {}).filter(([k]) => k.toLowerCase().startsWith("style.")).map(([k, v]) => [k, String(Array.isArray(v) ? v[0] : v)]));
-}
+/** A note's style property keys (`style.…`). */
+const styleKeys = (m: Msg) => Object.keys(m.props ?? {}).filter(k => k.toLowerCase().startsWith("style."));
+
+/** A value to write: a value, several in order, or none (null: removed). */
+type Want = string | readonly string[] | null;
+const valuesOf = (v: Want): string[] => (v === null ? [] : typeof v === "string" ? [v] : [...v]);
 
 /**
- * Writes style properties onto note `note` as `actor`, one attributed patch: each key to its value, or removed (null; every
- * one of the note's own, so a value written twice can't show again). `expected`: the revision it must still be at (an
- * undo, a redo, a revert, a reset), else it's refused naming the note; null reads it fresh (a save). The first write of
- * a note this session keeps what it had (Tuning.baseline), for revert. Null when nothing changes.
+ * Writes style properties onto note `note` as `actor`, one attributed patch: each key to its values (a value, several
+ * in order, or none: every one of the note's own removed, so a value written twice can't show again). `expected`: the
+ * revision it must still be at (an undo, a redo, a revert, a reset), else it's refused naming the note; null reads it
+ * fresh (a save). The first write of a note this session keeps what all its style properties were at the revision it
+ * patched (Tuning.baseline, for revert), once the write succeeds. Null when nothing changes.
  */
-export async function writeNote(board: StyleWriteBoard, tuning: Tuning, note: string, want: Readonly<Record<string, string | null>>, expected: number | null, actor: Actor): Promise<NoteWrite | null> {
+export async function writeNote(board: StyleWriteBoard, tuning: Tuning, note: string, want: Readonly<Record<string, Want>>, expected: number | null, actor: Actor): Promise<NoteWrite | null> {
   const keys = Object.keys(want);
   if (!keys.length) return null;
-  if (!tuning.baseline.has(note)) {
-    const m = await board.get(note);
-    if (m) tuning.baseline.set(note, styleProps(m));
-  }
   for (let tries = 0; tries < 3; tries++) {
-    const reads = await Promise.all(keys.map(k => board.propertyTokens(note, k)));
+    // Every style key the note has (for the baseline) and every key written, read at one revision.
+    const m = tuning.baseline.has(note) ? null : await board.get(note);
+    const all = [...new Set([...keys, ...(m ? styleKeys(m) : [])])];
+    const reads = await Promise.all(all.map(k => board.propertyTokens(note, k)));
     const revision = reads[0]!.revision;
-    if (reads.some(r => r.revision !== revision)) continue;
+    if (reads.some(r => r.revision !== revision) || (m && m.revision !== undefined && m.revision !== revision)) continue;
     if (expected !== null && revision !== expected) throw new Error(`note ${note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
-    const before: Record<string, string | null> = {}, ops: PropertyPatch[] = [];
-    keys.forEach((k, i) => {
-      const own = reads[i]!.tokens.filter(x => x.scope === "block"), v = want[k]!;
-      before[k] = own[0]?.value ?? null;
-      if (v === null) ops.push(...own.map(x => ({ op: "remove" as const, ordinal: x.ordinal })));
-      else if (own[0]?.value !== v) ops.push(own[0] ? { op: "replace", ordinal: own[0].ordinal, value: v } : { op: "append", key: k, value: v });
-    });
+    const own = (k: string) => reads[all.indexOf(k)]!.tokens.filter(x => x.scope === "block");
+    const before: Record<string, string[]> = {}, after: Record<string, string[]> = {}, ops: PropertyPatch[] = [];
+    for (const k of keys) {
+      const have = own(k), next = valuesOf(want[k]!);
+      before[k] = have.map(x => x.value); after[k] = next;
+      // The same place for each value: replaced where it differs, the rest removed or appended.
+      have.forEach((x, i) => { if (i >= next.length) ops.push({ op: "remove", ordinal: x.ordinal }); else if (x.value !== next[i]) ops.push({ op: "replace", ordinal: x.ordinal, value: next[i]! }); });
+      for (const v of next.slice(have.length)) ops.push({ op: "append", key: k, value: v });
+    }
     if (!ops.length) return null;
-    const m = await board.patchProperties(note, revision, ops, actor);
-    tuning.last.set(note, m.revision ?? revision + 1);
-    return { note, before, after: { ...want }, revision: m.revision ?? revision + 1 };
+    const baseline = m ? Object.fromEntries(all.map(k => [k, own(k).map(x => x.value)])) : null;
+    const done = await board.patchProperties(note, revision, ops, actor);
+    const left = done.revision ?? revision + 1;
+    if (baseline && !tuning.baseline.has(note)) tuning.baseline.set(note, baseline);
+    tuning.last.set(note, left);
+    return { note, before, after, revision: left };
   }
   throw new Error("the style note kept changing while it was read: try again");
 }
@@ -396,7 +407,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     SHEETS.stale(board);
   };
   const onto = async (id: string, put: readonly { key: string; value: string }[], off: readonly string[]) => {
-    const want = Object.fromEntries([...put.map(p => [p.key, p.value] as const), ...off.map(k => [k, null] as const)]);
+    const want: Record<string, Want> = Object.fromEntries([...put.map(p => [p.key, p.value] as const), ...off.map(k => [k, null] as const)]);
     written([...put.map(p => p.key), ...off], await writeNote(board, t, id, want, null, actor));
   };
   let note = "", created = false;
@@ -421,7 +432,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
       // Made by this session: revert takes its values off again; its undo too.
       t.baseline.set(note, {});
       t.last.set(note, made.revision ?? 1);
-      written(sets.map(p => p.key), { note, before: Object.fromEntries(sets.map(p => [p.key, null])), after: Object.fromEntries(sets.map(p => [p.key, p.value])), revision: made.revision ?? 1 });
+      written(sets.map(p => p.key), { note, before: Object.fromEntries(sets.map(p => [p.key, []])), after: Object.fromEntries(sets.map(p => [p.key, [p.value]])), revision: made.revision ?? 1 });
     }
   }
   for (const [id, keys] of byNote) {
@@ -432,12 +443,16 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
   return { target, note, fields: [...sets.map(p => `${p.key}=${p.value}`), ...gone.map(g => `${g.key} removed`)], created };
 }
 
-/** Undoes (`back`) or redoes one write step's notes: each written as it was before (or after), at the revision it was left at. */
+/**
+ * Undoes (`back`) or redoes one write step's notes: each written as it was before (or after), at the revision this
+ * session last left it at (a later step's undo moved it on: that's the session's own, not a change by someone else).
+ * Every note is checked before any is written; one changed since by another door or an agent refuses the step.
+ */
 export async function rewrite(board: StyleWriteBoard, tuning: Tuning, writes: NoteWrite[], back: boolean, actor: Actor) {
-  // Every note checked before any is written: one changed since refuses the whole step.
-  for (const w of writes) { const m = await board.get(w.note); if (m && m.revision !== w.revision) throw new Error(`note ${w.note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`); }
+  const at = (w: NoteWrite) => tuning.last.get(w.note) ?? w.revision;
+  for (const w of writes) { const m = await board.get(w.note); if (m && m.revision !== at(w)) throw new Error(`note ${w.note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`); }
   for (const w of back ? [...writes].reverse() : writes) {
-    const r = await writeNote(board, tuning, w.note, back ? w.before : w.after, w.revision, actor);
+    const r = await writeNote(board, tuning, w.note, back ? w.before : w.after, at(w), actor);
     if (r) w.revision = r.revision;
   }
   SHEETS.stale(board);
@@ -455,39 +470,40 @@ export function levelNotes(src: ListSource | null | undefined, target: TuneTarge
   return { notes: [...notes].filter(([, n]) => n > 0).map(([id, fields]) => ({ id, fields })), lines: sheets.filter(s => s.line !== undefined).map(s => s.block) };
 }
 
-/** Clears every style property of `notes` (a level's reset), each at the revision read: the writes, for the step. */
-export async function clearNotes(board: StyleWriteBoard, tuning: Tuning, notes: readonly string[], actor: Actor): Promise<NoteWrite[]> {
-  const out: NoteWrite[] = [];
-  for (const id of notes) {
-    const m = await board.get(id);
-    if (!m) continue;
-    const w = await writeNote(board, tuning, id, Object.fromEntries(Object.keys(styleProps(m)).map(k => [k, null])), m.revision ?? null, actor);
-    if (w) out.push(w);
-  }
-  SHEETS.stale(board);
-  return out;
+/** Clears every style property of `notes` (a level's reset), each at the revision read; each write goes into `done` as it's made. */
+export async function clearNotes(board: StyleWriteBoard, tuning: Tuning, notes: readonly string[], actor: Actor, done: NoteWrite[] = []): Promise<NoteWrite[]> {
+  try {
+    for (const id of notes) {
+      const m = await board.get(id);
+      if (!m) continue;
+      const w = await writeNote(board, tuning, id, Object.fromEntries(styleKeys(m).map(k => [k, null])), m.revision ?? null, actor);
+      if (w) done.push(w);
+    }
+  } finally { SHEETS.stale(board); }
+  return done;
 }
 
 /**
  * Puts every style note this session wrote back as it was before the first write (saved changes too), each at the
- * revision this session left it at: one changed since by another door or an agent refuses the whole revert, naming it.
+ * revision this session left it at: one changed since by another door or an agent refuses the whole revert, naming it,
+ * before anything is written. Each write goes into `done` as it's made (a refusal part way keeps the ones made, for undo).
  */
-export async function revertAll(board: StyleWriteBoard, tuning: Tuning, actor: Actor): Promise<NoteWrite[]> {
+export async function revertAll(board: StyleWriteBoard, tuning: Tuning, actor: Actor, done: NoteWrite[] = []): Promise<NoteWrite[]> {
   const now = new Map<string, Msg>();
   for (const id of tuning.baseline.keys()) {
     const m = await board.get(id);
     if (!m) continue;
-    if (tuning.last.has(id) && m.revision !== tuning.last.get(id)) throw new Error(`note ${id.slice(0, 8)} changed since you started (by another door or an agent): refused, nothing reverted`);
+    if (m.revision !== tuning.last.get(id)) throw new Error(`note ${id.slice(0, 8)} changed since you started (by another door or an agent): refused, nothing reverted`);
     now.set(id, m);
   }
-  const out: NoteWrite[] = [];
-  for (const [id, m] of now) {
-    const base = tuning.baseline.get(id)!, keys = new Set([...Object.keys(styleProps(m)), ...Object.keys(base)]);
-    const w = await writeNote(board, tuning, id, Object.fromEntries([...keys].map(k => [k, base[k] ?? null])), m.revision ?? null, actor);
-    if (w) out.push(w);
-  }
-  SHEETS.stale(board);
-  return out;
+  try {
+    for (const [id, m] of now) {
+      const base = tuning.baseline.get(id)!, keys = new Set([...styleKeys(m), ...Object.keys(base)]);
+      const w = await writeNote(board, tuning, id, Object.fromEntries([...keys].map(k => [k, base[k] ?? null])), m.revision ?? null, actor);
+      if (w) done.push(w);
+    }
+  } finally { SHEETS.stale(board); }
+  return done;
 }
 
 export type { ResolvedStyle };
