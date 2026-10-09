@@ -94,6 +94,8 @@ export interface TileKind {
   readonly linkRole?: "preview" | "target";
   /** Its selection drives previews (it calls `desk.showFrom`): a link from it has a role worth saying on its header. */
   readonly previews?: true;
+  /** In the drawer its picks open notes on the screen shown (it has no reader of its own): alt+l links it to one, else its header says which reader an open lands in now (PIE-700). */
+  readonly opensOnScreen?: true;
   /**
    * Its opens land in the tile it lists (`origin`: the links tile's source) when that tile keeps its note and no link or
    * container says otherwise: ⏎ on a link opens it in the reader it came from, alt+⏎ in a new detail beside it (PIE-646).
