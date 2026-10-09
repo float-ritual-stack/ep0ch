@@ -127,6 +127,24 @@ export function sessionWorkspaceOf(
 }
 
 /**
+ * The workspace a session in a door tile works in (PIE-755): the outline the
+ * answering door shows, whatever the folder names. The folder's own binding is
+ * kept when it names that outline (its root, its pinned machine); else the
+ * session's starting folder is the root and the door's outline is pinned. No
+ * answering door: the folder's binding as it is.
+ */
+export function doorWorkspaceOf(
+  door: { answers: boolean; outline: string | null; machine: string | null } | null | undefined,
+  cwd: string,
+  folder: Workspace | null,
+): Workspace | null {
+  if (!door?.answers || !door.outline) return folder
+  const machine = door.machine ?? undefined
+  if (folder?.outline === door.outline && (folder.machine ?? undefined) === machine) return folder
+  return { root: cwd, outline: door.outline, ...(machine ? { machine } : {}), pinned: true }
+}
+
+/**
  * The reason in an Outliner CLI failure's stderr: Bun prints the thrown
  * error's source excerpt, then `error: <message>`, its stack and a `Bun v…`
  * trailer, so the last line never says why. Falls back to the last line that
