@@ -26,7 +26,8 @@ function decode(bytes: string, sink?: string[]): Key[] {
   return out;
 }
 
-afterEach(() => { useHyper(null); delete process.env.EP0CH_HYPER; });
+const hyperEnv = process.env.EP0CH_HYPER;
+afterEach(() => { useHyper(null); if (hyperEnv === undefined) delete process.env.EP0CH_HYPER; else process.env.EP0CH_HYPER = hyperEnv; });
 
 describe("hyper chords as a terminal sends them", () => {
   test("off (the default), ⌃⌥⇧⌘ and a key is what it always was: super with the key; nothing is hyper", () => {
@@ -72,6 +73,10 @@ describe("hyper chords as a terminal sends them", () => {
     const sent: string[] = [];
     expect(decode("\x1b[107;5u", sent)).toEqual([]);                                     // ctrl+k is the program's
     expect(sent).toEqual(["\x1b[107;5u"]);
+    // The release of a hyper chord is the door's too: the program never sees half a chord.
+    const released: string[] = [];
+    expect(decode("\x1b[107;16:3u", released)).toEqual([]);
+    expect(released).toEqual([]);
     useHyper(false);
     const off: string[] = [];
     expect(decode("\x1b[107;16u", off)).toEqual([]);                                     // off: the program gets it as before
@@ -261,6 +266,59 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     await until(() => !rd.draft, "the edit left and saved");
     expect((await board.get(id))!.text).toContain("today");
   }, 30_000);
+
+  test("resize mode is sticky: one ^W then several resizes, esc leaves, another key leaves and is handled, ^W key repeat does not toggle", () => {
+    const t = names().find(n => !tile(n).typing && tile(n).rect)!;
+    focus(t);
+    const w = () => { render(); return tile(t).rect as { cols: number; rows: number }; };
+    const ctrlW = { kind: "char", ch: "w", ctrl: true } as Key;
+    const before = w();
+    key(ctrlW);
+    // Key repeat: more ^W while the prefix is pending are ignored, not a toggle.
+    key(ctrlW); key(ctrlW);
+    expect(D().prefix).toBe("wm");
+    key(char(">"));
+    expect(D().prefix).toBe("resize");
+    const once = w().cols;
+    expect(once).not.toBe(before.cols);
+    key(char(">")); key(char(">"));                                                     // no ^W needed
+    expect(w().cols).toBeGreaterThan(once);
+    key(ctrlW);                                                                          // repeat inside the mode: still in it
+    expect(D().prefix).toBe("resize");
+    key({ kind: "right" });                                                              // an arrow resizes too
+    expect(D().prefix).toBe("resize");
+    // - + do not fold in the mode; = evens
+    key(char("-"));
+    expect(tile(t).collapsed).toBeUndefined();
+    key(char("="));
+    expect(D().prefix).toBe("resize");
+    // Esc leaves, and nothing else happens
+    key({ kind: "esc" });
+    expect(D().prefix).toBe("");
+    // Outside the mode - folds again
+    key(char("-"));
+    expect(tile(t).collapsed).toBe(true);
+    key(char("-"));
+    // Another key leaves and is handled: Tab moves the focus
+    key(ctrlW); key(char("<"));
+    expect(D().prefix).toBe("resize");
+    const f0 = get().focus;
+    key({ kind: "tab" });
+    expect(D().prefix).toBe("");
+    expect(get().focus).not.toBe(f0);
+    // ⏎ leaves
+    focus(t);
+    key(ctrlW); key(char("+"));
+    key({ kind: "enter" });
+    expect(D().prefix).toBe("");
+  });
+
+  test("resize mode lets go after a few idle seconds", async () => {
+    focus(names()[0]!);
+    key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("<"));
+    expect(D().prefix).toBe("resize");
+    await until(() => D().prefix === "", "the idle timeout", 6000);
+  }, 10_000);
 
   test("every hyper binding is an action the door has (so each is also a key, a click and act)", () => {
     for (const b of HYPER_KEYS) expect(app.dispatch.has(b.action) || D().dispatch.has(b.action)).toBe(true);

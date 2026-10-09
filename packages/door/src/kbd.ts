@@ -47,6 +47,12 @@ export function parseReport(seq: string): (KeyReport & { length: number }) | nul
 
 const SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8;
 
+/** A report of ⌃⌥⇧⌘ held with a printable key (a release too), while the hyper layer is on: the door's, never a program's. */
+export function isHyperReport(r: KeyReport): boolean {
+  const kp = KEYPAD[r.code], code = typeof kp === "number" ? kp : r.code;
+  return typeof kp !== "object" && (r.mods & 15) === 15 && code > 32 && code !== 127 && !(code >= 0xe000 && code <= 0xf8ff) && code <= 0x10ffff && hyperOn();
+}
+
 /**
  * The keypad's private-use codes (sent under flag 1 for keys that type no text, and some terminals send them
  * for all keypad keys): the key each one stands for, as the codepoint of its text or the key itself.
@@ -74,7 +80,7 @@ export function reportKey(r: KeyReport): Key | null {
   const m = r.mods & 15, shift = !!(m & SHIFT), alt = !!(m & ALT), ctrl = !!(m & CTRL);
   // Hyper (⌃⌥⇧⌘ together, PIE-699) with a printable key, while the layer is on: its own kind, the base key whatever shift made of it.
   // Off, it's what it always was (super with the key), so a person who never turned it on loses nothing.
-  if (m === 15 && r.code > 32 && r.code !== 127 && !(r.code >= 0xe000 && r.code <= 0xf8ff) && r.code <= 0x10ffff && hyperOn()) return { kind: "hyper", ch: String.fromCodePoint(r.code).toLowerCase() };
+  if (isHyperReport(r)) return { kind: "hyper", ch: String.fromCodePoint(r.code).toLowerCase() };
   switch (r.code) {
     case 13: return alt ? { kind: "alt-enter" } : { kind: "enter", ...(shift ? { shift: true as const } : {}), ...(ctrl ? { ctrl: true as const } : {}) };
     case 27: return { kind: "esc" };

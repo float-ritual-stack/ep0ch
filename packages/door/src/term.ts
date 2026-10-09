@@ -1,7 +1,7 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
 import { SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
-import { KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
+import { isHyperReport, KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
 
@@ -285,7 +285,8 @@ export class KeyDecoder {
       this.pending = this.pending.slice(r.length);
       const k = reportKey(r);
       // The escape chord, and a hyper chord (PIE-699: the door's, whatever the tile is typing), stay the door's.
-      if ((k?.kind === "char" && k.ctrl && k.ch === "]") || k?.kind === "hyper") { this.lastSeq = seq; this.keyHandler(k); } else sink(seq);
+      if ((k?.kind === "char" && k.ctrl && k.ch === "]") || k?.kind === "hyper") { this.lastSeq = seq; this.keyHandler(k); }
+      else if (!isHyperReport(r)) sink(seq);                                           // a hyper chord's release is the door's too: dropped
       return true;
     }
     const m = this.pending.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/)!;

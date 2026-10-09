@@ -454,7 +454,7 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
     useCompletion(board, () => this.redraw());
@@ -966,8 +966,9 @@ export class App implements Ctx {
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private route(k: Key) {
     // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
-    if (this.probing && k.kind !== "mouse" && k.kind !== "paste") {
+    if (this.probing && k.kind !== "mouse") {
       if (k.kind === "esc") this.probeKeys(false);
+      else if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
       else { this.flash(describeKey(k, (this.term as { lastSeq?: string }).lastSeq ?? ""), 60_000); this.redraw(); }
       return;
     }

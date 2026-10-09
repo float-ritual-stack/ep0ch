@@ -2241,6 +2241,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       expect(tile(shell).collapsed).toBeUndefined();
       // keys.probe: describes the next chord, runs none; esc ends it.
       await app.dispatch.press("keys.probe");
+      expect((app as any).term.rawSink()).toBeNull();                                      // probing in a terminal tile: nothing goes to its program
       sent("\x1b[107;16u");
       const said = (app as any).message as string;
       expect(said).toContain("bytes CSI 107;16u");

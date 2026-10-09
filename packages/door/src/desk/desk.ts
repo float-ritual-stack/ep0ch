@@ -93,10 +93,17 @@ const TO_EDGE: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right"
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
 const ARROW: Record<string, string> = { left: "h", right: "l", up: "k", down: "j" };
 // The keys after ^W are the table in ./wkeys (W_KEYS): command() reads each one's binding from it.
+/**
+ * Resize mode (sticky): after ^W and a resize key (a W_KEYS row marked `sticky`) the door stays in it, and those keys resize
+ * the focused tile again with no ^W: the rows' own actions. h j k l and the arrows stand for < > - + by axis.
+ */
+const RESIZE_ALIAS: Record<string, string> = { h: "<", l: ">", k: "-", j: "+" };
+/** How long resize mode waits for a key before it lets go, in milliseconds. */
+const RESIZE_IDLE_MS = 4000;
 /** Bare keys that fold and unfold the focused tile (PIE-699), when nothing takes them: `-` folds it; `+` and `=` (the same key unshifted) open it. */
 const FOLD_KEYS = new Set(["-", "+", "="]);
 
-type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab";
+type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
 const REFLOW_MS = 4;
 /** While a resize goes on, how old a tile's view gets before it's drawn again though its size didn't change. */
@@ -933,6 +940,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   dispose(): void | "keep" {
     this.onScreen = false;
+    this.leaveResize();
     if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
@@ -2866,7 +2874,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
     if (this.prefix === "wm") this.hintBox = wBoxLines(this.wRows());
-    const s = this.prefix === "wm"
+    const s = this.prefix === "resize"
+      ? "|14resize|08 · |07< > - + |08(or |07h j k l|08) size the tile · |07= |08evens the layout · |07esc|08 or |07⏎|08 done · any other key leaves and does what it does"
+      : this.prefix === "wm"
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
@@ -3175,9 +3185,33 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // All the ^W keys: the power bar's actions scope on the ^W prefix, a list to filter (src/bar/sources.ts).
     "?": (_me, flash) => { if (this.ctx.press) void this.ctx.press("bar.open", { scope: "actions", query: "^W " }); else flash("the ^W list is the power bar's: this screen isn't given the door's actions"); },
   };
+  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Stay in (or enter) resize mode, and let go after RESIZE_IDLE_MS without a key. */
+  private armResize() {
+    this.prefix = "resize";
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.resizeTimer = setTimeout(() => { this.resizeTimer = null; if (this.prefix === "resize") { this.prefix = ""; this.redraw(); } }, RESIZE_IDLE_MS);
+  }
+  private leaveResize() {
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.resizeTimer = null;
+    if (this.prefix === "resize") this.prefix = "";
+  }
 
   private command(k: Key) {
     const mode = this.prefix;
+    // ^W held down repeats: while the prefix is pending (or resize mode is on) another ^W is ignored, not a toggle.
+    if (k.kind === "char" && k.ctrl && k.ch === "w" && (mode === "wm" || mode === "resize")) { if (mode === "resize") this.armResize(); return; }
+    if (mode === "resize") {
+      // Esc or ⏎ leaves; another key leaves and is handled as if typed outside the mode; a resize key resizes again.
+      if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
+      const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
+      const re = wKey(RESIZE_ALIAS[rc] ?? rc);
+      if (re?.sticky && re.how.k === "run") { this.armResize(); return this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : String(this.numberOf(this.focus))); }
+      this.leaveResize();
+      this.redraw();
+      return this.key(k, this.ctx);
+    }
     this.prefix = "";
     // A ctrl+letter isn't the letter: ^W then ctrl+x closes nothing.
     const c = k.kind === "char" ? (k.ctrl ? "" : k.ch) : ARROW[k.kind] ?? "";
@@ -3203,7 +3237,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
-      case "run": return this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? String(this.numberOf(this.focus)) : me);
+      case "run": {
+        const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? String(this.numberOf(this.focus)) : me);
+        // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
+        if (e.sticky) { this.armResize(); this.ctx.flash("resize · - + < > · h j k l · = evens · esc done", RESIZE_IDLE_MS); }
+        return done;
+      }
       case "special": return this.wSpecial[e.key as WSpecialKey](me, flash);
     }
     this.redraw();
