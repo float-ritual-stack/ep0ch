@@ -118,7 +118,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   const press = (...ks: Key[]) => { for (const k of ks) key(k); render(); };
   const chord = (c: string) => press({ kind: "char", ch: "w", ctrl: true } as Key, { kind: "char", ch: c } as Key);
-  const overlay = () => D().overlays.top() as { name: string; items: () => any[]; sel: number } | null;
+  const overlay = () => D().overlays.top() as { name: string; items: any[]; sel: number } | null;
   const groupName = () => get().tiles.find((t: any) => t.mount?.group)?.name as string | undefined;
   /** The desk's layout again: tree | reader | (thread over activity), the keys in the tree. */
   const fresh = async () => { await mine("layout.load", { name: "desk" }); render(); await mine("tile.focus", {}, "tree"); };
@@ -239,6 +239,9 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     // The last tile of a group out: the group is gone.
     const one = (await act("tile.group", {}, "activity")).tile;
     render();
+    // A place that isn't there is refused before anything is spilled.
+    await expect(me("layout.move", { out: true, beside: "nope" }, `${one}/activity`)).rejects.toThrow(/no tile nope/);
+    expect(names()).toContain(one);
     expect(await me("layout.move", { out: true }, `${one}/activity`)).toMatchObject({ out: true });
     render();
     expect(names()).not.toContain(one);
