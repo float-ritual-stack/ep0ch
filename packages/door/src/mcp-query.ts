@@ -4,7 +4,7 @@
 // (notes-cli.ts's selectNotes): this file pages that answer and turns the ids into block records. No second engine.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
-import { callRegistry } from "./mcp-calls";
+import { callRegistry, callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
 
 export const QUERY_LIMIT = { fallback: 20, max: 50 } as const;
@@ -23,7 +23,7 @@ export interface QueryAnswer {
   /** With `fold`: how many blocks matched before the derived ones were folded into their notes. */
   foldedFrom?: number;
   /** With `omitCall`: how many blocks only that call changed were left out (`includeOwn` keeps them). */
-  ownOmitted?: { call: string; handle: string; count: number; said: string };
+  ownOmitted?: { call: string; handle?: string; count: number; said: string };
   more: boolean;
   nextOffset?: number;
   truncated?: string;
@@ -65,7 +65,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
     if (mine.size) {
       ids = ids.filter(id => !mine.has(id));
       const count = picked.ids.length - ids.length;
-      if (count) ownOmitted = { call: a.omitCall, handle: callRegistry().handleOf(a.omitCall), count, said: `${count} of yours this call (${callRegistry().handleOf(a.omitCall)}), omitted (includeOwn: true shows them)` };
+      if (count) ownOmitted = { call: a.omitCall, handle: callShown(a.omitCall).handle, count, said: `${count} of yours this call (${callShown(a.omitCall).handle ?? a.omitCall}), omitted (includeOwn: true shows them)` };
     }
   }
   const index = a.fold || a.path ? await board.index() : null;

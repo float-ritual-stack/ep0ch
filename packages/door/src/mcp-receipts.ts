@@ -36,7 +36,7 @@ export interface WriteStatus {
   /** Who wrote it: `loki (claude-code@float-2)` (a persona within the principal auth proved). */
   by: string;
   /** The call that made the write, when it had one: its id and its handle. */
-  call?: { id: string; handle: string };
+  call?: { id: string; handle?: string };
   state: WriteState;
   uri: string;
   tool: string;

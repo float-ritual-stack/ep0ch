@@ -365,7 +365,7 @@ export function startGateway(opts: {
       // request without one is served with no call (a write then gets one of its own, and says so).
       const sent = req.headers.get("mcp-session-id")?.trim();
       const given = sent && CALL_PATTERN.test(sent) ? sent : undefined;
-      const minted = !given && /"initialize"/.test(body) ? mintCallId() : undefined;
+      const minted = !given && isInitialize(body) ? mintCallId() : undefined;
       const call = given ?? minted;
       try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}) }); }
       finally { slot.release(); }
@@ -379,6 +379,11 @@ export function startGateway(opts: {
     },
   });
   return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, stop: () => server.stop(true) };
+}
+
+/** Whether a request body is (or holds) an `initialize` call: its JSON-RPC method, not a word in a note. */
+function isInitialize(body: string): boolean {
+  try { return [JSON.parse(body)].flat().some(m => m?.method === "initialize"); } catch { return false; }
 }
 
 interface ServeIo { err?: (line: string) => void; env?: Record<string, string | undefined>; keys?: JWTVerifyGetKey; ready?: (gateway: Gateway) => void; until?: Promise<unknown> }

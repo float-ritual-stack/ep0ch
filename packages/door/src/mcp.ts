@@ -924,7 +924,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       });
       const q = outlines.netmail.summary(target.home.machine);
       const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
-      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: queued ${entry.id}`);
+      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: queued ${entry.id}`);
       return toolText({
         outcome: "queued", id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
         waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base,
@@ -946,11 +946,11 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
         }, { state: done.outcome, said: done.said, uri: done.uri, ...(done.outcome === "applied" && revision !== undefined ? { revision } : {}) });
       } catch (e) { outlines.log?.(`mcp write: couldn't record the live write for the mirror's overlay: ${(e as Error).message}`); }
     }
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
     return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
   } catch (e) {
-    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callRegistry().handleOf(caller.call)})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);
   }
 }

@@ -1,4 +1,4 @@
-// A call's handle (PIE-685): `leaping_otter_convergence` for the call `c-7f3a1c`, so a person can say and recognise which
+// A call's handle (PIE-685): `leaping_otter_convergence` for the call `c-7f3a1c9e02`, so a person can say and recognise which
 // MCP caller's visit wrote something. A call is the BBS word for it: an MCP connection is a caller into the board.
 //
 // The handle is minted once and stored (the MCP server's registry, door/src/mcp-calls.ts, id to handle under a unique
@@ -80,7 +80,7 @@ function fnv(s: string, seed = 0x811c9dc5): number {
 
 /** The handle an id seeds, before any clash: one word from each list. An id an agent chose is its own handle. */
 export function seedHandle(id: string): string {
-  if (!/^c-[0-9a-f]{6}$/.test(id)) return id;
+  if (!/^c-[0-9a-f]{10}$/.test(id)) return id;
   const pick = (list: readonly string[], seed: number) => list[fnv(id, seed) % list.length]!;
   return `${pick(NAME_FIRST, 0x811c9dc5)}_${pick(NAME_SECOND, 0x9e3779b1)}_${pick(NAME_THIRD, 0x85ebca6b)}`;
 }

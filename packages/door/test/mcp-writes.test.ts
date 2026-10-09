@@ -144,7 +144,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(patched.json).toMatchObject({ outcome: "applied", uri, outline: "garden-notes", machine: HERE });
     const now = await textOf(here, "garden-notes", HERE, ids.seeds!);
     expect(now.text).toContain("Scarlet runner beans");
-    expect(await editsBy(here, "garden-notes", ids.seeds!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{6}$`)) });
+    expect(await editsBy(here, "garden-notes", ids.seeds!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const set = await tool("outline_set_property", { uri, key: "season", value: "summer", revision: now.revision });
     expect(set.json.outcome).toBe("applied");
     expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text.split("\n")[0]).toBe("Seed swap list [season::summer]");
@@ -154,7 +154,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(child).toMatchObject({ parent: ids.seeds, author: "agent", actor: "mcp:chat.example.test" });
     const said = await tool("outline_comment", { uri, quote: "Scarlet runner beans", body: "Which variety exactly?" });
     expect(said.json).toMatchObject({ outcome: "applied", detail: { author: "agent", actorId: "mcp:chat.example.test" } });
-    expect(logs.join("\n")).toContain(`mcp write: mcp:chat.example.test (${PERSON}) outline_patch ${uri}: applied`);
+    expect(logs.join("\n")).toMatch(new RegExp(`mcp write: mcp:chat\\.example\\.test \\(${PERSON}\\) client=\\S+ call=c-[0-9a-f]{10} \\(\\w+\\) outline_patch ${uri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: applied`));
   });
 
   test("tool arguments: ref and each alias are accepted; two aliases for different notes are refused with nothing written; a wrong argument gets the right call back", async () => {
@@ -240,7 +240,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const now = await textOf(here, "garden-notes", HERE, ids.draft!);
     expect(now.text).toContain("[work-id::GDN-001]");
     expect(now.text).not.toContain("[page::");
-    expect(await editsBy(here, "garden-notes", ids.draft!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{6}$`)) });
+    expect(await editsBy(here, "garden-notes", ids.draft!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const again = await tool("outline_assign_id", { ref: "[[GDN-001]]", outline: "garden-notes", revision: now.revision });
     expect(again.json).toMatchObject({ outcome: "unchanged", detail: { workId: "GDN-001" } });
     expect((await tool("outline_assign_id", { uri })).isError).toBe(true);
@@ -309,7 +309,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(online.settled.map(s => s.state)).toEqual(["applied", "applied", "applied", "proposed"]);
     const trunkNow = await textOf(far, "attic-notes", FAR, ids.trunk!);
     expect(trunkNow.text).toContain("Old survey maps of the canal");
-    expect(await editsBy(far, "attic-notes", ids.trunk!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{6}$`)) });
+    expect(await editsBy(far, "attic-notes", ids.trunk!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const lampsAfter = await textOf(far, "attic-notes", FAR, ids.lamps!);
     expect(lampsAfter.text).toContain("one cracked, one new");
     expect(lampsAfter.text).not.toContain("both mended");
@@ -510,7 +510,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(landed.settled[1]!.said).toContain("changed since editing began");
     expect((await textOf(far, "attic-notes", FAR, ids.map!)).text).toContain("[work-id::GDN-001]");
     expect((await textOf(far, "attic-notes", FAR, ids.keys!)).text).not.toContain("work-id");
-    expect(await editsBy(far, "attic-notes", ids.map!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{6}$`)) });
+    expect(await editsBy(far, "attic-notes", ids.map!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {

@@ -2883,13 +2883,13 @@ export class OutlinerStore {
       callBlocks: (call) => {
         let found = calls.get(call);
         if (!found) {
-          // The latest recorded change decides (a block someone else changed after is theirs now); a block with none was created by its call.
+          // The latest recorded change decides (a block someone else changed after is theirs now, even an edit that named no call); a block with none was created by its call.
           const rows = this.database.query(`
             SELECT id FROM (
-              SELECT b.id AS id, COALESCE((SELECT a.session_id FROM block_edit_activity a WHERE a.block_id = b.id ORDER BY a.activity_id DESC LIMIT 1), b.session_id) AS last
+              SELECT b.id AS id, CASE WHEN EXISTS (SELECT 1 FROM block_edit_activity a WHERE a.block_id = b.id) THEN (SELECT a.session_id FROM block_edit_activity a WHERE a.block_id = b.id ORDER BY a.activity_id DESC LIMIT 1) ELSE b.session_id END AS last
               FROM blocks b
-            ) WHERE last = ? OR substr(last, ?) = ?
-          `).all(call, -(call.length + 1), `#${call}`) as { id: string }[];
+            ) WHERE last IS NOT NULL AND substr(last, ?) = ?
+          `).all(-(call.length + 1), `#${call}`) as { id: string }[];
           found = new Set(rows.map(r => r.id));
           calls.set(call, found);
         }

@@ -115,7 +115,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
       const a = await t.open(), b = await t.open();
       try {
         const sa = await callOf(a), sb = await callOf(b);
-        expect(sa.id).toMatch(/^c-[0-9a-f]{6}$/);
+        expect(sa.id).toMatch(/^c-[0-9a-f]{10}$/);
         expect(sa.handle).toMatch(/^[a-z]+_[a-z]+_[a-z]+$/);
         expect(sa.id).not.toBe(sb.id);
         expect(sa.handle).not.toBe(sb.handle);
@@ -190,7 +190,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
     };
     expect((await bare("list_outlines", {})).json.call).toBeUndefined();
     const fresh = await bare("outline_create", { outline: scratch.name, ref: target, text: "unnamed write" });
-    expect(fresh.json.call.id).toMatch(/^c-[0-9a-f]{6}$/);
+    expect(fresh.json.call.id).toMatch(/^c-[0-9a-f]{10}$/);
     expect(fresh.json.call.said).toContain("pass call");
   });
 });

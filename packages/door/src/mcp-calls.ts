@@ -59,8 +59,15 @@ export class CallRegistry {
 
   /** `call:<handle>` in a query turned into `call:<id>`; a word that is no handle (an id, an unknown name) stays as it was. */
   resolveIn(query: string): string {
-    return query.replace(/\bcall:([A-Za-z0-9][A-Za-z0-9._-]*)/g, (all, word: string) => { const id = this.idOf(word); return id ? `call:${id}` : all; });
+    // A quoted string is text being searched for (`text~"call:x"`), never an atom; a word that is a known id stays as it is.
+    return query.replace(/"(?:[^"\\]|\\.)*"|\bcall:([A-Za-z0-9][A-Za-z0-9._-]*)/gi, (all, word: string | undefined) => {
+      if (word === undefined || this.hasId(word)) return all;
+      const id = this.idOf(word);
+      return id ? `call:${id}` : all;
+    });
   }
+
+  private hasId(id: string): boolean { return !!this.db.query("SELECT 1 FROM calls WHERE id = ?").get(id); }
 
   close(): void { this.db.close(); }
 }
@@ -74,5 +81,7 @@ export function callRegistry(env: Record<string, string | undefined> = process.e
   return r;
 }
 
-/** A call as it is shown: its id and its stored handle. */
-export const callShown = (id: string): { id: string; handle: string } => ({ id, handle: callRegistry().handleOf(id) });
+/** A call as it is shown: its id and its stored handle. A registry that can't be opened never fails the write it decorates: the id alone is shown. */
+export function callShown(id: string): { id: string; handle?: string } {
+  try { return { id, handle: callRegistry().handleOf(id) }; } catch { return { id }; }
+}

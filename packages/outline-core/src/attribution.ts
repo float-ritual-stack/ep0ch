@@ -13,10 +13,10 @@
 // overwriting the other (PIE-685):
 //
 //   <subject>              stdio, 4f2a-oauth-subject    who the connection was (the OAuth subject; `stdio`): as before
-//   <subject>#<call>       stdio#c-7f3a1c               and the call that made the write
+//   <subject>#<call>       stdio#c-7f3a1c9e02               and the call that made the write
 //
 // A call is one MCP caller's visit to the board, in the BBS word: the HTTP transport's `Mcp-Session-Id` (the gateway
-// mints it at `initialize` as `c-` and six hex digits), one per stdio connection, or a name the agent supplies on a
+// mints it at `initialize` as `c-` and ten hex digits), one per stdio connection, or a name the agent supplies on a
 // call (`call`, "daddy-2026-10-09-0103-k7f"), which wins. It is trace only: it names a conversation for `call:` queries
 // and for leaving a call's own writes out of its own recent-activity reads, and a readable handle for it
 // (`leaping_otter_convergence`, call-handles.ts) is minted once and stored by the MCP server. It is never identity: the
@@ -72,8 +72,8 @@ export const createdByOf = (o: { persona?: string; principal: string }): string 
 export const CALL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const isCallId = (v: unknown): v is string => typeof v === "string" && CALL_PATTERN.test(v);
 
-/** A fresh call id: `c-` and six hex digits. */
-export const mintCallId = (random: () => Uint8Array = () => crypto.getRandomValues(new Uint8Array(3))): string =>
+/** A fresh call id: `c-` and ten hex digits (40 bits: a clash takes about a million calls to become likely). */
+export const mintCallId = (random: () => Uint8Array = () => crypto.getRandomValues(new Uint8Array(5))): string =>
   `c-${[...random()].map(b => b.toString(16).padStart(2, "0")).join("")}`;
 
 /** A `sessionId` from its parts: the subject, and `#<call>` when the write came from a known call. */
