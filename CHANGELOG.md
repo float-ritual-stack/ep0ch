@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A chain of linked readers: what-changed opens into reader 9, reader 9's links into reader 10 (PIE-700)
+
+- Opening a note from outside a reader (the what-changed list in the drawer, `ep0ch open`) no longer asks the link of the reader your keys were last in. Before, with the keys last in reader 9 (linked to reader 10), ⏎ on a what-changed row moved both 9 and 10; now it opens in the reader that follows the current note and 10 only changes when a link is followed in 9.
+- `alt+l` works across the drawer's edge: in the drawer, `alt+l` on what-changed, then a click on a reader above (or its number), and that reader takes the list's `⏎` whatever has the keys, kept through the drawer shut and opened, another screen, a restart and a saved layout. `tile.link to=@chain/reader9` does it for agents (`@drawer/<tile>` the other way). The frames show it: `what-changed → reader9`, `reader10 ← reader9`; an unlinked list says which reader its `⏎` lands in now.
+
 ### Gather tiles into a group by mouse and keys, and keep their links (PIE-696)
 
 - Drag a tile's title onto a group (its frame, or a drop zone inside it) and it goes in; drag one out past the group's content and it goes back out onto the screen. The tile moves whole: a running shell keeps running, and its agent limit, spine and links go with it. `layout.move into=<group>` and `out=true`, and `^W i`, do the same by keys and `act`.

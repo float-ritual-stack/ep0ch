@@ -347,7 +347,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
       if (actor.kind !== "agent") w.at = n - 1;
       // In the drawer a tile has no reader of its own: the open lands on the screen shown, as its details open.
       const host = desk.ctx.hostLayer;
-      if (host?.isDrawer(desk)) { const landed = await host.openOnScreen(m.id, !!fresh, actor); desk.redraw(); return { n, id: row.blockId, title: subject(m), reader: landed.reader }; }
+      if (host?.isDrawer(desk)) { const landed = await host.openOnScreen(m.id, !!fresh, actor, desk.nameOfPane?.(w)); desk.redraw(); return { n, id: row.blockId, title: subject(m), reader: landed.reader }; }
       desk.setCurrent(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       desk.redraw();
       return { n, id: row.blockId, title: subject(m) };
@@ -382,7 +382,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
 
 /** The list as a tile kind: its rows, its actions, and what `peek` says. */
 export const WHAT_CHANGED_KIND: TileKind = {
-  kind: WHAT_CHANGED_KIND_NAME, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
+  kind: WHAT_CHANGED_KIND_NAME, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
   make: () => new WhatChangedPane(), actions: WHAT_CHANGED_ACTIONS,
   peek: p => ({ whatChanged: (p as WhatChangedPane).describe() }),
   describe: p => ({ rows: (p as WhatChangedPane).describe() }),

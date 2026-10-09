@@ -88,8 +88,8 @@ export interface HostLayer {
    * a screen under this one.
    */
   goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
-  /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own. */
-  openOnScreen(id: string, fresh: boolean, actor: Actor): Promise<{ reader: string | null; id: string }>;
+  /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own; `from`: that tile, whose link to a tile of the screen (alt+l) takes it first. */
+  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
 }

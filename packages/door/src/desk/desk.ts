@@ -641,19 +641,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const roots = new Set<Desk>([this.top(), ...(this.ctx?.hostLayer?.desks() ?? []).map(d => d.top())]);
     return [...roots].flatMap(r => r.descend());
   }
-  /** The path to `pane` from here: its name on this desk, `<group>/<tile>` down into a mount, `../<tile>` up out of one. */
+  /** `pane`'s name on this desk, or `<group>/<tile>` down into a mount. */
+  private pathDown(pane: Pane): string | undefined {
+    const id = this.idOf(pane);
+    if (id !== undefined) return this.nameOf(id);
+    for (const [pid, p] of this.panes) if (p instanceof ScreenTile && p.inner) { const r = p.inner.pathDown(pane); if (r !== undefined) return `${this.nameOf(pid)}/${r}`; }
+    return undefined;
+  }
+  /**
+   * The path to `pane` from here: its name on this desk, `<group>/<tile>` down into a mount, `../<tile>` up out of one.
+   * Across the host layer's edge (PIE-700) the first part names the desk: `@drawer/<tile>` the drawer's, `@<screen>/<tile>`
+   * the screen shown (by its name, so a link to a tile of one screen never lands on another's tile of the same name).
+   */
   pathTo(pane: Pane): string | undefined {
-    const down = (d: Desk): string | undefined => {
-      const id = d.idOf(pane);
-      if (id !== undefined) return d.nameOf(id);
-      for (const [pid, p] of d.panes) if (p instanceof ScreenTile && p.inner) { const r = down(p.inner); if (r !== undefined) return `${d.nameOf(pid)}/${r}`; }
-      return undefined;
-    };
-    const here = down(this);
+    const here = this.pathDown(pane);
     if (here !== undefined) return here;
     const h = this.holder?.desk();
-    const up = h ? h.pathTo(pane) : undefined;
-    return up === undefined ? undefined : `../${up}`;
+    if (h) { const up = h.pathTo(pane); return up === undefined ? undefined : `../${up}`; }
+    const host = this.ctx?.hostLayer;
+    for (const d of host?.desks() ?? []) {
+      if (d.top() === this) continue;
+      const r = d.pathDown(pane);
+      if (r !== undefined) return `@${host!.isDrawer(d) ? "drawer" : d.spec.name}/${r}`;
+    }
+    return undefined;
+  }
+  /** The desk of the host layer's an `@name` path part names: the drawer's, or the screen shown if that is its name. */
+  private hostDesk(name: string): Desk | undefined {
+    const host = this.ctx?.hostLayer;
+    return host?.desks().find(d => (name === "drawer" ? host.isDrawer(d) : !host.isDrawer(d) && d.spec.name === name));
   }
   /** The tile a path names from this desk (`<group>/<tile>`, `../<tile>`), if it is there now. */
   paneAtPath(path: string): Pane | undefined {
@@ -662,6 +678,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       if (part === "..") { d = d.holder?.desk() ?? null; if (!d) return undefined; continue; }
+      if (part.startsWith("@") && i === 0) { d = this.hostDesk(part.slice(1)) ?? null; if (!d) return undefined; continue; }
       const p = d.pane(part);
       if (i === parts.length - 1) return p;
       d = p instanceof ScreenTile ? p.inner : null;
@@ -676,7 +693,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!e.pane && e.path) e.pane = this.paneAtPath(e.path);
     if (!e.pane) return undefined;
     const desk = this.relatives().find(d => d.idOf(e.pane!) !== undefined);
-    if (!desk) { if (e.found) this.ext.delete(id); return undefined; }
+    // A link across the host's edge (the drawer's list → a reader of the screen) waits for its tile: the screen shown can
+    // change, the drawer shut and opened, and the link is still its path (PIE-700).
+    if (!desk) { if (e.path?.includes("@")) e.pane = undefined; else if (e.found) this.ext.delete(id); return undefined; }
     e.found = true;
     return { pane: e.pane, desk, role: e.role };
   }
@@ -698,7 +717,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const k = kindOf(target);
     if (!k?.accepts?.notes) throw new ActionRefused(`${path} doesn't take notes: a link opens notes in it`);
     if (this.layout.links.has(id)) this.apply({ op: "link", tile: id }, actor);
-    this.ext.set(id, { pane: target, role: role ?? defaultLinkRole(kindOf(this.panes.get(id)) ?? {}, kindOf(target) ?? {}), found: true });
+    const kept = this.pathTo(target);
+    this.ext.set(id, { pane: target, ...(kept?.includes("@") ? { path: kept } : {}), role: role ?? defaultLinkRole(kindOf(this.panes.get(id)) ?? {}, kindOf(target) ?? {}), found: true });
     return target;
   }
 
@@ -737,7 +757,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private extSpec(id: number): Partial<TileSpec> {
     const e = this.ext.get(id);
     if (!e) return {};
-    const path = e.pane ? this.pathTo(e.pane) : e.path;
+    const path = (e.pane ? this.pathTo(e.pane) : undefined) ?? e.path;
     return path ? { link: path, linkRole: e.role } : {};
   }
 
@@ -1475,6 +1495,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * Tile `from`'s explicit link across an edge (the drawer's what-changed list → a reader of the screen, PIE-700) takes
+   * note `id`: the path of the tile it opened in, or null when `from` has no such link or the tile didn't take it (said).
+   * An open from a linked tile never asks where focus last was.
+   */
+  async openOnLink(id: string, from: string, actor: Actor): Promise<string | null> {
+    const t = this.tile(from), x = this.extTarget(t.id);
+    if (!x) return null;
+    const m = await this.ctx.board.get(id);
+    if (!m) throw new ActionRefused(`no block ${id}`);
+    if (actor.kind === "agent" && x.desk.limitedFor(x.pane)) throw new ActionRefused(`${this.pathTo(x.pane)} limits what an agent does there`);
+    const path = this.pathTo(x.pane) ?? "";
+    if (!x.desk.openIntoPane(x.pane, m, path)) return null;
+    this.redraw(); x.desk.redraw();
+    return path;
+  }
+
+  /**
    * `open from=<tile>` (PIE-491): the note lands where tile `from`'s opens go, its link (the daily layout's claude
    * tile links to middle). Unlinked, where `ep0ch open <id>` puts it. The caller names its own tile, never a reader.
    */
@@ -2171,6 +2208,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...this.pickView(id),
       ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), tabShown: this.nameOf(set.ids[set.active]!) } : {}),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...this.linkView(id) } : into !== undefined ? { link: this.nameOf(into), ...this.linkView(id) } : this.extView(id)),
+      ...(this.chainWords(id).trim() ? { chain: this.chainWords(id).trim() } : {}),
       ...this.dockView(id),
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, true) ?? {}),
@@ -2604,13 +2642,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
   private plainName(id: number) { const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id); return n === k || new RegExp(`^${k}\\d+$`).test(n); }
 
-  /** What a reader's header says of the chain of links it is in (PIE-700), or "" when it is in none. */
+  /** The tiles whose links end at `pane` (on this desk, or across the host layer's edge): their names, as the header says them. */
+  private linkedFrom(pane: Pane): { names: string[]; across: boolean } {
+    const names = [...this.layout.links].filter(([src, to]) => this.panes.get(to) === pane && this.panes.has(src) && this.panes.get(src) !== pane).map(([src]) => this.nameOf(src));
+    let across = false;
+    for (const d of this.relatives()) for (const sid of d.ext.keys()) if (d.extTarget(sid)?.pane === pane) { names.push(d.nameOf(sid)); across = true; }
+    return { names, across };
+  }
+  /** A path across the host layer's edge as a header says it: the tile's name (`@chain/reader9` is reader9). */
+  private plainPath(path: string | undefined): string { return (path ?? "").replace(/^(\.\.\/)*@[^/]+\//, ""); }
+  /**
+   * What a tile's header says of the chain of links it is in (PIE-700): the tiles whose links end here (`← what-changed`);
+   * for the reader an open from outside lands in by the rule (no link says so), that it is that one (`⏎ opens land here`);
+   * for a drawer list with no link, which reader its picks land in now (`⏎ → reader9`), so the guess is visible.
+   */
   private chainWords(id: number): string {
-    if (!(this.panes.get(id) instanceof ReaderPane)) return "";
-    const from = [...this.layout.links].filter(([src, to]) => to === id && src !== id && this.panes.has(src)).map(([src]) => this.nameOf(src));
-    const linked = this.layout.links.has(id) || from.length > 0;
-    const lands = linked && this.openLandingReader(USER)?.id === id;
-    return `${from.length ? ` ← ${from.join(", ")}` : ""}${lands ? " ⏎ drawer" : ""}`;
+    const pane = this.panes.get(id)!;
+    const { names, across } = this.linkedFrom(pane);
+    let out = names.length ? ` ← ${names.join(", ")}` : "";
+    if (pane instanceof ReaderPane && !across && (names.length > 0 || this.layout.links.has(id)) && this.openLandingReader(USER)?.id === id) out += " ⏎ opens land here";
+    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.ext.has(id)) {
+      const to = this.otherDesk()?.landingName();
+      if (to) out += ` ⏎ → ${to}`;
+    }
+    return out;
+  }
+  /** Where an open naming no tile lands on this screen now, by name: the guess a drawer list's header shows. */
+  landingName(): string | null {
+    if (this.hasPlaces() || (this.spec.lands !== undefined && this.idNamed(this.spec.lands) === undefined)) return null;
+    if (this.spec.lands !== undefined) return this.spec.lands;
+    return this.openLandingReader(USER)?.name ?? null;
   }
 
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number): string {
@@ -2630,7 +2691,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else put(` → ${to}`, fg(C.lmagenta));
     } else if (this.extTarget(id)) {
       const x = this.extTarget(id)!;
-      put(` → ${this.pathTo(x.pane)}`, fg(C.lmagenta));
+      put(` → ${this.plainPath(this.pathTo(x.pane))}`, fg(C.lmagenta));
       if (this.linkChoice(id)) put(x.role === "target" ? " ⏎ target" : " ◌ preview", fg(C.lmagenta));
     } else if (this.linkVia(id) === "origin") put(` ⏎ ${this.nameOf(this.originId(id)!)}`, fg(C.lmagenta));
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
@@ -2783,7 +2844,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const d = this.floatDrag.drop;
       return line(paint(`|14moving ${this.nameOf(this.floatDrag.id)}|08 · ${d ? (d.refused ? `|12✕ ${d.refused}` : `|15release docks it: ${d.label}`) : "|08release leaves it here"}|08 · onto a tile's header makes it a tab there, the outer edge a column, a dock's handle docks it`));
     }
-    if (this.linking) return line(paint(`|13alt+l|08 · click the tile where |15${this.nameOf(this.linking.from)}|08's opens land (or h j k l, or its number) · click it again to unlink · esc cancels`));
+    if (this.linking) return line(paint(`|13alt+l|08 · click the tile where |15${this.nameOf(this.linking.from)}|08's opens land${this.otherDesk() ? " (a tile of the screen above, or its number, or h j k l here)" : " (or h j k l, or its number)"} · click it again to unlink · esc cancels`));
     if (this.waitsOnExit()) return line(paint(`|12${this.exitedSay(this.nameOf(this.focus)).replace(" exited · ", " exited|08 · ")}`));
     if (this.rawKeys()) return line(paint(`|14in ${this.nameOf(this.focus)}|08 · every key goes to ${this.ptyIn!.title()} · |15${ESCAPE_CHORD}|08 back to the door (twice: send it)`));
     if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.collapsed.has(this.focus)) {
@@ -3039,12 +3100,41 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
   escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx); }
 
-  /** alt+l, then a key: h j k l (the tile that way), a tile's number, or esc. */
+  /** alt+l is waiting for the tile to link to (PIE-700): the tile it started in. The host layer asks, so a click on the other desk (the drawer's, the screen's) can pick. */
+  linkingFrom(): Pane | null { return this.linking ? this.panes.get(this.linking.from) ?? null : null; }
+  cancelLinking() { if (this.linking) { this.linking = null; this.ctx.flash("not linked"); this.redraw(); } }
+  /** The tile drawn at cell (x, y) of this desk, if any. */
+  paneAtCell(x: number, y: number): Pane | undefined {
+    const hit = this.hits.find(([, r]) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows);
+    return hit ? this.panes.get(hit[0]) : undefined;
+  }
+  /** The click or number on a tile of the host layer's other desk ends alt+l here: the link is by the tile's path across the edge. */
+  linkToPane(target: Pane) {
+    const from = this.linking?.from;
+    if (from === undefined) return;
+    this.linking = null;
+    const path = this.pathTo(target);
+    if (path === undefined) { this.ctx.flash("not linked: that tile isn't reachable from here"); return this.redraw(); }
+    this.run("tile.link", { to: path }, this.nameOf(from));
+  }
+  /** The screen shown, for a tile in the drawer, which has its alt+l numbers: the tiles above it. */
+  private otherDesk(): Desk | undefined {
+    const host = this.ctx?.hostLayer;
+    return host?.isDrawer(this) ? host.desks().find(d => !host.isDrawer(d)) : undefined;
+  }
+
+  /** alt+l, then a key: h j k l (the tile that way), a tile's number (in the drawer: the screen's), or esc. */
   private linkKey(k: Key) {
     const from = this.linking!.from;
     this.linking = null;
     const c = ch(k);
     if (k.kind === "esc") { this.ctx.flash("not linked"); return this.redraw(); }
+    // In the drawer a number is a tile of the screen above, whose tiles it is that a list there opens notes in.
+    const above = this.otherDesk();
+    if (above && /^[1-9]$/.test(c)) {
+      const target = above.panes.get(above.all()[Number(c) - 1] ?? -1);
+      if (target) { this.linking = { from }; return this.linkToPane(target); }
+    }
     const to = MOVE[c] ? neighbour(this.rectsNow(), from, MOVE[c]!) : /^[1-9]$/.test(c) ? this.all()[Number(c) - 1] ?? null : null;
     if (to === null || to === undefined) { this.ctx.flash("not linked: alt+l, then click a tile, h j k l, or its number"); return this.redraw(); }
     this.run("tile.link", to === from ? {} : { to: this.nameOf(to) }, this.nameOf(from));
