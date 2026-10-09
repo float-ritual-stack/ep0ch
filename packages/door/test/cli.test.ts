@@ -36,7 +36,7 @@ describe("ep0ch command", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("ep0ch clients");
     expect(r.out).toContain("ep0ch try");
-    expect(r.out).toContain("ep0ch outline list [--all] [--lines] | attach <name>");
+    expect(r.out).toContain("ep0ch outline list [--all] [--archived] [--lines] | attach <name>");
     expect(r.out).toContain("--all lists every machine's");
     expect(r.out).toContain("ep0ch show <id>… [--source");
     expect(r.out).toContain("ep0ch status");

@@ -27,7 +27,8 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
                                    tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
                                    and the outline's components as resources (resources/list). At \`propose\` and \`full\` it offers the
-                                   same write tools as the gateway, as \`mcp:<client>\` (the client the MCP initialize names)
+                                   same write tools as the gateway, as \`mcp:[<persona>/]<client>@<machine>\` (the client the MCP initialize names, on this machine);
+                                   outline_new makes a scratch outline of its own on this machine, outline_archive puts it away
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
                                    server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
