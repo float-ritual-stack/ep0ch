@@ -14,6 +14,7 @@
 // the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
+import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { canonicalLocalMachineName } from "./machine-name";
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
@@ -428,7 +429,7 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
       const list = await board.revisions(blockId);
       if (json) { io.out(JSON.stringify(list)); return 0; }
       for (const r of list.revisions) {
-        const by = r.author === "agent" ? ` · ${r.actorId ?? "an agent"}` : r.author === "user" ? " · you" : "";
+        const by = r.author === "agent" ? ` · ${r.actorId ? actorLabel(r.actorId) : "an agent"}` : r.author === "user" ? " · you" : "";
         io.out(`${String(r.revision).padStart(4)}${r.revision === list.revision ? " now" : "    "}  ${r.savedAt.slice(0, 16).replace("T", " ")}${by} · ${r.lines} line${r.lines === 1 ? "" : "s"}, ${r.chars} chars · ${printable(r.firstLine, " ")}`);
       }
       if (list.revisions.length === 1) io.out("(no earlier text kept: the outline keeps a note's earlier texts from its first save on schema version 4)");

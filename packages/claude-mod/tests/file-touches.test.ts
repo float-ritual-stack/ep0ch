@@ -93,6 +93,8 @@ function sessionIn(on: On, env: Record<string, string> = {}) {
   on('tool.call', { tool: 'Edit' }, () => ({ result: EDITED, ref: 'r', text: 'ok' } as any))
   on('tool.call', { tool: 'Write' }, () => ({ result: CREATED, ref: 'r', text: 'ok' } as any))
   on('process.run', ($, e) => {
+    // This machine's name, which a write's principal carries (claude-code@garden-host).
+    if (e.argv[0] === 'hostname') return { value: result(0, 'garden-host\n') }
     runs.push(e)
     const argv = e.argv
     if (argv[0] === 'herdr') return { value: result(0, JSON.stringify({ result: { plugins: [{ plugin_id: 'float.pi-outliner', enabled: true, plugin_root: '/opt/outliner' }] } })) }
@@ -122,7 +124,7 @@ describe('each touch, recorded in the session\'s outline', () => {
     await s.clock.settle()
     expect(s.touches()).toEqual([expect.objectContaining({ path: FILE, project: 'garden', projectRoot: '/work/garden', session: 'session-1', added: 2, removed: 1 })])
     const run = s.runs.find(r => r.argv.includes('touch-file'))!
-    expect(run.argv).toEqual(expect.arrayContaining(['agent', 'touch-file', '--stdin', '--actor', 'claude-code', '--session', 'session-1']))
+    expect(run.argv).toEqual(expect.arrayContaining(['agent', 'touch-file', '--stdin', '--actor', 'claude-code@garden-host', '--session', 'session-1']))
     expect(run.init?.cwd).toBe(WORKSPACE)
 
     // A file outside git: its copy from before goes once.

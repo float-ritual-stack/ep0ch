@@ -14,7 +14,8 @@ import { OutlineMirror } from "../src/mcp-mirror";
 import { Netmail, pullNetmail } from "../src/mcp-netmail";
 import { incidents, type BackupState } from "../src/backup/alert";
 import { readQueues } from "../src/backup/netmail";
-import { clientName, actorOf } from "../src/mcp-writes";
+import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { clientName, actorOf, levelFor, personaClaim, principalOf, STDIO_SUBJECT } from "../src/mcp-writes";
 import { remoteWrite } from "../src/app";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
@@ -377,7 +378,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       id = c.json.detail.thread;
     } finally { delete process.env.EP0CH_MCP_PERSONAS; }
     const mine = (await tool("outline_threads", { uri: seeds })).json.threads.find((t: { thread: string }) => t.thread === id);
-    expect(mine.comments[0].author).toBe("mcp:daddy");
+    expect(mine.comments[0].author).toBe("mcp:daddy/chat.example.test");
+    expect(mine.comments[0].by).toBe("daddy (chat.example.test)");
     // The inbox, without a note.
     const inbox = async (args: Record<string, unknown>) => (await tool("outline_threads", { outline: "garden-notes", ...args })).json;
     const all = await inbox({});
@@ -544,14 +546,58 @@ describe("personas: who a connection writes as", () => {
   const caller = { sub: "user_fictional_a", clientId: "https://chat.example.test/oauth/client-metadata" };
   test("a client or subject maps to a name; none keeps the client's; a bad name is ignored; the file works too", () => {
     expect(actorOf(caller, {}).actorId).toBe("mcp:chat.example.test");
-    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy", sessionId: "user_fictional_a" });
-    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy, user_fictional_a=sysop" }).actorId).toBe("mcp:sysop");
+    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy/chat.example.test", sessionId: "user_fictional_a" });
+    expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy, user_fictional_a=sysop" }).actorId).toBe("mcp:sysop/chat.example.test");
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=not a name!" }).actorId).toBe("mcp:chat.example.test");
     const home = scratchDir("ep0ch-persona-");
     try {
       mkdirSync(join(home, ".config", "ep0ch"), { recursive: true });
       writeFileSync(join(home, ".config", "ep0ch", "mcp.env"), "# who\nEP0CH_MCP_PERSONAS=chat.example.test=daddy\n");
-      expect(actorOf(caller, { HOME: home }).actorId).toBe("mcp:daddy");
+      expect(actorOf(caller, { HOME: home }).actorId).toBe("mcp:daddy/chat.example.test");
     } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe("principal and persona (PIE-679)", () => {
+  const gateway = { sub: "user_fictional_a", clientId: "https://chat.example.test/oauth/client-metadata" };
+  const stdio = (client: string) => ({ sub: STDIO_SUBJECT, clientId: client });
+
+  test("a principal comes from auth: the gateway's OAuth client, stdio's client on this machine", () => {
+    expect(principalOf(gateway, "float-2")).toBe("chat.example.test");
+    expect(principalOf(stdio("claude-code"), "float-2")).toBe("claude-code@float-2");
+    expect(principalOf(stdio("claude-code"), "laptop")).toBe("claude-code@laptop");
+    expect(actorOf(stdio("claude-code"), {}, "float-2").actorId).toBe("mcp:claude-code@float-2");
+  });
+
+  test("a persona sits on its principal and is shown with it; stdio and the gateway differ in principal, not in persona", () => {
+    const env = { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki,claude-code@laptop=cowboy,chat.example.test=daddy" };
+    expect(actorOf(stdio("claude-code"), env, "float-2").actorId).toBe("mcp:loki/claude-code@float-2");
+    expect(actorOf(stdio("claude-code"), env, "laptop").actorId).toBe("mcp:cowboy/claude-code@laptop");
+    expect(actorOf(gateway, env, "float-2").actorId).toBe("mcp:daddy/chat.example.test");
+    expect(actorLabel(actorOf(stdio("claude-code"), env, "float-2").actorId)).toBe("loki (claude-code@float-2)");
+    // A bare client name does not name a stdio principal: it would reach every machine's.
+    expect(actorOf(stdio("claude-code"), { EP0CH_MCP_PERSONAS: "claude-code=loki" }, "float-2").actorId).toBe("mcp:claude-code@float-2");
+  });
+
+  test("a persona can't cross principals: a claim another principal holds is refused, and a gateway can't claim one at all", () => {
+    const env = { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki", EP0CH_AGENT: "loki" };
+    const claimed = personaClaim(stdio("claude-code"), env, "laptop");
+    expect(claimed.persona).toBeUndefined();
+    expect(claimed.refused).toContain("loki belongs to claude-code@float-2");
+    expect(actorOf(stdio("claude-code"), env, "laptop").actorId).toBe("mcp:claude-code@laptop");
+    // On its own principal the same claim is the persona; one nobody holds is a label for whoever declared it.
+    expect(actorOf(stdio("claude-code"), env, "float-2").actorId).toBe("mcp:loki/claude-code@float-2");
+    expect(actorOf(stdio("claude-code"), { EP0CH_AGENT: "scout" }, "laptop").actorId).toBe("mcp:scout/claude-code@laptop");
+    // The gateway reads no environment claim: only its own principal's entry.
+    expect(actorOf(gateway, { EP0CH_AGENT: "loki" }, "float-2").actorId).toBe("mcp:chat.example.test");
+  });
+
+  test("the principal that made an outline writes with full whatever the setting; a person's none holds for all", () => {
+    const status = { level: "read" as const, owner: "claude-code@float-2" };
+    expect(levelFor(status, stdio("claude-code"), "float-2")).toBe("full");
+    expect(levelFor(status, stdio("claude-code"), "laptop")).toBe("read");
+    expect(levelFor(status, gateway, "float-2")).toBe("read");
+    expect(levelFor({ ...status, level: "none" }, stdio("claude-code"), "float-2")).toBe("none");
+    expect(levelFor({ level: "read" }, stdio("claude-code"), "float-2")).toBe("read");
   });
 });

@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
-import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { composeActor } from "@ep0ch/outline-core/attribution";
+import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
@@ -9,8 +11,10 @@ import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
 import { DOT_EP0CH, formatDotEp0ch, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { OutlinerServer } from "./server";
-import { OutlinerStore } from "./store";
+import { OutlinerStore, readOutlineAbout } from "./store";
 import {
+  type HostedArchivedOutline,
+  type HostedOutlineArchival,
   type HostedOutlineAttachment,
   type HostedOutlineDeletion,
   type HostedOutlineList,
@@ -68,7 +72,7 @@ export interface OutlineHostOptions {
   readOnly?: boolean;
 }
 
-const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.pane"]);
+const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane"]);
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -87,6 +91,19 @@ function requireName(name: unknown): string {
     throw new Error(`An outline name must be a short slug of lowercase letters, digits and hyphens (${OUTLINE_NAME_PATTERN.source}); got ${JSON.stringify(name)}`);
   }
   return name;
+}
+
+/** An `about` from the wire, checked: a scratch outline's maker and purpose, the purpose writable as a property. */
+function requireAbout(input: unknown): OutlineAbout {
+  const a = input as Partial<OutlineAbout> | null;
+  const text = (v: unknown, what: string) => { if (typeof v !== "string" || !v.trim()) throw new Error(`about.${what} is required`); return v.trim(); };
+  if (!a || typeof a !== "object") throw new Error("about must be an object");
+  const about: OutlineAbout = { createdBy: text(a.createdBy, "createdBy"), principal: text(a.principal, "principal"), created: text(a.created, "created"), purpose: text(a.purpose, "purpose"), kind: "scratch",
+    ...(a.persona ? { persona: text(a.persona, "persona") } : {}) };
+  if (a.kind !== undefined && a.kind !== "scratch") throw new Error("about.kind is scratch");
+  if (!isWritablePropertyValue(about.purpose)) throw new Error("about.purpose must be one line without unbalanced brackets");
+  if (Number.isNaN(Date.parse(about.created))) throw new Error("about.created is a time");
+  return about;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -228,23 +245,52 @@ export class OutlineHost {
   }
 
   private summary(name: string): HostedOutlineSummary {
+    const about = this.aboutOf(name);
     return {
       name, database: this.layout.database(name), folder: this.layout.folder(name), open: this.opened.has(name),
       ...(name === this.defaultOutline ? { default: true } : {}),
+      ...(about ? { about } : {}),
     };
+  }
+
+  /** What an outline says of itself (who made it over MCP, and why): from the open store, else its file read-only. */
+  private aboutOf(name: string, file = this.layout.database(name)): OutlineAbout | undefined {
+    const open = this.opened.get(name);
+    if (open) return open.store.outlineAbout();
+    let database: Database | undefined;
+    try { database = new Database(file, { readonly: true }); return readOutlineAbout(database); }
+    catch { return undefined; }
+    finally { database?.close(); }
+  }
+
+  /** The archived outlines (`.archive/<name>/`), each with what it said of itself. */
+  private archivedNames(): HostedArchivedOutline[] {
+    let entries: string[];
+    try { entries = readdirSync(this.layout.archive); }
+    catch (error) { if (errorCode(error) === "ENOENT") return []; throw error; }
+    return entries.filter(isOutlineName).sort().flatMap(name => {
+      const file = join(this.layout.archived(name), `${name}.sqlite`);
+      if (!lstatOrUndefined(file)) return [];
+      const about = this.aboutOf(name, file);
+      return [{ name, ...(about ? { about } : {}) }];
+    });
   }
 
   /** Every outline in the folder, open or not. Reads only; never creates anything. */
   list(): HostedOutlineList {
+    const archived = this.archivedNames();
     return {
       ...(this.defaultOutline ? { defaultOutline: this.defaultOutline } : {}),
       outlines: this.names().map(name => this.summary(name)),
+      ...(archived.length ? { archived } : {}),
     };
   }
 
   private refuseTaken(name: string): void {
     if (lstatOrUndefined(this.layout.database(name))) throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
     if (this.busy.has(name)) throw new Error(`Outline "${name}" is being changed; try again`);
+    // An archived outline keeps its name: making another would leave nothing to restore it as.
+    if (lstatOrUndefined(join(this.layout.archived(name), `${name}.sqlite`))) throw new Error(`An outline named "${name}" is archived; \`ep0ch outline unarchive ${name}\` brings it back`);
   }
 
   /** Claims `<name>.sqlite` exclusively (an empty file), so two creates or imports can never share a name. */
@@ -283,19 +329,32 @@ export class OutlineHost {
    * Creates a new, empty outline and opens it. Refuses a name already in use; never overwrites. Its folder
    * `<name>/` may exist already (files kept there before it had an outline); it is used as it is.
    */
-  async create(nameInput: unknown): Promise<HostedOutlineSummary> {
+  async create(nameInput: unknown, aboutInput?: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
+    const about = aboutInput === undefined ? undefined : requireAbout(aboutInput);
     this.refuseTaken(name);
     return this.remade(name, `creating the outline ${name}`, async () => {
       this.claim(name);
       try {
-        await this.open(name);
+        const opened = await this.open(name);
+        if (about) this.introduce(opened, about);
       } catch (error) {
         await this.unclaim(name);
         throw error;
       }
       return this.summary(name);
     });
+  }
+
+  /**
+   * An outline an agent made over MCP says so (PIE-679): its `about` in the metadata, its MCP access at `read` (the other
+   * principals read it; the one in `about.principal` writes with `full`), and a root note carrying the same as properties.
+   */
+  private introduce(outline: HostedOutline, about: OutlineAbout): void {
+    outline.store.setOutlineAbout(about);
+    outline.store.configureMcpAccess("read");
+    const text = `Scratch: ${outline.name} [created-by::${about.createdBy}] [created::${about.created.slice(0, 10)}] [purpose::${about.purpose}] [kind::scratch]`;
+    outline.store.create(text, null, "agent", { actorId: composeActor({ ...(about.persona ? { persona: about.persona } : {}), principal: about.principal, mcp: true }) });
   }
 
   /**
@@ -422,6 +481,50 @@ export class OutlineHost {
     } finally {
       this.busy.delete(name);
     }
+  }
+
+  /**
+   * Puts an outline away: its database and folder move to `.archive/<name>/`, out of every list, and nothing is erased
+   * (`unarchive` brings it back). It is closed first; the default outline is refused.
+   */
+  archive(nameInput: unknown): Promise<HostedOutlineArchival> {
+    const name = requireName(nameInput);
+    if (name === this.defaultOutline) throw new Error(`"${name}" is this host's default outline; it cannot be archived while the host serves it as the default`);
+    return this.relocate(name, this.layout.root, this.layout.archived(name), true);
+  }
+
+  /** Brings an archived outline back to where it was. Refused when the name has been taken since. */
+  unarchive(nameInput: unknown): Promise<HostedOutlineArchival> {
+    const name = requireName(nameInput);
+    if (lstatOrUndefined(this.layout.database(name))) throw new Error(`An outline named "${name}" exists already; it can't be restored over it`);
+    return this.relocate(name, this.layout.archived(name), this.layout.root, false);
+  }
+
+  /** Moves `<name>.sqlite` (and side files) and `<name>/` from one folder to another, as `delete` does: closed, owner-locked, Litestream paused. */
+  private async relocate(name: string, from: string, to: string, archived: boolean): Promise<HostedOutlineArchival> {
+    const database = join(from, `${name}.sqlite`);
+    if (!lstatOrUndefined(database)) throw new Error(archived ? `No outline named "${name}" in ${this.outlinesFolder}` : `No archived outline named "${name}"; ep0ch outline list --all shows them`);
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is already being changed`);
+    this.busy.add(name);
+    try {
+      if (archived) await this.closeOutline(name);
+      const lock = ownerLockOf(database);
+      let release: () => void;
+      try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
+      catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then try again`, { cause: error }); }
+      try {
+        return await withLitestreamPaused([database, join(to, `${name}.sqlite`)], `${archived ? "archiving" : "restoring"} the outline ${name}`, () => {
+          mkdirSync(to, { recursive: true });
+          for (const suffix of ["", "-wal", "-shm"]) {
+            if (lstatOrUndefined(`${database}${suffix}`)) renameSync(`${database}${suffix}`, join(to, `${name}.sqlite${suffix}`));
+          }
+          if (lstatOrUndefined(join(from, name))) renameSync(join(from, name), join(to, name));
+          for (const file of lock.files) rmSync(file, { force: true });
+          if (!archived) rmSync(from, { recursive: true, force: true });
+          return { name, archived, movedTo: archived ? to : join(to, `${name}.sqlite`) };
+        });
+      } finally { release(); }
+    } finally { this.busy.delete(name); }
   }
 
   /**
@@ -583,12 +686,14 @@ export class OutlineHost {
   private handleHostAction(request: Record<string, unknown>): Promise<unknown> | unknown {
     switch (request.action) {
       case "outlines.list": return this.list();
-      case "outlines.create": return this.create(request.name);
+      case "outlines.create": return this.create(request.name, request.about);
       case "outlines.import": return this.importDatabase(request.path, request.name);
       case "outlines.attach": return this.attach(request.name, request.create === true);
       case "outlines.pane": return this.paneOutline(request.paneId, request.hostname);
       case "outlines.close": return this.closeOutline(request.name);
       case "outlines.delete": return this.delete(request.name);
+      case "outlines.archive": return this.archive(request.name);
+      case "outlines.unarchive": return this.unarchive(request.name);
       default: throw new Error(`Unsupported host action: ${String(request.action)}`);
     }
   }

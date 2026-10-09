@@ -435,3 +435,55 @@ test("the host process and the CLI: create, import refusals, init and list go th
     .toEqual([["bob", true, true], ["jam-shelf", false, true]]);
   expect(cli(root, "outlines").stdout).toContain("bob  open  default");
 });
+
+const ABOUT = { createdBy: "loki/claude-code@float-2", principal: "claude-code@float-2", persona: "loki", created: "2026-10-09T01:00:00.000Z", purpose: "track the burps", kind: "scratch" } as const;
+
+test("an outline made with an about says who made it, gives the others read, and carries a tagged root note", async () => {
+  const host = await startHost(scratch());
+  const made = (await send<HostedOutlineSummary>(host.socketPath, { action: "outlines.create", name: "gurgle", about: ABOUT })).result!;
+  expect(made.about).toMatchObject({ principal: "claude-code@float-2", purpose: "track the burps" });
+  const status = (await send<{ level: string; owner?: string }>(host.socketPath, { action: "mcp.access.status", outline: "gurgle" })).result!;
+  expect(status).toMatchObject({ level: "read", owner: "claude-code@float-2" });
+  const roots = (await send<{ blocks: { text: string }[] }>(host.socketPath, { action: "children", parentId: null, outline: "gurgle" })).result!;
+  const text = JSON.stringify(roots);
+  for (const tag of ["[created-by::loki/claude-code@float-2]", "[created::2026-10-09]", "[purpose::track the burps]", "[kind::scratch]"]) expect(text).toContain(tag);
+  // Listed with it, and an outline made without one says nothing and stays unshared.
+  await send(host.socketPath, { action: "outlines.create", name: "plain" });
+  const list = (await send<HostedOutlineList>(host.socketPath, { action: "outlines.list" })).result!;
+  expect(list.outlines.find(o => o.name === "gurgle")?.about?.createdBy).toBe("loki/claude-code@float-2");
+  expect(list.outlines.find(o => o.name === "plain")?.about).toBeUndefined();
+  expect((await send<{ level: string }>(host.socketPath, { action: "mcp.access.status", outline: "plain" })).result!.level).toBe("none");
+});
+
+test("an about with a purpose that can't be a property is refused and nothing is made", async () => {
+  const host = await startHost(scratch());
+  const bad = await send(host.socketPath, { action: "outlines.create", name: "bad", about: { ...ABOUT, purpose: "a ] b" } });
+  expect(bad.ok).toBe(false);
+  expect(existsSync(layoutOf(scratchRootOf(host)).database("bad"))).toBe(false);
+});
+const scratchRootOf = (host: OutlineHost) => join(host.outlinesFolder, "..");
+
+test("archive hides an outline and keeps its database; unarchive restores it; its name stays taken meanwhile", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await send(host.socketPath, { action: "outlines.create", name: "gurgle", about: ABOUT });
+  const moved = (await send<{ archived: boolean; movedTo: string }>(host.socketPath, { action: "outlines.archive", name: "gurgle" })).result!;
+  expect(moved.archived).toBe(true);
+  const layout = layoutOf(root);
+  expect(existsSync(layout.database("gurgle"))).toBe(false);
+  expect(existsSync(join(layout.archived("gurgle"), "gurgle.sqlite"))).toBe(true);
+  const list = (await send<HostedOutlineList>(host.socketPath, { action: "outlines.list" })).result!;
+  expect(list.outlines.map(o => o.name)).not.toContain("gurgle");
+  expect(list.archived?.map(o => o.name)).toEqual(["gurgle"]);
+  expect(list.archived?.[0]?.about?.principal).toBe("claude-code@float-2");
+  const retaken = await send(host.socketPath, { action: "outlines.create", name: "gurgle" });
+  expect(retaken.ok).toBe(false);
+  expect((retaken as { error?: string }).error).toContain("unarchive gurgle");
+  const back = (await send<{ archived: boolean }>(host.socketPath, { action: "outlines.unarchive", name: "gurgle" })).result!;
+  expect(back.archived).toBe(false);
+  expect(existsSync(layout.database("gurgle"))).toBe(true);
+  expect(existsSync(layout.archived("gurgle"))).toBe(false);
+  const text = JSON.stringify((await send(host.socketPath, { action: "children", parentId: null, outline: "gurgle" })).result);
+  expect(text).toContain("[kind::scratch]");
+  expect((await send(host.socketPath, { action: "outlines.unarchive", name: "gurgle" })).ok).toBe(false);
+});

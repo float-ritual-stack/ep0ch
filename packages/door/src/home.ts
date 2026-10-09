@@ -38,6 +38,8 @@ import { hostLive } from "./discover";
 import { forgetMachine, forwardTo, machineStatus, rememberMachine, sshConfigNames, usedMachines } from "./machine";
 import { writeDotEp0ch } from "./outlines";
 import { runningSessions } from "./session/place";
+import { actorLabel } from "@ep0ch/outline-core/attribution";
+import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 import type { SessionInfo } from "./session/protocol";
 
 /**
@@ -52,7 +54,7 @@ export interface HomeArgs { folder: string; guess?: { name: string; folder: stri
 export interface HomeChoice { outline: string; machine?: string; wrote?: string; by?: string }
 
 /** A host's outlines as the home base shows them: still asking, the names, or why there are none. */
-interface Place { outlines: string[] | null; problem: string; busy: string }
+interface Place { outlines: string[] | null; problem: string; busy: string; /** Who made an outline over MCP and why: shown beside it (this machine's). */ abouts?: Record<string, OutlineAbout> }
 
 type Row =
   | { t: "head"; text: string }
@@ -118,7 +120,7 @@ export class HomePane implements Pane {
     const socket = desk.ctx.board.path;
     await Promise.all([
       hostLive(socket, 3000).then(live => {
-        this.here = live ? { outlines: live.outlines, problem: "", busy: "" }
+        this.here = live ? { outlines: live.outlines, problem: "", busy: "", ...(live.abouts ? { abouts: live.abouts } : {}) }
           : { outlines: null, problem: `no outline host answers at ${socket} · start it: systemctl --user start outliner-host (launchctl on macOS)`, busy: "" };
         const m = this.missing();
         if (m?.localHas && !this.moved) this.picked = idOf({ t: "offer", act: "open", name: m.outline });
@@ -177,9 +179,11 @@ export class HomePane implements Pane {
       case "gap": return "";
       case "outline": {
         const s = this.running.get(sessionKey(r.name, r.machine));
-        if (!s) return `   ${r.name}`;
+        const a = r.machine ? undefined : this.here.abouts?.[r.name];
+        const made = a ? `  ${fg(C.dark)}made by ${actorLabel(a.createdBy)}: ${a.purpose}${RESET}` : "";
+        if (!s) return `   ${r.name}${made}`;
         const n = s.clients.filter(c => !c.watch).length;
-        return `   ${r.name}  ${fg(C.lgreen)}● running${fg(C.dark)} · ${n ? `${n} attached` : "none attached"}${RESET}`;
+        return `   ${r.name}  ${fg(C.lgreen)}● running${fg(C.dark)} · ${n ? `${n} attached` : "none attached"}${RESET}${made}`;
       }
       case "new": return `   + new outline${on(r.machine)}…`;
       case "offer": return r.act === "open" ? `   open ${r.name} on this machine` : r.act === "create" ? `   + create ${r.name} on ${r.machine}` : "   cancel: open nothing";

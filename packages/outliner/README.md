@@ -2309,6 +2309,7 @@ Every outline lives in one folder, the outlines folder (`EP0CH_OUTLINES`, defaul
   .host/                the outline host's socket and lock (mode 0700)
   .clients/pie/         a client's own files for pie (editor drafts)
   .deleted/             where `outline delete` moves an outline; nothing is erased
+  .archive/<name>/      where `outline archive` puts one away (database and folder); `outline unarchive` brings it back
   .publish/             the publisher's artifact cache
 ```
 

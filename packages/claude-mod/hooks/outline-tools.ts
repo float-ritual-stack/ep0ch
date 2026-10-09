@@ -35,7 +35,7 @@ export interface OutlineToolDefinition {
 
 const ACTOR = {
   type: 'string',
-  description: 'Who this is attributed to. Leave it out: it defaults to OUTLINER_ACTOR, EP0CH_AGENT or claude-code.',
+  description: 'Who this is attributed to. Leave it out: it defaults to OUTLINER_ACTOR or EP0CH_AGENT. It names a persona; the write is recorded as `<persona>/claude-code@<machine>`, so the machine and client are always shown.',
 }
 const REF = {
   type: 'string',
@@ -476,15 +476,46 @@ export function peekOf(stdout: string): { screen?: unknown; text: string } {
   return { text: stdout.trimEnd() }
 }
 
+/** A persona's name: what an actor id holds before the `/`. */
+const PERSONA = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+/** This machine's name as a principal holds it: letters, digits, `.`, `_` and `-`, starting with a letter or digit, up to 31. */
+export function machineNameOf(raw: string): string | undefined {
+  const cleaned = raw.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 31)
+  return cleaned || undefined
+}
+
 /**
- * Who a write is attributed to: the caller's `actor`, else OUTLINER_ACTOR, else
- * EP0CH_AGENT (the door's own name for the agent), else claude-code.
+ * Who a write is attributed to (PIE-679): the principal, which is this client on this machine (`claude-code@float-2`),
+ * and the persona the caller declared on top: the caller's `actor`, else OUTLINER_ACTOR, else EP0CH_AGENT (the door's own
+ * name for the agent). `loki/claude-code@float-2`; with no persona, the principal alone. A persona only labels the principal
+ * it is declared under, so two machines' `claude-code` are told apart even when both say `loki`. Without a machine
+ * (it couldn't be read) the principal is the bare client, as it was.
  */
-export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string {
+export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }, machine?: string): string {
+  const principal = machine ? `claude-code@${machine}` : 'claude-code'
+  return personaOf(input, env) ? `${personaOf(input, env)}/${principal}` : principal
+}
+
+/**
+ * The persona alone, as the door's tools take it (`--as`, door-open's `--actor`): those name an agent on screen and write
+ * no note, so they keep the short name. The caller's `actor`, else OUTLINER_ACTOR, else EP0CH_AGENT, else claude-code.
+ */
+export function doorActorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string {
   for (const candidate of [input.actor, env.OUTLINER_ACTOR, env.EP0CH_AGENT]) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
   }
   return 'claude-code'
+}
+
+function personaOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string | undefined {
+  for (const candidate of [input.actor, env.OUTLINER_ACTOR, env.EP0CH_AGENT]) {
+    if (typeof candidate !== 'string' || !candidate.trim()) continue
+    // A claimed persona is a label, never a principal: anything before a `/` or `@` the claim brings is dropped.
+    const persona = candidate.trim().split(/[/@]/)[0]!.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 64)
+    if (persona && PERSONA.test(persona) && persona !== 'claude-code') return persona
+  }
+  return undefined
 }
 
 // ─── Checked input ─────────────────────────────────────────────────────────

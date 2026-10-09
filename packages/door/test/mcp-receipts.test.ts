@@ -279,6 +279,13 @@ describe("the overlay of a caller's waiting writes", () => {
     expect(o).toMatchObject({ properties: [{ key: "stage", value: "done" }], newBlocks: [{ text: "new", position: 0 }], comments: [{ body: "hm", quote: "text" }] });
   });
 
+  test("a receipt says who wrote it: the persona and the principal auth proved (PIE-679)", () => {
+    const by = (actorId: string, state: NetmailReceipt["state"] = "queued") => receiptStatus({ ...entry("p1", "outline_patch", {}), actorId, state }, { summary: null, later: [] }).by;
+    expect(by("mcp:loki/claude-code@float-2")).toBe("loki (claude-code@float-2)");
+    expect(by("mcp:chat.example.test", "applied")).toBe("chat.example.test");
+    expect(by("mcp:cowboy/claude-code@laptop", "refused")).toBe("cowboy (claude-code@laptop)");
+  });
+
   test("only a write that takes the proposal's place supersedes it: a refused one, another key or another passage does not", () => {
     const first: NetmailReceipt = { ...entry("e1", "outline_patch", { patches: [{ observed: "brass key", replacement: "brass key, tarnished" }] }), state: "proposed", proposalUri: "ep0ch://attic-notes@far-box/b/p1" };
     const later = (e: NetmailReceipt) => receiptStatus(first, { summary: null, proposal: "open", later: [first, e] }).state;

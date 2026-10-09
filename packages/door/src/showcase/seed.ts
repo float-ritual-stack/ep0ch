@@ -418,7 +418,9 @@ export const LOGS = [["logBeans", "Staked and tied, round"], ["logCompost", "Tur
 export const REMOTE_WRITES = [
   SEED.remoteWrites,
   "",
-  "A conversation on claude.ai, or on the phone, can write here through the remote MCP gateway (`ep0ch mcp serve --http`), as far as this outline's access lets it: `ep0ch mcp access propose` takes proposals, `full` applies writes against the revision they read, and `read` takes none. Each write is an agent's, named `mcp:<client>`, and the door says it on its status line as it lands.",
+  "A conversation on claude.ai, or on the phone, can write here through the remote MCP gateway (`ep0ch mcp serve --http`), as far as this outline's access lets it: `ep0ch mcp access propose` takes proposals, `full` applies writes against the revision they read, and `read` takes none. Each write is an agent's, and says two things: the principal that auth proved (the OAuth client, `claude.ai`; or the client on the machine for stdio and the Claude mod, `claude-code@float-2`) and, on top, the persona it declared (`EP0CH_MCP_PERSONAS`, `OUTLINER_ACTOR`): `loki (claude-code@float-2)`. A persona never crosses principals. The door says it on its status line as it lands.",
+  "",
+  "An agent can also make a place of its own for the fleeting things (a link spree, the day's discourse) with `outline_new`: it is made on this machine, the agent gets `full` on it and the other principals `read`, its root note carries `[created-by::…] [purpose::…] [kind::scratch]`, and the door's home base and `ep0ch outline list` show who made it and why. `ep0ch outline archive <name>` (or `outline_archive`) puts it away and keeps the database; nothing deletes over MCP.",
   "",
   "At `propose`, the patch below became a proposal under this note (apply it anyway, or dismiss it), and a comment started a thread:",
   "",

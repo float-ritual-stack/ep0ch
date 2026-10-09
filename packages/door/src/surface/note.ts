@@ -6,6 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
+import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { lookFor, pageOf as lookPage, type Look } from "../look";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
@@ -5135,7 +5136,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const r = await host.ctx.board.revisionText(d.blockId, want);
       d.replace(r.text, actor, `revision ${want}'s text`, true);
       d.revisionShown = want;
-      d.note = `revision ${want} of ${list.revision}, saved ${whenPut(Date.parse(r.savedAt))}${r.author === "agent" && r.actorId ? ` by ${r.actorId}` : ""} · ctrl+s saves it as the note · ctrl+z takes it back`;
+      d.note = `revision ${want} of ${list.revision}, saved ${whenPut(Date.parse(r.savedAt))}${r.author === "agent" && r.actorId ? ` by ${actorLabel(r.actorId)}` : ""} · ctrl+s saves it as the note · ctrl+z takes it back`;
       surface.noteAgent(actor, `put revision ${want}'s text into the edit`);
       host.redraw();
       return { revision: want, current: list.revision, savedAt: r.savedAt, chars: r.chars, earlier: list.revisions.filter(x => x.revision < want).map(x => x.revision) };

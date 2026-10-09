@@ -712,12 +712,33 @@ not recorded by the service yet, so no thread field says it: read the thread's l
 
 ### Who a connection writes as
 
-By default a write is `mcp:<client>` (claude.ai's is `mcp:claude.ai`). To name a connection, set `EP0CH_MCP_PERSONAS` on
-the gateway's machine, in its environment or in `~/.config/ep0ch/mcp.env`: a comma list of `<who>=<name>`, `<who>` being
-the OAuth client's short name or the token's subject, so `claude.ai=daddy` makes its writes `mcp:daddy` (a subject wins
-over a client; a name is letters, digits, `.`, `_`, `-`). It is read at each write, so a change needs no restart. The
-mod names itself the same way on its own machine: `OUTLINER_ACTOR`, else `EP0CH_AGENT` (the door's name for the agent),
-else `claude-code`; set one per laptop or session (`cowboy`) and the records and the door show it.
+Every write says two things (PIE-679). The **principal** is what auth proved and can't be spoofed: the gateway's OAuth
+client (`claude.ai`), or, for stdio and the Claude mod, the client on this machine (`claude-code@float-2`,
+`claude-code@laptop`). The **persona** is a label declared on top, shown as `loki (claude-code@float-2)`; it is recorded
+in the write's actor id as `mcp:loki/claude-code@float-2` (the mod's as `loki/claude-code@float-2`), so the door, receipts,
+proposals and threads show both. A persona never crosses principals.
+
+Name a connection with `EP0CH_MCP_PERSONAS` on the gateway's machine, in its environment or in `~/.config/ep0ch/mcp.env`:
+a comma list of `<who>=<name>`, `<who>` being the principal (`claude-code@float-2`, `claude.ai`) or the token's subject, so
+`claude.ai=daddy` makes its writes `mcp:daddy/claude.ai` (a subject wins over a principal; a name is letters, digits,
+`.`, `_`, `-`). A bare client name such as `claude-code` names no stdio principal, since it would reach every machine's.
+It is read at each write, so a change needs no restart. A stdio process or the mod may also declare its own persona,
+`OUTLINER_ACTOR`, else `EP0CH_AGENT`; it holds only where the list doesn't give that persona to another principal (the
+laptop's `claude-code` can't claim `loki` while the list says `claude-code@float-2=loki`). Older writes keep the actor id
+they were made with.
+
+### Agents make outlines of their own
+
+`outline_new` (stdio and the gateway, one tool path) makes a scratch outline for the fleeting things that don't belong in
+the outlines that drive work: `name` (a slug; a taken name, an archived one too, is refused with the nearest names),
+`purpose` (one line) and optional `seed` blocks. The tool says to call `list_outlines` and `outline_find` first. It is made
+on this machine only, through the host's create. The caller's principal gets `full` on it and every other principal `read`
+(the outline's access setting is `read`; the maker's `full` comes from the outline's recorded owner, so a person's `none`
+still denies everyone). The root note carries `[created-by::loki/claude-code@float-2] [created::<date>] [purpose::…]
+[kind::scratch]`; `list_outlines`, `ep0ch outline list` and the door's home base show who made it and why. At most
+`EP0CH_MCP_SCRATCH_CAP` (default 5) a week per principal, the refusal naming the ones already made. `outline_archive`
+(and `ep0ch outline archive <name>`) hides one and keeps its database in `<outlines>/.archive/<name>/`; `restore: true`
+(`ep0ch outline unarchive <name>`) brings it back. Nothing deletes over MCP.
 
 ### Netmail: writes to another machine's outline
 

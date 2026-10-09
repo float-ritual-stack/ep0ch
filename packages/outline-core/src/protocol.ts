@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 115;
+export const PROTOCOL = 117;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -143,12 +143,41 @@ export interface HostedOutlineSummary {
   open: boolean;
   /** The host's default outline (tests and scripts). */
   default?: boolean;
+  /** Who made it and why, when an agent made it over MCP (`outline_new`). */
+  about?: OutlineAbout;
 }
+
+/**
+ * What a scratch outline says of itself (PIE-679): kept in the outline's own metadata, and as the properties of its root
+ * note. `principal` is who auth proved (`claude-code@float-2`, `claude.ai`): the one with `full` on it; `createdBy` is that
+ * with the persona it declared (`loki/claude-code@float-2`).
+ */
+export interface OutlineAbout {
+  createdBy: string;
+  principal: string;
+  persona?: string;
+  /** ISO time. */
+  created: string;
+  purpose: string;
+  kind: "scratch";
+}
+
+/** An archived outline (`.archive/<name>/`): hidden from lists, its database kept. */
+export interface HostedArchivedOutline { name: string; about?: OutlineAbout }
 
 /** `outlines.list`. */
 export interface HostedOutlineList {
   defaultOutline?: string;
   outlines: HostedOutlineSummary[];
+  /** Outlines put away with `outlines.archive`; absent when there are none. */
+  archived?: HostedArchivedOutline[];
+}
+
+/** `outlines.archive` and `outlines.unarchive`: where the outline's files went (nothing is erased). */
+export interface HostedOutlineArchival {
+  name: string;
+  archived: boolean;
+  movedTo: string;
 }
 
 /** `outlines.attach`: the outline, open, and whether this request created it. */
@@ -180,6 +209,8 @@ export interface McpAccessStatus {
   level: McpAccessLevel;
   canRead: boolean;
   sequence: number;
+  /** The principal that made this outline over MCP (PIE-679): it writes with `full`, whatever `level` lets the others. */
+  owner?: string;
 }
 
 /**

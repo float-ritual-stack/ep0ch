@@ -1,6 +1,6 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
-import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL } from '../hooks/outline-tools'
+import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, doorActorOf, machineNameOf } from '../hooks/outline-tools'
 import { WORK_TOOLS } from '../hooks/work-tools'
 
 tier('user')
@@ -60,6 +60,8 @@ function sessionIn(on: On, answer: (run: Run) => ProcessRunResult | undefined, e
     return { value: { tool: `mcp__pi-outliner__${e.name}` } }
   })
   on('process.run', ($, e) => {
+    // This machine's name, which a write's principal carries (claude-code@garden-host).
+    if (e.argv[0] === 'hostname') return { value: result(0, 'garden-host\n') }
     runs.push(e)
     const given = answer(e)
     if (given) return { value: given }
@@ -124,7 +126,7 @@ describe('outline tools', () => {
       const answered = await $.tool.call({ tool: `mcp__pi-outliner__${call.tool}`, ...call.input })
       expect(answered).toMatchObject({ result: ANSWERS[call.operation] })
       const run = session.agentRuns().at(-1)!
-      expect(run.argv).toEqual([...CLI, 'agent', call.operation, '--stdin', '--actor', 'claude-code', '--session', 'session-1'])
+      expect(run.argv).toEqual([...CLI, 'agent', call.operation, '--stdin', '--actor', 'claude-code@garden-host', '--session', 'session-1'])
       expect(JSON.parse(run.init!.stdin!)).toEqual(call.json)
       expect(run.init?.cwd).toBe(WORKSPACE)
       expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })
@@ -179,9 +181,9 @@ describe('outline tools', () => {
     const session = sessionIn(on, () => undefined, { EP0CH_AGENT: 'loki' })
     await session.begin(() => $.session.start(START))
     await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, whole: true, body: 'Due this week.' })
-    expect(session.agentRuns().at(-1)!.argv.slice(3)).toEqual(['agent', 'comment', '--stdin', '--actor', 'loki', '--session', 'session-1'])
+    expect(session.agentRuns().at(-1)!.argv.slice(3)).toEqual(['agent', 'comment', '--stdin', '--actor', 'loki/claude-code@garden-host', '--session', 'session-1'])
     await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, whole: true, body: 'Due this week.', actor: 'garden-agent' })
-    expect(session.agentRuns().at(-1)!.argv).toContain('garden-agent')
+    expect(session.agentRuns().at(-1)!.argv).toContain('garden-agent/claude-code@garden-host')
     // The actor never travels in the JSON: attribution is the CLI flag's.
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toEqual({ ref: NOTE, whole: true, body: 'Due this week.' })
     const neither = await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, body: 'Hm.' })
@@ -193,10 +195,10 @@ describe('outline tools', () => {
       { OUTLINER_ACTOR: 'cowboy', EP0CH_AGENT: 'loki' })
     await session.begin(() => $.session.start(START))
     await $.tool.call({ tool: 'mcp__pi-outliner__outline_create', parent: 'root', text: 'Plant garlic' })
-    expect(session.agentRuns().at(-1)!.argv).toContain('cowboy')
+    expect(session.agentRuns().at(-1)!.argv).toContain('cowboy/claude-code@garden-host')
     await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
     const work = session.runs.find(run => run.argv.includes('work'))!
-    expect(work.argv.slice(-9)).toEqual(['--author', 'agent', '--actor', 'cowboy', '--session', 'session-1', '--', 'PIE-8', 'doing'])
+    expect(work.argv.slice(-9)).toEqual(['--author', 'agent', '--actor', 'cowboy/claude-code@garden-host', '--session', 'session-1', '--', 'PIE-8', 'doing'])
   })
 
   test('in a folder bound to no outline, outline tools change nothing', async ($, on) => {
@@ -386,5 +388,25 @@ describe('tool arguments', () => {
     const same = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: `((${NOTE}))`, id: NOTE, ...edit })
     expect(same).toMatchObject({ result: ANSWERS.edit })
     expect(session.agentRuns().length).toBe(1)
+  })
+})
+
+describe('who a write is attributed to: principal and persona', () => {
+  test('the principal is this client on this machine; the persona is a label on it and never replaces it', () => {
+    expect(actorOf({}, {}, 'float-2')).toBe('claude-code@float-2')
+    expect(actorOf({}, { EP0CH_AGENT: 'loki' }, 'float-2')).toBe('loki/claude-code@float-2')
+    // Loki on float-2 and cowboy on the laptop are told apart, and so are two machines' Lokis.
+    expect(actorOf({}, { EP0CH_AGENT: 'cowboy' }, 'laptop')).toBe('cowboy/claude-code@laptop')
+    expect(actorOf({}, { EP0CH_AGENT: 'loki' }, 'laptop')).not.toBe(actorOf({}, { EP0CH_AGENT: 'loki' }, 'float-2'))
+    // A claim that brings its own principal keeps only the name: it can't speak for another machine.
+    expect(actorOf({ actor: 'loki/claude-code@float-2' }, {}, 'laptop')).toBe('loki/claude-code@laptop')
+    expect(actorOf({ actor: 'claude-code' }, {}, 'laptop')).toBe('claude-code@laptop')
+    // Without a machine it is the bare client, as it was.
+    expect(actorOf({}, {})).toBe('claude-code')
+    expect(machineNameOf('  Float 2\n')).toBe('Float-2')
+  })
+  test('door tools keep the short name', () => {
+    expect(doorActorOf({}, { EP0CH_AGENT: 'loki' })).toBe('loki')
+    expect(doorActorOf({}, {})).toBe('claude-code')
   })
 })

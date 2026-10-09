@@ -17,8 +17,8 @@
 // An outline whose home is another machine is never written here: its writes queue (src/mcp-netmail.ts), and that
 // machine applies them with this same `applyWrite` when it pulls them.
 //
-// Every write is `author: agent`, its actor `mcp:<client>` (the OAuth client: a URL client id by its host, so claude.ai's
-// reads `mcp:claude.ai`) and its session the OAuth subject, so the outline's activity, the door's flash and the gateway's
+// Every write is `author: agent`, its actor `mcp:[<persona>/]<principal>` (the principal auth proved: the OAuth client, a URL client id by its host, so claude.ai's
+// reads `mcp:claude.ai`, or `claude-code@float-2` on stdio; the persona a declared label within it: `mcp:loki/claude-code@float-2`) and its session the OAuth subject, so the outline's activity, the door's flash and the gateway's
 // log all say who wrote it.
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -26,12 +26,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseEnvFile } from "./backup/config";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { composeActor, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { canonicalLocalMachineName } from "./machine-name";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { BoardAddress } from "./notes-cli";
 import type { SocketBoard } from "./socket";
 
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
-type WriteBoard = SocketBoard & { address?: BoardAddress };
+export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
 export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
@@ -47,30 +49,72 @@ export interface WriteActor { actorId: string; sessionId?: string }
 export function clientName(clientId: string | undefined): string {
   if (!clientId) return "client";
   try { const url = new URL(clientId); if (url.hostname) return url.hostname; } catch { /* not a URL */ }
-  return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "client";
+  return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 64) || "client";
 }
 
-/** A persona's name: what an actor id may hold after `mcp:`. */
-const PERSONA = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** The subject a stdio caller has: there is no token, so one fixed name; its client name is what tells callers apart. */
+export const STDIO_SUBJECT = "stdio";
 
 /**
- * The name a connection writes as, when its owner gave it one: `EP0CH_MCP_PERSONAS` (in the environment, else in
- * `~/.config/ep0ch/mcp.env`) is a comma list of `<who>=<name>`, `<who>` being the OAuth client (its short name, as
- * clientName gives it: claude.ai) or the token's subject. claude.ai=daddy makes the gateway's writes `mcp:daddy`.
- * Read at each write, so a change takes effect without a restart. A subject wins over a client.
+ * Who auth proved a caller is (PIE-679), the part of a write's attribution that a persona can't change.
+ * The HTTP gateway: the OAuth client its verified token names (`claude.ai`), else the token's subject.
+ * Stdio and the mod: the client the connection names, on this machine (`claude-code@float-2`): a process of the
+ * owner's own, so the machine is what tells two of the same client apart.
  */
-export function personaOf(caller: McpCaller, env: Record<string, string | undefined> = process.env): string | undefined {
-  let list = env.EP0CH_MCP_PERSONAS;
-  if (list === undefined) {
-    try {
-      const file = join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
-      list = existsSync(file) ? parseEnvFile(readFileSync(file, "utf8")).EP0CH_MCP_PERSONAS : undefined;
-    } catch { list = undefined; }
-  }
-  const map = new Map((list ?? "").split(",").map(e => e.split("=").map(x => x.trim()) as [string, string]).filter(([k, v]) => k && v && PERSONA.test(v)));
-  return map.get(caller.sub) ?? (caller.clientId ? map.get(clientName(caller.clientId)) ?? map.get(caller.clientId) : undefined);
+export function principalOf(caller: McpCaller, machine: string = canonicalLocalMachineName()): string {
+  if (caller.sub === STDIO_SUBJECT) return `${clientName(caller.clientId)}@${machine}`;
+  return clientName(caller.clientId ?? caller.sub);
 }
-export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>): WriteActor => ({ actorId: `mcp:${personaOf(caller, env) ?? clientName(caller.clientId)}`, sessionId: caller.sub });
+
+/** An MCP setting: the environment's, else `~/.config/ep0ch/mcp.env`'s (EP0CH_MCP_PERSONAS, EP0CH_MCP_SCRATCH_CAP). */
+export function mcpSetting(env: Record<string, string | undefined>, key: string): string | undefined {
+  const value = env[key];
+  if (value !== undefined) return value;
+  try {
+    const file = join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
+    return existsSync(file) ? parseEnvFile(readFileSync(file, "utf8"))[key] : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * The persona a caller writes under, on top of its principal, and why a claimed one was not used.
+ *
+ * A persona is a label: it maps only within the principal auth proved, never across. `EP0CH_MCP_PERSONAS` (in the
+ * environment, else in `~/.config/ep0ch/mcp.env`) is a comma list of `<who>=<persona>`, `<who>` being the principal
+ * (`claude-code@float-2`, or the gateway's `claude.ai`) or the token's subject. A stdio process may also declare its
+ * own (`OUTLINER_ACTOR`, else `EP0CH_AGENT`), which holds only where the list does not give that persona to another
+ * principal: `claude-code@laptop` claiming `loki` while the list says `claude-code@float-2=loki` is refused. Read at each
+ * write, so a change takes effect without a restart. A subject wins over a principal, a list over a claim.
+ */
+export function personaClaim(caller: McpCaller, env: Record<string, string | undefined> = process.env, machine?: string): { persona?: string; refused?: string } {
+  const principal = principalOf(caller, machine);
+  const entries = (mcpSetting(env, "EP0CH_MCP_PERSONAS") ?? "").split(",").map(e => e.split("=").map(x => x.trim()) as [string, string]).filter(([k, v]) => k && v && PERSONAS.test(v));
+  const map = new Map(entries);
+  const listed = map.get(caller.sub) ?? map.get(principal);
+  if (listed) return { persona: listed };
+  const claim = caller.sub === STDIO_SUBJECT ? (env.OUTLINER_ACTOR?.trim() || env.EP0CH_AGENT?.trim() || undefined) : undefined;
+  if (!claim || !PERSONAS.test(claim)) return {};
+  const owner = entries.find(([who, persona]) => persona === claim && who !== principal && who !== caller.sub);
+  if (owner) return { refused: `${claim} belongs to ${owner[0]} in EP0CH_MCP_PERSONAS, not to ${principal}` };
+  return { persona: claim };
+}
+/** A persona's name: what an actor id may hold before the `/`. */
+const PERSONAS = PERSONA_PATTERN;
+
+export const personaOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): string | undefined => personaClaim(caller, env, machine).persona;
+
+/** The attribution of a caller's write: `mcp:<persona>/<principal>` (outline-core's attribution.ts), its session the OAuth subject. */
+export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): WriteActor => {
+  const persona = personaOf(caller, env, machine);
+  return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine), mcp: true }), sessionId: caller.sub };
+};
+
+/**
+ * What an outline's access setting means for this caller (PIE-679): the principal that made a scratch outline writes to it with
+ * `full`, whatever the setting lets the others (`read`). A setting of `none` is a person's denial and holds for everyone.
+ */
+export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string): McpAccessLevel =>
+  caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
 
 /** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
 export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null

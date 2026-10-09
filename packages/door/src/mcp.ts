@@ -8,7 +8,9 @@
 import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
-import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
@@ -19,7 +21,7 @@ import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type Net
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
-import { actorOf, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
@@ -78,6 +80,8 @@ export interface McpOutlineListing {
   source: McpServed["source"] | "unreachable";
   asOf?: string;
   access?: McpAccessLevel;
+  /** Who made it and why, when an agent made it with outline_new (the door's home base shows the same). */
+  about?: OutlineAbout & { by: string };
   /** What a write to it becomes: applied or proposed here, or queued for its home machine; absent when it takes none. */
   writes?: "applied" | "proposals" | "queued";
   /** An outline of another machine: how it is served now (its host through the shared ssh forward, or the mirror and why) and when that was last checked. */
@@ -113,7 +117,11 @@ export interface McpOutlines {
   kind: "local" | "remote";
   machine: string;
   board(named?: NamedOutline): Promise<McpBoard | { error: string }>;
-  list(): Promise<McpOutlineListing[]>;
+  list(caller?: McpCaller): Promise<McpOutlineListing[]>;
+  /** What outline_new and outline_archive use: this machine's outline host. Absent, they aren't offered. */
+  admin?: McpOutlineAdmin;
+  /** A server bound to boards (stdio) takes an outline just made into what it serves, so list_outlines shows it on the same session. */
+  adopt?(board: Board): void;
   /** The outline a find or bare ref reads when none is named, if this server has one. */
   defaultOutline?: string;
   /** What a caller is told of an unexpected failure (the gateway logs it and says less); else its message. */
@@ -124,22 +132,38 @@ export interface McpOutlines {
   log?: (line: string) => void;
 }
 
+/** An `about` as a listing shows it: with who, as a person reads it (`loki (claude-code@float-2)`). */
+export const aboutListing = (a: OutlineAbout): OutlineAbout & { by: string } => ({ ...a, by: actorLabel(a.createdBy) });
+
 const uriOrName = (named: NamedOutline, machine: string) => named.machine ? `ep0ch://${named.outline}@${named.machine}` : `outline ${named.outline}@${machine}`;
 
 /** The stdio server's outlines: the one board it was started on. */
-export function boundOutlines(board: Board): McpOutlines {
+export function boundOutlines(board: Board, admin?: McpOutlineAdmin): McpOutlines {
   const bound = board.address;
+  /** Outlines this session made with outline_new: served beside the bound one, on this machine. */
+  const made = new Map<string, Board>();
+  const hereOnly = (n: NamedOutline) => !n.machine || sameMachine(n.machine, admin?.machine ?? bound.machine);
   return {
     kind: "local",
     machine: bound.machine,
     defaultOutline: bound.outline,
+    ...(admin ? { admin } : {}),
+    adopt(b) { if (admin && b.address) made.set(b.address.outline, b); },
     async board(named) {
       if (!named || namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return { board, served: servedLive() };
-      return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
+      const other = made.get(named.outline);
+      if (other && hereOnly(named)) return { board: other, served: servedLive() };
+      return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}${made.size ? ` and the ${made.size === 1 ? "outline" : "outlines"} it made (${[...made.keys()].join(", ")})` : ""}` };
     },
-    async list() {
-      const level = (await board.mcpAccessStatus()).level, writes = writesAt(level);
-      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}) }];
+    async list(caller) {
+      const rows: McpOutlineListing[] = [];
+      const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
+      for (const b of [board, ...made.values()]) {
+        const status = await b.mcpAccessStatus(), level = levelFor(status, caller), writes = writesAt(level);
+        const about = abouts.get(b.address.outline);
+        rows.push({ ...b.address, uri: `ep0ch://${b.address.outline}@${b.address.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}), ...(about ? { about: aboutListing(about) } : {}) });
+      }
+      return rows;
     },
   };
 }
@@ -236,6 +260,9 @@ const accessRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level
   // Run on the outline's own machine, so the command names no machine; a mirror carries the setting with its next change.
   : `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it, as of ${served.asOf})` : ""}; its owner runs \`ep0ch mcp access read --ws ${board.address.outline}\` on ${board.address.machine} to let MCP clients read it${served.source === "mirror" ? ", and the mirror follows with that change" : ""}.`;
 
+/** The status with the level this caller has: the principal that made a scratch outline writes with `full` (levelFor). */
+const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined): McpAccessStatus => ({ ...status, level: levelFor(status, caller) });
+
 async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
   const status = await target.board.mcpAccessStatus();
   if (!status.canRead) return { error: accessRefusal(outlines, target, status.level) };
@@ -260,9 +287,9 @@ const reachability = (outlines: McpOutlines, target: McpBoard, status: McpAccess
  * `header` is `properties` again), so a model reads each thing once. Links keep `bodySpans`, which point into `body`;
  * their `spans` point into the `text` that isn't sent. Other clients get the whole record.
  */
-export type McpRecord = Omit<BlockRecord, "text" | "header" | "links"> & { links: Omit<BlockRecord["links"][number], "spans">[] };
+export type McpRecord = Omit<BlockRecord, "text" | "header" | "links"> & { links: Omit<BlockRecord["links"][number], "spans">[]; /** Who made it, as a person reads it: `loki (claude-code@float-2)` (PIE-679). */ by?: string };
 export const mcpRecord = ({ text: _text, header: _header, links, ...rest }: BlockRecord): McpRecord =>
-  ({ ...rest, links: links.map(({ spans: _spans, ...link }) => link) });
+  ({ ...rest, ...(rest.actor ? { by: actorLabel(rest.actor) } : {}), links: links.map(({ spans: _spans, ...link }) => link) });
 
 const envelope = (board: Board, uri: string, access: McpReachability, record: BlockRecord, revision: number | undefined) => ({
   uri,
@@ -734,17 +761,20 @@ function toolsFor(outlines: McpOutlines) {
   ];
 }
 
+/** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
+const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => caller && outlines.admin ? outlineAdminDefinitions(outlines.admin.machine) : [];
+
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
-  return !!caller && writesOffered(caller, await outlines.list());
+  return !!caller && writesOffered(caller, await outlines.list(caller));
 }
 
 /** Said wherever access changes: a connected client keeps the tool list it fetched. */
 export const RECONNECT_HINT = "an MCP client keeps the tool list it fetched when it connected (claude.ai until the connector reconnects): reconnect it to see the write tools appear or go (some clients also need their tool list refreshed after the reconnect: in Claude Code, RefreshMcpTools)";
 
 async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined): Promise<ToolResult> {
-  const listed = await outlines.list();
+  const listed = await outlines.list(caller);
   const writes = writesOffered(caller, listed);
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
@@ -775,6 +805,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
   outline_assign_id: { ref: "PIE-123", revision: 3 },
   outline_write_status: { queueId: "q-1" },
+  ...OUTLINE_ADMIN_EXAMPLES,
 };
 
 /**
@@ -784,7 +815,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  */
 function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
   const writes = !!caller;
-  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])];
+  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : []), ...adminTools(outlines, caller)];
   const definition = definitions.find(d => d.name === name);
   if (!definition) return undefined;
   // `limit` keeps limitOf's own answer, which names the tool's default and maximum.
@@ -805,11 +836,26 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: Mc
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args, scope);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
+  if ((params.name === "outline_new" || params.name === "outline_archive") && caller && outlines.admin) return adminTool(outlines, outlines.admin, params.name, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
   if (isWriteTool(params.name) && caller) return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
+}
+
+async function adminTool(outlines: McpOutlines, admin: McpOutlineAdmin, tool: "outline_new" | "outline_archive", args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
+  const actor = actorOf(caller, admin.env, admin.machine);
+  try {
+    const done = tool === "outline_new" ? await outlineNew(admin, args, caller) : await outlineArchive(admin, args, caller);
+    if ("error" in done) { outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}): refused: ${done.error}`); return toolError(done.error); }
+    outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}) ${String(args.name)}: ${String(done.ok.outcome)}`);
+    if (tool === "outline_new" && outlines.adopt) {
+      const board = await admin.open(String(args.name));
+      if (!("error" in board)) outlines.adopt(board as unknown as Board);
+    }
+    return toolText({ ...done.ok, by: actorLabel(actor.actorId) });
+  } catch (e) { return toolError((e as Error).message); }
 }
 
 const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level: McpAccessLevel) =>
@@ -827,7 +873,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (resourceRef && await isResourceRef(resourceRef)) {
     const target = await resourceBoard(outlines, args);
     if ("error" in target) return toolError(target.error);
-    const status = await target.board.mcpAccessStatus();
+    const status = withLevel(await target.board.mcpAccessStatus(), caller);
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
     try {
@@ -838,7 +884,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = await target.board.mcpAccessStatus();
+  const status = withLevel(await target.board.mcpAccessStatus(), caller);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
   if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
@@ -883,7 +929,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     }
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
-    return toolText({ outcome: done.outcome, uri: done.uri, ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
+    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);
@@ -897,7 +943,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
     case "ping":
       return {};
     case "tools/list":
-      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : [])] }));
+      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : []), ...adminTools(outlines, caller)] }));
     case "tools/call":
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":
@@ -983,7 +1029,7 @@ export async function answerMcp(outlines: McpOutlines, text: string, caller?: Mc
 }
 
 /** The subject a stdio caller has: there is no token, so one fixed name; its client name is what tells callers apart. */
-export const STDIO_SUBJECT = "stdio";
+export { STDIO_SUBJECT };
 
 /** The `clientInfo.name` of an `initialize` request in this line, if it is one. */
 function clientNamed(line: string): string | undefined {
@@ -1073,7 +1119,7 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
   if ("error" in parsedArgs) { err(`ep0ch: ${parsedArgs.error}`); return 2; }
   const board = await boardFor(parsedArgs);
   if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
-  const outlines = boundOutlines(board);
+  const outlines = boundOutlines(board, localAdmin());
   const write = io.write ?? (line => process.stdout.write(`${line}\n`));
   try {
     // No token on stdio: the caller is the client the MCP `initialize` names, written as `mcp:<client>` (and mapped by

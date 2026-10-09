@@ -1,8 +1,8 @@
-import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, OutlineAbout } from "@ep0ch/outline-core/protocol";
 export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
-export type { HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
+export type { HostedArchivedOutline, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -1741,12 +1741,14 @@ export type OutlinerRequestAction =
   | { id: string; action: "ping" }
   /** Answered by the outline host itself (capabilities `outlines.*`); a single-outline service refuses them. */
   | { id: string; action: "outlines.list" }
-  | { id: string; action: "outlines.create"; name: string }
+  | { id: string; action: "outlines.create"; name: string; about?: OutlineAbout }
   | { id: string; action: "outlines.import"; path: string; name: string }
   | { id: string; action: "outlines.attach"; name: string; create?: boolean }
   | { id: string; action: "outlines.pane"; paneId: string; hostname: string }
   | { id: string; action: "outlines.close"; name: string }
   | { id: string; action: "outlines.delete"; name: string }
+  | { id: string; action: "outlines.archive"; name: string }
+  | { id: string; action: "outlines.unarchive"; name: string }
   | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */

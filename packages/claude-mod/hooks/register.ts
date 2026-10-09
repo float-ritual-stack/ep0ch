@@ -22,7 +22,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { actorOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
+import { actorOf, doorActorOf, machineNameOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -423,7 +423,7 @@ export function register(on: On, options: PluginOptions): void {
     if (!uri) return { deny: 'Give the ref: a Work ID, [[page]], ((block-uuid)) or pi-outliner:// URI to show.' }
     if (!references) await loadReferences($, option)
     try {
-      return { result: shownText(await openNote($, references?.workspace ?? null, uri, await actorFor($, {})), String(reference)) }
+      return { result: shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, {})), String(reference)) }
     } catch (error) {
       return { deny: deniedText(error, String(reference)) }
     }
@@ -795,13 +795,30 @@ async function runWorkCommand(
 }
 
 /**
- * Who this session's writes are attributed to: the tool call's `actor`, else
- * OUTLINER_ACTOR, else EP0CH_AGENT (the door's name for the agent), else
- * claude-code. The session id goes beside it as provenance.
+ * Who this session's writes are attributed to: this client on this machine (`claude-code@float-2`), with the tool
+ * call's `actor`, else OUTLINER_ACTOR, else EP0CH_AGENT (the door's name for the agent) as the persona on top
+ * (`loki/claude-code@float-2`). The session id goes beside it as provenance.
  */
 async function actorFor($: EngineInterface, input: Record<string, unknown>): Promise<string> {
+  const [OUTLINER_ACTOR, EP0CH_AGENT, machine] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT'), machineName($)])
+  return actorOf(input, { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) }, machine)
+}
+
+/** Who a door tool names as the agent (`--as`, door-open's `--actor`): the persona alone, as before. */
+async function doorActorFor($: EngineInterface, input: Record<string, unknown>): Promise<string> {
   const [OUTLINER_ACTOR, EP0CH_AGENT] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT')])
-  return actorOf(input, { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) })
+  return doorActorOf(input, { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) })
+}
+
+/** This machine's name, asked once (`hostname`): what tells two machines' Claudes apart in a write's principal. Undefined when it can't be read. */
+let machineKnown: string | undefined
+async function machineName($: EngineInterface): Promise<string | undefined> {
+  if (machineKnown) return machineKnown
+  try {
+    const ran = await $.process.run(['hostname'], { timeoutMs: 3_000 })
+    if (ran.exitCode === 0) machineKnown = machineNameOf(ran.stdout)
+  } catch { /* the bare client is the principal */ }
+  return machineKnown
 }
 
 /** Runs the installed CLI in the session's workspace for a read: its whole result, any exit code. */
@@ -863,7 +880,7 @@ async function runDoorTool(
     case 'door_peek':
       return JSON.stringify(peekOf(await ep0ch(['ep0ch', 'peek'])))
     case 'door_act': {
-      const command = doorActArgv(input, await actorFor($, input))
+      const command = doorActArgv(input, await doorActorFor($, input))
       if (typeof command === 'string') throw Error(command)
       return compact(await ep0ch(command.argv, command.stdin))
     }
@@ -874,7 +891,7 @@ async function runDoorTool(
       if (!uri) throw Error('Give the ref of the note to open: its id, ((id)), [[page]] or Work ID.')
       if (!references) await loadReferences($, option)
       try {
-        return shownText(await openNote($, references?.workspace ?? null, uri, await actorFor($, input)), ref)
+        return shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, input)), ref)
       } catch (error) {
         throw Error(deniedText(error, ref))
       }
@@ -1400,7 +1417,7 @@ async function openReference($: EngineInterface, workspace: Workspace, href: str
  */
 async function openUri($: EngineInterface, workspace: Workspace, uri: string, surface: RenderSurface): Promise<string | null> {
   try {
-    const shown = await openNote($, workspace, uri, await actorFor($, {}))
+    const shown = await openNote($, workspace, uri, await doorActorFor($, {}))
     // Here, from a press the pane couldn't be seated by (a door that had quit): say where it went.
     if (shown.place === 'here' && shown.waits) {
       $.ui.toast(`${shown.title || outlinerLabelOf(uri)} is open in the mentions pane, not on screen yet (${shown.waits}); /mentions pane shows it.`, { timeoutMs: 8000 })
@@ -1547,7 +1564,7 @@ async function openFileTarget($: EngineInterface, ref: string, surface: RenderSu
     return
   }
   const against = diff ? snapshots.get(path) : undefined
-  const argv = ['ep0ch', 'open', `${FILE_REF}${path}`, ...(diff ? ['diff=true'] : []), ...(against ? [`against=${against}`] : []), '--as', await actorFor($, {}), '--json']
+  const argv = ['ep0ch', 'open', `${FILE_REF}${path}`, ...(diff ? ['diff=true'] : []), ...(against ? [`against=${against}`] : []), '--as', await doorActorFor($, {}), '--json']
   const ran = await $.process.run(argv, { env: { EP0CH_CONTROL: control }, timeoutMs: 15_000 }).catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
   let answer: { opened?: boolean; reason?: string } | null = null
   try { answer = JSON.parse(ran.stdout) } catch { answer = null }

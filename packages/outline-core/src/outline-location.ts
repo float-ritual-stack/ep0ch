@@ -219,7 +219,7 @@ export function outlinesFolder(env: { EP0CH_OUTLINES?: string }, home: string): 
 /**
  * Everything under the outlines folder. Only `<name>.sqlite` and `<name>/` are outlines; the dot folders are the
  * host's: `.host/` (mode 0700: its socket and lock), `.clients/<name>/` (a client's own files for an outline, such
- * as editor drafts), `.deleted/` (where a deleted outline is moved; nothing is erased) and `.publish/` (the
+ * as editor drafts), `.deleted/` (where a deleted outline is moved; nothing is erased), `.archive/` (where an archived one waits to be restored) and `.publish/` (the
  * publisher's cache); and the clients': `.remote/` (mode 0700: each machine's forward, `<machine>.sock`, and the
  * ssh connection that holds it, `<machine>.ctl`).
  */
@@ -231,6 +231,9 @@ export function outlineLayout(outlines: string) {
     socket: join(root, ".host", "host.sock"),
     lock: join(root, ".host", "host.lock"),
     deleted: join(root, ".deleted"),
+    /** Where an archived outline waits: `.archive/<name>/` holds `<name>.sqlite` and its folder `<name>/`. */
+    archive: join(root, ".archive"),
+    archived: (name: string) => join(root, ".archive", name),
     publish: join(root, ".publish"),
     database: (name: string) => join(root, `${name}.sqlite`),
     folder: (name: string) => join(root, name),

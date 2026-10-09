@@ -12,7 +12,7 @@ import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, Chec
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
-import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -234,6 +234,8 @@ interface WorkIdAllocatorRow {
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
 export const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
+/** What a scratch outline says of itself (outline-core's OutlineAbout, JSON): who made it, why, when (PIE-679). */
+export const OUTLINE_ABOUT_METADATA_KEY = "outline.about";
 /** How many earlier texts of a block the store keeps (PIE-621, block_revisions): the newest. */
 export const REVISIONS_KEEP = 100;
 
@@ -903,7 +905,19 @@ export class OutlinerStore {
   private mcpAccessStatusFromCurrentRead(): McpAccessStatus {
     const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
     const level = normalizeMcpAccessLevel(row?.value ?? "none");
-    return { level, canRead: level !== "none", sequence: this.sequence };
+    const owner = this.outlineAbout()?.principal;
+    return { level, canRead: level !== "none", sequence: this.sequence, ...(owner ? { owner } : {}) };
+  }
+
+  /** What this outline says of itself, when an agent made it over MCP. */
+  outlineAbout(): OutlineAbout | undefined {
+    return readOutlineAbout(this.database);
+  }
+
+  /** Records who made this outline and why (once, at creation). */
+  setOutlineAbout(about: OutlineAbout): void {
+    this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
   }
 
 
@@ -5137,4 +5151,14 @@ export class OutlinerStore {
   private advanceSequence(): void {
     this.database.query("UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'sequence'").run();
   }
+}
+
+/** An outline database's `about`, read from its metadata (a closed file opened read-only works too); undefined when it has none. */
+export function readOutlineAbout(database: Database): OutlineAbout | undefined {
+  try {
+    const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_ABOUT_METADATA_KEY) as { value: string } | null;
+    if (!row) return undefined;
+    const a = JSON.parse(row.value) as OutlineAbout;
+    return typeof a?.principal === "string" && typeof a.createdBy === "string" ? a : undefined;
+  } catch { return undefined; }
 }
