@@ -109,7 +109,7 @@
     { "id": "R3-A4", "line": 178, "title": "An agent refusal that depends on arguments can't be declared", "status": "open", "note": "a personWith(args) beside touchesWith; today actor.kind branches in run (screens.ts, lanes.ts, backlinks-pane.ts, note.ts)" },
     { "id": "R3-A5", "line": 185, "title": "The screen tile switches on board and river", "status": "open", "note": "screen-tile.ts ScreenKind: openScreen(name) over the spec registry, own preview declared by the spec" },
     { "id": "R3-A8", "line": 198, "title": "The engine re-exports helpers nobody imports", "status": "open", "note": "screen-layout.ts: pinnedTiles, nodeById, POLICY_KEYS, fullWidth, PEEK; trim with R3-A3" },
-    { "id": "R3-A9", "line": 203, "title": "The desk asks a pane's class where a kind hook would do", "status": "open", "note": "desk.ts instanceof DetailPane and PreviewPane" },
+    { "id": "R3-A9", "line": 203, "title": "The desk asks a pane's class where a kind hook would do", "status": "open", "note": "desk.ts instanceof ReaderPane and PreviewPane (DetailPane is gone: a detail is a held reader, PIE-705)" },
     { "id": "R3-A11", "line": 211, "title": "A second copy action beside the surface's", "status": "open", "note": "river/column.ts's own Selection and column.copy beside NoteSurface's select.copy" }
   ],
   "chapters": [

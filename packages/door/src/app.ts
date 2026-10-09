@@ -7,7 +7,7 @@ import type { Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
-import { Dispatcher } from "./surface/dispatch";
+import { Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
@@ -902,6 +902,7 @@ export class App implements Ctx {
     // Finding the owner can refuse too (a name both the screen and the drawer have): said like every refusal.
     let takes: boolean;
     try { takes = this.dispatch.takes(req); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
+    if (!takes && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
     try {

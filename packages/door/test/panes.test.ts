@@ -116,6 +116,33 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await expect(act("edit.close", { discard: true }, "detail1")).rejects.toThrow(/no tile detail1/);
   });
 
+  test("PIE-705: the readers row holds reader tiles in mode held, named and labelled as the details always were; p and reader.mode switch them", async () => {
+    await withDetails();
+    const tiles = () => B().layoutGet().tiles as any[];
+    const t = (n: string) => tiles().find(x => x.name === n);
+    expect(t("detail1")).toMatchObject({ kind: "reader", mode: "held" });
+    expect(t("detail2")).toMatchObject({ kind: "reader", mode: "held" });
+    expect(t("preview").kind).toBe("preview");
+    expect(t("detail1").title).toMatch(/^detail 1\b/);
+    // The board's readers row reads as before: the same row, names and labels, in mode held.
+    expect(row()).toEqual(["preview", "detail1", "detail2"]);
+    // An agent switches one by name; the person's keys stay on the lanes.
+    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ tile: "detail2", mode: "follows", held: false });
+    expect(t("detail2").mode).toBe("follows");
+    expect(focus()).toBe("lanes");
+    expect(await act("reader.mode", { mode: "held" }, "detail2")).toMatchObject({ mode: "held" });
+    // The person: tab to detail1, p lets it follow the lanes' selection, p again keeps what it shows; its label stays.
+    key({ kind: "tab" }); key({ kind: "tab" });
+    expect(focus()).toBe("detail1");
+    key(char("p"));
+    expect(t("detail1")).toMatchObject({ mode: "follows" });
+    expect(t("detail1").title).toMatch(/^detail 1\b/);
+    expect(details()[0]!.msg?.id).toBe(B().preview.msg?.id);   // let go, it shows the board's current card as the preview does
+    key(char("p"));
+    expect(t("detail1")).toMatchObject({ mode: "held" });
+    expect(t("detail1").title).toMatch(/^detail 1\b/);
+  });
+
   test("{ } and < > change the tree's shares: the lanes' height, a lane's width in the columns, a reader's in the row", async () => {
     await withDetails();
     const lanesH = rect("preview").row;
