@@ -10,6 +10,7 @@ import type { ReaderPane } from "../src/desk/panes";
 import { describeKey, modsOf, showBytes } from "../src/key-probe";
 import { HYPER_KEYS, hyperBinding, hyperKeysOf, hyperOn, useHyper } from "../src/hyper";
 import { parseReport, reportKey } from "../src/kbd";
+import { tuningOf } from "../src/look";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { KeyDecoder, type Key } from "../src/term";
@@ -200,6 +201,7 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(tile(tune!).collapsed).toBeUndefined();
     expect(get().tiles.filter((t: any) => t.collapsed)).toEqual([]);
     void D().dispatch.act({ action: "tile.close", tile: tune }, { kind: "user" });
+    tuningOf(board).clear();                                                              // the nudges are unsaved: they would hold up every later test's quit
   }, 30_000);
 
   test("off, a hyper chord does nothing to the desk (a terminal tile gets it as before); keys.probe describes the next chord and runs none", async () => {
