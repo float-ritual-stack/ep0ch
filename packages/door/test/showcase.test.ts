@@ -1826,7 +1826,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const titleRows = () => raw().filter(l => plain(l).includes("│An evening on the plot"));
     const titleRow = () => titleRows()[0]!;
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
-    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null }, on: true, mode: "first" });
+    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
     // Scrolled past it (an agent's scroll, through act): the header takes it, in this terminal's cells, by steps.
     await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });
