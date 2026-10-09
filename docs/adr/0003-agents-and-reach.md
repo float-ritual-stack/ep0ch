@@ -1,6 +1,7 @@
 # 0003: Who an agent is, and what it can reach
 
-Status: proposed, 2026-10-09.
+Status: accepted, 2026-10-09, as amended by Evan the same day: personas are recorded names, never permissions, and no
+transport is "always" anything.
 
 ## Context
 
@@ -47,40 +48,42 @@ The actor id stays `mcp:<persona>/<principal>` (outline-core `attribution.ts`) a
 `sessionId` (`<subject>#<call>`). Display is the persona, with the rest one step away: `loki`, then
 `loki · 3f2a (claude-code@float-2)`.
 
-### 2. A persona is defined in the outline
+### 2. A persona is a recorded name, not a permission
 
-- **One block per persona,** `[type::agent]`, its page the persona's name (`[[loki]]`): what it works on, how it
-  writes, its inbox. It lists the principals that may write as it. Property names are the implementation's to pick.
-- **The server reads every agent block in every outline it serves** (mirrors included, so the laptop's are known
-  while it sleeps). A name defined twice with different principals is refused as ambiguous, with both blocks' ids
-  (ADR 0001, rule 2).
-- **A block can also be a principal's default:** daddy's says it is `claude.ai`'s, so claude.ai needs no claim. That
-  replaces `EP0CH_MCP_PERSONAS`, which is retired once the agent blocks exist.
+Who uses this outline is Evan and his own agents: a claude.ai chat on his account, a Claude on his laptop, the
+ones on float-2. There are no outside agents to keep out, so a persona is a label the write carries, never a gate.
+
+- **Recorded, never refused.** A write names its persona and the service records it. Nothing checks a persona
+  against a list, and nothing refuses one: an agent that writes as `yo-mama` for a reason of its own is recorded as
+  `yo-mama/claude-code@float-2`, which is honest about where it came from.
+- **What's proven is the principal** (the connection), and it is always recorded beside the persona, so a persona
+  never hides where a write came from.
+- **No persona registry, no allowlists, no ambiguity checks.** A persona can have a page in the outline (`[[loki]]`:
+  what it works on, its inbox) as ordinary notes, but nothing reads it as permission. Allowlists are deferred until
+  something actually goes wrong, and then they are a new decision.
 
 ### 3. Where a session's persona comes from
 
-First match wins, and every one is a claim the agent blocks must allow, never a grant:
+First match wins:
 
 1. `OUTLINER_ACTOR`, else `EP0CH_AGENT` (a door tile's agent).
 2. The folder's `.ep0ch`: `agent = "loki"` beside `ws` and `machine`. The persona belongs to the project, so loki is
    loki on any machine and in any thread.
-3. The principal's default (a block saying it is `claude-code@laptop`'s default makes laptop sessions with no
-   `.ep0ch` agent `cowboy`).
+3. The machine's default for its principal (`EP0CH_MCP_PERSONAS`, e.g. `claude.ai=daddy`,
+   `claude-code@laptop=cowboy`), kept as it is.
 4. None: the write is the principal alone.
 
-A claim the blocks don't allow is refused with the reason, as a persona claimed across principals is today. A
-subagent writes as its session's persona; its call says which subagent.
+A subagent writes as its session's persona; its call says which subagent.
 
-### 4. The connection decides who you are; the server decides what you can reach
+### 4. The connection says who you are; any transport that reaches the outline is fine
 
-- **Claude Code always uses stdio**, never the gateway: its principal is `claude-code@<machine>`, never `claude.ai`.
-  The plugin's manifest starts one stdio server per session, so nobody starts a server per outline.
+- **No client is pinned to a transport.** Claude Code on float-2 uses stdio; a cloud session, the phone or another
+  machine uses the gateway. The principal is whatever that connection proved (`claude-code@float-2`, `claude.ai`),
+  and the persona is recorded beside it (rule 3), so a cloud Claude Code session through the gateway is
+  `loki/claude.ai`, not daddy.
 - **Stdio and the gateway serve the same outlines** through one implementation: every outline on the local host,
   other machines' outlines through the shared ssh forward (`ensureForward`), and the mirror with the netmail queue
-  when a machine is away. Today's `local` and `remote` outline sets become one, with two front doors that differ
-  only in auth.
-- **The netmail queue stays on the gateway's machine,** the one place a write waits whatever client sent it. A stdio
-  server elsewhere reaches it over ssh.
+  when a machine is away. Two front doors that differ only in auth.
 - **The mod passes the call.** Its `tool.call` hook on `mcp__ep0ch__*` sets the existing `call` argument from the
   Claude Code session (and subagent), so a session's writes are one call across reconnects.
 
@@ -102,6 +105,12 @@ The outline's access grant (`none | read | propose | full`, ADR 0002) and the do
 (PIE-639) decide. Claude Code allows the server wholesale (`mcp__ep0ch` in the permission allow list), and the mod's
 `tool.check` asks only before `outline_archive`. A refusal is a tool error that says why, never a prompt.
 
+## Not decided here
+
+- Where the netmail queue lives when more than one gateway exists.
+- Whether Herdr-only operations get their own `herdr_*` tools or fold into `open` and `door_*`.
+- Any permission tied to a persona. If one is ever needed, it's a new ADR with the incident that asked for it.
+
 ## Consequences
 
 - **Addressing works on characters.** `@loki` in a comment reaches loki on either machine. An inbox pickup runs only
@@ -118,8 +127,8 @@ The outline's access grant (`none | read | propose | full`, ADR 0002) and the do
 
 To file on the workboard (project `ep0ch-door`), blockers first:
 
-1. **Personas from the outline.** `[type::agent]` blocks, `.ep0ch` `agent`, the claim order above, retire
-   `EP0CH_MCP_PERSONAS`; the mod sets `call` per session and subagent.
+1. **Personas as recorded names.** `.ep0ch` `agent`, the claim order above, and the mod sets `call` per session and
+   subagent. Remove any refusal of a persona today (a persona claimed across principals is recorded, not refused).
 2. **Stdio serves what the gateway serves.** One outline set for both transports; netmail over ssh. Depends on 1
    for attribution.
 3. **One tool set.** Port the mod-only tools to MCP, add `open` / `door_*` / `herdr_*` to stdio, connect stdio from
