@@ -1404,6 +1404,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The drawer's own first tab comes out too: an ordinary terminal tile in this section, its program running on; a
     // new own tab takes its place in the drawer.
     const own = app.drawer.tile!;
+    // Its program starts as its tab is first drawn: shown now (another section, the agent sessions', may have left a tab in the drawer).
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
+    (app as any).paint();
     await until(() => own.running, "the drawer's own program runs");
     const ownPid = own.pid;
     (app as any).lastInput = 0;
