@@ -21,7 +21,7 @@ are its record. The outliner's entries from then are kept below, under
 - **New:** a recent-activity `outline_query` (an `updated` range or sort, or `fold`) leaves out the rows only your own call
   changed, counting them (`ownOmitted`), unless `includeOwn: true`. Other calls' writes still show. *Why it matters:* an agent
   orienting after its own writing burst doesn't re-read what it just wrote.
-- **Run:** PROTOCOL 119 (a new query atom). After `ep0ch install --apply` on each machine, restart the host and reconnect MCP
+- **Run:** PROTOCOL 122 (a new query atom). After `ep0ch install --apply` on each machine, restart the host and reconnect MCP
   clients to see the `call` argument. No schema change; the handles live in `<outlines>/.clients/mcp-calls/calls.sqlite`.
 
 ### Agents make outlines of their own over MCP, and every write says who made it (PIE-679)
