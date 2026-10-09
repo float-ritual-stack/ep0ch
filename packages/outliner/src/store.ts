@@ -2863,6 +2863,7 @@ export class OutlinerStore {
    */
   private queryRelations(graph: LoadedGraph): QueryRelations {
     const sources = new Map<string, ReadonlySet<string>>();
+    const calls = new Map<string, ReadonlySet<string>>();
     return {
       resolve: (atom, target) => {
         try {
@@ -2876,6 +2877,21 @@ export class OutlinerStore {
         if (!found) {
           found = new Set(backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set([blockId])).get(blockId) ?? []);
           sources.set(blockId, found);
+        }
+        return found;
+      },
+      callBlocks: (call) => {
+        let found = calls.get(call);
+        if (!found) {
+          // The latest recorded change decides (a block someone else changed after is theirs now, even an edit that named no call); a block with none was created by its call.
+          const rows = this.database.query(`
+            SELECT id FROM (
+              SELECT b.id AS id, CASE WHEN EXISTS (SELECT 1 FROM block_edit_activity a WHERE a.block_id = b.id) THEN (SELECT a.session_id FROM block_edit_activity a WHERE a.block_id = b.id ORDER BY a.activity_id DESC LIMIT 1) ELSE b.session_id END AS last
+              FROM blocks b
+            ) WHERE last IS NOT NULL AND substr(last, ?) = ?
+          `).all(-(call.length + 1), `#${call}`) as { id: string }[];
+          found = new Set(rows.map(r => r.id));
+          calls.set(call, found);
         }
         return found;
       },

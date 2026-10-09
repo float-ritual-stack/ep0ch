@@ -127,7 +127,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(tool(response(id)?.result).content[0]!.text).toContain(`names other-garden@${machine}; this MCP server is bound to ${scratch.name}@${machine}`);
     }
     // The bound outline is the one this server lists: live, read now, with its access setting.
-    expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }], tools: { writes: false, said: expect.stringContaining("only the read tools are offered") } });
+    expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }], call: expect.objectContaining({ id: expect.stringMatching(/^c-[0-9a-f]{10}$/) }), tools: { writes: false, said: expect.stringContaining("only the read tools are offered") } });
     expect(JSON.parse(tool(response(7)?.result).content[0]!.text).reachability).toMatchObject({ source: "live", asOf: expect.any(String) });
     const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
     expect(publishedRead.record.links.map(link => link.target)).toContain(privateNote.id);

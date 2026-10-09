@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every MCP write says which call made it, and your own writes stop coming back as news (PIE-685)
+
+- **New:** a caller's visit to the board is a call. Every MCP write (stdio and the gateway) records its call id beside who made
+  it, a readable handle for it (`leaping_otter_convergence`, minted once and stored) shows in `list_outlines`, in a write's
+  answer and in the gateway log, and `call:<id or handle>` finds what one call wrote. The id comes from the `call` argument,
+  the gateway's `Mcp-Session-Id`, or one per stdio connection; a write with none is a call of its own and says how to keep
+  one. Display stays `daddy (claude.ai)`. *Why it matters:* you can review or undo one chat's batch of notes without touching
+  another's.
+- **New:** a recent-activity `outline_query` (an `updated` range or sort, or `fold`) leaves out the rows only your own call
+  changed, counting them (`ownOmitted`), unless `includeOwn: true`. Other calls' writes still show. *Why it matters:* an agent
+  orienting after its own writing burst doesn't re-read what it just wrote.
+- **Run:** PROTOCOL 122 (a new query atom). After `ep0ch install --apply` on each machine, restart the host and reconnect MCP
+  clients to see the `call` argument. No schema change; the handles live in `<outlines>/.clients/mcp-calls/calls.sqlite`.
+
 ### Agents make outlines of their own over MCP, and every write says who made it (PIE-679)
 
 - **New:** `outline_new` over MCP (stdio and the gateway): an agent makes a scratch outline on this machine for link sprees,

@@ -5,6 +5,7 @@
 //
 // A change to what an atom matches bumps PROTOCOL (protocol.ts).
 
+import { CALL_PATTERN } from "./attribution";
 import { HASHTAG_VALUE_PATTERN } from "./property-grammar";
 
 export type QueryAtom =
@@ -12,7 +13,8 @@ export type QueryAtom =
   | { kind: "links"; target: string }
   | { kind: "under"; target: string }
   | { kind: "title"; text: string }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  | { kind: "call"; call: string };
 
 /** A malformed atom: the message names the atom and shows a working example. */
 export class QueryAtomError extends Error {
@@ -28,10 +30,11 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "links:<target>", means: "blocks whose text or properties link to the target (the backlink index)", example: "links:[[garden]]  links:((8f3a2c1d))  links:PIE-123" },
   { atom: "under:<target>", means: "blocks in the target's subtree, the target itself included", example: "under:[[projects]]  under:((8f3a2c1d))" },
   { atom: "title~text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
+  { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
 ];
 
-const ATOM_HEAD = /^(?:#|(?:links|under):|(?:title|text)~)/i;
+const ATOM_HEAD = /^(?:#|(?:links|under|call):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
 export function isQueryAtomWord(word: string): boolean {
@@ -104,7 +107,12 @@ export function parseQueryAtom(word: string): QueryAtom | null {
   }
   const colon = word.indexOf(":");
   if (colon > 0 && word[colon - 1] !== "~") {
-    const name = word.slice(0, colon).toLowerCase() as "links" | "under";
+    const name = word.slice(0, colon).toLowerCase() as "links" | "under" | "call";
+    if (name === "call") {
+      const id = word.slice(colon + 1);
+      if (!CALL_PATTERN.test(id)) throw new QueryAtomError(`call:${id} is not a call id: write call:c-7f3a1c (letters, digits, . _ -; the id list_outlines tells a call)`);
+      return { kind: "call", call: id };
+    }
     if (name === "links" || name === "under") return { kind: name, target: targetOf(name, word.slice(colon + 1)) };
   }
   const tilde = word.indexOf("~");
@@ -123,6 +131,7 @@ export function showQueryAtom(atom: QueryAtom): string {
     case "tag": return `#${atom.tag}`;
     case "links": return `links:${atom.target}`;
     case "under": return `under:${atom.target}`;
+    case "call": return `call:${atom.call}`;
     case "title":
     case "text":
       return /[\s"\\()]/.test(atom.text) || !atom.text

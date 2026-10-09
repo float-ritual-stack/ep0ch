@@ -19,6 +19,7 @@ import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineList
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
+import { CALL_PATTERN, mintCallId } from "@ep0ch/outline-core/attribution";
 import { levelFor, writesAt } from "./mcp-writes";
 import { localAdmin, type McpOutlineAdmin } from "./mcp-outlines";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
@@ -357,16 +358,32 @@ export function startGateway(opts: {
       const slot = await admit();
       if (!slot) return json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
       let answer;
-      try { answer = await answerMcp(outlines, await req.text(), { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}) }); }
+      let body = "";
+      try { body = await req.text(); } catch { slot.release(); return json(400, { error: "unreadable body" }); }
+      // The call (PIE-685): the id the client sends back as Mcp-Session-Id, which this gateway minted at `initialize` (the
+      // spec's session header). The gateway keeps nothing between requests for it: the id is trace only, never identity, and a
+      // request without one is served with no call (a write then gets one of its own, and says so).
+      const sent = req.headers.get("mcp-session-id")?.trim();
+      const given = sent && CALL_PATTERN.test(sent) ? sent : undefined;
+      const minted = !given && isInitialize(body) ? mintCallId() : undefined;
+      const call = given ?? minted;
+      try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}) }); }
       finally { slot.release(); }
-      if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} ${answer.methods.join(", ")}`);
+      // Read this to see whether a client opens a session per chat or reuses one: mcp-session-id= is what the client sent (- on its first request), call= the call it is served as, client= the OAuth client; new marks an id minted for an initialize.
+      if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
       if (!answer) return json(400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "empty request" } });
-      if (answer.malformed) return json(400, answer.reply);
-      if (answer.reply === null) return new Response(null, { status: 202, headers: cors });
-      return json(200, answer.reply);
+      const sessionHeader: Record<string, string> = minted && answer.methods.includes("initialize") ? { "Mcp-Session-Id": minted } : {};
+      if (answer.malformed) return json(400, answer.reply, sessionHeader);
+      if (answer.reply === null) return new Response(null, { status: 202, headers: { ...cors, ...sessionHeader } });
+      return json(200, answer.reply, sessionHeader);
     },
   });
   return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, stop: () => server.stop(true) };
+}
+
+/** Whether a request body is (or holds) an `initialize` call: its JSON-RPC method, not a word in a note. */
+function isInitialize(body: string): boolean {
+  try { return [JSON.parse(body)].flat().some(m => m?.method === "initialize"); } catch { return false; }
 }
 
 interface ServeIo { err?: (line: string) => void; env?: Record<string, string | undefined>; keys?: JWTVerifyGetKey; ready?: (gateway: Gateway) => void; until?: Promise<unknown> }

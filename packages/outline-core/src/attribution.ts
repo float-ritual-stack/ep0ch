@@ -8,6 +8,20 @@
 // client auth proved) or `<client>@<machine>` (stdio and the Claude mod: the client on that machine). A persona is only
 // a label and never leaves its principal: nothing here maps one principal's persona to another. Older ids (`mcp:daddy`,
 // `claude-code`, `evan`) parse as they are, with the name shown as it was.
+//
+// A write also has a `sessionId` (the service stores it beside the actor id), and it holds two things, neither
+// overwriting the other (PIE-685):
+//
+//   <subject>              stdio, 4f2a-oauth-subject    who the connection was (the OAuth subject; `stdio`): as before
+//   <subject>#<call>       stdio#c-7f3a1c9e02               and the call that made the write
+//
+// A call is one MCP caller's visit to the board, in the BBS word: the HTTP transport's `Mcp-Session-Id` (the gateway
+// mints it at `initialize` as `c-` and ten hex digits), one per stdio connection, or a name the agent supplies on a
+// call (`call`, "daddy-2026-10-09-0103-k7f"), which wins. It is trace only: it names a conversation for `call:` queries
+// and for leaving a call's own writes out of its own recent-activity reads, and a readable handle for it
+// (`leaping_otter_convergence`, call-handles.ts) is minted once and stored by the MCP server. It is never identity: the
+// principal and persona stay in the actor id, and display stays "daddy (claude.ai)". A sessionId with no `#<call>` (an
+// older write, a person's, a CLI's) has no call.
 // Pure: no I/O.
 
 const NAME = "[A-Za-z0-9][A-Za-z0-9._-]";
@@ -54,3 +68,25 @@ export const actorHandle = (actorId: string | undefined | null): string => parse
 
 /** The `created-by` value a scratch outline's root note carries: `loki/claude-code@float-2`, or the principal alone. */
 export const createdByOf = (o: { persona?: string; principal: string }): string => composeActor(o);
+
+export const CALL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const isCallId = (v: unknown): v is string => typeof v === "string" && CALL_PATTERN.test(v);
+
+/** A fresh call id: `c-` and ten hex digits (40 bits: a clash takes about a million calls to become likely). */
+export const mintCallId = (random: () => Uint8Array = () => crypto.getRandomValues(new Uint8Array(5))): string =>
+  `c-${[...random()].map(b => b.toString(16).padStart(2, "0")).join("")}`;
+
+/** A `sessionId` from its parts: the subject, and `#<call>` when the write came from a known call. */
+export const composeSessionId = (o: { subject: string; call?: string | undefined }): string =>
+  o.call && isCallId(o.call) ? `${o.subject}#${o.call}` : o.subject;
+
+/** A `sessionId` read back: the subject it was composed from, and its call when it has one. */
+export function parseSessionId(sessionId: string | undefined | null): { subject: string; call?: string } {
+  const id = (sessionId ?? "").trim();
+  const at = id.lastIndexOf("#");
+  if (at >= 0 && isCallId(id.slice(at + 1))) return { subject: id.slice(0, at), call: id.slice(at + 1) };
+  return { subject: id };
+}
+
+/** The call a `sessionId` carries, or undefined. */
+export const callOf = (sessionId: string | undefined | null): string | undefined => parseSessionId(sessionId).call;

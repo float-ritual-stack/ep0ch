@@ -66,6 +66,13 @@ Arriving cold, read the outline's recent changes, not a context store. Per outli
    that revision comes back `{id, revision, unchanged: true}`; a changed one comes back whole. A repeat in the same
    response is `{id, revision, see}`: look where it points.
 
+4. Your own writing isn't news to you. Your first write (or `list_outlines`) returns your call, `{id, handle}`: pass `call: "<id>"`
+   on your later requests, and the orient query in step 1 leaves out the rows only your call changed since, with a line
+   (`ownOmitted`: "12 of yours this call, omitted"); `includeOwn: true` brings them back. Another chat's writes, and any other
+   agent's, still show. `call:<id or handle>` finds what one call wrote, and quote your handle in notes you write so a
+   reader can find the batch. A name of your own works as `call` too (`daddy-2026-10-09-0103-k7f`). *Why it matters:* you
+   don't spend context re-reading what you just wrote, and a person can tell which chat made which notes.
+
 A wrong argument is answered with the tool's arguments and a call that works; use `ref` for a block, as everywhere.
 
 ### Refining a draft with another agent: comment threads
@@ -156,7 +163,7 @@ one.
 
 - A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
   `[sort::]`, `[limit::]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
-  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d` and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `under:[[page]]` (the subtree) and `title~text` / `text~text` (caseless substrings; quote spaces). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged. Its rows are the canonical
+  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d` and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `under:[[page]]` (the subtree), `call:<id or handle>` (what one MCP call last wrote) and `title~text` / `text~text` (caseless substrings; quote spaces). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged. Its rows are the canonical
   blocks, not copies: to change what's in a view, change the blocks' properties.
 - A **board** is any block with two or more view children: the **hub**. Each view is a column (a lane), in
   order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it; its

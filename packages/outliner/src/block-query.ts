@@ -585,10 +585,12 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
     case "links":
     case "under":
     case "title":
-    case "text": {
+    case "text":
+    case "call": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
       const word = expression.kind === "tag" ? `#${String(expression.tag)}`
         : expression.kind === "links" || expression.kind === "under" ? `${expression.kind}:${String(expression.target)}`
+        : expression.kind === "call" ? `call:${String(expression.call)}`
         : `${expression.kind}~"${String(expression.text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
       try {
         const atom = parseQueryAtom(word);
@@ -624,6 +626,8 @@ export interface QueryRelations {
   resolve(atom: "links" | "under", target: string): string;
   linkSources(blockId: string): ReadonlySet<string>;
   within(blockId: string, rootId: string): boolean;
+  /** The ids of the blocks whose latest change (else their creation) came from a call with this id (PIE-685). */
+  callBlocks?(call: string): ReadonlySet<string>;
 }
 
 export interface QueryExpressionSubject {
@@ -665,6 +669,10 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       if (!relations) return () => false;
       const root = relations.resolve(expression.kind, expression.target);
       return subject => subject.id !== undefined && relations.within(subject.id, root);
+    }
+    case "call": {
+      const written = relations?.callBlocks?.(expression.call);
+      return subject => !!written && subject.id !== undefined && written.has(subject.id);
     }
     case "property": {
       const filter = [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
@@ -722,6 +730,7 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
     case "under":
     case "title":
     case "text":
+    case "call":
     case "not": return [];
     default: return expression.operands.flatMap(positivePropertyFilters);
   }

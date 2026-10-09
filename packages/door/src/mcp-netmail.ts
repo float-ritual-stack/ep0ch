@@ -52,6 +52,7 @@ export interface NetmailEntry {
   /** The access level it was queued under: propose or full. */
   level: McpAccessLevel;
   actorId: string;
+  /** The caller's sessionId as the write records it: the OAuth subject, and `#<session>` when it has an MCP session (outline-core attribution.ts). */
   subject: string;
   clientId: string | null;
   queuedAt: string;
@@ -182,8 +183,8 @@ export class Netmail {
    * the mirror yet (`queued`, or applied there at a revision, which a copy older than it doesn't show), or all of them.
    */
   forBlock(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }, pending = true): NetmailReceipt[] {
-    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND actor_id = ? AND subject = ?${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
-      .all(machine, outline, blockId, who.actorId, who.subject) as Record<string, unknown>[]).map(receiptOf);
+    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND actor_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
+      .all(machine, outline, blockId, who.actorId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf);
   }
 
   /** Records what the machine's entries became; an id it doesn't hold waiting is skipped. Returns how many settled. */

@@ -151,7 +151,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     const stale = await tool("outline_patch", { ref: ids.lamps, outline: "attic-notes", revision: read.revision, patches: [{ observed: "none cracked", replacement: "three lamps" }] });
     expect(stale.json.outcome).toBe("proposed");
     const entries = await boardOn(far, "attic-notes", FAR).request<{ entries: { block: { id: string }; actorId?: string; sessionId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId: "mcp:chat.example.test", limit: 50, kinds: ["text", "properties"] });
-    expect(entries.entries.filter(e => e.block.id === ids.lamps).map(e => ({ actorId: e.actorId, sessionId: e.sessionId }))).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: PERSON });
+    expect(entries.entries.filter(e => e.block.id === ids.lamps).map(e => ({ actorId: e.actorId, sessionId: e.sessionId }))).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const row = (await tool("list_outlines", {})).json.outlines[0];
     expect(row.queue.waiting).toBe(0);
     expect(logs.join("\n")).toContain(`outline_patch ep0ch://attic-notes@${FAR}/b/${ids.lamps}: applied live on ${FAR}`);
