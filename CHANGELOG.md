@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One kind of agent session: started from any folder, shown in the drawer or a tile, listed in one panel (PIE-737)
+
+- **Added:** `ep0ch agent` in any folder starts that folder's agent session in the door on its outline, or names the one
+  already running there (`--program codex`, `--in <folder>`, `--persona <name>`, `--new`). It opens as a tab in the drawer,
+  continuing the program's last conversation in that folder (claude and pi `--continue`, codex `resume --last`).
+- **Added:** the agent panel, `alt+g` on any screen: every session (started with `ep0ch agent` or its `n`, a claude typed in
+  a `^W o s` shell, the drawer's own), its folder, persona, what it's doing and where it's shown. `⏎` jumps to one, `a` pulls
+  it into your drawer, `d` docks it here: the same process, the conversation kept. Agents: `agent.start`, `agents.list`,
+  `agents.go`, `agents.drawer`, `agents.dock`.
+- **Added:** agent configs in the outline: a note with `[agent-config::<name>] [program::…] [args::…] [persona::…]
+  [folder::…]` is a program the panel offers, run under that persona.
+- **Changed:** `alt+g` opens the agent panel; choosing the drawer's own agent (`host.agent`) is the picker its first pull
+  offers, and the power bar's. `host.agent in=<folder>` saves the folder it starts in.
+- **Removed:** `EP0CH_DAILY_CWD`. *What to run:* `ep0ch doctor` says it when it's still set, with the command
+  (`ep0ch act host.agent name=… in=<that folder>`), then drop it from your shell's profile.
+- *Why it matters:* "talk to an agent here" was three things that looked alike and acted differently (a claude in a shell
+  tile, the daily agent, the drawer's); it is one now, wherever it was started.
+
 ### A refused key says why on the tile you're looking at; q leaves a desk holding only a group (PIE-727)
 
 - **Fixed:** on a desk whose only tile is a group (`tile.group`), `q` was refused ("the group is a tile") and `Esc` said

@@ -40,6 +40,10 @@ import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layou
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
+import { AgentsPane } from "../desk/agents-panel";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
@@ -116,6 +120,24 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
   });
   return d;
 }
+
+/**
+ * The agent sessions section's stand-in agent (PIE-737): a made-up program that says where it runs and as whom, then
+ * answers each line with its turn. Its turns are its conversation: moved between the drawer and a tile, they go on.
+ */
+export const DEMO_AGENT = [
+  `echo "$1, a demo agent (made up for the showcase), in $PWD"`,
+  `echo "type a line and ⏎: it answers with its turn. Move it (a or d in the agent panel) and the turns go on: the same process"`,
+  `n=0; while IFS= read -r l; do n=$((n+1)); echo "$1 · turn $n: $l"; done`,
+].join("\n");
+/** The two made-up folders the section's sessions run in. */
+export function demoFolders(): { shed: string; bench: string } {
+  const root = joinPath(tmpdir(), "ep0ch-showcase-agents"), shed = joinPath(root, "garden-shed"), bench = joinPath(root, "potting-bench");
+  for (const f of [shed, bench]) mkdirSync(f, { recursive: true });
+  return { shed, bench };
+}
+/** The section's own actor: what pins fern to your drawer as the section opens, said like any agent's. */
+const SHOWCASE_AGENT: Actor = { kind: "agent", id: "showcase" };
 
 /** The scripted agent of the what-changed section: each log note one round on, as garden-agent. */
 const GARDENER: Actor = { kind: "agent", id: "garden-agent" };
@@ -297,6 +319,21 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "sessions", need: "talk to an agent here: start one in any folder, keep it running, show it in your drawer or a tile, see every one", part: "agent sessions (PIE-737, src/desk/agent-sessions.ts): a program (an agent config in the outline, [agent-config::<name>], or one installed), a folder and a persona, owned by the door session as a terminal tile's program; where it's shown (your drawer, a tile) isn't what it is, so moving it keeps the process and the conversation; agent.start (ep0ch agent from any folder, n in the panel) starts or attaches by folder and program, resuming the program's last conversation there; a claude typed in a ^W o s shell is one by itself (found as Herdr finds agents); the agent panel (a tile kind, agents.open, alt+g): agents.go, agents.drawer, agents.dock, agents.new, agents.list", files: "src/desk/agent-sessions.ts, src/desk/agents-panel.ts, src/drawer.ts (agent.start, agents.*), src/agent-cli.ts, src/desk/pty.ts (PtySpec.session)",
+    aside: "two made-up sessions of a demo agent, fern in garden-shed and moss in potting-bench: fern was pinned to your drawer as the section opened (alt+a shows it), moss is the tile on the left · the panel on the right lists both, with folder, persona, what each is doing and where it's shown · j k pick, ⏎ or a click jumps to one, a pulls it into your drawer, d docks it here, n starts a new one (the program, then the folder) · type to moss (click in it, a line, ⏎), then a on its row and type again in the drawer: the turns go on, the same process · alt+g opens the same panel on any screen · `ep0ch agent` in any folder starts (or attaches) that folder's session here; `act agents.list` reads the rows",
+    stage(_n, show) {
+      const { shed, bench } = demoFolders();
+      // temp: an exhibit no layout brings back (the drawer's saved tabs included), so a second showcase has two, not four.
+      const agent = (name: string, cwd: string) => new PtyPane({ cmd: ["sh", "-c", DEMO_AGENT, "demo-agent", name], cwd, label: name, shows: "demo-agent", temp: true, session: { program: "demo-agent", persona: name } });
+      const fern = agent("fern", shed), moss = agent("moss", bench), panel = new AgentsPane();
+      return deskOf({ title: "showcase · agent sessions", panes: [moss, fern, panel], names: ["moss", "fern", "agents"], layout: ([a, b, c]) => pair("row", 0.55, leaf(a!), pair("col", 0.4, leaf(b!), leaf(c!))) }, show, [], d => {
+        // fern goes to your drawer (the section's own agent's move: behind the tab shown, nobody's keys moved).
+        const host = d.ctx?.hostLayer;
+        if (host && d.pane("fern")) { try { fern.startNow(80, 20); host.put(d, "fern", SHOWCASE_AGENT); } catch { /* already moved, or the drawer won't take it */ } }
+      });
     },
   },
   {

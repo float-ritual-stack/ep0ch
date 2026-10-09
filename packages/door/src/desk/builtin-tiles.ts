@@ -20,6 +20,7 @@ import { dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 import { WAITING_YOU_KIND } from "./waiting-you";
+import { AGENTS_KIND } from "./agents-panel";
 import { WHAT_CHANGED_KIND } from "./what-changed";
 import { recordFacts } from "./program-status";
 
@@ -126,7 +127,7 @@ const builtins = (): TileKind[] => [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },
     ],
-    make: s => { const p = new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name }); if (typeof s.kept === "string" && s.kept) p.keptKey = s.kept; return p; },
+    make: s => { const p = new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.session?.program ? { session: s.session } : {}) }); if (typeof s.kept === "string" && s.kept) p.keptKey = s.kept; return p; },
     actions: PTY_ACTIONS,
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
     press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),
@@ -214,6 +215,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, WHAT_CHANGED_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, WHAT_CHANGED_KIND, AGENTS_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

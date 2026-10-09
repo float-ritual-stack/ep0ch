@@ -27,6 +27,9 @@ beforeAll(() => {
 });
 afterAll(() => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(dir, { recursive: true, force: true }); });
 
+/** The drawer's folder, chosen with its agent (host.agent in=, the person's default): what EP0CH_DAILY_CWD was. */
+const chooseFolder = (folder: string) => { mkdirSync(join(dir, "state"), { recursive: true }); writeFileSync(join(dir, "state", "drawer-agent.json"), JSON.stringify({ agent: "claude", folder })); };
+
 /** The tile's screen as text, and a line typed into it. */
 const text = (p: PtyPane) => p.text().join("\n");
 
@@ -69,7 +72,7 @@ describe("no dead panes", () => {
 
   test("the drawer's own tab: its agent exits into the person's shell too", async () => {
     process.env.EP0CH_DAILY_AGENT = "claude";
-    process.env.EP0CH_DAILY_CWD = work;
+    chooseFolder(work);
     let painted: string[] = [];
     const term: any = { info: { cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, { protocol: null } as any, Date.now(), () => {});
@@ -80,12 +83,12 @@ describe("no dead panes", () => {
       await until(() => !!app.drawer.tile, "the drawer's own tile");
       await quitsToAShell(app.drawer.tile!);
       expect(painted.length).toBeGreaterThan(0);
-    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
+    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; }
   }, 20_000);
 
   test("another agent chosen while the drawer's runs: the running one's exit is still read; the choice runs from the next start", async () => {
     process.env.EP0CH_DAILY_AGENT = "slowclaude";
-    process.env.EP0CH_DAILY_CWD = work;
+    chooseFolder(work);
     const term: any = { info: { cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, { protocol: null } as any, Date.now(), () => {});
     app.push({ title: "main menu", key() {}, render: (c: any) => ({ lines: Array.from({ length: c.t.rows - 1 }, () => "") }) } as any);
@@ -101,6 +104,6 @@ describe("no dead panes", () => {
       p.restart();
       expect(p.run.cmd).toEqual(["/bin/sh"]);                          // the choice from its next start
       expect(p.agentExit).toBeNull();
-    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
+    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; }
   }, 20_000);
 });

@@ -5,7 +5,7 @@
 // - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]-<hash>`, from `--session`), found by
 //   the pane id written down when it was made (`record`), else by its label, on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
 //   labelled in a workspace labelled `door`
-//   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the drawer's rule), without taking Herdr's focus. The agent
+//   (made too if missing), in the tile's folder (the drawer's rule), without taking Herdr's focus. The agent
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
 // - The tile attaches without --takeover. If another door's tile already has it (or later takes it), this
 //   tile watches read-only (`terminal session observe`) and ⏎ takes it over; `q` stops watching.
@@ -140,9 +140,9 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     scope,
     name: scoped(env.EP0CH_HERDR_NAME || slug),
     workspace: scoped(env.EP0CH_HERDR_WORKSPACE || "door"),
-    // The folder the drawer started this launcher in (src/desk/drawer-program.ts: the person's EP0CH_DAILY_CWD, the
-    // project's .ep0ch folder, the outline's folder, or where the door started), never the door's own PWD.
-    cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || process.cwd(),
+    // The folder the drawer started this launcher in (src/desk/drawer-program.ts: the folder chosen with the agent, the
+    // project's .ep0ch folder, the outline's folder, or where the door started).
+    cwd: process.cwd(),
     // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue then, and only then.
     shell: env.SHELL || "sh",
     agent: ((a: string[]) => (env.EP0CH_AGENT_CONTINUE === "1" ? withContinue(a) : a))(args.agent?.length ? args.agent : ["claude"]),
