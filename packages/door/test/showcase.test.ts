@@ -2299,13 +2299,16 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const names = async () => (await board.children(beds.id)).map(m => title(m).split(" [")[0]);
     expect(await names()).toEqual(["Herb bed", "Root bed", "Bean row"]);
     // The person's run: the bar asks, lit on the note's own [sort-by::bed-size]; "tit" then ⏎ picks title, ⏎ takes asc.
+    // The bar is the App's, over the showcase: what it lists is read from it.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
     void app.dispatch.press("ext.structure.sort-blocks", { block: beds.id });
-    await until(() => screen().includes("Sort the children · Sort by") && screen().includes("bed-size"), "the bar asks for by", 8000)
-      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    await until(() => asked()[0] === "Sort the children · Sort by = bed-size", "the bar asks for by, the note's own lit", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    expect(asked()).toEqual(["bed-size", "title", "created"].map(c => `Sort the children · Sort by = ${c}`));
     for (const c of "tit") ch(c);
     press({ kind: "enter" });
-    await until(() => screen().includes("Sort the children · Order"), "the bar asks for order", 8000)
-      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    await until(() => asked()[0]?.startsWith("Sort the children · Order") ?? false, "the bar asks for order", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
     press({ kind: "enter" });
     for (let i = 0; i < 80 && (await names()).join() !== "Bean row,Herb bed,Root bed"; i++) await Bun.sleep(100);
     expect(await names()).toEqual(["Bean row", "Herb bed", "Root bed"]);

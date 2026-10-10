@@ -450,12 +450,41 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
     }
   }
   const made = new Map((proposal.group?.writes ?? []).flatMap(write => write.op === "create" ? [[write.id, write.text]] : []));
-  const title = (id: string) => made.has(id) ? `the new "${labelOf(made.get(id)!.split("\n", 1)[0]!)}"` : labelOf(names(id));
+  // A block there is now is named by a reference (its id, so "apply anyway" can tell the proposal still says it); a new one by its title.
+  const title = (id: string) => made.has(id) ? `the new "${labelOf(made.get(id)!.split("\n", 1)[0]!)}"` : `((${id}|${labelOf(names(id))}))`;
   for (const write of proposal.group?.writes ?? []) {
     change += 1;
     lines.push("", ...shownGroupWrite(write, title, many ? `Change ${change} of ${changes}: ` : ""));
   }
   return lines.join("\n");
+}
+
+/**
+ * Whether a proposal's text still shows one of its group's writes: a new block's text fenced, under a reference to its
+ * parent; a move's block and destination, an order's parent and each child in order, by reference on one line.
+ */
+function groupWriteShown(text: string, write: DraftGroupWrite, made: ReadonlySet<string>): boolean {
+  const named = (line: string, ids: readonly string[]) => {
+    let at = 0;
+    for (const id of ids) {
+      at = line.indexOf(`((${id}|`, at);
+      if (at < 0) return false;
+    }
+    return true;
+  };
+  if (write.op === "create") {
+    if (typeof write.text !== "string") return false;
+    const shown = shownGroupWrite(write, () => "").slice(1).join("\n");
+    // Somewhere, the line above it names its parent (a block there now), or a new one.
+    for (let at = text.indexOf(`\n${shown}`); at >= 0; at = text.indexOf(`\n${shown}`, at + 1)) {
+      const head = text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+      if (made.has(write.parentId) ? head.includes("the new \"") : head.includes(`a new block under ((${write.parentId}|`)) return true;
+    }
+    return false;
+  }
+  // The blocks there now, in the order shown (a new one is shown by its title).
+  const ids = (write.op === "move" ? [write.blockId, write.parentId] : [write.parentId, ...write.children]).filter(id => !made.has(id));
+  return text.split("\n").some(line => named(line, ids));
 }
 
 /** How a proposal shows one of its group's writes: a new block's text fenced, a move or an order in words. */
@@ -480,8 +509,8 @@ function shownSpan(span: DraftPatchSpan): string[] {
  * hidden payload that says something else.
  */
 export function proposalShowsPatch(text: string, proposal: DraftProposal): boolean {
-  const made = (proposal.group?.writes ?? []).filter((write): write is Extract<DraftGroupWrite, { op: "create" }> => write.op === "create");
-  if (made.some(write => typeof write.text !== "string" || !text.includes(`\n${shownGroupWrite(write, () => "").slice(1).join("\n")}`))) return false;
+  const made = new Set((proposal.group?.writes ?? []).flatMap(write => write.op === "create" ? [write.id] : []));
+  if (!(proposal.group?.writes ?? []).every(write => groupWriteShown(text, write, made))) return false;
   return proposal.edits.every(edit => Array.isArray(edit.patches) && edit.patches.every(span =>
     typeof span?.observed === "string" && typeof span.replacement === "string" && text.includes(`\n${shownSpan(span).join("\n")}`)));
 }

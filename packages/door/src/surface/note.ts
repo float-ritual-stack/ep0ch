@@ -6312,17 +6312,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const choice = passageActions().find(x => x.action.name === action);
       if (!named || !choice) throw new ActionRefused(`no passage action ${action}: it's comment, ask, explain${passageActions().length ? `, or ${passageActions().map(x => x.action.name).join(", ")}` : " (no extension here acts on a passage)"}`);
       // What it declares and the person didn't say is asked for first, in the power bar (PIE-784); then it runs.
-      const ran = await askingFirst(host.ctx as never, choice.extension, choice.action, p.target.subject.startsWith("resource:") ? m.resource?.from : p.target.subject, color ? { color } : {}, actor,
-        args => runExtensionAction(host.ctx, choice.action, choice.extension.id, { passage: p.target, ...(m.resource?.from ? { blockId: m.resource.from } : {}), ...(Object.keys(args).length ? { args } : {}) }, actor));
-      if ("asking" in ran) return ran;
-      const r = ran;
-      // Copy with a citation: the person's clipboard; an agent gets the text back, the person's clipboard untouched.
-      if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
-      if (r.written.length) await surface.loadComments(host);
-      if (actor.kind === "user") surface.selection = null;
-      surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
-      host.redraw();
-      return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target };
+      // Run, then what follows a run here (asked for its arguments first, the run comes when they're answered).
+      const run = async (args: Record<string, string>) => {
+        const r = await runExtensionAction(host.ctx, choice.action, choice.extension.id, { passage: p.target, ...(m.resource?.from ? { blockId: m.resource.from } : {}), ...(Object.keys(args).length ? { args } : {}) }, actor);
+        // Copy with a citation: the person's clipboard; an agent gets the text back, the person's clipboard untouched.
+        if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
+        if (r.written.length) await surface.loadComments(host);
+        if (actor.kind === "user") surface.selection = null;
+        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
+        host.redraw();
+        return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target, ...(r.undo ? { undo: r.undo } : {}) };
+      };
+      // What it declares and the person didn't say is asked for first, in the power bar (PIE-784).
+      return askingFirst(host.ctx as never, choice.extension, choice.action, p.target.subject.startsWith("resource:") ? m.resource?.from : p.target.subject, color ? { color } : {}, actor, run);
     },
   }),
   "passage.choices": def({

@@ -1137,7 +1137,7 @@ export class ExtensionCalls {
   private resolveArgs(action: ExtensionActionEntry, given: Readonly<Record<string, string>> | undefined, block: Block | null): Record<string, string> | undefined {
     const out: Record<string, string> = { ...(given ?? {}) };
     for (const arg of action.args ?? []) {
-      const value = out[arg.name]?.trim() || this.defaultOf(arg, block);
+      const value = (Object.hasOwn(out, arg.name) ? out[arg.name]!.trim() : "") || this.defaultOf(arg, block);
       if (value === undefined) {
         delete out[arg.name];
         if (!arg.required) continue;

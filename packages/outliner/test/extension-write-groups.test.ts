@@ -146,8 +146,25 @@ test("an order puts the children in place in one step, and undo puts them back",
   expect(live(list.id).map((child) => child.text)).toEqual(["Beans", "Kale", "Squash"]);
   const moves = store.changes.since(0, 1000);
   expect(moves.kind === "changes" && moves.changes.filter((change) => change.kind === "move" && change.actor?.actorId === "ext:grouper").length).toBe(3);
+  // Moved again since (a person's move within the same parent): undo is refused rather than undo that too.
+  await client.request({ action: "move", blockId: ids[0], parentId: list.id, position: 0, mutation: { author: "user" } });
+  await expect(client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } })).rejects.toThrow(/changed since; nothing was undone/);
+  await client.request({ action: "move", blockId: ids[0], parentId: list.id, position: 2, mutation: { author: "user" } });
   await client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } });
   expect(live(list.id).map((child) => child.text)).toEqual(["Squash", "Beans", "Kale"]);
+});
+
+test("an order while a door holds a child's draft waits as a proposal under the parent, and applies with the proposal there", async () => {
+  const { store, write, note, live, client } = await setup();
+  const list = await note("Seeds");
+  for (const name of ["Squash", "Beans"]) await note(name, list.id);
+  const [squash, beans] = live(list.id);
+  await holdingDoor(client, squash!, "door-order");
+  const done = await write(list.id, [{ op: "order", parentId: list.id, children: [beans!.id, squash!.id] }]);
+  expect(done.proposalId).toBeString();
+  expect(store.get(done.proposalId!)!.text).toContain(`((${beans!.id}|Beans)), ((${squash!.id}|Squash))`);
+  await client.request({ action: "draft.proposal.apply", proposalId: done.proposalId!, mutation: { author: "user" } });
+  expect(live(list.id).filter((child) => child.id !== done.proposalId).map((child) => child.text)).toEqual(["Beans", "Squash"]);
 });
 
 test("undo is refused, with nothing changed, when something it wrote changed since", async () => {
@@ -176,7 +193,7 @@ test("a door holding a draft of a block the group edits makes the whole group on
   expect(live(garden.id).map((child) => child.id)).toEqual([done.proposalId!]);
   expect(door.text).toBe("Garden\nSow the beans in May.");
   // The proposal shows the new block's text and the edit; the person applies it anyway: all of it lands, the edit in the draft.
-  expect(store.get(done.proposalId!)!.text).toContain("a new block under Garden:");
+  expect(store.get(done.proposalId!)!.text).toContain(`a new block under ((${garden.id}|Garden)):`);
   await client.request({ action: "draft.proposal.apply", proposalId: done.proposalId!, mutation: { author: "user" } });
   const made = live(garden.id).find((child) => child.id !== done.proposalId)!;
   expect(made.text).toBe("Sow the beans in May.");
