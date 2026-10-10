@@ -1020,3 +1020,65 @@ test("an annotation marked [publish::false] or under a [publish::never] row is n
   expect(html).not.toContain("Move the key");
   expect(html).not.toContain("spare key");
 });
+
+// Callouts and file references on published pages (PIE-783).
+
+const CALLOUT_NOTE = [
+  "Moth walk log [publish::public:moth-log] [file::/srv/garden/private/field-notes.md]",
+  "> [!summary] Dusk count",
+  "> Twelve moths by the lime avenue.",
+  "> > [!warning] Lantern",
+  "> > Keep it low.",
+  "> [!question]- Folded idea",
+  "> Why do they circle?",
+  "> [!recipe] Sugar mix",
+  "> Brown sugar and stout.",
+  "> [!ghost] Unwritten type",
+  "> still a box",
+  "> A plain quote has no marker.",
+].join("\n");
+
+test("callouts draw as boxes on tailnet and public pages, and the Markdown view keeps the source", async () => {
+  const { store, publisher, get } = await setup();
+  store.create("Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-title::Recipe]");
+  store.create(CALLOUT_NOTE);
+  await Bun.sleep(100);
+  const share = sharing(publisher);
+  const pages = [await (await get("/p/moth-log?view=full")).text(), await (await share("/share/p/moth-log?view=html")).text()];
+  for (const html of pages) {
+    expect(html).toContain('<div class="callout callout-blue" data-callout="abstract"><div class="callout-head"><span class="callout-icon" aria-hidden="true">≡</span><span class="callout-title">Dusk count</span>');
+    // Nested: the warning is inside the summary's body.
+    expect(html).toMatch(/data-callout="abstract">.*Twelve moths.*<div class="callout callout-amber" data-callout="warning">.*Keep it low\./s);
+    // Folded: a native <details>, closed.
+    expect(html).toContain('<details class="callout callout-violet" data-callout="question"><summary>');
+    expect(html).not.toContain("<details class=\"callout callout-violet\" data-callout=\"question\" open");
+    // The outline's declared type, and a type nobody declared in neutral.
+    expect(html).toContain('callout-green" data-callout="recipe"');
+    expect(html).toContain('callout-neutral" data-callout="ghost"');
+    expect(html).not.toContain("[!summary]");
+    expect(html).not.toContain("#fff");
+  }
+  const markdown = await (await get("/p/moth-log")).text();
+  expect(markdown).toContain("> [!summary] Dusk count\n> Twelve moths by the lime avenue.");
+  expect(markdown).toContain("> > [!warning] Lantern");
+});
+
+test("a file reference shows its name, never a local path, and links when the note serves that file", async () => {
+  const { store, publisher, get, write } = await setup();
+  write("notes/plan.md", "# Plan\n");
+  store.create("Moth plan [publish::moth-plan] [file::notes/plan.md]");
+  store.create("Moth walk log [publish::public:moth-log]\nSession notes in [file::/srv/garden/private/field-notes.md]. And [file::notes/plan.md].");
+  await Bun.sleep(100);
+  const share = sharing(publisher);
+  const tail = await (await get("/p/moth-log?view=full")).text();
+  const open = await (await share("/share/p/moth-log?view=html")).text();
+  for (const html of [tail, open]) {
+    expect(html).toContain("<code>field-notes.md</code>");
+    expect(html).not.toContain("/srv/garden");
+  }
+  // The published file's own page is the link on the tailnet; the public listener doesn't list the tailnet-only note.
+  expect(tail).toContain('<a href="/p/moth-plan?view=html"><code>plan.md</code></a>');
+  expect(open).toContain("<code>plan.md</code>");
+  expect(open).not.toContain("moth-plan");
+  expect(await (await get("/p/moth-log")).text()).not.toContain("/srv/garden");
+});
