@@ -58,9 +58,13 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     board.subscribe(e => { heard.push(`${e.action}:${(e as any).change?.actor?.author}:${(e as any).change?.sequence}`); app.event(e); });
     await app.whatChanged.seed(board);
     // The subscription is live once an event of the person's own (news to nobody) comes back.
-    const probe = await board.get(notes.start!.id);
-    await board.update(probe!.id, "Start\nthe first note", probe!.revision!, { kind: "user" });
-    await until(() => heard.length > 0, "the feed's first event", 15_000);
+    // The subscription is made in the background, so the first probe can go out before it is: send again until one is heard.
+    for (let i = 0; i < 10 && heard.length === 0; i++) {
+      const probe = await board.get(notes.start!.id);
+      await board.update(probe!.id, `Start\nthe first note${".".repeat(i)}`, probe!.revision!, { kind: "user" });
+      await until(() => heard.length > 0, "the feed's first event", 1_500).catch(() => {});
+    }
+    await until(() => heard.length > 0, "the feed's first event", 5_000);
   }, 40_000);
   afterAll(async () => {
     app?.drawer.tile?.kill(); board?.close(); await scratch.dispose();
