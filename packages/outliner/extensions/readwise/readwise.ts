@@ -1,8 +1,8 @@
 // Readwise (PIE-743): a Readwise and Reader client built only on what any extension has.
 //
-//   saved to Reader as one document. Sending publishes the note ([publish::public], unlisted), and its public permalink is
+// - `send` (on a block): the note, and the notes under it, rendered as its published page reads (`notes.render`) and
+//   saved to Reader as one document. Sending publishes the note ([publish::public], unlisted); its public permalink is
 //   its URL in Reader (or config `link`), so a highlight made on it in Reader comes back knowing which note it belongs to.
-//   so a highlight made on it in Reader comes back knowing which note it belongs to.
 // - `pull` (on the outline, every hour): Readwise's export of every highlight changed since the last pull (Reader's
 //   highlights reach it too). A highlight on a document `send` made becomes an annotation on that note, at the
 //   passage (`kind=highlight`, your note on it as the body); every other one lands on the readwise board, a block per
