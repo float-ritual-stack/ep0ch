@@ -2307,7 +2307,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("Sort the children · Order"), "the bar asks for order", 8000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     press({ kind: "enter" });
-    await until(async () => (await names()).join() === "Bean row,Herb bed,Root bed", "sorted by title", 8000);
+    for (let i = 0; i < 80 && (await names()).join() !== "Bean row,Herb bed,Root bed"; i++) await Bun.sleep(100);
+    expect(await names()).toEqual(["Bean row", "Herb bed", "Root bed"]);
     // An agent names what it wants and is never asked; the note's own default fills in what it leaves out.
     await app.act({ action: "ext.structure.sort-blocks", args: { block: beds.id }, as: "test-agent" });
     expect(await names()).toEqual(["Herb bed", "Bean row", "Root bed"]);
