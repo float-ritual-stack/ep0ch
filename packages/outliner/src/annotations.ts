@@ -803,7 +803,7 @@ export function formatAnnotationBlock(
 }
 
 /** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`. */
-export const ANNOTATION_HEADING = /^[A-Z][a-z-]{0,23} on “/;
+export const ANNOTATION_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23} on “)/;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);
