@@ -37,7 +37,7 @@ import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime, scrubCredentials } from "./resource-extensions";
+import { ResourceExtensionRuntime, keychainItem, scrubCredentials } from "./resource-extensions";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
@@ -3466,7 +3466,8 @@ export class OutlinerServer {
     if (!secretGroupAllowed(grant.secretGroups, group)) {
       throw new Error(`${who} may not ask for the secret group ${group}: its extension.json's secretGroups ${grant.secretGroups?.length ? `names ${grant.secretGroups.join(", ")}` : "is empty"}; add "${group}" (or "*")`);
     }
-    const values = await readGroupSecrets(group, `${who}'s secret group`, keys as string[] | undefined);
+    // On macOS a group with no file is read from the Keychain, as with-secrets reads it.
+    const values = await readGroupSecrets(group, `${who}'s secret group`, keys as string[] | undefined, process.platform === "darwin" ? keychainItem : undefined);
     for (const value of Object.values(values)) if (!grant.secrets.includes(value)) grant.secrets.push(value);
     return { group, values };
   }

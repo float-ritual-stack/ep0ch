@@ -156,8 +156,8 @@ async function runCommand(
   timeoutMs: number,
   signal?: AbortSignal,
   env: Record<string, string> = baseEnv(),
-  /** Scrubs a failure's stderr of the call's secrets before it is shown. */
-  scrub: (text: string) => string = (text) => text,
+  /** The call's secrets, read when it fails, so its stderr is scrubbed of every one (a group asked for while it ran too). */
+  secrets: () => readonly string[] = () => [],
 ): Promise<string> {
   if (Buffer.byteLength(input) > MAX_REQUEST_BYTES)
     throw failure("request exceeds 256 KiB");
@@ -177,9 +177,13 @@ async function runCommand(
     const chunks: Buffer[] = [];
     // The end of stderr, kept only to say why a process failed (scrubbed, its last lines), never stored otherwise.
     let stderr = Buffer.alloc(0);
+    let cut = false;
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = Buffer.concat([stderr, chunk]);
-      if (stderr.length > STDERR_KEPT_BYTES) stderr = stderr.subarray(stderr.length - STDERR_KEPT_BYTES);
+      if (stderr.length > STDERR_KEPT_BYTES) {
+        stderr = stderr.subarray(stderr.length - STDERR_KEPT_BYTES);
+        cut = true;
+      }
     });
     let length = 0,
       settled = false;
@@ -224,12 +228,33 @@ async function runCommand(
     child.stdin.on("error", () => {});
     child.on("close", (code, killed) => {
       if (code === 0) return finish();
-      const tail = stderrTail(scrub(plainText(stderr.toString("utf8"))));
+      const tail = stderrTail(scrubCredentials(cut ? uncut(plainText(stderr.toString("utf8")), secrets()) : plainText(stderr.toString("utf8")), secrets()) as string);
       const how = code === null ? `was stopped (${killed ?? "a signal"})` : `exited with code ${code}`;
       finish(failure(`command ${how}${tail ? `: ${tail}` : " and wrote nothing to stderr"}`));
     });
     child.stdin.end(input);
   });
+}
+
+/**
+ * The end of a stream that was cut to its last bytes: its first, partial line dropped, and any start that is the end of
+ * a secret (cut through by the cut) redacted, so no piece of a value survives the scrub that follows.
+ */
+function uncut(text: string, secrets: readonly string[]): string {
+  const newline = text.indexOf("\n");
+  let rest = newline < 0 ? "" : text.slice(newline + 1);
+  for (const form of secretForms(secrets)) {
+    for (let length = form.length - 1; length > 0; length -= 1) {
+      if (rest.startsWith(form.slice(-length))) { rest = `[redacted]${rest.slice(length)}`; break; }
+    }
+  }
+  return rest;
+}
+
+/** One macOS Keychain item's password (`security find-generic-password -s <service> -w`), or undefined. */
+export async function keychainItem(service: string, cwd = "/", timeoutMs = 3000): Promise<string | undefined> {
+  if (process.platform !== "darwin") return undefined;
+  return (await runCommand(["/usr/bin/security", "find-generic-password", "-s", service, "-w"], cwd, "", timeoutMs).catch(() => "")).trim() || undefined;
 }
 
 /** The forms of a secret the scrub finds: as it is, base64 and URL-encoded; longest first. */
@@ -532,7 +557,7 @@ export class ResourceExtensionRuntime {
       if ("group" in reference) {
         try {
           value = await readGroupSecret(reference.group, reference.key, `${loaded.manifest.name}'s ${name} secret`, process.platform === "darwin"
-            ? async (service) => (await runCommand(["/usr/bin/security", "find-generic-password", "-s", service, "-w"], loaded.directory, "", Math.min(this.timeoutMs, 3000), signal).catch(() => "")).trim() || undefined
+            ? (service) => keychainItem(service, loaded.directory, Math.min(this.timeoutMs, 3000))
             : undefined);
         } catch (error) {
           throw failure(error instanceof Error ? error.message : String(error));
@@ -634,7 +659,7 @@ export class ResourceExtensionRuntime {
         deadline,
         signal,
         env,
-        (text) => scrubCredentials(text, secretValues) as string,
+        () => secretValues,
       );
     } finally {
       revokeGrant(grant);

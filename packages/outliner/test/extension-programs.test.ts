@@ -464,6 +464,7 @@ try { values = (await call({ action: "secrets.group", group })).values; }
 catch (error) { say({ message: String(error.message) }); process.exit(0); }
 const key = values.SLUICE_KEY;
 const split = key.slice(0, 5) + "\\x1b[0m" + key.slice(5);
+if (input.args.flood) { process.stderr.write(key + "\\n".repeat(16_380)); process.exit(4); }
 if (input.args.crash) { process.stderr.write("opening the sluice\\nfailed with " + key + " (" + split + ")\\n"); process.exit(3); }
 await call({ action: "create", parentId: input.args.log, text: ["plain " + key, "b64 " + Buffer.from(key).toString("base64"), "url " + encodeURIComponent(key), "split " + split].join("\\n") });
 say({ message: "opened with " + key + " as " + Object.keys(values).sort().join(",") });`);
@@ -482,6 +483,11 @@ say({ message: "opened with " + key + " as " + Object.keys(values).sort().join("
   const lastRun = (listed.extensions.find((entry) => entry.id === "sluice") as { lastRun?: { ok: boolean; call: string; error?: string } }).lastRun;
   expect(lastRun).toMatchObject({ ok: false, call: "ext.sluice.open" });
   expect(lastRun!.error).toContain("failed with [redacted]");
+  // Stderr longer than what is kept: a value cut through by the cut doesn't survive in pieces.
+  const flood = await client.request({ action: "extensions.act", extension: "sluice", extensionAction: "open", args: { group: "sluice", log: log.id, flood: "yes" } })
+    .then(() => "", (error: Error) => error.message);
+  expect(flood).toContain("command exited with code 4");
+  expect(flood).not.toContain("=42");
   // Without secretGroups no group is anyone's.
   await install("dry", { actions: [{ id: "open", label: "Open", on: "outline", effects: "write" }] }, `${CALL}
 try { await call({ action: "secrets.group", group: "sluice" }); say({ message: "got it" }); } catch (error) { say({ message: String(error.message) }); }`);
