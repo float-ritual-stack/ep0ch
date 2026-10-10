@@ -7,7 +7,8 @@ import { RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
 import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
-import { editHint, renderEditor, writtenBy } from "./surface/editor";
+import { editHint, writtenBy, type EditFrame } from "./surface/editor";
+import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
 import type { Completer } from "./surface/completer";
 import { USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
@@ -167,6 +168,8 @@ export interface CommentEnv {
   complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
   actor?: Actor;
+  /** A comment or reply written from the reader landed (PIE-770): its thread, shown where the composer was. */
+  posted?(thread: string): void;
   flash(msg: string): void;
   redraw(): void;
 }
@@ -198,11 +201,13 @@ export class CommentSession {
   /** The mode the session opened in; Esc there closes it. */
   private readonly origin: CommentMode;
   /**
-   * A reply started from a thread expanded in the reader (PIE-420's Reply control): Esc from the composer
-   * closes the session, and so does a reply that landed, so the person is back reading the note, the thread
-   * still open under its passage. `finished` says the reply landed; the reader lets the session go.
+   * Written from the reader itself (PIE-420's Reply control, the passage toolbar, C on selected words, PIE-770): Esc
+   * from the composer closes the session, and so does a comment or reply that landed, so the person is back reading
+   * the note, the thread shown where the composer was. `finished` says it landed; the reader lets the session go.
    */
-  inline = false;
+  fromReader = false;
+  /** Where the composer sits while it's written (PIE-770): the person's setting when it opened, ctrl+o switches it. */
+  place: ComposerPlace = composerPlace();
   finished = false;
   /**
    * The properties the comment is written with (ADR 0004 contract 6): Ask's `kind: question`, a toolbar's kind. Null:
@@ -226,7 +231,7 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
-    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: "back" });
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place) });
     return "j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · C comment on a passage · esc done";
   }
 
@@ -261,7 +266,7 @@ export class CommentSession {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
             w.close(cmd === "discard");
             this.writing = null; this.target = null; this.error = null; this.note = ""; this.out.done();
-            if (this.inline) out = "close";
+            if (this.fromReader) out = "close";
             else if (this.back === "select" && this.passage) this.mode = "select";
             else if (this.origin === "select" && !this.threads.length) out = "close";
             else this.mode = "threads";
@@ -349,13 +354,14 @@ export class CommentSession {
     const env = this.env!;
     this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
     this.mode = "threads"; this.busy = "loading the thread...";
-    // From an expanded thread: straight back to reading (the reader shows the reloaded thread there).
-    if (this.inline) this.finished = true;
+    // From the reader: straight back to reading (the reader shows the reloaded thread there).
+    if (this.fromReader) this.finished = true;
     env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
     this.threads = await env.reloadComments();
     this.busy = null;
     const root = t.kind === "quote" ? r.id : t.thread.id;
     this.sel = Math.max(0, this.threads.findIndex(x => x.id === root)); this.view.reveal();
+    if (this.fromReader) env.posted?.(root);
     // A comment on a checklist step gives the step a stable id, which changes the note.
     if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
     // Sent first; then a reference in it that leads nowhere is said, with what it may have meant (PIE-761).
@@ -417,7 +423,30 @@ export class CommentSession {
 
   // ── drawing ─────────────────────────────────────────────────────────────────
 
-  /** `preview`: the reader's renderer, for the comment's live preview (ctrl+p). */
+  /**
+   * The composer's frame for renderEditor, as `place` draws it (PIE-770, src/surface/composer.ts): what's written and
+   * its keys on the title row ("comment · ctrl+s saves · esc cancels"; the reader's header names the note), the state,
+   * and the quote where the passage isn't right beside it (popup, split). `preview`: the reader's renderer (ctrl+p).
+   */
+  composerFrame(preview?: (text: string, w: number) => string[]): EditFrame | null {
+    const d = this.composer, t = this.target;
+    if (this.mode !== "compose" || !d || !t) return null;
+    const w = 60;
+    const status = (s: string, colour: number) => fg(colour) + s + RESET;
+    const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
+    const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
+    const what = t.kind === "quote" ? kind : `reply to ${t.thread.author}`;
+    const away = this.place === "popup" || this.place === "split";
+    const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
+    const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
+    return {
+      title: `${what} · ctrl+s saves · esc cancels`,
+      status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+      context, by: writtenBy(d, "send"), preview, pick: true, place: this.place,
+    };
+  }
+
+  /** The passage picker and the thread list, drawn in place of the note (the composer is drawn in it: composerFrame). */
   render(w: number, h: number, title: string, preview?: (text: string, w: number) => string[]): string[] {
     const status = (s: string, colour: number) => fg(colour) + pad(s, w) + RESET;
     const state = this.busy ? status(this.busy, C.grey)
@@ -433,17 +462,6 @@ export class CommentSession {
         rule(w),
       ];
       return [...head, ...p.render(w, Math.max(1, h - head.length), this.threads)];
-    }
-    if (this.mode === "compose" && this.composer && this.target) {
-      const d = this.composer, t = this.target;
-      const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
-      const q = quote ? wrap(quote.replace(/\s+/g, " "), w - 4).slice(0, 3).map(l => fg(C.green) + "  " + MARK + " " + l + RESET) : [];
-      if (t.kind === "reply") q.push(...wrap(t.thread.body, w - 4).slice(0, 2).map(l => fg(C.grey) + "    " + l + RESET));
-      return renderEditor(d, {
-        title: t.kind === "quote" ? `comment · ${title}` : `reply to ${t.thread.author} · ${title}`,
-        status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-        context: q, by: writtenBy(d, "send"), preview, pick: true,
-      }, w, h);
     }
     // threads
     const open = this.threads.filter(t => t.open).length;
@@ -487,6 +505,7 @@ export class CommentSession {
       quote: this.mode === "select" ? this.passage?.quote : this.target?.kind === "quote" ? this.target.passage.quote : undefined,
       replyTo: this.target?.kind === "reply" ? this.target.thread.id : undefined,
       dirty: this.dirty, busy: this.busy, error: this.error, requestId: this.requestId, threads: this.threads.length,
+      ...(this.mode === "compose" ? { place: this.place } : {}),
     };
   }
 }

@@ -287,9 +287,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The finding note: what / (the power bar's notes scope) finds, typos and all.
     search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
     // The meeting on the left, a comment being written on the guide on the right (PIE-762).
-    "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "comment · Deep links, by hand"],
+    "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment · ctrl+s"],
+    // Four readers on one note, each writing a comment in another place (PIE-770).
+    composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
     // The draft session: an edit open on the left, a comment being written on the right.
-    drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
+    drafts: ["editing · Kitchen whiteboard", "» comment · ctrl+s", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
     kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
     // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
@@ -843,7 +845,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     drag("nights stay above ten degrees");
     await until(() => screen().includes("[Ask a]"), "the toolbar with Ask", 5000);
     press({ kind: "char", ch: "a" }); press({ kind: "char", ch: "a" });
-    await until(() => screen().includes("ctrl+s send") && screen().includes("» comment"), "the question started with @margin, the person in it", 5000);
+    await until(() => screen().includes("ctrl+s send") && screen().includes("» question · ctrl+s saves"), "the question started with @margin, the person in it, at its passage", 5000);
     for (const c of "why ten?") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "s", ctrl: true });
     await waitFor(async () => (await board.comments(plan.id)).some(t => t.body.startsWith("@margin why ten?") && t.replies.some(r => r.author === "ext:marginalia")), "the margin's answer", 10_000);
@@ -1204,6 +1206,134 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 20_000);
 
+  // PIE-770, Evan's reading loop: select words, C, and the comment is written right there in the note (inline), the
+  // text around it still drawn; the mouse deletes a phrase, (( puts in a reference and ^ refines it, ctrl+p previews it
+  // drawn as the reader draws it, an embed too; ctrl+s and the thread sits where the box was. Then the same in another
+  // place: floating, moved to split by ctrl+o and to a popup by a click on its chip.
+  test("composer: select, C writes at the passage inline, a phrase deleted by mouse, a reference refined, the thread in place; then floating, split and popup by ctrl+o and a click", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "composer" }, as: "test-agent" });
+    await until(() => marks.composer!.every(m => screen().includes(m)), "the composer section");
+    const stage = () => S().stages.get(S().sel).top;
+    const surf = (name: string) => stage().pane(name).surface;
+    const cs = () => surf("inline").session;
+    const d = () => cs()?.composer;
+    const note = seeded.notes.margin.id, meeting = seeded.notes.meeting.id;
+    const rows = () => sc.render(app).lines.map(plain);
+    const type = (s: string) => { for (const c of s) ch(c); };
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    const drag = (y: number, from: number, to: number) => {
+      press({ kind: "mouse", action: "down", button: 0, x: from, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: from + 1, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: to, y });
+      press({ kind: "mouse", action: "up", button: 0, x: to, y });
+    };
+    // Where `text` is drawn in the left half of the stage (the inline and split readers), first from the top.
+    const find = (text: string) => { const r = rows(); const y = r.findIndex(l => { const x = l.indexOf(text); return x >= 0 && x < 140; }); return { y, x: y >= 0 ? r[y]!.indexOf(text) : -1, r }; };
+    const { completionOf } = await import("../src/surface/completer");
+    const pop = () => completionOf(d()!);
+    const settled = async (what: string) => { await until(() => !!pop() && !pop()!.loading && pop()!.items.length > 0, what, 8000); return pop()!; };
+    // Each reader is writing in its own place, the person's setting untouched.
+    await until(() => (["inline", "floating", "split", "popup"] as const).every(p => surf(p).session?.place === p), "each reader writing in its place");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // The inline reader's goes (the person's own close), and the person reads, then selects words with the mouse and presses C.
+    await stage().dispatch.press("comment.close", {}, "inline");
+    await until(() => !cs() && find("two new sheets of felt").y > 0, "the inline reader reading");
+    let at = find("two new sheets of felt");
+    drag(at.y, at.x, at.x + "two new sheets".length - 1);
+    await until(() => stage().describe().focusName === "inline", "the inline reader has the keys");
+    ch("C");
+    await until(() => cs()?.mode === "compose" && !!d(), "the comment open at the selected words");
+    expect(cs()!.place).toBe("inline");
+    expect(cs()!.target).toMatchObject({ kind: "quote", passage: { quote: "two new sheets" } });
+    // The box is under its line, in the note: the line is still drawn above it, the next line below it.
+    at = find("two new sheets of felt");
+    let r = rows();
+    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves · esc cancels"));
+    expect(title - at.y, r.join("\n")).toBeLessThanOrEqual(3);
+    expect(r.findIndex((l, i) => i > title && l.includes("The rain barrel overflows"))).toBeGreaterThan(title);
+    // An agent never takes the person's composer.
+    await expect(app.act({ action: "comment.write", tile: "inline", args: { body: "an agent's words" }, as: "test-agent" })).rejects.toThrow();
+    await expect(app.act({ action: "comment.place", tile: "inline", args: { place: "popup" }, as: "test-agent" })).rejects.toThrow();
+    // Typed, a doubled word dragged across with the mouse and taken out.
+    type("Felt is very very cheap at the depot, see ");
+    at = find("Felt is very very");
+    const from = at.x + "Felt is very ".length;
+    drag(at.y, from, from + "very ".length);
+    expect(d()!.selectedText()).toBe("very ");
+    press({ kind: "backspace" });
+    expect(d()!.text).toBe("Felt is very cheap at the depot, see ");
+    press({ kind: "end" });
+    // A reference from the (( popup, refined by ^ to the meeting's ^a10.
+    type("((Gree");
+    let p = await settled("the (( popup");
+    const pick = p.items.findIndex(i => i.insertion === `((${meeting}))`);
+    expect(pick, p.items.map(i => i.label).join("\n")).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < pick; i++) press({ kind: "down" });
+    press({ kind: "enter" });
+    await until(() => d()!.text.endsWith(`((${meeting}))`), "the meeting inserted", 8000);
+    ch("^");
+    p = await settled("the meeting's passages");
+    expect(p.items[0]!.insertion).toBe(`((${meeting}^a10))`);
+    press({ kind: "enter" });
+    await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
+    // And an embed of the meeting's decision, pasted.
+    press({ kind: "paste", text: `\n!((${meeting}^decision))` });
+    const body = `Felt is very cheap at the depot, see ((${meeting}^a10))\n!((${meeting}^decision))`;
+    expect(d()!.text).toBe(body);
+    // The preview draws the reference by its title and the embed's text, as the reader does.
+    press({ kind: "char", ch: "p", ctrl: true });
+    await until(() => rows().some(l => l.includes("Buy a second water butt")), "the preview with the embed", 8000);
+    expect(rows().join("\n")).toContain("preview · ctrl+p hides");
+    // The preview follows the cursor's line: up on the first, the reference reads as its note's title.
+    press({ kind: "up" }); press({ kind: "up" });
+    await until(() => rows().some(l => l.includes("see Greenhouse meeting")), "the reference drawn by its title in the preview");
+    press({ kind: "char", ch: "p", ctrl: true });
+    // Saved: back to reading, the thread where the box was, its reference and embed drawn.
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !cs(), "the comment saved, the person reading", 8000);
+    const mine = (await board.comments(note)).find(t => t.body === body);
+    expect(mine?.quote).toBe("two new sheets");
+    expect(surf("inline").expanded.has(mine!.id)).toBe(true);
+    await until(() => { const a = find("two new sheets of felt"); return a.y > 0 && rows().slice(a.y + 1, a.y + 12).some(l => l.includes("Buy a second water butt")); }, "the thread under its passage, the embed drawn", 8000);
+    at = find("two new sheets of felt");
+    r = rows().slice(at.y + 1, at.y + 12);
+    expect(r[0]).toContain("┌─ ■ user");
+    expect(r.join("\n")).toContain("Felt is very cheap at the depot, see Greenhouse meeting");
+    expect(r.join("\n")).not.toContain(`((${meeting}`);
+    // Again, in other places: floating by the setting, then split by ctrl+o, then a popup by a click on its chip.
+    await app.dispatch.press("composer.place", { place: "floating" });
+    at = find("felt before the frost");
+    drag(at.y, at.x + "felt ".length, at.x + "felt before the frost".length - 1);
+    ch("C");
+    await until(() => cs()?.mode === "compose" && cs()?.place === "floating", "the comment open, floating");
+    expect(cs()!.target).toMatchObject({ kind: "quote", passage: { quote: "before the frost" } });
+    expect(rows().join("\n")).toContain("[floating ▸]");
+    type("Frost is due on Friday night");
+    press({ kind: "char", ch: "o", ctrl: true });
+    await until(() => cs()?.place === "split" && rows().join("\n").includes("[split ▸]"), "moved to split");
+    expect(d()!.text).toBe("Frost is due on Friday night");
+    const chip = find("[split ▸]");
+    click(chip.x + 2, chip.y);
+    await until(() => cs()?.place === "popup" && rows().join("\n").includes("[popup ▸]"), "moved to a popup by its chip");
+    // In the popup the mouse still selects: " night" dragged across and taken out.
+    at = find("Frost is due on Friday night");
+    expect(at.y).toBeGreaterThan(0);
+    drag(at.y, at.x + "Frost is due on Friday".length, at.x + "Frost is due on Friday night".length);
+    press({ kind: "backspace" });
+    expect(d()!.text).toBe("Frost is due on Friday");
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !cs(), "the second comment saved", 8000);
+    const second = (await board.comments(note)).find(t => t.body === "Frost is due on Friday");
+    expect(second?.quote).toBe("before the frost");
+    await until(() => { const a = find("two new sheets of felt"); return rows().slice(a.y + 1, a.y + 20).some(l => l.includes("Frost is due on Friday")); }, "the second thread in place too", 8000);
+    // Back as it was: the setting, the section, and the two threads (they'd rank in other sections' searches).
+    await app.dispatch.press("composer.place", { place: "inline" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    for (const t of [mine!, second!]) await board.trash(t.id);
+  }, 60_000);
+
   // PIE-761, Evan's workflow by keys and mouse in the real comment box: write, select a phrase with the mouse and delete
   // it, insert a reference, break it, fix it, send; while it's open nothing moves the reader off its note. Then a comment
   // with the mistake left in: it's sent anyway, and the reference is said as a warning with a did-you-mean.
@@ -1220,7 +1350,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the middle reader the keys and puts the cursor there.
-    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("comment · Allotment notebook")); const x = rows[y]!.indexOf("comment ·"); return { rows, y, x }; };
+    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment · ctrl+s")); const x = rows[y]!.indexOf("comment ·"); return { rows, y, x }; };
     let at = textRow();
     expect(at.y).toBeGreaterThan(0);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
@@ -1303,7 +1433,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the guide's tile the keys.
-    let r = rows(), y = r.findIndex(l => l.includes("comment · Deep links")), x = r[y]!.indexOf("comment ·");
+    let r = rows(), y = r.findIndex(l => l.includes("» comment · ctrl+s")), x = r[y]!.indexOf("comment ·");
     click(x + 2, r.findIndex((l, i) => i > y && /─{5,}/.test(l.slice(x))) + 1);
     await until(() => stage().describe().focusName === "guide", "the comment has the keys");
     // Typed, then a doubled word dragged across with the mouse and taken out.

@@ -794,7 +794,7 @@ export class Draft {
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
-  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" }[] } | null = null;
+  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[] } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   layout(w: number): VRow[] {
