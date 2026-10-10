@@ -48,7 +48,7 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, LOGS, MARGINALIA_FILE, RECENT_FILES, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, MARGIN_LINES, MARGINALIA_FILE, RECENT_FILES, SEED, type SeedName } from "./seed";
 import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
@@ -214,6 +214,26 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · deep links", panes: [a, b], names: ["meeting", "guide"] }, show, [[a, n.meeting], [b, n.deepLinks]], d => {
         // The person's own keys would do this: a comment on the guide, through the stage's dispatcher, in the guide's tile.
         void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));
+      });
+    },
+  },
+  {
+    key: "composer", need: "write a comment, question or reply where the person is reading: at the passage, floating beside it, split beside the note or in a popup",
+    part: "the composer's placements (PIE-770, src/surface/composer.ts): the comment session's draft (CommentSession, one DraftSession, the one edit control: renderEditor) drawn in the reader's own note, a box of rows under the passage (inline), laid over it (floating, popup) or sharing the reader's rect (split); composer.place is the setting, comment.place (ctrl+o, the box's chip) moves the one being written; a posted thread and the preview draw references and embeds through the reader's renderer (NoteSurface.snippet)",
+    files: "src/surface/composer.ts, src/comment.ts (composerFrame), src/surface/note.ts (layOut, overComposer, renderSplit, comment.place), src/surface/editor.ts, src/screens.ts (composer.place)",
+    aside: "four readers on one note, each writing a comment in another place: inline (top left, under its line), floating (top right), split (bottom left) and popup (bottom right) · select words with the mouse and press C: the box opens where you are, the note still scrolls around it · ctrl+o (or a click on the chip) moves it · ctrl+s saves and the thread sits in place, references and embeds drawn · an agent's comment lands as a thread, never in your box",
+    stage(n, show) {
+      const places = ["inline", "floating", "split", "popup"] as const;
+      const readers = places.map(() => new ReaderPane());
+      return deskOf({ title: "showcase · composer", panes: readers, names: [...places],
+        layout: ([a, b, c, d]) => pair("col", 0.5, row(0.5, a!, b!), row(0.5, c!, d!)) }, show, readers.map(r => [r, n.margin] as [ReaderPane, Msg | undefined]), d => {
+        // The person's own keys would do these: a comment on each reader's line, through the stage's dispatcher, then its place.
+        places.forEach((place, i) => {
+          const r = readers[i]!;
+          void d.press(r, NOTE_ACTIONS, "passage.select", { quote: MARGIN_LINES[place] })
+            .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "" }))
+            .then(() => d.press(r, NOTE_ACTIONS, "comment.place", { place }));
+        });
       });
     },
   },

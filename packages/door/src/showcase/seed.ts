@@ -69,6 +69,7 @@ export const SEED = {
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
+  margin: "Writing in the margin",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -579,6 +580,27 @@ const DEEP_LINKS = [
   "- **The mouse:** drag across words and press backspace; ctrl+z undoes.",
 ].join("\n");
 
+/**
+ * The composer section (PIE-770): a note four readers show, each writing a comment on one of its last lines in another
+ * placement (inline, floating, split, popup). The lines the composers are on, by placement.
+ */
+export const MARGIN_LINES = {
+  inline: "The shed roof needs two new sheets of felt before the frost.",
+  floating: "The rain barrel overflows onto the path after a storm.",
+  split: "The compost thermometer reads warm in the middle of the heap.",
+  popup: "The seed tray lids are stacked behind the potting bench.",
+} as const;
+const MARGIN = [
+  SEED.margin,
+  "",
+  "A comment is written where you read it. Select words with the mouse (or v) and press C: the box opens right under them, the note still readable and scrollable around it. ctrl+s saves, and the thread sits where the box was.",
+  "",
+  "- **Four places:** inline (the default), floating beside the passage, split (the note beside the composer) or a popup. ctrl+o, or a click on the box's chip, moves the one you're writing; `composer.place` sets where new ones open.",
+  "- **One editor:** the mouse selects and deletes, ctrl+z undoes, `((` links a note and `^` after it picks a passage; ctrl+p previews references and embeds as the reader draws them.",
+  "",
+  ...Object.values(MARGIN_LINES).flatMap(l => [l, ""]),
+].join("\n").trimEnd();
+
 const RECIPE = [
   `${SEED.recipe} [serves::4]`,
   "",
@@ -1057,6 +1079,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.finding = await make(notes.root.id, FINDING);
   notes.meeting = await make(notes.root.id, MEETING);
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
+  notes.margin = await make(notes.root.id, MARGIN);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);

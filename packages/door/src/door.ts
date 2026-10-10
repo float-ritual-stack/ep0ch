@@ -20,6 +20,7 @@ import { useEditArm } from "./arm";
 import { useHyper } from "./hyper";
 import { useHeroHeader } from "./surface/hero-header";
 import { useOverscroll } from "./scroll";
+import { useComposerPlace } from "./surface/composer";
 import { hostname } from "node:os";
 import { Term } from "./term";
 import { Mirror } from "./mirror";
@@ -64,6 +65,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   useHyper(readState<{ on?: boolean }>("hyper.json")?.on);
   useHeroHeader(readState<{ on?: boolean; mode?: string }>("reader-hero.json"));
   useOverscroll(readState<{ rows?: unknown }>("reader-overscroll.json")?.rows);
+  // Where a comment is written (PIE-770): composer.place keeps it; inline when nothing was chosen.
+  useComposerPlace(readState<{ place?: unknown }>("composer-place.json")?.place);
   const app: App = new App(o.term, o.board, lastCall, () => o.done(app));
   if (o.service) {
     app.host = o.service.host;

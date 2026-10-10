@@ -29,6 +29,8 @@ export interface EditFrame {
   preview?: (text: string, w: number) => string[];
   /** The host can insert from a picker (ctrl+t, src/pick.ts): the frame offers it as a control too. */
   pick?: boolean;
+  /** Where a comment's composer sits (PIE-770, src/surface/composer.ts): a chip that switches it (ctrl+o), its name the label. */
+  place?: string;
 }
 
 /**
@@ -42,7 +44,8 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const pk = f.pick && w >= 56 ? "[insert]" : "";
   // With text selected, a [copy] control: the mouse's way to the draft's copy, wherever copy on select is off.
   const cp = d.selection() && w >= 32 ? "[copy]" : "";
-  const ctls = [...(cp ? [{ text: cp, action: "copy" as const }] : []), ...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : [])];
+  const pl = f.place && w >= 28 ? `[${f.place} ▸]` : "";
+  const ctls = [...(cp ? [{ text: cp, action: "copy" as const }] : []), ...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : []), ...(pl ? [{ text: pl, action: "place" as const }] : [])];
   const cw = ctls.reduce((n, c) => n + c.text.length + 1, 0);
   const tw = Math.max(1, w - cw);
   const controls: NonNullable<Draft["frame"]>["controls"] = [];
@@ -59,7 +62,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // The preview takes the lower half, once there's room for both.
   const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
-  d.frame = { row: top.length, col: 1, rows: room, controls };
+  d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls };
   const below = ph ? previewRows(d, f.preview!, w, ph) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
@@ -101,7 +104,7 @@ function previewRows(d: Draft, render: (text: string, w: number) => string[], w:
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void }): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void }): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
@@ -109,20 +112,22 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl && !on) return true;
   if (ctl?.action === "pick") { on?.pick?.(); return true; }
   if (ctl?.action === "copy") { on?.copy?.(); return true; }
+  if (ctl?.action === "place") { on?.place?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
-  if (!extend && (y < f.row || y >= f.row + f.rows)) return false;
+  // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
+  if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
   const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;
 }
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
-export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
+export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back"; place?: string }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
   const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${undo}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

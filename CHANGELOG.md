@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment is written where you're reading: inline at the passage, or floating, split or popup by choice (PIE-770)
+
+- **New:** select words and press `C` (or a passage toolbar's Comment, Ask, Explain, or a thread's `[Reply]`): the
+  comment box opens right under the passage, inside the note, which still reads and scrolls around it. `ctrl+s` saves and
+  the thread sits where the box was. Nothing takes you to another screen.
+- **New:** four placements, inline (the default), floating beside the passage, split (the reader shared with the note)
+  and a popup. `ctrl+o` or a click on the box's chip moves the one you're writing; `ep0ch act composer.place
+  place=<inline|floating|split|popup>` sets where new ones open, kept for the next start.
+- **Changed:** a posted thread's body and replies, its margin card and the composer's preview draw `((references))` by
+  their titles and `!((embeds))` as the reader does. A reply's author and time sit on a line of their own above it.
+- **Changed:** the composer's title row says the keys (`comment · ctrl+s saves · esc cancels`); the note's title is the
+  reader's header.
+- The showcase's `composer` section shows the four at once.
+- No protocol or schema change. On each machine: `ep0ch install --apply`.
+- *Why it matters:* commenting is the core reading loop (marginalia, Readwise, feedback on plans); being taken to
+  another screen mid-thought broke it.
+
 ### Extensions from the docs alone: a call reference, a schedule once per host, a note's address and its rendering (PIE-767)
 
 - **New:** `"once": "host"` on a schedule runs it in one outline of the host instead of in every outline that serves
