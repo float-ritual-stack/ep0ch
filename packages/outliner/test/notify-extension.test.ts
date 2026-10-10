@@ -71,7 +71,7 @@ test("pure parts: the web URL of a subject, imported words kept inert, and read 
   expect(propsOf(merged({ ...n, unread: false }, merged(n)))["notify.state"]).toBe("read");
 });
 
-test("a pull makes one note per notification from all four sources with open properties, seeds two boards, and a second pull writes nothing", async () => {
+test("a pull makes one note per notification from all four sources with open properties, the demo's two boards answer them, and a second pull writes nothing", async () => {
   const { pull, notes, client, root, store } = await setup();
   expect(await pull()).toBe("notifications: 7 new, 0 changed, 0 unchanged");
   const made = await notes();
@@ -84,7 +84,7 @@ test("a pull makes one note per notification from all four sources with open pro
   // Properties are open: the service filters on them, nothing in code lists them.
   const jira = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.source=jira AND notify.state=unread" } });
   expect(jira.blocks).toHaveLength(2);
-  // The boards: hubs of views, lanes by state and by source, that the service answers.
+  // The boards: the demo's hubs of views (written when it was installed), lanes by state and by source, answered by the service.
   const hubs = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=virtual-branch", limit: 50 } });
   expect(hubs.blocks.map((b) => propsOf(b.text)["query"]).filter((q) => q?.startsWith("notify.")).sort()).toEqual(["notify.source=github", "notify.source=gmail", "notify.source=jira", "notify.source=slack", "notify.state=read", "notify.state=unread"]);
 

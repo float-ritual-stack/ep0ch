@@ -209,6 +209,11 @@ export interface ExtensionRegistryOptions {
   readonly roots: readonly ExtensionRoot[];
   /** Called after a reload that changed what the registry serves. */
   readonly onChange?: (generation: number) => void;
+  /**
+   * Called after every reload, changed or not: a folder's README, CHANGELOG or demo changed without its manifest
+   * (the extensions' pages, src/extension-pages.ts, are written again from them).
+   */
+  readonly onReload?: () => void;
   /** The outline's name, given to tile programs so the outliner CLI reaches the right outline. */
   readonly outlineName?: () => string | undefined;
   /** The socket a tile program reaches the service on. */
@@ -339,6 +344,7 @@ export class ExtensionRegistry {
       this.generation += 1;
       this.options.onChange?.(this.generation);
     }
+    this.options.onReload?.();
     if (this.watching) this.arm();
   }
 
@@ -371,6 +377,11 @@ export class ExtensionRegistry {
   extension(id: string): LoadedExtension | undefined {
     const slot = this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     return slot && (slot.state === "active" || slot.state === "failed") ? slot.serving : undefined;
+  }
+
+  /** The copy an extension's folder last loaded, whatever its state (a disabled one's too); none when shadowed or never loaded. */
+  loaded(id: string): LoadedExtension | undefined {
+    return this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed")?.serving;
   }
 
   /** Every extension that serves now (active, or failed on its last good copy), in the registry's order. */

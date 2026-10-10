@@ -1,16 +1,19 @@
 # Notifications hub (a fetcher and a board)
 
-Cold-start run 3 of the extension docs (PIE-741 and PIE-767). A deterministic fetcher, with no model: GitHub is real,
+Cold-start run 4 of the extension docs (PIE-741 and PIE-767). A deterministic fetcher, with no model: GitHub is real,
 and Gmail, Jira and Slack come from made-up files behind the same shape until a real one is plugged in.
 
 ```text
-Notifications [page::notifications] [notify.synced.github::…]      ← written by ext:notify
+Notifications [page::notifications] [notify.synced.github::…]      ← written by ext:notify's pull
+  └─ Fix the build [notify.key::github:101] [notify.source::github] [notify.kind::PullRequest] [notify.from::org/repo]
+       [notify.state::unread] [notify.received::2026-10-09T08:15:00Z] [notify.url::https://github.com/org/repo/pull/12]
+
+Extensions › Notifications hub                                     ← its page, with these demo notes (yours once written)
+  ├─ Start here: your notifications on two boards
   ├─ Notifications by read state [page::notifications-state]       ← a hub: the lanes are views
   │    ├─ Unread [type::virtual-branch] [query::notify.state=unread]
   │    └─ Read   [type::virtual-branch] [query::notify.state=read]
-  ├─ Notifications by source [page::notifications-source]          ← a hub: a lane per configured source
-  └─ Fix the build [notify.key::github:101] [notify.source::github] [notify.kind::PullRequest] [notify.from::org/repo]
-       [notify.state::unread] [notify.received::2026-10-09T08:15:00Z] [notify.url::https://github.com/org/repo/pull/12]
+  └─ Notifications by source [page::notifications-source]          ← a lane per source
 ```
 
 - **One note per notification**, keyed by `[notify.key::<source>:<id>]`. A pull looks the key up and writes only what
@@ -23,9 +26,10 @@ Notifications [page::notifications] [notify.synced.github::…]      ← written
 - **Schedule:** `pull` runs every 5 minutes, once per host (`ep0ch ext run notify action:pull` runs it now).
   The cursor per source is `[notify.synced.<source>::…]` on the page's first line. The first pull looks back
   `days` (14).
-- **The boards are seeded** by the first pull (an extension can't ship notes or views in its folder: the first run of
-  `pull` creates the page and its two hubs). Edit them freely; a deleted board isn't made again, a lane for a source
-  added later is yours to add (one view: `[type::virtual-branch] [query::notify.source=jira]`).
+- **The boards are its demo notes** (`demo/` in this folder): installing it writes them once under its page in the
+  outline's Extensions hub, as `ext:notify`. They're yours from then on: edit them, move them, delete a lane for a source
+  you don't pull. A reinstall never writes them again; `ep0ch ext remove notify --demo remove` moves the ones you
+  didn't change to Trash.
 
 ## Install
 

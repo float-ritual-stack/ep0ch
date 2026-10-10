@@ -1,9 +1,10 @@
 {
   "contract": 2,
   "id": "notify",
-  "version": 1,
+  "version": 2,
   "name": "Notifications hub",
   "description": "A deterministic fetcher (no model): GitHub notifications, and Gmail, Jira and Slack behind the same shape, become one note each on a notifications page, with a board by read state and one by source.",
+  "demo": "demo",
   "run": ["bun", "notify.ts"],
   "deadline": "2m",
   "env": ["GH_CONFIG_DIR", "XDG_CONFIG_HOME"],

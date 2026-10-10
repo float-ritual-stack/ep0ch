@@ -1,8 +1,8 @@
 // The notifications hub (PIE-741): one scheduled action, `pull`. Each source in config returns notifications in one
 // shape (notification.ts); each becomes one note on the notifications page, keyed by `[notify.key::source:id]`, so a
-// pull is idempotent. The first pull also seeds two boards (hubs of views) on the page. No model is called.
+// pull is idempotent. The boards (hubs of views) are the demo's (demo/), written once when it's installed. No model is called.
 import { outline } from "./outline";
-import { BOARDS, KEY, keyOf, merged, type Notification, type Source } from "./notification";
+import { KEY, keyOf, merged, type Notification, type Source } from "./notification";
 import { fixture, REAL } from "./sources";
 
 interface Block { id: string; text: string; revision: number }
@@ -44,18 +44,9 @@ async function findPage(address: string): Promise<Block | null> {
   return resolved.status === "resolved" && resolved.block ? o<Block>({ action: "get", blockId: resolved.block.id }) : null;
 }
 
-/** The page the notifications land under, and the boards on it, made the first time. */
+/** The page the notifications land under, made the first time. */
 async function ensurePage(): Promise<Block> {
-  const found = await findPage(addressOf);
-  if (found) return found;
-  const page = await o<Block>({ action: "create", text: `Notifications [page::${addressOf}]` });
-  for (const board of BOARDS(addressOf, names)) {
-    const hub = await o<Block>({ action: "create", parentId: page.id, text: `${board.title} [page::${addressOf}-${board.title.split(" ").pop()}]` });
-    for (const [title, query] of board.lanes) {
-      await o({ action: "create", parentId: hub.id, text: `${title} [type::virtual-branch] [query::${query}] [sort::notify.received] [direction::desc]` });
-    }
-  }
-  return page;
+  return (await findPage(addressOf)) ?? o<Block>({ action: "create", text: `Notifications [page::${addressOf}]` });
 }
 
 const page = await ensurePage();

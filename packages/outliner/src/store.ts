@@ -928,6 +928,17 @@ export class OutlinerStore {
     return readOutlineAbout(this.database);
   }
 
+  /** A value the service keeps about the outline that isn't note content (the metadata table), or undefined. */
+  readMetadata(key: string): string | undefined {
+    const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(key) as { value: string } | null;
+    return row?.value;
+  }
+
+  /** Keeps a value about the outline that isn't note content (src/extension-pages.ts keeps what it wrote). */
+  writeMetadata(key: string, value: string): void {
+    this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  }
+
   /** Records who made this outline and why (once, at creation). */
   setOutlineAbout(about: OutlineAbout): void {
     this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")

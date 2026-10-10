@@ -2286,6 +2286,17 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
   /** Runs one of an extension's schedules now (PIE-754): `entry` is `action:<id>` or `handler:<key>`; recorded as any run. */
   | { id: string; action: "extensions.schedule.run"; extension: string; entry: string }
+  /**
+   * A built-in from the repo's extensions folder installed (as `ext add <name>`): into the user folder (every outline
+   * the host serves) or `where: "outline"`, this one's own. Answers once its page and demo notes are written:
+   * `{ id, lines, page?, hub?, state?, error? }`.
+   */
+  | { id: string; action: "extensions.install"; extension: string; where?: "user" | "outline"; mutation?: MutationProvenance }
+  /**
+   * An installed extension removed (its folder deleted), and its demo notes kept or moved to Trash as `demo` says
+   * (no default: they never go silently). `{ id, lines, removed, demo: { trashed, kept, left } }`.
+   */
+  | { id: string; action: "extensions.uninstall"; extension: string; demo: "keep" | "remove"; mutation?: MutationProvenance }
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */
