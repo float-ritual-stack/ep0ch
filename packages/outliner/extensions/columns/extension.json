@@ -1,0 +1,19 @@
+{
+  "contract": 2,
+  "id": "columns",
+  "version": 1,
+  "name": "Columns",
+  "description": "Rich component: the notes under a line are sections drawn side by side, stacked when the reader is narrow.",
+  "run": ["bun", "columns.ts"],
+  "handlers": [
+    {
+      "key": "columns",
+      "kind": "component",
+      "effects": "read",
+      "staleAfter": "1m",
+      "description": "The notes under this block as columns, side by side when there is room",
+      "argument": { "name": "count", "required": false, "pattern": "^[2-4]$", "description": "columns to use, 2 to 4 (default: one per section, at most 4)" }
+    }
+  ],
+  "demo": "demo"
+}
