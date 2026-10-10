@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
-import { getProperty, stripProperties } from "./properties";
+import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import type {
   AnnotationAnchor,
@@ -713,6 +713,41 @@ function quoteForHeading(target: AnnotationTarget): string {
   return `${target.anchor.provider} comment ${target.anchor.commentId}`;
 }
 
+/**
+ * A heading quote with no unclosed code span. A code span runs to the next backtick run of the same length, across
+ * lines (outline-core's code-ranges), so a quote cut inside one (`` `columns: [title, tl…``) would open a span that
+ * swallows the metadata line below it, and the block would be saved without its `[type::annotation]` (PIE-761).
+ * Paired runs stay; an unpaired run is dropped.
+ */
+export function inertHeadingQuote(quote: string): string {
+  let out = "";
+  let cursor = 0;
+  while (cursor < quote.length) {
+    const opener = quote.indexOf("`", cursor);
+    if (opener < 0) return out + quote.slice(cursor);
+    let openerEnd = opener + 1;
+    while (quote[openerEnd] === "`") openerEnd += 1;
+    const length = openerEnd - opener;
+    let closing = -1;
+    for (let scan = openerEnd; scan < quote.length;) {
+      const next = quote.indexOf("`", scan);
+      if (next < 0) break;
+      let runEnd = next + 1;
+      while (quote[runEnd] === "`") runEnd += 1;
+      if (runEnd - next === length) { closing = next; break; }
+      scan = runEnd;
+    }
+    if (closing < 0) {
+      out += quote.slice(cursor, opener);
+      cursor = openerEnd;
+    } else {
+      out += quote.slice(cursor, closing + length);
+      cursor = closing + length;
+    }
+  }
+  return out;
+}
+
 export function formatAnnotationBlock(
   input: AnnotationCreateInput,
   parentAnnotationId?: string,
@@ -725,7 +760,7 @@ export function formatAnnotationBlock(
   const normalized = normalizeAnnotationCreateInput(input, options.allowLegacy ?? false);
   const parent = parentAnnotationId === undefined ? undefined : identity(parentAnnotationId, "Parent annotation ID");
   const quote = quoteForHeading(normalized.target).replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\s+/g, " ").trim();
-  const heading = `Comment on “${quote.length > 72 ? `${quote.slice(0, 71)}…` : quote}”`;
+  const heading = `Comment on “${inertHeadingQuote(quote.length > 72 ? `${quote.slice(0, 71)}…` : quote)}”`;
   const metadata = [
     `[type::${parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE}]`,
     `[annotation-source::${normalized.source}]`,
@@ -733,7 +768,11 @@ export function formatAnnotationBlock(
   ];
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
-  return [heading, metadata.join(" "), normalized.body].join("\n");
+  const text = [heading, metadata.join(" "), normalized.body].join("\n");
+  // The metadata line must read back as written whatever the quote holds; if anything in the heading still hides it
+  // (a literal or code form nobody foresaw), the comment lands under a plain heading rather than being refused.
+  const type = getProperty(parseProperties(text), "type");
+  return type === (parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE) ? text : ["Comment", metadata.join(" "), normalized.body].join("\n");
 }
 
 export function extractAnnotationBody(text: string): string {
