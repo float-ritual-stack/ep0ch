@@ -53,6 +53,7 @@ export class Passage {
   selectText(quote: string, near?: number): string | null {
     // The one quote lookup (outline-core passage.ts): the first place, or the one nearest `near`.
     const at = findPassage(this.text, quote, { near: near ?? 0 });
+    if (isMiss(at) && !quote.trim()) return at.why;
     if (isMiss(at)) return at.count ? missMessage(at) : `"${ellipsize(quote, 40)}" isn't in the note's current text${at.nearest ? ` (nearest: "${ellipsize(at.nearest.text, 40)}")` : ""}`;
     this.from = at.start; this.to = at.end;
     return null;
