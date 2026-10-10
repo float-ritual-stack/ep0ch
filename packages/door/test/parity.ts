@@ -308,6 +308,20 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     let last: Snap | null = null;
     const states: Key[] = [];
     checkHint(label);
+    /**
+     * A state probed already (`sharedStates`): one the same action opened, the shell's on any screen, a screen's own
+     * on a screen of the same kind.
+     */
+    const shared = (k: Key, runs: ActionRun[]) => {
+      // The action the key ran first opened the state (what it opened may run its own: a tile's tab.select).
+      const first = runs[0];
+      if (!first) return false;
+      const where = GLOBAL_SCOPES.has(first.scope) ? "" : ((A().stack.at(-1) as Screen | undefined)?.constructor.name ?? "?");
+      const id = `${where}\0${named(k)}\0${first.scope}.${first.name}`;
+      if (sharedStates.has(id)) return true;
+      sharedStates.add(id);
+      return false;
+    };
     for (const k of [...PROBE_KEYS, ...clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
@@ -326,10 +340,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       const opened = after.holds && !base.holds && after.top === base.top && k.kind !== "mouse";
       if (runs.length) {
         if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
-        if (opened) states.push(k);
+        if (log && opened) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} opened by ${runs.map(r => `${r.scope}.${r.name}`).join(",")}\n`);
+        if (opened && !shared(k, runs)) states.push(k);
         continue;
       }
-      if (after.holds && after.top === base.top) { if (k.kind !== "mouse") states.push(k); continue; }
+      if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
       if (!(await bare(label, make, setup, k))) continue;
       findings.push({ screen: label, keys: named(k), problem: after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action" });
     }
@@ -400,6 +415,16 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (!(await bare(label, make, [...setup, k1], k2))) return null;
     return "ended an input state with a change and no action";
   }
+
+  /**
+   * The second keys of an input state an action opened are probed once in a file (PIE-760): the shell's own (alt+g's
+   * picker, ctrl+n's new note, the drawer) on the first screen that opens them, whichever screen is under them; a
+   * screen's own (the board's hub picker, an edit) on the first scenario of that screen that opens them. Probing them
+   * again on every scenario was most of a part's time and found nothing new: the keys are the state's actions. A state
+   * no action opened (a prefix such as ctrl+w) is probed on every scenario.
+   */
+  const GLOBAL_SCOPES = new Set(["shell", "drawer", "extensions", "new"]);
+  const sharedStates = new Set<string>();
 
   type Scenario = [string, () => Screen | Promise<Screen>, Key[]?];
   const k = (ch: string): Key => ({ kind: "char", ch });

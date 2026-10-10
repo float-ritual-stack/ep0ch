@@ -108,3 +108,21 @@ test("explicit parent checklist scope rejects child passages without writing",()
   await expect(createBlockComment(c,{requestId:"wrong-owner",input:{blockId:nested.id,expectedRevision:nested.revision,body:"Wrong parent",source:"user",passage:{quote:"Child quote",itemId:"parent"}}})).rejects.toThrow("not found");
   expect(await c.request<WorkspaceSnapshot>({action:"workspace.snapshot"})).toEqual(before);
 }));
+
+// PIE-761: a passage cut inside a code span (`columns: [title, tl…`) opened a span in the comment's heading that ran
+// to the first backtick of the body and swallowed the `[type::annotation]` line, so the service refused its own write
+// with "Block is not an annotation" and the person's text was lost.
+test("a comment on a passage cut inside a code span lands, with references and anchors in its body kept as written",()=>fixture(async c=>{
+  const note=await c.request<Block>({action:"create",text:"A live table wraps only the title [type::request]\nTried: a meetings index as `::graph-table` with `columns: [title, tldr, when, who]` and `density: comfortable`, then `titleColumn: 1`.\nFixture: ((0d1e5ba9-8560-4091-b0f0-7ddfaf4ee35f|Meeting notes))"});
+  const quote="Tried: a meetings index as `::graph-table` with `columns: [title, tldr, when, who]` and `density: comfortable`, then `titleColumn: 1`.";
+  const body="also - a deep link by hand was a mess\n- I added a `^a10` hoping to find it\n- typing `((Meeting` and ((0d1e5ba9-8560-4091-b0f0-7ddfaf4ee35f)) pops out\n- a broken ((0d1e5ba9-8560 and ((0d1e5ba9-8560-4091-b0f0-7ddfaf4ee35f^a10)) stay as written";
+  const receipt=await createBlockComment(c,{requestId:"pie-761",author:"user",input:{blockId:note.id,expectedRevision:note.revision,body,source:"user",passage:{quote}}});
+  const annotation=receipt.annotations[0]!;
+  expect(annotation.body).toBe(body);
+  expect(annotation.block.properties).toContainEqual({key:"type",value:"annotation"});
+  expect(annotation.block.text.split("\n")[0]).toStartWith("Comment on “Tried: a meetings index as `::graph-table` with ");
+  const threads=await c.request<AnnotationThread[]>({action:"annotations.list",query:{subject:{kind:"block",blockId:note.id}}});
+  expect(threads.map(thread=>thread.body)).toEqual([body]);
+  const reply=await c.request<AnnotationBatchReceipt>({action:"annotations.reply",requestId:"pie-761-reply",input:{annotationId:annotation.block.id,body:"a reply with `((Meeting` too",source:"user"},author:"user"});
+  expect(reply.annotations[0]!.parentAnnotationId).toBe(annotation.block.id);
+}));

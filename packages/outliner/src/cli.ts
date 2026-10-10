@@ -19,6 +19,7 @@ import { attachNamedOutline, importHostedOutline, listHostedOutlines, outlineHos
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
 import type { MentionCollection } from "./mentions-types";
+import type { AnnotationBatchReceipt } from "./types";
 import type { BlockActivityKind, HostedOutlineArchival, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
@@ -1175,4 +1176,15 @@ if (command === "capture") {
   console.log(JSON.stringify({ ...found, entries: found.entries.map(entry => ({ ...entry, title: entry.block ? blockDisplayTitle(entry.block) : entry.address })) }, null, 2));
 } else {
   console.log(JSON.stringify(result, null, 2));
+}
+// A write that kept a reference leading nowhere is saved as written; the warning, with its did-you-mean, goes to stderr
+// (PIE-761), so the JSON a caller reads is the same.
+{
+  const written = command === "comment" ? (result as AnnotationBatchReceipt | undefined)?.annotations?.[0]?.body
+    : ["create", "new", "update"].includes(command) ? (result as { text?: string; block?: { text?: string } } | undefined)?.text ?? (result as { block?: { text?: string } } | undefined)?.block?.text
+    : undefined;
+  if (typeof written === "string" && written.includes("((")) {
+    const { referenceWarningsFor } = await import("./agent-tools");
+    for (const warning of await referenceWarningsFor(client, written)) console.error(`warning: ${warning}`);
+  }
 }

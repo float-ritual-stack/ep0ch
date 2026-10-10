@@ -269,3 +269,64 @@ describe("query expressions through the service", () => {
     }
   });
 });
+
+describe("forgiving query spellings (PIE-729)", () => {
+  const prop = (key: string, value: string) => ({ kind: "property" as const, key, value });
+  const same = (a: string, b: string) => expect(parseQueryExpression(a)).toEqual(parseQueryExpression(b));
+
+  test("[key::value] reads as key=value, alone and in flat filters", () => {
+    expect(parseSearchExpression("[type::thread]")).toEqual({ filters: [{ key: "type", value: "thread" }] });
+    expect(parseSearchExpression("[type::thread] [status::open]")).toEqual({ filters: [{ key: "type", value: "thread" }, { key: "status", value: "open" }] });
+    expect(parseQueryExpression("[type::thread]")).toEqual(prop("type", "thread"));
+  });
+
+  test("a bracketed value keeps its spaces and quotes", () => {
+    expect(parseQueryExpression("[status::in progress]")).toEqual(prop("status", "in progress"));
+    expect(parseQueryExpression('[status::"in progress"]')).toEqual(prop("status", "in progress"));
+  });
+
+  test("whitespace around = and :: is allowed", () => {
+    for (const spelling of ["type = thread", "type= thread", "type =thread", "type  ::  thread", "type :: thread"]) {
+      expect(parseSearchExpression(spelling)).toEqual({ filters: [{ key: "type", value: "thread" }] });
+    }
+    expect(parseQueryExpression('status = "in progress"')).toEqual(prop("status", "in progress"));
+  });
+
+  test("they combine with AND, OR, NOT, parentheses and quoted values", () => {
+    same("[type::thread] and (status = open or [status::blocked])", "type=thread and (status=open or status=blocked)");
+    same("([type::thread] or type = note) status = open", "(type=thread or type=note) status=open");
+    same("NOT [status::done] [type::thread]", "NOT status=done type=thread");
+    same('type = thread and status = "in progress"', 'type=thread and status="in progress"');
+    same("([status::in progress])", '(status="in progress")');
+    same("[type::thread] created >= 2024-01-01", "type=thread created>=2024-01-01");
+  });
+
+  test("a quoted value may hold brackets", () => {
+    expect(parseQueryExpression('[status::"a[b]c"] or x=y')).toMatchObject({ kind: "or", operands: [prop("status", "a[b]c"), prop("x", "y")] });
+  });
+
+  test("a keyword next to a separator is not swallowed as a value", () => {
+    expect(() => parseQueryExpression("type = and status=open")).toThrow(/value cannot be empty/);
+  });
+
+  test("queries that already parsed keep their meaning", () => {
+    expect(parseSearchExpression("k=a= next")).toEqual({ filters: [{ key: "k", value: "a=" }, { key: "next" }] });
+    expect(parseQueryExpression("status=open OR (type::thread AND NOT x=y)")).toEqual({
+      kind: "or", operands: [prop("status", "open"), { kind: "and", operands: [prop("type", "thread"), { kind: "not", operand: prop("x", "y") }] }],
+    });
+    expect(parseSearchExpression("status=\"in progress\" project::pi priority")).toEqual({
+      filters: [{ key: "status", value: "in progress" }, { key: "project", value: "pi" }, { key: "priority" }],
+    });
+  });
+
+  test("a refusal says what it read, a did-you-mean, then a working example", () => {
+    const refusal = (text: string) => { try { parseQueryExpression(text); } catch (e) { return (e as Error).message; } throw new Error("parsed"); };
+    const bang = refusal("type!=thread");
+    expect(bang).toMatch(/^Invalid property filter key: type! at character 1\. Did you mean NOT type=thread\?.*Example: type=thread and /);
+    expect(refusal("type:thread")).toContain("Did you mean type=thread?");
+    expect(refusal("= thread")).toMatch(/Invalid property filter key: \(empty\).*Example: /);
+    expect(refusal("type!=draft]")).toContain("Did you mean NOT type=draft]?");
+    expect(refusal("1bad=x")).not.toContain("Did you mean");
+    expect(refusal("1bad=x")).toContain("Example: ");
+  });
+});

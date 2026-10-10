@@ -24,7 +24,7 @@ import {
   type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import { subject, type Msg } from "./board";
-import { ago } from "./text";
+import { ago, wrap } from "./text";
 import { COMPONENT_OPEN, componentAttrs, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
@@ -619,6 +619,16 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   // `this` in the query is the note the component sits in (`links:this NOT linkedfrom:this`).
   const matches = spec.query ? questionRows(source, { where: spec.query, ...(note ? { this: note } : {}) }, 200) : undefined;
   const data: LinkData = { ...links, ...(children ? { children } : {}), ...(matches ? { matches } : {}) };
+  // A query the service refused (PIE-729): its whole answer, wrapped, under the query as written: what it read, the
+  // did-you-mean, an example. Not cut to a row, and the frame stays so the block holds its place in the note.
+  if (spec.query && matches?.kind === "error") {
+    const inner = Math.max(10, W - 4), said = matches.message.replace(/^couldn't ask: /, "");
+    return frame(title, [
+      ...wrap(`query: ${spec.query}`, inner).map(l => fg(C.dark) + l + RESET),
+      ...wrap(said, inner).map(l => fg(C.lred) + l + RESET),
+      ...wrap("edit query= in this block and it asks again", inner).map(l => fg(C.dark) + l + RESET),
+    ], W, "live · query not read");
+  }
   const ui = blocks?.ui?.(key), typing = ui?.typing ?? null, entered = !!ui?.entered;
   const filter = [spec.filter, typing ?? ""].filter(Boolean).join(" ");
   const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
