@@ -25,11 +25,14 @@ interface Request {
 interface Tag { name: string }
 interface Highlight {
   id: number; text: string; note?: string | null; color?: string | null; tags?: Tag[]; highlighted_at?: string | null;
-  updated_at?: string | null; is_deleted?: boolean; readwise_url?: string | null; location?: number | null;
+  created_at?: string | null; updated_at?: string | null; is_deleted?: boolean; readwise_url?: string | null; url?: string | null;
+  location?: number | null; location_type?: string | null; end_location?: number | null; external_id?: string | null;
+  is_favorite?: boolean; is_discard?: boolean; book_id?: number;
 }
 interface Book {
   user_book_id: number; title: string; readable_title?: string; author?: string | null; category?: string | null;
   source?: string | null; source_url?: string | null; unique_url?: string | null; readwise_url?: string | null;
+  cover_image_url?: string | null; asin?: string | null; summary?: string | null; external_id?: string | null;
   document_note?: string | null; book_tags?: Tag[]; highlights: Highlight[];
 }
 interface Thread { block: Block; body: string; properties?: Record<string, string[]> }
@@ -204,12 +207,82 @@ async function send(blockId: string): Promise<void> {
     : `saved "${short(rendered.title)}" to Reader${where}` });
 }
 
+// ── Properties ───────────────────────────────────────────────────────────
+//
+// Every field Readwise exports that a person could filter on becomes a property, so the views' grammar (`where=`,
+// `group=`, `sort=`) answers it with no code here. Plain keys where the meaning is general and another source could
+// share it (`author`, `title`, `category`, `source`, `url`, `tags`, `favorite`, `highlighted`); `readwise.*` where it is
+// Readwise's own (ids, locations, its URLs, its timestamps). A highlight carries its book's identity too (denormalized,
+// because a query reads one block's own properties, not its parent's): `author`, `title`, `category`, `source`, `url`,
+// `book-tags` and `readwise.book`. Highlight tags stay `tags`; the book's own tags are `tags` on the book block and
+// `book-tags` on each highlight, so `tags=moss` means a highlight you tagged moss, never one that merely sits in a
+// book someone tagged. Empty values are left out. Dates are the day (`2026-09-30`); the query grammar compares a
+// property for equality only (ranges are for `created` and `updated`), so `highlighted-year` and `highlighted-month`
+// are the buckets "from 2024" asks for (and `group=highlighted-year` groups by).
+
+type Entry = [key: string, value: string | number | null | undefined];
+const day = (date: string | null | undefined) => (date && /^\d{4}-\d{2}-\d{2}/.test(date) ? date.slice(0, 10) : null);
+const names = (tags: Tag[] | undefined) => (tags ?? []).map((tag) => value(tag.name)).filter(Boolean);
+/** A Readwise summary is kept as a property only when it is short; a long one is not a filter. */
+const shortSummary = (text: string | null | undefined) => { const one = value(text ?? ""); return one && one.length <= 160 ? one : null; };
+/** The book's title as a person reads it (`readable_title` when Readwise cleaned one up; `readwise.title` keeps the raw one). */
+const titleOf = (book: Book) => value(book.readable_title || book.title || "(untitled)");
+
+/** The book's identity, as every highlight of it carries it. */
+function bookIdentity(book: Book): Entry[] {
+  return [
+    ["readwise.book", book.user_book_id], ["title", titleOf(book)], ["author", book.author], ["category", book.category],
+    ["source", book.source], ["url", book.source_url || book.unique_url],
+    ...names(book.book_tags).map((name): Entry => ["book-tags", name]),
+  ];
+}
+
+/** The book block's own properties: its identity, with its tags as `tags`, and what only a book has. */
+function bookEntries(book: Book): Entry[] {
+  return [
+    ...bookIdentity(book).filter(([key]) => key !== "book-tags"),
+    ...names(book.book_tags).map((name): Entry => ["tags", name]),
+    ["readwise.url", book.readwise_url], ["readwise.unique-url", book.unique_url !== book.source_url ? book.unique_url : null],
+    ["readwise.cover", book.cover_image_url], ["readwise.asin", book.asin], ["readwise.external-id", book.external_id],
+    ["readwise.title", book.readable_title && book.readable_title !== book.title ? book.title : null],
+    ["readwise.summary", shortSummary(book.summary)],
+  ];
+}
+
+/** A highlight's own properties, then its book's identity. */
+function highlightEntries(highlight: Highlight, book: Book): Entry[] {
+  return [
+    ["readwise.highlight", highlight.id], ["readwise.color", highlight.color],
+    ["highlighted", day(highlight.highlighted_at)], ["highlighted-year", day(highlight.highlighted_at)?.slice(0, 4)], ["highlighted-month", day(highlight.highlighted_at)?.slice(0, 7)],
+    ["readwise.created", day(highlight.created_at)], ["readwise.updated", day(highlight.updated_at)],
+    ["favorite", highlight.is_favorite ? "true" : null], ["readwise.discard", highlight.is_discard ? "true" : null],
+    ["readwise.has-note", (highlight.note ?? "").trim() ? "true" : null],
+    ["readwise.location", highlight.location], ["readwise.location-type", highlight.location_type], ["readwise.end-location", highlight.end_location],
+    ["readwise.url", highlight.readwise_url], ["readwise.external-id", highlight.external_id], ["readwise.source-url", highlight.url],
+    ...names(highlight.tags).map((name): Entry => ["tags", name]),
+    ...bookIdentity(book),
+  ];
+}
+
+/** Entries as `[key::value]` tokens (a repeated key a token each); empty values are left out. */
+const tokensOf = (entries: Entry[]) => tokens(entries.map(([key, v]) => token(key, v)));
+
+/** Entries as an annotation's properties: a key to its values, in order. */
+function propertiesOf(entries: Entry[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [key, v] of entries) {
+    const text = v === null || v === undefined ? "" : value(String(v));
+    if (text) (out[key] ??= []).push(text);
+  }
+  return out;
+}
+
 // ── pull ─────────────────────────────────────────────────────────────────
 
 interface Tally { notes: number; board: number; created: number; updated: number; unanchored: number }
 
 /** Highlights on a document `send` made: annotations on that note at their passage. False when the note is gone. */
-async function ontoNote(target: { outline: string; id: string }, highlights: Highlight[], tally: Tally): Promise<boolean> {
+async function ontoNote(target: { outline: string; id: string }, book: Book, highlights: Highlight[], tally: Tally): Promise<boolean> {
   let root: Block;
   try {
     root = await outline<Block>({ action: "get", blockId: target.id }, target.outline);
@@ -229,22 +302,27 @@ async function ontoNote(target: { outline: string; id: string }, highlights: Hig
     const had = known.get(id);
     tally.notes++;
     if (had) {
-      // Only the note on it is kept in step (an unanchored one keeps its quote); its colour and tags are as first pulled.
+      // Kept in step: the note on it (an unanchored one keeps its quote) and the properties Readwise owns (its fields and
+      // the book's identity). A property someone added is left alone.
       const wanted = had.properties?.["readwise.anchored"]?.includes("no") ? unanchoredBody(highlight) : inert(note);
-      if (had.body.trim() !== wanted.trim()) {
+      const desired = annotationProperties(highlight, book);
+      const bodyChanged = had.body.trim() !== wanted.trim();
+      const propsChanged = MANAGED.some((key) => (had.properties?.[key] ?? []).join("\n") !== (desired[key] ?? []).join("\n"));
+      if (bodyChanged || propsChanged) {
         const current = await outline<Block>({ action: "get", blockId: had.block.id }, target.outline);
-        const at = had.body ? current.text.lastIndexOf(had.body) : -1;
-        const text = at >= 0 ? current.text.slice(0, at) + wanted + current.text.slice(at + had.body.length) : `${current.text.trimEnd()}\n${wanted}`;
+        let text = current.text;
+        if (bodyChanged) {
+          const at = had.body ? text.lastIndexOf(had.body) : -1;
+          text = at >= 0 ? text.slice(0, at) + wanted + text.slice(at + had.body.length) : `${text.trimEnd()}\n${wanted}`;
+        }
+        if (propsChanged) text = withAnnotationProps(text, desired);
         await update(current, text, target.outline);
         tally.updated++;
       }
       continue;
     }
     const quote = highlight.text.trim();
-    const properties: Record<string, string | string[]> = { kind: "highlight", "readwise.highlight": id };
-    if (highlight.color && TONES[highlight.color]) properties.color = TONES[highlight.color]!;
-    const tags = (highlight.tags ?? []).map((tag) => value(tag.name)).filter(Boolean);
-    if (tags.length) properties.tags = tags;
+    const properties = annotationProperties(highlight, book);
     const block = blocks.find((candidate) => candidate.text.includes(quote));
     const comment = (on: Block, body: string, passage?: { quote: string; near: number }, extra: Record<string, string> = {}) =>
       outline({ action: "annotations.batch", requestId: `readwise-${id}-${on.id}-${on.revision}${passage ? "" : "-whole"}`, operations: [{
@@ -266,6 +344,28 @@ async function ontoNote(target: { outline: string; id: string }, highlights: Hig
   return true;
 }
 
+/** An annotation's properties: its kind and tone, then everything a board highlight carries (the book's identity too). */
+const annotationProperties = (highlight: Highlight, book: Book): Record<string, string[]> => ({
+  kind: ["highlight"], ...(highlight.color && TONES[highlight.color] ? { color: [TONES[highlight.color]!] } : {}), ...propertiesOf(highlightEntries(highlight, book)),
+});
+
+/** The properties a pull keeps in step on an annotation (`kind`, `readwise.anchored` and any a person adds are left alone). */
+const MANAGED = [
+  "readwise.highlight", "readwise.color", "color", "highlighted", "highlighted-year", "highlighted-month", "readwise.created", "readwise.updated",
+  "favorite", "readwise.discard", "readwise.has-note", "readwise.location", "readwise.location-type", "readwise.end-location", "readwise.url",
+  "readwise.external-id", "readwise.source-url", "tags", "readwise.book", "title", "author", "category", "source", "url", "book-tags",
+];
+
+/** An annotation block's text with its managed properties (on the line holding `[type::annotation]`) replaced. */
+function withAnnotationProps(text: string, desired: Record<string, string[]>): string {
+  const lines = text.split("\n");
+  const at = lines.findIndex((line, index) => index > 0 && line.includes("[type::annotation]"));
+  if (at < 0) return text;
+  const keep = lines[at]!.replace(/\s?\[([A-Za-z][\w.-]*)::[^\]\n]*\]/g, (all, key: string) => (MANAGED.includes(key) ? "" : all));
+  lines[at] = `${keep} ${tokens(MANAGED.flatMap((key) => (desired[key] ?? []).map((v) => token(key, v))))}`.trimEnd();
+  return lines.join("\n");
+}
+
 const unanchoredBody = (highlight: Highlight) => {
   const quote = highlight.text.trim().split("\n").map((line) => `> ${inert(line)}`.trimEnd()).join("\n");
   const note = (highlight.note ?? "").trim();
@@ -273,23 +373,15 @@ const unanchoredBody = (highlight: Highlight) => {
 };
 
 function bookText(book: Book, gone?: string): string {
-  const title = value(book.readable_title || book.title || "(untitled)");
+  const title = titleOf(book);
   const header = (book.author ? `${title} — ${value(book.author)}` : title).replace(/\((?=\()/g, "(\\");
-  const props = tokens([
-    token("readwise.book", book.user_book_id), token("readwise.category", book.category), token("readwise.source", book.source),
-    token("readwise.author", book.author), token("readwise.url", book.source_url || book.unique_url),
-    ...(book.book_tags ?? []).map((tag) => token("tags", tag.name)),
-  ]);
+  const props = tokensOf(bookEntries(book));
   const note = (book.document_note ?? "").trim();
   return [header, props, ...(gone ? ["", gone] : []), ...(note ? ["", inert(note)] : [])].join("\n");
 }
 
-function highlightText(highlight: Highlight): string {
-  const props = tokens([
-    token("readwise.highlight", highlight.id), token("readwise.color", highlight.color),
-    token("highlighted", highlight.highlighted_at?.slice(0, 10)), token("readwise.url", highlight.readwise_url),
-    ...(highlight.tags ?? []).map((tag) => token("tags", tag.name)),
-  ]);
+function highlightText(highlight: Highlight, book: Book): string {
+  const props = tokensOf(highlightEntries(highlight, book));
   const quote = highlight.text.trim().split("\n").map((line) => `> ${inert(line)}`.trimEnd()).join("\n");
   const note = (highlight.note ?? "").trim();
   return [short(highlight.text.replace(/[[\]]/g, "")) || "(empty highlight)", props, "", quote, ...(note ? ["", inert(note)] : [])].join("\n");
@@ -298,7 +390,7 @@ function highlightText(highlight: Highlight): string {
 /** A book and its highlights on the board: a block per book under the page, a block per highlight under it. */
 async function ontoBoard(page: Block, book: Book, highlights: Highlight[], tally: Tally, gone?: string): Promise<void> {
   const found = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: {
-    where: `readwise.book=${book.user_book_id}`, subtreeRootId: page.id, limit: 1 } }, BOARD);
+    where: `readwise.book=${book.user_book_id} AND NOT readwise.highlight`, subtreeRootId: page.id, limit: 1 } }, BOARD);
   const text = bookText(book, gone);
   let home = found.blocks[0];
   if (home) {
@@ -308,10 +400,13 @@ async function ontoBoard(page: Block, book: Book, highlights: Highlight[], tally
     home = await outline<Block>({ action: "create", parentId: page.id, text }, BOARD);
   }
   const children = await outline<Block[]>({ action: "children", parentId: home.id }, BOARD);
+  // A thread (a tweets book of more than one highlight, now or already on the board) reads as a thread.
+  const thread = book.category === "tweets" && (highlights.length > 1 || children.some((child) => headerPropsAnywhere(child.text)["readwise.highlight"]));
+  if (thread) return ontoThread(home, children, book, highlights, tally);
   const byId = new Map(children.map((child) => [headerPropsAnywhere(child.text)["readwise.highlight"], child] as const));
   for (const highlight of highlights) {
     tally.board++;
-    const wanted = highlightText(highlight);
+    const wanted = highlightText(highlight, book);
     const had = byId.get(String(highlight.id));
     if (!had) {
       await outline({ action: "create", parentId: home.id, text: wanted }, BOARD);
@@ -321,6 +416,63 @@ async function ontoBoard(page: Block, book: Book, highlights: Highlight[], tally
       tally.updated++;
     }
   }
+}
+
+/**
+ * A tweet thread. Readwise saves one as one book of category `tweets` whose highlights are the tweets (the assumption;
+ * `location` with `location_type=order` is their place in it). They are put in order (by `location` when every tweet
+ * has an order, else by `highlighted_at`); the first is the thread's block under the book and the rest are its
+ * children, one level, in order. One level, not each under the one before: a long thread stays two deep, a tweet that
+ * arrives late never re-parents the ones after it, and "Thread, compiled" gives the straight read. That block holds an
+ * embed of each tweet in order (no copy of the text), found by `readwise.compiled` and left alone when it already reads so.
+ */
+async function ontoThread(home: Block, children: Block[], book: Book, highlights: Highlight[], tally: Tally): Promise<void> {
+  interface Tweet { id: string; at: string; order: number | null; highlight?: Highlight; block?: Block }
+  const tweets = new Map<string, Tweet>();
+  const seen = async (block: Block) => {
+    const found = headerPropsAnywhere(block.text);
+    const id = found["readwise.highlight"];
+    if (id) tweets.set(id, { id, at: found.highlighted ?? "", order: found["readwise.location-type"] === "order" && found["readwise.location"] ? Number(found["readwise.location"]) : null, block });
+  };
+  for (const child of children) {
+    await seen(child);
+    if (headerPropsAnywhere(child.text)["readwise.highlight"]) for (const under of await outline<Block[]>({ action: "children", parentId: child.id }, BOARD)) await seen(under);
+  }
+  for (const highlight of highlights) {
+    const id = String(highlight.id);
+    tweets.set(id, { id, at: highlight.highlighted_at ?? "", order: highlight.location_type === "order" && typeof highlight.location === "number" ? highlight.location : null,
+      highlight, block: tweets.get(id)?.block });
+  }
+  const all = [...tweets.values()];
+  const byOrder = all.every((tweet) => tweet.order !== null);
+  all.sort((x, y) => (byOrder ? x.order! - y.order! : 0) || x.at.localeCompare(y.at) || Number(x.id) - Number(y.id));
+  let head: Block | undefined;
+  const placed: Block[] = [];
+  for (const tweet of all) {
+    const parentId = head ? head.id : home.id;
+    const highlight = tweet.highlight;
+    let block = tweet.block;
+    if (highlight) {
+      tally.board++;
+      const wanted = highlightText(highlight, book);
+      if (!block) {
+        block = await outline<Block>({ action: "create", parentId, text: wanted }, BOARD);
+        tally.created++;
+      } else if (block.text !== wanted) {
+        await update(block, wanted, BOARD);
+        tally.updated++;
+      }
+    }
+    if (block && block.parentId !== parentId) {
+      // A tweet placed under the wrong one (an earlier tweet arrived late): move it when the service lets an extension.
+      await outline({ action: "move", blockId: block.id, parentId }, BOARD).catch(() => {});
+    }
+    if (block) { placed.push(block); head ??= block; }
+  }
+  const text = [`Thread, compiled [readwise.compiled::${book.user_book_id}]`, ...placed.map((tweet) => `\n!((${tweet.id}))`)].join("\n");
+  const compiled = children.find((child) => headerPropsAnywhere(child.text)["readwise.compiled"] === String(book.user_book_id));
+  if (!compiled) await outline({ action: "create", parentId: home.id, text }, BOARD);
+  else await update(compiled, text, BOARD);
 }
 
 /** Properties on a block's first two lines (a record's are on its second). */
@@ -370,7 +522,7 @@ async function pull(): Promise<void> {
         if (!highlights.length) continue;
         const target = noteOf(book.source_url) ?? noteOf(book.unique_url);
         const mine = target && target.machine === MACHINE;
-        if (mine && await ontoNote(target, highlights, tally)) continue;
+        if (mine && await ontoNote(target, book, highlights, tally)) continue;
         await ontoBoard(page, book, highlights, tally, mine ? `Sent from ${uriOf(target.outline, target.id)}, a note that isn't there now.` : undefined);
       }
       if (!finished) break;

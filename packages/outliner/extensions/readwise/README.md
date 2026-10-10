@@ -25,11 +25,19 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
     note on it as the body, its colour as a theme tone (`color`), its tags as `tags`. A passage in a note under it lands
     on that note. If the words aren't in the note any more (edited since), it lands on the whole note with the quote in
     the body and `[readwise.anchored::no]`, so nothing is lost.
-  - Every other highlight lands on the **readwise board**: a block per book (`[readwise.book::…]`, its author, category,
-    source, tags and your note on the document) and a block per highlight under it (`[readwise.highlight::…]`, the quote,
-    your note). Imported words stay words: a `[key::value]` or `[[page]]` in a highlight is escaped.
-  - **Idempotent.** Each highlight is known by its Readwise id. A pull run twice writes nothing new; a changed note on a
-    highlight updates its annotation or block in place. Deleted highlights are skipped (what's already there stays).
+  - Every other highlight lands on the **readwise board**: a block per book and a block per highlight under it (the
+    quote, your note). Imported words stay words: a `[key::value]` or `[[page]]` in a highlight is escaped. What each
+    carries is under [Properties](#properties).
+  - **A tweet thread** (Readwise saves one as one book of category `tweets` whose highlights are the tweets) reads as
+    a thread: in order (`location` when each tweet has an order, else `highlighted_at`), the first tweet is the
+    thread's block under the book and the rest are its children. One level, not each under the one before: a long
+    thread stays two deep, and a tweet that arrives late never re-parents the ones after it. A block on the book,
+    **Thread, compiled** (`[readwise.compiled::<book id>]`), holds an embed `!((id))` of each tweet in order, so it
+    reads as one piece with no copy of the text. A pull that brings more tweets extends it, and one with nothing new
+    leaves it alone. A book of one tweet stays as any other.
+  - **Idempotent.** Each highlight is known by its Readwise id. A pull run twice writes nothing new; a field that
+    changed on Readwise (a note, a tag, a favourite, the author) updates the block's or annotation's properties in
+    place, and a property someone added by hand is left alone. Deleted highlights are skipped (what's already there stays).
   - It stops after `minutes` (default 4) and leaves the rest for the next run, keeping its place on the board page
     (`[readwise.next-page::…]`). A 429 from Readwise waits for its `Retry-After` when that fits, else stops the same way.
   - A highlight whose words cross formatting in the note (bold, a link) is found in the rendered text Reader shows but
@@ -76,9 +84,51 @@ new.
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
 | `api` | `https://readwise.io` | Readwise's address; the test points it at a fake |
 
+## Properties
+
+Every field in the export a person could filter on is a property, and **every highlight carries its book's identity**
+(a query reads one block's own properties, not its parent's, so the author is copied onto each highlight). Empty
+values are left out. Plain keys where the meaning is general and another source can share it; `readwise.*` where it is
+Readwise's own.
+
+| Key | On | From |
+|---|---|---|
+| `title`, `author`, `category`, `source` | book, highlight, annotation | the book (`title` is `readable_title` when there is one; `readwise.title` keeps the raw one) |
+| `url` | book, highlight, annotation | the book's `source_url`, else `unique_url` |
+| `readwise.book` | book, highlight, annotation | `user_book_id` |
+| `tags` | book: the book's tags. Highlight: the highlight's own tags | `book_tags` / `tags` |
+| `book-tags` | highlight, annotation | the book's tags, copied |
+| `readwise.highlight`, `readwise.color`, `color` | highlight, annotation | `id`, `color` (`color` is the theme tone an annotation gets) |
+| `highlighted`, `highlighted-year`, `highlighted-month` | highlight, annotation | `highlighted_at` as `2024-03-02`, `2024`, `2024-03` |
+| `readwise.created`, `readwise.updated` | highlight | `created_at`, `updated_at` as days |
+| `favorite`, `readwise.discard`, `readwise.has-note` | highlight | `is_favorite`, `is_discard`, a note present: `true`, else absent |
+| `readwise.location`, `readwise.location-type`, `readwise.end-location` | highlight | the same |
+| `readwise.url`, `readwise.external-id`, `readwise.source-url` | highlight | `readwise_url`, `external_id`, the highlight's `url` |
+| `readwise.url`, `readwise.external-id`, `readwise.unique-url`, `readwise.cover`, `readwise.asin`, `readwise.summary` | book | the book's own (`summary` only when 160 characters or fewer) |
+
+Why `tags` and `book-tags` are apart: `tags=moss` should mean a highlight you tagged moss, not every highlight in a
+book somebody tagged. The book's tags are `tags` on the book block itself and `book-tags` on each highlight. The
+document's note (`document_note`) stays in the book block's body.
+
+Dates are days, and the grammar compares a property for equality only (ranges are for `created` and `updated`, which
+are when the block was written, not when you highlighted), so "from 2024" is `highlighted-year=2024`.
+
 ## Finding them
 
-Highlights are blocks with open properties, so the views' grammar finds them:
+Highlights are blocks with open properties, so the views' grammar (`where=`, `group=`, `sort=`) finds them. As the
+`where` of a view, a virtual branch, `ep0ch find --query` or `blocks.query`:
+
+```text
+All highlights by an author:   readwise.highlight AND author="Ann Example"
+Highlights with a tag:         readwise.highlight AND tags=moss
+Favourites:                    readwise.highlight AND favorite=true
+Highlights from 2024:          readwise.highlight AND highlighted-year=2024       (one month: highlighted-month=2024-03)
+One book's highlights:         readwise.highlight AND readwise.book=8
+Highlights from tagged books:  readwise.highlight AND book-tags=fiction
+Grouped by author:             where=readwise.highlight  group=author
+```
+
+The same on your own notes (annotations carry the same properties):
 
 ```text
 Readwise highlights on my notes [type::virtual-branch] [query::type=annotation AND kind=highlight AND readwise.highlight]
@@ -88,7 +138,7 @@ Moss, from Readwise [type::virtual-branch] [query::readwise.highlight AND tags=m
 ## Testing
 
 `test/readwise-extension.test.ts` runs it in a scratch outline host with two outlines, a `with-secrets` group in a
-temp folder and a fake Readwise on localhost, with made-up books and highlights. It never calls the real API.
+temp folder and a fake Readwise on localhost, with made-up books, highlights and a tweet thread, in Readwise's export shape. It asks `blocks.query` the questions above. It never calls the real API.
 
 Self-contained on purpose (it imports nothing from the outline's code), so a copy works anywhere.
 See [the four kinds](../../docs/extensions/README.md#extensions-as-programs).
