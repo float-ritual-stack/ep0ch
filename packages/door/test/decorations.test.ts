@@ -20,7 +20,7 @@ test("band and track draw through the heading styles' drawer (PIE-599): a named 
   expect(wide.every(r => r.length === 80)).toBe(true);
   // A style the outline declares, by name: its lettering and rows.
   const plot = headingStyleRegistry([{ ...BUILTIN_HEADING_STYLE_REGISTRY.style("tab")!, name: "plot", rows: 1 }]);
-  const named = primitiveLines({ type: "band", text: "Beds", style: "plot" }, 80, undefined, 0, plot).map(plain);
+  const named = primitiveLines({ type: "band", text: "Beds", style: "plot" }, 80, { headings: plot }).map(plain);
   expect(named).toHaveLength(1);
   expect(named[0]).toContain("BEDS");
   expect(primitiveLines({ type: "band", text: "Beds", level: 2 }, 30).map(plain)).toEqual(["## Beds"]);

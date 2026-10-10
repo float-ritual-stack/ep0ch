@@ -42,7 +42,7 @@ describe("a component's view in the terminal", () => {
       { type: "box", title: "Note", children: [{ type: "text", text: "Water before noon.", strong: true }] },
     ] };
     const linked: string[] = [];
-    const lines = primitiveLines(view, 60, (block, text) => { linked.push(block); return text; });
+    const lines = primitiveLines(view, 60, { link: (block, text) => { linked.push(block); return text; } });
     const text = lines.map(plain);
     expect(text[0]).toBe("▌ Plot 4  [busy]");
     expect(text[1]).toBe("▌ two beds still to dig");
@@ -57,6 +57,25 @@ describe("a component's view in the terminal", () => {
     expect(() => primitiveLines({ type: "hologram" }, 40)).toThrow(/no primitive hologram/);
     // Text from an extension never reaches the terminal as an escape.
     expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["ab"]);
+  });
+
+  test("a row stacks below its minWidth; its blockdown is drawn by the reader's own drawer", () => {
+    const row = { type: "row", minWidth: 24, children: [
+      { type: "box", title: "Concept", children: [{ type: "blockdown", text: "## Idea\n- one" }] },
+      { type: "box", title: "Build", children: [{ type: "blockdown", text: "Boxes." }] },
+    ] };
+    const drawn: string[] = [];
+    const blockdown = (text: string, width: number) => { drawn.push(text); return text.split("\n").map(l => `«${l}»`.slice(0, width)); };
+    const wide = primitiveLines(row, 60, { blockdown }).map(plain);
+    expect(wide[0]).toMatch(/^┌─ Concept ─+┐ +┌─ Build ─+┐$/);
+    expect(wide[1]).toMatch(/^│ «## Idea» +│ +│ «Boxes\.» +│$/);
+    expect(drawn).toEqual(["## Idea\n- one", "Boxes."]);
+    // 40 wide, a column would be 18: under 24, so one under the other, every border whole.
+    const narrow = primitiveLines(row, 40, { blockdown }).map(plain);
+    expect(narrow.filter(l => l.startsWith("┌─"))).toHaveLength(2);
+    expect(narrow.every(l => !l || /^[┌│└].*[┐│┘]$/.test(l))).toBe(true);
+    // Without a drawer, its lines as written.
+    expect(primitiveLines({ type: "blockdown", text: "## Idea\n- one" }, 40).map(plain)).toEqual(["## Idea", "- one"]);
   });
 });
 

@@ -291,13 +291,14 @@ key:: [argument] [--option[=value]]…
 
 | `effects` | Runs by itself | Otherwise |
 |---|---|---|
-| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, or (an output or component) the extension's `version` changed | `r` |
+| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, (an output or component) the extension's `version` changed, or what it reads changed: the block's text, its children (one added, edited, moved away or trashed) or a block the line names `((id))`. A person's or agent's change to a child or a named block runs it, as opening the note would | `r` |
 | `spend` (costs money or model time) | Once, when a person's own save adds the line. Editing it afterwards, a line an agent wrote, and a line from before the service started wait. | `r` |
 | `write` | Never | `r` |
 
 `r` is `resources.projection.refresh` (the door's `projection.refresh`; Detail's `r` on a note).
-`r` on a data record refetches that one key. Saves an extension makes never trigger a run, so
-extensions can't loop; the one exception is deliberate: after an action writes, its own `read` line
+`r` on a data record refetches that one key. What a line reads is kept as a short hash beside its result, bounded as
+`context` is, so telling whether it changed costs one read of the block and its children. Saves an extension makes
+never trigger a run, so extensions can't loop; the one exception is deliberate: after an action writes, its own `read` line
 runs once so the view shows the change.
 
 ### What readers get
@@ -324,7 +325,8 @@ projection per line, ordered by line:
   why); `not-run` (with `reason`: when it will run); `not-fetched` (data not fetched yet);
   `unavailable` (a bad line, or a failure with nothing to show). `fetching: true` while it runs.
 - `output.markdown` is inert BlockDown: it never adds properties or provider lines to a note.
-- `output.inputsChanged` / `versionChanged`: the block or the extension changed since it ran.
+- `output.inputsChanged` / `versionChanged`: what the line reads (the block, its children, a block it names) or the
+  extension changed since it ran.
 - A component adds `output.component: { data, view }`; `output.markdown` is its markdown rendering.
 - A data line adds `record: { blockId, pageBlockId, syncedAt }` and the `fields` the handler lists.
 - A `resource-catalog` event (`extensions.output`, with `blockId`) says a line's result changed.
@@ -490,6 +492,7 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | Primitive | Fields |
 |---|---|
 | `text` | `text`, `tone?`, `strong?` |
+| `blockdown` | `text` (16 000 characters at most): Blockdown each client draws with its own reader, as it draws a note (the door's note surface, Detail's, the publisher's HTML), so headings, lists, links and properties read as written |
 | `badge` | `label`, `tone?` |
 | `stat` | `label`, `value` (number or text), `unit?`, `tone?` |
 | `bar` | `label`, `value`, `max`, `tone?` |
@@ -498,7 +501,8 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `sparkline` | `label?`, `values` |
 | `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)), `children?` |
 | `box` | `title?`, `children` |
-| `stack`, `row` | `children` (top to bottom; side by side) |
+| `stack` | `children`, top to bottom |
+| `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
 
@@ -508,21 +512,32 @@ with a path to the problem (`view.children[0].max must be more than 0`), and the
 
 ### Targets and fallbacks
 
-Data first, rendered to the target the reader names (`extensions.render`, or the publisher by
-`Accept` header later):
+Data first, rendered to the target the reader names (`extensions.render`; the publisher asks for `html`, a
+Markdown export for `markdown`):
 
 | Target | From the primitives |
 |---|---|
 | `terminal` | Plain text with box drawing; a client that draws primitives (the door) takes `view` instead |
 | `markdown` | Lists, a GFM table, `- [x]` items |
 | `blockdown` | The markdown, made inert: it can't add properties to a note |
-| `html` | Semantic HTML with `ext-*` classes |
+| `html` | Semantic HTML with `ext-*` classes; a `blockdown` primitive is its escaped source in `<div class="ext-blockdown">`, which the publisher draws with its own reader |
 | `json` | The data |
 | `csv` | The view's first table, else data that is a list of flat objects |
 
 For one target the chain is: (1) the component's own `targets[target]`; (2) the version composed from
 its primitives; (3) the fallback the requester names (`fallback`, default `json`). An unknown
 component never breaks a reader: it degrades to its data.
+
+A component's own `targets.html` is kept to a reading page's markup: headings, paragraphs, lists, tables, `section`,
+`div`, `span`, links with a safe scheme and images, with `class` and nothing else. Scripts, styles, frames, forms,
+event handlers and `style`/`id` attributes are dropped, and its tags are balanced. Prefer the primitives: the web lays
+them out as the door does (a `row` is a grid that stacks below its `minWidth`), and every target follows from them.
+
+**Every client draws it.** The door draws the view; Detail draws it as Markdown in the note, a `row` side by side
+when the pane is wide enough; a published page (and `notes.render`) asks `extensions.render` for `html` and puts it
+under the line, its Blockdown read by the page's own reader, and a Markdown export takes the `markdown` target. A
+line with nothing to show yet (not run, a bad argument, a failed first run) shows its source as code on a page,
+never nothing. An output's Markdown is read by the page as its own text.
 
 **Worked example: "make me an extension that shows my open bugs as a little board in a note".**
 
@@ -1862,7 +1877,5 @@ properties your sync writes; never a list of keys in code ([properties are open]
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
   until `r` on it (or it's worded differently).
-- **The publisher** shows data records (they are blocks) but not yet handler outputs; it will ask
-  `extensions.render` for `html`. So `notes.render` doesn't draw a handler line's output either.
 - **Provider commands for extensions.** An extension's Resources are read-only from the outline: `comment.create` and
   other provider commands are Linear's built-in client's only.

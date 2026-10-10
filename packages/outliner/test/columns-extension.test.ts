@@ -76,64 +76,88 @@ async function setup(options: { install?: string[]; userInstall?: string[] } = {
 
 test("columns:: draws the notes under it as a row of boxes, and renders to html, markdown and json", async () => {
   const { client, create, projection } = await setup({ install: ["columns"] });
-  // The line's first run starts when it is saved, before its children exist; r after that run lands redraws it.
-  const refresh = async (blockId: string) => { await projection(blockId, "component"); await client.request({ action: "resources.projection.refresh", blockId }); };
   const block = await create("Compare\ncolumns:: 2");
   await create("Concept\nIdeas sit beside code.", block.id);
   await create("Build\nA row of boxes.\nStacked when narrow.", block.id);
   await create("Third\nNot shown at two.", block.id);
-  await refresh(block.id);
-  const shown = await projection(block.id, "component", (p) => p.status === "ready" && p.output?.markdown !== undefined && (p.output.component as { view: { type: string } }).view.type === "row");
+  const shown = await projection(block.id, "component", (p) => p.status === "ready" && p.output?.markdown !== undefined && (p.output.component as { view: { type: string; children?: unknown[] } }).view.children?.length === 2);
   const view = (shown.output!.component as { view: { type: string; children: { type: string; title: string }[] } }).view;
   expect(view.type).toBe("row");
   expect(view.children.map((box) => box.title)).toEqual(["Concept", "Build"]);
 
   const render = async (target: string) => (await client.request<{ results: { rendered: { body: string; via: string } }[] }>(
     { action: "extensions.render", blockId: block.id, target })).results[0]!.rendered;
-  expect(await render("html")).toMatchObject({ via: "component", contentType: "text/html; charset=utf-8" });
-  expect((await render("html")).body).toContain("grid-template-columns");
+  // Composed from the view: a grid that stacks below 24 characters a column, each section's Blockdown left to the reader.
+  expect(await render("html")).toMatchObject({ via: "primitives", contentType: "text/html; charset=utf-8" });
+  expect((await render("html")).body).toContain('<div class="ext-row" style="--ext-min:24ch">');
+  expect((await render("html")).body).toContain('<div class="ext-blockdown">A row of boxes.\nStacked when narrow.</div>');
   expect((await render("markdown")).body).toContain("**Build**");
   expect(JSON.parse((await render("json")).body).columns).toHaveLength(2);
 }, 30_000);
 
 test("with no argument there is one column per note, at most four; with no notes it says so", async () => {
-  const { client, create, projection } = await setup({ install: ["columns"] });
-  // The line's first run starts when it is saved, before its children exist; r after that run lands redraws it.
-  const refresh = async (blockId: string) => { await projection(blockId, "component"); await client.request({ action: "resources.projection.refresh", blockId }); };
+  const { create, projection } = await setup({ install: ["columns"] });
   const block = await create("Wide\ncolumns::");
   for (const name of ["a", "b", "c", "d", "e"]) await create(`Section ${name}\nwords`, block.id);
-  await refresh(block.id);
-  const view = ((await projection(block.id, "component", (p) => p.status === "ready" && (p.output?.component as { view: { type: string } }).view.type === "row")).output!.component as { view: { children: unknown[] } }).view;
+  const view = ((await projection(block.id, "component", (p) => p.status === "ready" && (p.output?.component as { view: { children?: unknown[] } }).view.children?.length === 4)).output!.component as { view: { children: unknown[] } }).view;
   expect(view.children).toHaveLength(4);
   const empty = await create("Empty\ncolumns:: 3");
   const none = (await projection(empty.id, "component")).output!.component as { view: { type: string } };
   expect(none.view.type).toBe("text");
 }, 30_000);
 
-test("sections written in the block, split by |||, redraw when the block is edited", async () => {
+test("the line redraws without r when what it reads changes: the block, a child, a child added", async () => {
   const { client, create, projection } = await setup({ install: ["columns"] });
-  const refresh = async (blockId: string) => { await client.request({ action: "resources.projection.refresh", blockId }); };
   const block = await create("Inline\ncolumns::\nLeft\nsome words\n|||\nRight\nmore words");
   const titles = async () => ((await projection(block.id, "component")).output!.component as { view: { children: { title: string }[] } }).view.children.map((b) => b.title);
   expect(await titles()).toEqual(["Left", "Right"]);
   const got = await client.request<{ text: string; revision: number }>({ action: "get", blockId: block.id });
   await client.request({ action: "update", blockId: block.id, text: got.text.replace("Right", "Far right"), expectedRevision: got.revision, mutation: PERSON });
-  // Editing the block's words is not an input to the line: it shows the old sections until r (or staleAfter, on open).
-  expect((await titles())).toEqual(["Left", "Right"]);
-  await refresh(block.id);
-  const now = await projection(block.id, "component", (p) => p.status === "ready" && !p.output?.inputsChanged);
-  expect((now.output!.component as { view: { children: { title: string }[] } }).view.children.map((b) => b.title)).toEqual(["Left", "Far right"]);
+  const view = (blockId: string, check: (titles: string[]) => boolean) => projection(blockId, "component", (p) => p.status === "ready" && !p.output?.inputsChanged &&
+    check(((p.output!.component as { view: { children?: { title: string }[] } }).view.children ?? []).map((b) => b.title)));
+  await view(block.id, (shown) => shown.join() === "Left,Far right");
+
+  // Sections as child notes: the line was run before they existed; each one written redraws it, as does an edit to one.
+  const parent = await create("Under\ncolumns::");
+  await projection(parent.id, "component");
+  const first = await create("One\nfirst words", parent.id, PERSON);
+  await create("Two\nsecond words", parent.id, PERSON);
+  await view(parent.id, (shown) => shown.join() === "One,Two");
+  const child = await client.request<{ text: string; revision: number }>({ action: "get", blockId: first.id });
+  await client.request({ action: "update", blockId: first.id, text: child.text.replace("One", "Uno"), expectedRevision: child.revision, mutation: PERSON });
+  await view(parent.id, (shown) => shown.join() === "Uno,Two");
 }, 30_000);
 
-test("Detail (the sysop console) draws the sections one after another, from the component's markdown target", async () => {
-  const { client, create, projection } = await setup({ install: ["columns"] });
-  const refresh = async (blockId: string) => { await projection(blockId, "component"); await client.request({ action: "resources.projection.refresh", blockId }); };
+test("Detail (the sysop console) draws the sections from the view: a row it lays side by side, or stacks", async () => {
+  const { create, projection } = await setup({ install: ["columns"] });
   const block = await create("Compare\ncolumns:: 2");
   await create("Concept\nIdeas sit beside code.", block.id);
   await create("Build\nA row of boxes.", block.id);
-  await refresh(block.id);
   const shown = await projection(block.id, "component", (p) => p.status === "ready" && p.output?.markdown.includes("Build") === true);
   const text = resourceProjectionLayout(shown).lines.join("\n");
+  expect(text).toContain("~~~ep0ch-row 24");
   expect(text).toContain("**Concept**");
   expect(text.indexOf("**Concept**")).toBeLessThan(text.indexOf("**Build**"));
+}, 30_000);
+
+test("the web draws it: a grid of the sections read as Blockdown, the Markdown export in order, a line not run yet as its source", async () => {
+  const { client, create, projection } = await setup({ install: ["columns"] });
+  const block = await create("Compare\ncolumns:: 2");
+  await create("Concept\n## Why\n- ideas *sit* beside code", block.id, PERSON);
+  await create("Build\nA row of boxes.", block.id, PERSON);
+  await projection(block.id, "component", (p) => p.status === "ready" && !p.output?.inputsChanged && p.output?.markdown.includes("Build") === true);
+  const render = async (format: "html" | "markdown", blockId = block.id) =>
+    (await client.request<{ text: string }>({ action: "notes.render", blockId, format })).text;
+  const html = await render("html");
+  expect(html).toContain('<div class="ext-row" style="--ext-min:24ch">');
+  // The page's own reader drew each section: a heading, a list, emphasis, not their source.
+  expect(html).toContain('<div class="ext-blockdown ext-read"><h2>Why</h2>');
+  expect(html).toContain("<li>ideas <em>sit</em> beside code</li>");
+  expect(html).not.toContain("");
+  const markdown = await render("markdown");
+  expect(markdown.indexOf("**Concept**")).toBeGreaterThan(0);
+  expect(markdown.indexOf("**Concept**")).toBeLessThan(markdown.indexOf("**Build**"));
+  // A line that can't run (its argument is bad) has nothing to show: its source stands in, never nothing.
+  const pending = await create("Pending\ncolumns:: x");
+  expect(await render("html", pending.id)).toContain("<code>columns:: x</code>");
 }, 30_000);
