@@ -189,7 +189,8 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       if (!cs.length) return [];
       const each = Math.floor((w - 3 * (cs.length - 1)) / cs.length);
       // Too narrow to sit side by side (the view's `minWidth`): one under the other, a blank line between.
-      const min = typeof n.minWidth === "number" && Number.isFinite(n.minWidth) ? Math.max(4, n.minWidth) : ROW_MIN_WIDTH;
+      // Never under 8: the narrowest any primitive here draws.
+      const min = typeof n.minWidth === "number" && Number.isFinite(n.minWidth) ? Math.max(8, n.minWidth) : ROW_MIN_WIDTH;
       if (each < min) return cs.flatMap((c, i) => [...(i ? [""] : []), ...inner(c, w)]);
       const cols = cs.map(c => inner(c, each));
       return beside(cols, cols.map(() => each));

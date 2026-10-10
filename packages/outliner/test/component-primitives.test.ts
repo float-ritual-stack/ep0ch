@@ -148,6 +148,13 @@ test("Detail lays a row side by side when each child gets its minWidth, stacks i
     "- two",
   ]);
   expect(drawn(40).filter(Boolean)).toEqual(["Concept", "Idea", "- one", "- two", "Build", "Boxes in a row."]);
+  // A row in a row: the inner one's breaks stay inside its own fence.
+  const nested = detailComponentMarkdown({ type: "row", minWidth: 8, children: [
+    { type: "row", minWidth: 8, children: [{ type: "text", text: "a" }, { type: "text", text: "b" }] },
+    { type: "text", text: "c" },
+  ] })!;
+  const row = AttributedMarkdown.compile(generatedDocument(nested, "component"), theme, false)!.render(80).map((line) => line.trimEnd()).filter(Boolean);
+  expect(row).toEqual([`${`${"a".padEnd(20)}b`.padEnd(41)}c`]);
   const authored = sourceDocument(observeDocument({ kind: "block", blockId: "00000000-0000-4000-8000-000000000001" }, markdown));
   expect(AttributedMarkdown.compile(authored, theme, false)!.render(80).map((line) => line.trim())).toContain("```ep0ch-row 24");
 });
