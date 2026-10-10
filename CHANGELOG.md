@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Any extension can provide Resources, as Jira does
+
+- **New:** an extension with a `kind: "resource"` handler is a provider of remote entities (`ext:<id>`): its keys are
+  read in notes (`kanboard:: KB-7`, `[kanboard::KB-7]`), each entity is a Resource the service keeps (Source, snapshot,
+  history, comments on its text) and a block the extension owns, refreshed on open and on its poll. The handler's
+  `keyPattern`, `fields` and `link` say its key grammar, what a projection shows and its web page. Before, only Jira
+  could; a new provider had to use `data`.
+- **Changed:** Jira is one of these providers: its Resources' provider is `ext:jira` (was `jira`); its Sources,
+  Resources, records and history are kept. Its `jira::` lines are read once its extension is installed (in a folder or
+  the legacy `resource-extensions.json`), as any provider's.
+- **Changed:** `extensions.list` lists `resourceProviders`; the door, Detail and the service read `key::` lines with
+  each outline's own.
+- Also in this change (wave 2's runtime, #379): `lastRun` on `extensions.list` entries.
+- Protocol 135 and schema 5: `ep0ch install --apply` on each machine migrates every outline at schema 4
+  (`packages/outliner/scripts/migrations/0005-extension-providers.ts`: the provider checks opened, `jira` renamed
+  `ext:jira`, nothing else changed) and restarts the host; update every client with it.
+
 ### Every extension has a page in the outline, and ships its demo notes
 
 - **New:** an **Extensions** hub at the outline's root (`[[extensions]]`): what's installed, each a link to its page,
