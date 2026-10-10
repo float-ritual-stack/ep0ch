@@ -15,7 +15,7 @@ const LOKI = { author: "agent" as const, actorId: "loki-test" };
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function setup() {
+async function setup(timeoutSeconds = 20) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-runbook-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -27,7 +27,7 @@ async function setup() {
   writeFileSync(join(secrets, "widget-demo.env"), `WIDGET_TOKEN=${TOKEN}\n`);
   chmodSync(join(secrets, "widget-demo.env"), 0o600);
   cpSync(join(import.meta.dir, "..", "extensions", "runbook"), join(outline, "extensions", "runbook"), { recursive: true });
-  writeFileSync(join(outline, "extensions", "runbook", "config.json"), JSON.stringify({ config: { secretsDir: secrets, timeoutSeconds: 20 } }));
+  writeFileSync(join(outline, "extensions", "runbook", "config.json"), JSON.stringify({ config: { secretsDir: secrets, timeoutSeconds } }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state"), scheduleTickMs: 3_600_000 });
@@ -124,3 +124,28 @@ test("a handler line draws the step: its filled command and its last run", async
   const view = read.projections?.find((p) => p.provider === "runbook")?.output?.component?.view;
   expect(view?.badge.label).toBe("ok");
 });
+
+test("a run-time value that could build a command is refused; a secret split by terminal escapes is still scrubbed; the nearest runbook's parameters win", async () => {
+  const { create, book, act, kids } = await setup();
+  const step = await create("Echo it\nrun:: --mode=dry\n```sh\necho \"{{env}}\"\n```", book.id);
+  const refused = await act(step.id, "run-step", PERSON, { env: "$(touch /tmp/never)" });
+  expect(refused.message).toContain("refused");
+  expect((await kids(step.id))[0]).toContain("[run.status::refused]");
+  const split = await create(`Split it\nrun:: --mode=dry --secrets=widget-demo\n\`\`\`sh\nprintf 'a %s\\033[0m%s b\\n' "$(echo $WIDGET_TOKEN | cut -c1-8)" "$(echo $WIDGET_TOKEN | cut -c9-)"\n\`\`\``, book.id);
+  await act(split.id, "run-step", PERSON);
+  expect((await kids(split.id))[0]).not.toContain(TOKEN);
+  const inner = await create("Inner runbook [type::runbook] [env::staging]", book.id);
+  const nested = await create("Where\nrun:: --mode=dry\n```sh\necho in {{env}}\n```", inner.id);
+  const all = await act(inner.id, "run-all", PERSON);
+  expect(all.message).toContain("all 1 steps ran ok");
+  expect((await kids(nested.id))[0]).toContain("in staging");
+});
+
+test("a command that outlives its timeout is stopped, with its children, and recorded as failed", async () => {
+  const { create, book, act, kids } = await setup(1);
+  const slow = await create("Slow\nrun:: --mode=dry\n```sh\nsleep 600; echo finished\n```", book.id);
+  const started = Date.now();
+  await act(slow.id, "run-step", PERSON);
+  expect(Date.now() - started).toBeLessThan(30_000);
+  expect((await kids(slow.id))[0]).toContain("[run.exit::124]");
+}, 20_000);

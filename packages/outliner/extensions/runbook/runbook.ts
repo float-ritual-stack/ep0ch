@@ -81,7 +81,7 @@ function fill(template: string, params: Record<string, string>): { command: stri
 
 interface Outcome { status: "ok" | "failed" | "refused"; exit?: number; by: string; at: string; ms?: number; excerpt: string; why?: string }
 const runs = (children: Context["children"]) => children.map((child) => ({ id: child.id, status: /\[run\.status::(\w+)\]/.exec(child.text)?.[1], text: child.text })).filter((child) => child.status && child.status !== "running");
-const tail = (output: string) => { const kept = output.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/\r/g, "").trimEnd().split("\n").slice(-15).join("\n"); return kept.length > 1200 ? `…${kept.slice(-1200)}` : kept; };
+const tail = (output: string) => { const kept = output.trimEnd().split("\n").slice(-15).join("\n"); return kept.length > 1200 ? `…${kept.slice(-1200)}` : kept; };
 const inertFence = (text: string) => text.replaceAll("```", "'''");
 function recordText(title: string, outcome: Outcome): string {
   const head = outcome.status === "ok" ? `Ran ${title}: ok, exit 0` : outcome.status === "failed" ? `Ran ${title}: FAILED, exit ${outcome.exit}` : `Did not run ${title}: ${(outcome.why ?? "").replace(/\n/g, " ")}`;
@@ -133,6 +133,9 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   const template = commandOf(step.text);
   if (!template) return refuse("it has no command: put one in a code fence under the run:: line");
   const root = await runbookOf({ ...context, block: step });
+  // A value passed at run time lands in a shell command: plain characters only. A runbook's own properties are its author's.
+  const unsafe = Object.entries(args).find(([key, value]) => key !== "confirm" && !/^[\w.@:\/=+,-]*$/.test(value));
+  if (unsafe) return refuse(`${unsafe[0]}=… has characters a command could be built from; put the value on the runbook note as [${unsafe[0]}::value] instead`);
   const { command, missing } = fill(template, { ...(root ? propsOf(root) : {}), ...args });
   if (missing.length) return refuse(`no value for ${missing.map((name) => `{{${name}}}`).join(", ")}: write [${missing[0]}::value] on the runbook note, or pass ${missing[0]}=value`);
 
@@ -199,13 +202,17 @@ if (request.operation === "run") {
     const root = input.context.block;
     if (propsOf(root).type !== "runbook") fail("this note is not a runbook: write [type::runbook] on it");
     else {
-      const steps: Block[] = [];
-      const walk = async (parentId: string) => { for (const child of await outline<Block[]>({ action: "children", parentId })) { if (runLine(child.text)) steps.push(child); await walk(child.id); } };
-      await walk(root.id);
+      const steps: Array<{ block: Block; ancestors: Context["ancestors"] }> = [];
+      const walk = async (parentId: string, ancestors: Context["ancestors"]) => {
+        for (const child of await outline<Block[]>({ action: "children", parentId })) { if (runLine(child.text)) steps.push({ block: child, ancestors }); await walk(child.id, [...ancestors, { id: child.id, title: "" }]); }
+      };
+      await walk(root.id, [...input.context.ancestors, { id: root.id, title: "" }]);
       const done: string[] = [];
       let stopped = "";
-      for (const step of steps) {
-        const result = await runStep(step, { ...input.context, ancestors: [...input.context.ancestors, { id: root.id, title: "" }] }, input.args ?? {}, config);
+      const began = Date.now(), budget = 280_000;   // the call's deadline is 5 m: settle before it, never leave a record "running"
+      for (const { block: step, ancestors } of steps) {
+        if (Date.now() - began + (config.timeoutSeconds ?? 120) * 1000 > budget) { stopped = `stopped before ${titleOf(step.text)}: not enough of this call's time left; run it again to continue`; break; }
+        const result = await runStep(step, { ...input.context, ancestors }, input.args ?? {}, config);
         done.push(`${result.title}: ${result.outcome.status}`);
         if (result.outcome.status !== "ok") { stopped = `stopped at ${result.title}: ${result.outcome.why ?? `exit ${result.outcome.exit}`}`; break; }
       }

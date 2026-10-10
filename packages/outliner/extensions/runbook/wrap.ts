@@ -10,11 +10,16 @@ for (const value of values) {
   forms.add(Buffer.from(value).toString("base64"));
   forms.add(encodeURIComponent(value));
 }
+// Plain text first (escapes and carriage returns out), then scrub: stripping after scrubbing could join a split value.
+const plain = (text: string) => text.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "").replace(/\r/g, "");
 const scrub = (text: string) => [...forms].sort((a, b) => b.length - a.length).reduce((out, form) => out.split(form).join("[secret]"), text);
 
-const child = Bun.spawn(["sh", "-c", `exec 2>&1; ${command}`], { stdout: "pipe", stderr: "pipe", stdin: "ignore", env: process.env });
+// Its own session, so a timeout stops the command's children too, not only the shell.
+const child = Bun.spawn(["setsid", "sh", "-c", `exec 2>&1; ${command}`], { stdout: "pipe", stderr: "pipe", stdin: "ignore", env: process.env });
 let timedOut = false;
-const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, Number(timeoutArg));
-const [out, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } }, Number(timeoutArg));
+const drained = new Response(child.stdout).text();
+const out = await Promise.race([drained, child.exited.then(() => Bun.sleep(1500)).then(() => drained)]).catch(() => "");
+const code = await child.exited;
 clearTimeout(timer);
-process.stdout.write(JSON.stringify({ exit: timedOut ? 124 : code, timedOut, output: scrub(out).slice(-65_536) }));
+process.stdout.write(JSON.stringify({ exit: timedOut ? 124 : code, timedOut, output: scrub(plain(out)).slice(-65_536) }));
