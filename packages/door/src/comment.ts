@@ -353,7 +353,8 @@ export class CommentSession {
     const b = env.board;
     if (b.resolveReferences && b.searchBlocks && b.get) {
       const w = await savedReferenceWarning(b as ReferenceBoard, body, this.msg.id);
-      if (w) { this.note = w; env.flash(w); env.redraw(); }
+      // Said only while nothing else has started here since (another comment, a reply, a passage being picked).
+      if (w && this.mode === "threads" && !this.writing && !this.busy) { this.note = w; env.flash(w); env.redraw(); }
     }
   }
 

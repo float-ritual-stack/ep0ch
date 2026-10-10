@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeReferenceWarnings, referenceSuspects, referenceWarnings, type ReferenceLookups, type ReferenceStatus } from "../src/reference-warnings";
+import { anchorsOfText, describeReferenceWarnings, referenceSuspects, referenceWarnings, type ReferenceLookups, type ReferenceStatus } from "../src/reference-warnings";
 
 const NOTE = "0d1e5ba9-8560-4091-b0f0-7ddfaf4ee35f";
 const GONE = "77777777-7777-4777-8777-777777777777";
@@ -57,5 +57,9 @@ describe("references a save warns about (PIE-761)", () => {
   test("text with no references warns about nothing", async () => {
     expect(await referenceWarnings("plain prose (with parens)", lookups)).toEqual([]);
     expect(describeReferenceWarnings([])).toBe("");
+  });
+
+  test("anchors in code, and an anchor a note has twice, are never offered", () => {
+    expect(anchorsOfText("Notes\n## Monday ^mon\n```\nexample ^example\n```\n- a ^dup\n- b ^dup")).toEqual(["mon"]);
   });
 });

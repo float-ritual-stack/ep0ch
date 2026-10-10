@@ -104,7 +104,15 @@ async function quietly<T>(work: (() => Promise<T>) | undefined): Promise<T | und
 
 /** The `^anchors` a note's text has, in order (each line's end, as the link grammar reads them). */
 export function anchorsOfText(text: string): string[] {
-  return text.split("\n").map(line => fragmentAnchorMatch(line)?.[1]).filter((a): a is string => !!a);
+  // Not in code (a fence's `^example` is text), and only one that names one place: a doubled anchor resolves to neither.
+  const code = protectedCodeRanges(text), found: string[] = [];
+  let at = 0;
+  for (const line of text.split("\n")) {
+    const id = fragmentAnchorMatch(line)?.[1];
+    if (id && !offsetInRanges(at + line.length - 1, code)) found.push(id);
+    at += line.length + 1;
+  }
+  return found.filter(id => found.indexOf(id) === found.lastIndexOf(id));
 }
 
 /** The anchor of `anchors` nearest `wanted`: one it starts, one that starts it, one it contains; else the first. */

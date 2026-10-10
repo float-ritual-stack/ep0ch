@@ -930,8 +930,12 @@ export async function patchDraft(
     ...(typeof input.mark === "string" && input.mark.trim() ? { mark: { text: input.mark } } : {}),
     ...(input.propose !== undefined ? { propose: input.propose } : {}),
   }, 15_000);
-  // What the replacements wrote, warned about as an edit's whole text is (PIE-761); a note's older references aren't this write's.
-  return { ...result, ...(await warned(client, input.patches.map(patch => patch.replacement).join("\n"), block.id)) };
+  // The note as it is now, read whole (a replacement alone loses its context); a warning the note had before isn't this write's (PIE-761).
+  const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
+  if (!after || after.text === block.text) return result;
+  const before = new Set(await referenceWarningsFor(client, block.text, block.id));
+  const warnings = (await referenceWarningsFor(client, after.text, block.id)).filter(w => !before.has(w));
+  return { ...result, ...(warnings.length ? { warnings } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────
