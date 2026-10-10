@@ -23,7 +23,7 @@ import { openScreen } from "./desk/screen-specs";
 import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } from "./desk/screen-spec";
 import { screenNoteProblems } from "./desk/screen-notes";
 import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
-import { canonicalLocalMachineName } from "./machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";

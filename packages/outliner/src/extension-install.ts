@@ -189,7 +189,9 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
     // Its schedules (PIE-754): when each runs, when next, and what the last run did.
     for (const schedule of entry.schedules ?? []) {
       const last = schedule.last ? `; last ${schedule.last.at} ${schedule.last.ok ? `ok${schedule.last.message ? `: ${schedule.last.message}` : ""}` : `failed: ${schedule.last.error ?? ""}`}` : "; not run yet";
-      lines.push(`  schedule ${schedule.entry} (${schedule.every ? `every ${schedule.every}` : `cron ${schedule.cron}`}): next ${schedule.next}${schedule.running ? ", running now" : ""}${last}`);
+      // Host-wide (PIE-767): once per host, and the outline it runs in when that's another.
+      const once = schedule.once === "host" ? `, once per host${schedule.runsIn ? `, runs in ${schedule.runsIn}` : ""}` : "";
+      lines.push(`  schedule ${schedule.entry} (${schedule.every ? `every ${schedule.every}` : `cron ${schedule.cron}`}${once}): next ${schedule.next}${schedule.running ? ", running now" : ""}${last}`);
     }
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }

@@ -14,11 +14,11 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
       "Same heron as last spring?"
 ```
 
-- **`send`** (on a block): saves the note, and the notes under it (200 blocks at most), to Reader as one document,
-  tagged `ep0ch`. The document's URL is the note's link, and its first line is the note's `ep0ch://` URI, so a highlight
-  made on it in Reader comes back to that note. Property tokens are left out; every other word is as written, so what
-  you highlight in Reader is the note's own text. Sending again says it's already there: Reader keeps the first copy
-  (delete it in Reader to send a newer one).
+- **`send`** (on a block): saves the note, and the notes under it, to Reader as one document, tagged `ep0ch`. It is
+  the note as its published page reads (`notes.render`, the publisher's renderer, published or not): properties left
+  out, links as their labels or web URLs. The document's URL is the note's link, and its first line is the note's
+  `ep0ch://` URI, so a highlight made on it in Reader comes back to that note. A `[publish::never]` note isn't sent.
+  Sending again says it's already there: Reader keeps the first copy (delete it in Reader to send a newer one).
 - **`pull`** (on the outline, every hour): Readwise's export of the highlights changed since the last pull. Reader's
   highlights reach Readwise too, so this one feed has both.
   - A highlight on a document `send` made becomes an **annotation on that note, at the passage**: `kind=highlight`, your
@@ -32,6 +32,8 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
     highlight updates its annotation or block in place. Deleted highlights are skipped (what's already there stays).
   - It stops after `minutes` (default 4) and leaves the rest for the next run, keeping its place on the board page
     (`[readwise.next-page::…]`). A 429 from Readwise waits for its `Retry-After` when that fits, else stops the same way.
+  - A highlight whose words cross formatting in the note (bold, a link) is found in the rendered text Reader shows but
+    not in the note's source, so it lands on the whole note with its quote, as above.
 
 ## Setup
 
@@ -51,10 +53,10 @@ Then, on any note in the door: `act ext.readwise.send` (or its key and click, li
 `ep0ch ext act readwise send --block <id>`. Pull now: `ep0ch ext run readwise action:pull` (or
 `ep0ch ext act readwise pull`). `ep0ch ext ls` shows the schedule's next run and what the last one did.
 
-**One pull an hour, whichever outline runs it.** An extension in the user folder runs its schedule in every outline
-the host has open, so each hour every open outline's schedule fires. The board page holds a claim
-(`[readwise.claim::…]`, a revision-checked write): the first takes it, the others say a pull is running, and a
-scheduled run within 50 minutes of the last says it already pulled. A pull you ask for always runs.
+**One pull an hour, once per host.** Its schedule says `"once": "host"`: an extension in the user folder serves every
+outline the host has open, and the hourly pull runs in one of them (`ep0ch ext ls` says which, `runs in …`). Pulls
+run one at a time across the host, so one you ask for in another outline waits for a running one, then finds nothing
+new.
 
 ## Config
 
@@ -68,8 +70,8 @@ scheduled run within 50 minutes of the last says it already pulled. A pull you a
 |---|---|---|
 | `board` | `readwise` | The outline other highlights land in (on this host) |
 | `page` | `readwise` | The page in it they land under |
-| `link` | `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document; point this at your publisher if it serves notes. It must hold `{outline}` and `{id}`: the pull reads the note back out of it |
-| `machine` | the host name | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
+| `link` | the note's published permalink, else `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--url` or `--public-url`) with `?ep0ch=<outline>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{outline}` and `{id}`: the pull reads the note back out of it |
+| `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
 | `api` | `https://readwise.io` | Readwise's address; the test points it at a fake |

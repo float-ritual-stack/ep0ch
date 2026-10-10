@@ -8,7 +8,9 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { createOutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
+import { Publisher } from "../src/publish";
 import type { Block } from "../src/types";
 
 const EXTENSION = join(import.meta.dir, "..", "extensions", "readwise");
@@ -120,6 +122,14 @@ async function setup() {
   return { root, fake, socket, call, act, create, children, threads };
 }
 
+/** A publisher for one outline, connected as `publish serve` is: it tells the service where it is opened. */
+async function publisherFor(socket: string, outline: string, url: string) {
+  const publisher = new Publisher({ client: createOutlinerClient({ socket, mode: "host", outline }), url });
+  await publisher.start();
+  cleanups.push(() => publisher.stop());
+  return publisher;
+}
+
 const NOTE = "Pond notes [type::journal]\n\nThe heron came back on Tuesday and stood very still.\n\nMoss grows on the north side of the shed.";
 
 test("send saves a note and the notes under it to Reader as one document that links back; sending again says it's there", async () => {
@@ -131,10 +141,12 @@ test("send saves a note and the notes under it to Reader as one document that li
   expect(fake.saved).toHaveLength(1);
   const doc = fake.saved[0]!;
   expect(doc).toMatchObject({ url: `https://ep0ch.invalid/garden@${MACHINE}/b/${note.id}`, title: "Pond notes", tags: ["ep0ch"], should_clean_html: false });
+  // The publisher's rendering (notes.render): what the note's published page reads, its properties out.
   const html = String(doc.html);
   expect(html).toContain(`ep0ch://garden@${MACHINE}/b/${note.id}`);
+  expect(html).toContain("<h1>Pond notes</h1>");
   expect(html).toContain("<p>The heron came back on Tuesday and stood very still.</p>");
-  expect(html).toContain("Later: the heron left at dusk.");
+  expect(html).toContain("<li>Later: the heron left at dusk.</li>");
   expect(html).not.toContain("[type::journal]");
   expect((await act("garden", "send", note.id)).message).toStartWith("already in Reader: https://read.example.invalid/read/doc-1");
   expect(fake.saved).toHaveLength(1);
@@ -229,21 +241,46 @@ test("pull: a highlight on a sent note becomes an annotation at its passage; oth
   }
 });
 
-test("two outlines' schedules firing at once: one pulls, the other waits, and nothing is written twice", async () => {
+test("once per host: the pull's schedule is one outline's; pulls asked in two outlines at once run one after the other, and nothing is written twice", async () => {
   const { fake, call, act, children } = await setup();
   fake.state.pages = [[{ user_book_id: 9, title: "Shed Almanac", highlights: [{ id: 301, text: "The shed door creaks louder on days with mail." }] }]];
-  const runs = await Promise.all(["garden", "readwise"].map((outline) =>
-    call<{ ok: boolean; message: string }>(outline, { action: "extensions.schedule.run", extension: "readwise", entry: "action:pull" })));
-  const messages = runs.map((run) => run.message).sort();
-  expect(messages.filter((m) => m.startsWith("pulled: 1 new"))).toHaveLength(1);
+  // A pull in each outline at once: the host runs a host-wide action one at a time, so the second finds it done.
+  const runs = await Promise.all(["garden", "readwise"].map((outline) => act(outline, "pull")));
+  expect(runs.map((run) => run.message).sort()).toEqual(["pulled: 1 new, 0 changed (0 on notes, 1 on the readwise board)", "pulled: nothing new in 1 highlight"]);
   const page = (await call<{ block: Block }>("readwise", { action: "pages.resolve", address: "readwise" })).block;
   const books = await children("readwise", page.id);
   expect(books).toHaveLength(1);
   expect(await children("readwise", books[0]!.id)).toHaveLength(1);
-  // A scheduled run soon after says it already pulled; a person's pull runs anyway.
-  const again = await call<{ message: string }>("garden", { action: "extensions.schedule.run", extension: "readwise", entry: "action:pull" });
-  expect(again.message).toStartWith("pulled at ");
-  expect((await act("garden", "pull")).message).toBe("pulled: nothing new in 1 highlight");
+  // No claim on the board page any more: only the cursor.
+  expect(page.text).not.toContain("readwise.claim");
+  type Listed = { extensions: Array<{ id: string; schedules?: Array<{ entry: string; once?: string; runsIn?: string }> }> };
+  const schedule = async (outline: string) => (await call<Listed>(outline, { action: "extensions.list" })).extensions.find((e) => e.id === "readwise")!.schedules![0]!;
+  // One outline's runner holds the hourly pull (the first to tick); the other lists where it runs.
+  const [garden, board] = [await schedule("garden"), await schedule("readwise")];
+  expect(garden.once).toBe("host");
+  expect(board.once).toBe("host");
+  const holders = [garden.runsIn ?? "garden", board.runsIn ?? "readwise"];
+  expect(holders[0]).toBe(holders[1]);
+});
+
+test("a published note's link in Reader is its permalink, and a highlight on it comes back to it", async () => {
+  const { fake, socket, call, act, create, threads } = await setup();
+  await publisherFor(socket, "garden", "https://pub.example.invalid/pub");
+  const note = await create("garden", "Shed notes [publish::shed]\n\nThe shed door sticks in the rain.");
+  const address = await call<{ outline: string; machine: string; uri: string; published: { slug: string; url: string; permalink: string } }>("garden", { action: "notes.address", blockId: note.id });
+  expect(address.published).toEqual({ slug: "shed", public: false, url: "https://pub.example.invalid/pub/p/shed", permalink: `https://pub.example.invalid/pub/p/${note.id}` } as never);
+  await act("garden", "send", note.id);
+  expect(fake.saved[0]!.url).toBe(`https://pub.example.invalid/pub/p/${note.id}?ep0ch=garden`);
+  fake.state.pages = [[{ user_book_id: 11, title: "Shed notes", source_url: String(fake.saved[0]!.url), highlights: [{ id: 501, text: "sticks in the rain", note: "plane the edge" }] }]];
+  expect((await act("garden", "pull")).message).toBe("pulled: 1 new, 0 changed (1 on notes, 0 on the readwise board)");
+  expect((await threads("garden", note.id)).map((thread) => thread.body)).toEqual(["plane the edge"]);
+});
+
+test("a [publish::never] note isn't sent", async () => {
+  const { fake, act, create } = await setup();
+  const note = await create("garden", "Private [publish::never]\n\nNot for anywhere else.");
+  expect((await act("garden", "send", note.id)).message).toContain("[publish::never]");
+  expect(fake.saved).toHaveLength(0);
 });
 
 test("a refused token, a missing board outline, and the token never in the extension's folder", async () => {

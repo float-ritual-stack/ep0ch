@@ -573,21 +573,28 @@ export interface AnnotationCreateInput {
 
 /** A quote is exact source text; optional context must identify one occurrence. */
 export interface BlockCommentPassage {
+  /** The words, exactly as the block's text has them. */
   readonly quote: string;
+  /** Where the quote starts in the block's text, when you know. */
   readonly start?: number;
   /** Among repeats, the one nearest this offset (an agent's `near=`). */
   readonly near?: number;
+  /** Text just before the quote, to tell repeats apart. */
   readonly prefix?: string;
+  /** Text just after the quote, to tell repeats apart. */
   readonly suffix?: string;
   readonly itemId?: string;
 }
 
 export interface BlockCommentInput {
   readonly blockId: string;
+  /** The block's revision you read: a block saved since is refused. */
   readonly expectedRevision: number;
   /** Empty for a highlight (a passage's annotation with no body). */
   readonly body: string;
+  /** `user` or `agent`; an extension's is always `agent` (the service sets it). */
   readonly source: AnnotationSource;
+  /** Its own properties, open (`kind`, `tags`, `color` as a theme tone, any key): `annotations.list` answers them, and a view's `where=` finds them. */
   readonly properties?: Readonly<Record<string, string | readonly string[]>>;
   /** Omit only for an intentional whole-block comment. */
   readonly passage?: BlockCommentPassage;
@@ -611,8 +618,10 @@ export interface ResourceCommentInput {
 }
 
 export interface AnnotationReplyInput {
+  /** The thread's first annotation (`AnnotationThread.block.id`). */
   readonly annotationId: string;
   readonly body: string;
+  /** `user` or `agent`; an extension's is always `agent` (the service sets it). */
   readonly source: AnnotationSource;
 }
 
@@ -623,11 +632,14 @@ export type AnnotationBatchOperation =
   | { readonly operationId: string; readonly type: "reply"; readonly input: AnnotationReplyInput };
 
 export interface AnnotationRecord {
+  /** The annotation's own block: its id is the annotation's, and its text holds the body (update the block to edit the body). */
   readonly block: Block;
   readonly originalTarget: AnnotationTarget;
+  /** Where it is anchored now (the passage, re-found after edits), or null when its words are gone. */
   readonly resolvedTarget: AnnotationTarget | null;
   readonly currentResolution: AnnotationResolutionEvent;
   readonly resolutionHistory: readonly AnnotationResolutionEvent[];
+  /** What it says; empty for a highlight. */
   readonly body: string;
   readonly source: AnnotationSource;
   readonly lifecycle: AnnotationLifecycle;
@@ -642,13 +654,18 @@ export interface AnnotationThread extends AnnotationRecord {
 }
 
 export interface AnnotationBatchReceipt {
+  /** What was written, one per operation, in order. */
   readonly annotations: AnnotationRecord[];
+  /** True when the `requestId` had been used with these same operations: the first receipt, and nothing written now. */
   readonly deduplicated: boolean;
 }
 
 export interface AnnotationListQuery {
+  /** The block (`{ kind: "block", blockId }`) or Resource (`{ kind: "resource", resourceId }`) the threads are on. */
   readonly subject: Exclude<AnnotationSubject, { readonly kind: "legacy-file" }>;
+  /** Only `open` or only `resolved` threads. */
   readonly lifecycle?: AnnotationLifecycle;
+  /** Resolved threads too (left out by default). */
   readonly includeResolved?: boolean;
 }
 
@@ -1138,6 +1155,58 @@ export interface OutlinerClientRegistration {
   resourcePresentation?: ResourcePresentationContext;
   focusedRegion?: OutlinerRegion;
   treeSelection?: { target: OutlinerNavigationTarget; rowId: string };
+  /** A publisher (`publish serve`) says where it is opened, so `notes.address` can give a note's web URL (PIE-767). */
+  publish?: PublisherAddress;
+}
+
+/** Where a note is published (`notes.address`, PIE-767). */
+export interface NotePublication {
+  /** Its slug: the page is at `/p/<slug>` below the publisher's base. */
+  slug: string;
+  /** `[publish::public…]`: anyone with the link may open it. */
+  public: boolean;
+  /** Its tailnet URL, by its slug: when the publisher said where it is opened (`--url`). */
+  url?: string;
+  /** Its URL for anyone with the link, by its slug: a public note, when the public URL is known (`--public-url`). */
+  publicUrl?: string;
+  /** Its URL by its block id (`/p/<id>`): holds while it stays published, whatever its slug. The public one when it is public. */
+  permalink?: string;
+}
+
+/** A note rendered as its published page renders it (`notes.render`, PIE-767). */
+export interface RenderedNote {
+  blockId: string;
+  /** Its title as the page shows it. */
+  title: string;
+  format: "markdown" | "html";
+  /** The Markdown, or the HTML article (no page, styles or scripts around it). */
+  text: string;
+  /** Whether it is published itself (rendering doesn't need it to be). */
+  published: boolean;
+}
+
+/**
+ * A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names),
+ * the note's URI, and where it is published when it is.
+ */
+export interface NoteAddress {
+  /** The outline's name; absent on a service that serves no named outline. */
+  outline?: string;
+  /** This host's machine name in `ep0ch://` URIs (the door's `canonicalLocalMachineName`). */
+  machine: string;
+  blockId?: string;
+  /** `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. */
+  uri?: string;
+  /** Where the publisher serves it, when it is published (and not `[publish::never]`). */
+  published?: NotePublication;
+}
+
+/** Where a running publisher is opened, as it tells the service when it connects (`notes.address` builds links from it). */
+export interface PublisherAddress {
+  /** The tailnet listener's full URL with its base path (`https://host.ts.net/pub`), when the publisher was told it. */
+  url?: string;
+  /** The public listener's full URL (`https://share.example/share`), when its origin is known. */
+  publicUrl?: string;
 }
 
 export type PageAddressKind = "page" | "alias" | "work-id";
@@ -1157,6 +1226,7 @@ export interface PageAddressRemoval {
 export interface PageAddressResolution {
   address: string;
   normalizedAddress: string;
+  /** `resolved` (then `block`), `deleted` (its block is in Trash) or `missing` (no block has that address). */
   status: "resolved" | "deleted" | "missing";
   registeredAddress?: string;
   kind?: PageAddressKind;
@@ -2356,7 +2426,18 @@ export type OutlinerRequestAction =
       /** Who stamped it: an agent's allocation is attributed. */
       mutation?: MutationProvenance;
     }
-  | { id: string; action: "changes.since"; sequence: number; limit?: number };
+  | { id: string; action: "changes.since"; sequence: number; limit?: number }
+  /**
+   * A note's address (PIE-767): the outline, this host's machine name, the note's `ep0ch://` URI and, when it is
+   * published, its web URLs (`NoteAddress`). Without `blockId`, the outline and machine alone. Reads only.
+   */
+  | { id: string; action: "notes.address"; blockId?: string }
+  /**
+   * A note and the notes under it rendered by the publisher's renderer, as its published page reads (PIE-767),
+   * published or not: Markdown, or the HTML article (`RenderedNote`). `audience: "public"` links only public notes;
+   * `marks` draws its open highlights and margin notes in the HTML. A `[publish::never]` note is refused. Reads only.
+   */
+  | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean };
 
 /** Machine-readable detail for a rejected request, such as a query syntax position. */
 export interface SelectionContext {

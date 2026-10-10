@@ -70,7 +70,14 @@ export type CredentialReference = Static<typeof Credential> | Static<typeof File
  * (five fields, the host's local time). Each run is recorded (last, next, result) in `extensions.list`.
  */
 const ScheduleSchema = Type.Object(
-  { every: Type.Optional(Duration), cron: Type.Optional(Type.String({ minLength: 9, maxLength: 100 })) },
+  {
+    every: Type.Optional(Duration), cron: Type.Optional(Type.String({ minLength: 9, maxLength: 100 })),
+    /**
+     * `"host"` (PIE-767): run in one outline of the host, not in each outline that serves the extension. For a
+     * program whose work isn't any one outline's (a sync that writes to several, a feed that notifies once).
+     */
+    once: Type.Optional(Type.Literal("host")),
+  },
   { additionalProperties: false },
 );
 export type ExtensionSchedule = Static<typeof ScheduleSchema>;

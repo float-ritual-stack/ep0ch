@@ -121,7 +121,13 @@ import {
   type ResourceRevisionRef,
   type GotoSearchCollection,
   type PageAddressCollection,
+  type NoteAddress,
+  type PublisherAddress,
+  type RenderedNote,
 } from "./types";
+import { Publisher, type PublishClient } from "./publish";
+import { canonicalLocalMachineName } from "./machine-name";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
 
@@ -259,8 +265,21 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "work-ids.status",
+  "extensions.list", "work-ids.status", "notes.render", "notes.address",
 ]);
+
+/** A publisher's address as it registers (PIE-767): each URL a full http(s) URL, at most 2 000 characters, or refused. */
+function normalizePublisherAddress(address: unknown): PublisherAddress {
+  if (!address || typeof address !== "object") throw new Error("A client's publish address is an object: { url?, publicUrl? }");
+  const out: PublisherAddress = {};
+  for (const key of ["url", "publicUrl"] as const) {
+    const value = (address as Record<string, unknown>)[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || value.length > 2_000 || !/^https?:\/\/[^/\s]+(\/\S*)?$/.test(value)) throw new Error(`A client's publish.${key} must be a full http(s) URL`);
+    out[key] = value.replace(/\/+$/, "");
+  }
+  return out;
+}
 
 /** A grant's actor: the extension (`ext:<id>`), as an agent. */
 function grantActor(grant: ExtensionGrant): MutationProvenance {
@@ -421,6 +440,7 @@ export class OutlinerServer {
       serving: () => this.extensionRegistry.serving(),
       run: (entry, at) => this.extensionCalls.runScheduled(entry.extension, entry.entry, entry.schedule, at),
       file: join(this.stateDirectory, "extension-schedules.json"),
+      outline: () => this.outline?.name,
       ...(options.scheduleTickMs !== undefined ? { tickMs: options.scheduleTickMs } : {}),
       ...(options.scheduleNow ? { now: options.scheduleNow } : {}),
       // A run's record is part of what extensions.list says: readers read it again.
@@ -754,6 +774,7 @@ export class OutlinerServer {
       ...(runtime ? { runtime } : {}),
       ...(resourcePresentation ? { resourcePresentation } : {}),
       ...this.normalizeComposedState(registration.role, registration.focusedRegion, registration.treeSelection),
+      ...(registration.publish !== undefined ? { publish: normalizePublisherAddress(registration.publish) } : {}),
     };
     const stored = this.herdrRegistry === undefined || this.clientOwnsTopology(normalized)
       ? normalized
@@ -1727,6 +1748,25 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "notes.address" || request.action === "notes.render") {
+      try {
+        let result: NoteAddress | RenderedNote;
+        if (request.action === "notes.address") {
+          if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
+          result = await this.noteAddress(request.blockId);
+        } else {
+          if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
+          if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
+          if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
+          result = await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
+            ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
+          });
+        }
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (
       request.action !== "resources.open" &&
       request.action !== "resources.refresh" &&
@@ -2144,6 +2184,8 @@ export class OutlinerServer {
         case "extensions.act":
         case "extensions.bar":
         case "extensions.schedule.run":
+        case "notes.address":
+        case "notes.render":
         case "computed.execute":
         case "resources.open":
         case "resources.refresh":
@@ -3277,6 +3319,44 @@ export class OutlinerServer {
       }
       subscriber.write(line);
     }
+  }
+
+  /** Where the publisher serving this outline is opened, as it said when it connected; nothing when none is. */
+  private publisherAddress(): PublisherAddress {
+    this.pruneDestroyedSubscribers();
+    for (const client of this.subscribers.values()) if (client.publish) return client.publish;
+    return {};
+  }
+
+  /**
+   * The publisher over this service, in-process (PIE-767): its index and its renderer, read through the service's own
+   * request handling, with the address a connected publisher gave. One renderer for the page and for what an
+   * extension sends.
+   */
+  private inServicePublisher(): Publisher {
+    const client: PublishClient = {
+      request: async <T>(input: RequestInput): Promise<T> => {
+        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+        if (!response.ok) throw new Error(response.error);
+        return response.result as T;
+      },
+    };
+    return Publisher.inService(client, this.publisherAddress());
+  }
+
+  /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */
+  private async noteAddress(blockId: string | undefined): Promise<NoteAddress> {
+    const outline = this.outline?.name;
+    const machine = canonicalLocalMachineName();
+    if (blockId === undefined) return { ...(outline ? { outline } : {}), machine };
+    const block = this.store.require(blockId);
+    if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
+    const published = await this.inServicePublisher().published(block.id);
+    return {
+      ...(outline ? { outline } : {}), machine, blockId: block.id,
+      ...(outline ? { uri: formatEp0chBlockUri({ outline, machine, blockId: block.id }) } : {}),
+      ...(published ? { published } : {}),
+    };
   }
 
   /**

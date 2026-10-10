@@ -1,16 +1,17 @@
 // Readwise (PIE-743): a Readwise and Reader client built only on what any extension has.
 //
-// - `send` (on a block): the note, and the notes under it, saved to Reader as one document. Its URL in Reader is the
-//   note's link (config `link`), so a highlight made on it in Reader comes back knowing which note it belongs to.
+// - `send` (on a block): the note, and the notes under it, rendered as its published page reads (`notes.render`) and
+//   saved to Reader as one document. Its URL in Reader is the note's link (its published permalink, or config `link`),
+//   so a highlight made on it in Reader comes back knowing which note it belongs to.
 // - `pull` (on the outline, every hour): Readwise's export of every highlight changed since the last pull (Reader's
 //   highlights reach it too). A highlight on a document `send` made becomes an annotation on that note, at the
 //   passage (`kind=highlight`, your note on it as the body); every other one lands on the readwise board, a block per
 //   book with a block per highlight under it. Each highlight is known by its Readwise id, so a pull run twice writes
-//   nothing new, and a changed note on a highlight updates what's there.
+//   nothing new, and a changed note on a highlight updates what's there. Its schedule says `once: "host"`, so the
+//   hourly pull runs in one outline of the host, not in each.
 //
 // It writes over its own connection (outline.ts), as ext:readwise. The token comes from the `with-secrets` group
 // `readwise` (key READWISE_TOKEN) on stdin, and is never written anywhere.
-import { hostname } from "node:os";
 import { outline } from "./outline";
 
 interface Block { id: string; text: string; revision: number }
@@ -32,6 +33,8 @@ interface Book {
   document_note?: string | null; book_tags?: Tag[]; highlights: Highlight[];
 }
 interface Thread { block: Block; body: string; properties?: Record<string, string[]> }
+/** `notes.address`'s answer (PIE-767): the outline, this machine's name, the note's ep0ch:// URI, where it's published. */
+interface Address { outline?: string; machine: string; uri?: string; published?: { url?: string; publicUrl?: string; permalink?: string } }
 
 const request = (await Bun.stdin.json()) as Request;
 const config = request.config ?? {};
@@ -40,15 +43,15 @@ const refuse = (code: string) => process.stdout.write(JSON.stringify({ ok: false
 
 const API = (config.api ?? "https://readwise.io").replace(/\/+$/, "");
 const HERE = process.env.EP0CH_WS ?? "";
-const MACHINE = config.machine ?? hostname();
-const LINK = config.link ?? "https://ep0ch.invalid/{outline}@{machine}/b/{id}";
+// This machine's name in ep0ch:// links, as the service says it (`notes.address`, asked in main); config `machine` overrides it.
+let MACHINE = config.machine ?? "";
+/** A note's URL in Reader when it isn't published (or config `link`, always). */
+const FALLBACK_LINK = "https://ep0ch.invalid/{outline}@{machine}/b/{id}";
+const LINK = config.link ?? FALLBACK_LINK;
 const BOARD = config.board ?? "readwise";
 const PAGE = config.page ?? "readwise";
 const STARTED = Date.now();
 const UNTIL = STARTED + (config.minutes ?? 4) * 60_000;
-const CLAIM_STALE_MS = 10 * 60_000;
-const RECENT_MS = 50 * 60_000;
-const MAX_BLOCKS = 200;
 
 class Stop extends Error {
   constructor(readonly code: string) { super(code); }
@@ -90,13 +93,27 @@ async function readwise<T>(path: string, init: { method?: string; body?: unknown
 // ── Links: a note's URL in Reader, and back ──────────────────────────────
 
 const uriOf = (name: string, id: string) => `ep0ch://${name}@${MACHINE}/b/${id}`;
-const linkOf = (name: string, id: string) => LINK.replaceAll("{outline}", name).replaceAll("{machine}", MACHINE).replaceAll("{id}", id);
+const fromTemplate = (template: string, name: string, id: string) => template.replaceAll("{outline}", name).replaceAll("{machine}", MACHINE).replaceAll("{id}", id);
 
-/** The note a document's URL names: the `link` template's shape, or an ep0ch:// URI. */
+/**
+ * A note's URL in Reader: config `link` when it's set; else, when the note is published, its permalink (the page by
+ * its id) with `?ep0ch=<outline>` so a pull knows the outline; else the fallback template. Reader needs a unique web
+ * URL per document, and the pull reads the note back out of it.
+ */
+async function linkOf(name: string, id: string): Promise<string> {
+  if (config.link) return fromTemplate(config.link, name, id);
+  const address = await outline<Address>({ action: "notes.address", blockId: id }, name);
+  const permalink = address.published?.permalink;
+  return permalink ? `${permalink}?ep0ch=${encodeURIComponent(name)}` : fromTemplate(FALLBACK_LINK, name, id);
+}
+
+/** The note a document's URL names: an ep0ch:// URI, a published permalink with `?ep0ch=`, or the `link` template's shape. */
 function noteOf(url: string | null | undefined): { outline: string; machine: string; id: string } | null {
   if (!url) return null;
   const canonical = /^ep0ch:\/\/([^/@]+)@([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(url);
   if (canonical) return { outline: canonical[1]!, machine: canonical[2]!, id: canonical[3]!.toLowerCase() };
+  const permalink = /\/p\/([0-9a-f-]{36})\?ep0ch=([^&#/]+)$/i.exec(url);
+  if (permalink) return { outline: decodeURIComponent(permalink[2]!), machine: MACHINE, id: permalink[1]!.toLowerCase() };
   const order: string[] = [];
   const pattern = LINK.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{(outline|machine|id)\}/g, (_, name: string) => {
     order.push(name);
@@ -111,17 +128,19 @@ function noteOf(url: string | null | undefined): { outline: string; machine: str
 
 // ── Blockdown ────────────────────────────────────────────────────────────
 
-const TOKEN = /\s?(?<!\\)\[[A-Za-z][\w.-]*::[^\]\n]*\]/g;
 const TONES: Record<string, string> = { yellow: "warn", orange: "warn", blue: "accent", purple: "accent", pink: "bad", green: "good" };
 
-/** Imported words stay words: a `[key::value]`, `[[page]]` or `((ref))` in a highlight is escaped, never a property or a link. */
-const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[").replace(/\[\[/g, "[\\[").replace(/\(\(/g, "(\\(");
+/**
+ * Imported words stay words: a `[key::value]`, `[[page]]` or `((ref))` in a highlight is escaped, never a property or a
+ * link. A `[key::value]` takes outline-core's escape (`\\[`); a link has none yet, so every `[` or `(` before another
+ * gets a backslash after it (`[\\[page]]`, `(\\(ref))`): no two are left side by side, however many there were.
+ */
+const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[").replace(/\[(?=\[)/g, "[\\").replace(/\((?=\()/g, "(\\");
 /** A property value: one line, no brackets. */
 const value = (text: string) => text.replace(/[\]\[\n\r]+/g, " ").replace(/\s+/g, " ").trim();
 const token = (key: string, v: string | number | null | undefined) => (v === null || v === undefined || String(v).trim() === "" ? "" : `[${key}::${value(String(v))}]`);
 const tokens = (parts: string[]) => parts.filter(Boolean).join(" ");
-const titleLine = (text: string) => value(text.split("\n")[0]!.replace(TOKEN, "")).slice(0, 120) || "(untitled)";
-const short = (text: string) => { const one = value(text).replace(/\(\(/g, "(\\("); return one.length > 80 ? `${one.slice(0, 79)}…` : one; };
+const short = (text: string) => { const one = value(text).replace(/\((?=\()/g, "(\\"); return one.length > 80 ? `${one.slice(0, 79)}…` : one; };
 
 /** The `[key::value]` tokens on a block's first line. */
 function headerProps(text: string): Record<string, string> {
@@ -144,27 +163,14 @@ function withHeaderProps(text: string, changes: Record<string, string | null>): 
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/**
- * A block as HTML Reader keeps word for word: property tokens left out, `#` headings as headings, every other line
- * as written (inline marks too), so a passage highlighted in Reader is the note's own text.
- */
-function html(block: Block): string {
-  const paragraphs = block.text.replace(TOKEN, "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  return paragraphs.map((p) => {
-    const heading = /^(#{1,6})\s+(.*)$/.exec(p);
-    if (heading && !p.includes("\n")) return `<h${heading[1]!.length}>${escapeHtml(heading[2]!)}</h${heading[1]!.length}>`;
-    return `<p>${p.split("\n").map(escapeHtml).join("<br>")}</p>`;
-  }).join("\n");
-}
-
 // ── The outline ──────────────────────────────────────────────────────────
 
-/** The block and every block under it, depth first, at most MAX_BLOCKS. */
+/** The block and every block under it, depth first, at most 200. */
 async function subtree(root: Block, name: string): Promise<Block[]> {
   const out: Block[] = [root];
   const walk = async (parentId: string): Promise<void> => {
     for (const child of await outline<Block[]>({ action: "children", parentId }, name)) {
-      if (out.length >= MAX_BLOCKS) return;
+      if (out.length >= 200) return;
       out.push(child);
       await walk(child.id);
     }
@@ -181,21 +187,18 @@ async function update(block: Block, text: string, name: string): Promise<void> {
 // ── send ─────────────────────────────────────────────────────────────────
 
 async function send(blockId: string): Promise<void> {
-  const root = await outline<Block>({ action: "get", blockId });
-  const blocks = await subtree(root, HERE);
-  const uri = uriOf(HERE, root.id);
-  const title = titleLine(root.text);
-  const body = [
-    `<p>From ep0ch: <a href="${escapeHtml(uri)}">${escapeHtml(uri)}</a></p>`,
-    ...blocks.map((block) => `<section>\n${html(block)}\n</section>`),
-  ].join("\n");
+  // The note as its published page reads (the publisher's renderer, published or not): property tokens out, links as
+  // their labels or web URLs. A [publish::never] note is refused here, so it never leaves the outline.
+  const rendered = await outline<{ blockId: string; title: string; text: string }>({ action: "notes.render", blockId, format: "html" });
+  const uri = uriOf(HERE, rendered.blockId);
+  const body = `<p>From ep0ch: <a href="${escapeHtml(uri)}">${escapeHtml(uri)}</a></p>\n${rendered.text}`;
   const saved = await readwise<{ id?: string; url?: string }>("/api/v3/save/", { method: "POST", body: {
-    url: linkOf(HERE, root.id), html: body, title, tags: config.tags ?? ["ep0ch"], should_clean_html: false, saved_using: "ep0ch",
+    url: await linkOf(HERE, rendered.blockId), html: body, title: rendered.title, tags: config.tags ?? ["ep0ch"], should_clean_html: false, saved_using: "ep0ch",
   } });
   const where = saved.body.url ? `: ${saved.body.url}` : "";
   answer({ message: saved.status === 200
     ? `already in Reader${where} (Reader keeps the first copy; delete it there to send again)`
-    : `saved "${short(title)}" to Reader${where}${blocks.length >= MAX_BLOCKS ? ` (the first ${MAX_BLOCKS} blocks)` : ""}` });
+    : `saved "${short(rendered.title)}" to Reader${where}` });
 }
 
 // ── pull ─────────────────────────────────────────────────────────────────
@@ -268,7 +271,7 @@ const unanchoredBody = (highlight: Highlight) => {
 
 function bookText(book: Book, gone?: string): string {
   const title = value(book.readable_title || book.title || "(untitled)");
-  const header = (book.author ? `${title} — ${value(book.author)}` : title).replace(/\(\(/g, "(\\(");
+  const header = (book.author ? `${title} — ${value(book.author)}` : title).replace(/\((?=\()/g, "(\\");
   const props = tokens([
     token("readwise.book", book.user_book_id), token("readwise.category", book.category), token("readwise.source", book.source),
     token("readwise.author", book.author), token("readwise.url", book.source_url || book.unique_url),
@@ -335,29 +338,12 @@ async function boardPage(): Promise<Block> {
   return outline<Block>({ action: "create", text: `Readwise [page::${PAGE}]\n\nHighlights from Readwise and Reader, a block per book. The readwise extension keeps them here.` }, BOARD);
 }
 
-async function pull(scheduled: boolean): Promise<void> {
+async function pull(): Promise<void> {
+  // One pull at a time across the host: the schedule says once: "host" (it runs in one outline), and the service runs
+  // a host-wide action one at a time whichever outline asks. The cursor lives on the board page, as properties.
   let page = await boardPage();
   const props = headerProps(page.text);
-  const me = `${HERE} ${new Date(STARTED).toISOString()}`;
-  const claim = props["readwise.claim"];
-  // A claim from this outline is a run that ended without letting go (killed at its deadline): the host runs one pull
-  // per outline at a time, so it isn't running now.
-  if (claim && !claim.startsWith(`${HERE} `) && STARTED - Date.parse(claim.split(" ")[1] ?? "") < CLAIM_STALE_MS) {
-    answer({ message: `a pull from ${claim.split(" ")[0]} is running; this one waits for the next` });
-    return;
-  }
   const synced = props["readwise.synced"];
-  if (scheduled && synced && !props["readwise.next-page"] && STARTED - Date.parse(synced) < RECENT_MS) {
-    answer({ message: `pulled at ${synced} already (from another outline's schedule)` });
-    return;
-  }
-  // The claim is a revision-checked write: two outlines' schedules firing together, one wins and the other waits.
-  try {
-    await update(page, withHeaderProps(page.text, { "readwise.claim": me }), BOARD);
-  } catch {
-    answer({ message: "another pull took the board first; this one waits for the next" });
-    return;
-  }
   const save = async (changes: Record<string, string | null>) => {
     page = await outline<Block>({ action: "get", blockId: page.id }, BOARD);
     await update(page, withHeaderProps(page.text, changes), BOARD);
@@ -392,12 +378,12 @@ async function pull(scheduled: boolean): Promise<void> {
     }
   } catch (error) {
     // Keep where it got to, and let the next run take the board.
-    await save(cursor ? { "readwise.claim": null, "readwise.sweep": sweep, "readwise.next-page": cursor } : { "readwise.claim": null }).catch(() => {});
+    if (cursor) await save({ "readwise.sweep": sweep, "readwise.next-page": cursor }).catch(() => {});
     throw error;
   }
   await save(complete
-    ? { "readwise.claim": null, "readwise.synced": sweep, "readwise.sweep": null, "readwise.next-page": null }
-    : { "readwise.claim": null, "readwise.sweep": sweep, "readwise.next-page": cursor });
+    ? { "readwise.synced": sweep, "readwise.sweep": null, "readwise.next-page": null }
+    : { "readwise.sweep": sweep, "readwise.next-page": cursor });
   const what = tally.created + tally.updated === 0
     ? `nothing new in ${tally.notes + tally.board} highlight${tally.notes + tally.board === 1 ? "" : "s"}`
     : `${tally.created} new, ${tally.updated} changed (${tally.notes} on notes, ${tally.board} on the ${BOARD} board${tally.unanchored ? `, ${tally.unanchored} on a whole note: their words aren't in it now` : ""})`;
@@ -407,11 +393,12 @@ async function pull(scheduled: boolean): Promise<void> {
 // ── main ─────────────────────────────────────────────────────────────────
 
 try {
+  MACHINE ||= (await outline<Address>({ action: "notes.address" })).machine;
   if (request.operation !== "act") refuse("invalid-config");
   else if (request.input.action === "send") {
     if (!request.input.target?.blockId) answer({ message: "send acts on a note: pick one first" });
     else await send(request.input.target.blockId);
-  } else if (request.input.action === "pull") await pull(Boolean(request.input.scheduled));
+  } else if (request.input.action === "pull") await pull();
   else refuse("invalid-config");
 } catch (error) {
   if (error instanceof Stop) refuse(error.code);

@@ -211,12 +211,14 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
   process.exit(await runOutlinesCommand(process.argv[2], process.argv.slice(3)));
 }
 /**
- * `publish serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME]`:
+ * `publish serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME]`:
  * serves blocks carrying `[publish::…]` read-only on 127.0.0.1 (src/publish.ts).
  * React artifacts compile into `--artifact-cache` (default `<state root>/publish/artifacts`).
  * `--public-port` adds the public listener (only `[publish::public]` notes, no index) for
  * `tailscale funnel`; `--public-url` (or OUTLINER_PUBLIC_URL) is where anyone opens it, and
- * `--public-bind` (or OUTLINER_PUBLIC_BIND, default 127.0.0.1) the one address it listens on.
+ * `--public-bind` (or OUTLINER_PUBLIC_BIND, default 127.0.0.1) the one address it listens on. `--url` (or
+ * OUTLINER_PUBLISH_URL) is the full URL the tailnet listener is opened at (`https://host.ts.net/pub`): the publisher
+ * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767).
  * `publish list [--json]` prints the same index once, with each public note's public URL.
  */
 if (process.argv[2] === "publish") {
@@ -226,7 +228,7 @@ if (process.argv[2] === "publish") {
 async function runPublishCommand(operation: string | undefined, args: string[]): Promise<number> {
   try {
     if (operation !== "serve" && operation !== "list") {
-      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME] | list [--public-url URL] [--json]");
+      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME] | list [--public-url URL] [--json]");
     }
     const { values } = parseArgs({
       args, strict: true,
@@ -234,7 +236,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         port: { type: "string" }, root: { type: "string", multiple: true }, "max-bytes": { type: "string" },
         "base-path": { type: "string" }, "allow-host": { type: "string", multiple: true }, ws: { type: "string" },
         "artifact-cache": { type: "string" }, "public-port": { type: "string" }, "public-url": { type: "string" },
-        "public-bind": { type: "string" },
+        "public-bind": { type: "string" }, url: { type: "string" },
         json: { type: "boolean" },
       },
     });
@@ -247,6 +249,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     if (publicPort !== undefined && (!Number.isInteger(publicPort) || publicPort < 0 || publicPort > 65535)) throw new Error("--public-port must be a port number");
     if (publicPort !== undefined && publicPort !== 0 && publicPort === port) throw new Error("--public-port must differ from --port");
     const publicUrl = values["public-url"] ?? process.env.OUTLINER_PUBLIC_URL;
+    const publishUrl = values.url ?? process.env.OUTLINER_PUBLISH_URL;
+    if (publishUrl && !/^https?:\/\/[^/\s]+(\/\S*)?$/.test(publishUrl)) throw new Error(`--url must be the full http(s) URL the publisher is opened at, such as https://host.ts.net/pub: ${publishUrl}`);
     const { checkPublicBind } = await import("./publish");
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
     const { Publisher, servePublisher, renderIndexText } = await import("./publish");
@@ -258,6 +262,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       ...(values["allow-host"] === undefined ? {} : { allowedHosts: values["allow-host"] }),
       artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
       ...(publicUrl ? { publicUrl } : {}),
+      ...(publishUrl ? { url: publishUrl } : {}),
       log: line => console.error(line),
     });
     const status = await publisher.start();
