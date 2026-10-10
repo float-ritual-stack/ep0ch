@@ -335,6 +335,9 @@ function validateBar(value: unknown, actionOk: (id: string) => boolean, blockOk:
   });
 }
 
+/** Host-wide actions' runs (`once: "host"`), across every outline the host process serves: one at a time. */
+const HOST_OUTLINE_RUNS = new Map<string, Promise<ExtensionActResult>>();
+
 export class ExtensionCalls {
   private readonly state = new Map<string, CallState>();
   private readonly passes = new Map<string, Promise<void>>();
@@ -824,10 +827,14 @@ export class ExtensionCalls {
     // An action on the outline runs one at a time (its schedule's run and a person's or agent's): a program that checks
     // and then writes ("is today's note there?") never races itself.
     if (this.registry.action(request.extension, request.action)?.on !== "outline") return this.actNow(request);
-    const key = `${request.extension}/${request.action}`;
-    const next = (this.outlineRuns.get(key) ?? Promise.resolve()).catch(() => {}).then(() => this.actNow(request));
-    this.outlineRuns.set(key, next);
-    void next.finally(() => { if (this.outlineRuns.get(key) === next) this.outlineRuns.delete(key); }).catch(() => {});
+    // A host-wide schedule's action (`once: "host"`, PIE-767) runs one at a time across the host, whichever outline asks.
+    const extension = this.registry.extension(request.extension);
+    const hostWide = extension?.manifest.actions?.find((candidate) => candidate.id === request.action)?.schedule?.once === "host";
+    const runs = hostWide ? HOST_OUTLINE_RUNS : this.outlineRuns;
+    const key = hostWide ? `${extension!.directory}/${request.action}` : `${request.extension}/${request.action}`;
+    const next = (runs.get(key) ?? Promise.resolve()).catch(() => {}).then(() => this.actNow(request));
+    runs.set(key, next);
+    void next.finally(() => { if (runs.get(key) === next) runs.delete(key); }).catch(() => {});
     return next;
   }
 

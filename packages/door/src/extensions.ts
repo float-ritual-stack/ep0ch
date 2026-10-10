@@ -61,6 +61,8 @@ export interface ExtensionEntry {
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
+  /** `"host"` (PIE-767): it runs in one outline of the host; `runsIn` names that outline when it isn't this one. */
+  once?: "host"; runsIn?: string;
   last?: { at: string; ok: boolean; message?: string; error?: string; ms: number };
 }
 /** A tile kind ready to register (`extensions.list`'s `tileKinds`). */
@@ -146,7 +148,7 @@ function cleaned(l: ExtensionList): ExtensionList {
     ...l,
     extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [],
       // A run's message and error are the extension's own words: one clean line each.
-      schedules: (e.schedules ?? []).map(x => ({ ...x, entry: oneLine(x.entry), ...(x.last ? { last: { ...x.last, message: clean(x.last.message), error: clean(x.last.error) } } : {}) })) })),
+      schedules: (e.schedules ?? []).map(x => ({ ...x, entry: oneLine(x.entry), ...(x.runsIn ? { runsIn: oneLine(x.runsIn) } : {}), ...(x.last ? { last: { ...x.last, message: clean(x.last.message), error: clean(x.last.error) } } : {}) })) })),
     tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
     rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
     ruleProblems: (l.ruleProblems ?? []).map(oneLine),

@@ -14,6 +14,7 @@
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",
+    "./machine-name": "./src/machine-name.ts",
     "./outline-host": "./src/outline-host.ts",
     "./outline-instance": "./src/outline-instance.ts",
     "./plain-stderr": "./src/plain-stderr.ts",

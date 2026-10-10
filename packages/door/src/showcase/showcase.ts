@@ -516,7 +516,8 @@ export const SECTIONS: Section[] = [
               ...(e.agents ?? []).map(a => `  ${fg(C.grey)}@${a.name} ${fg(C.dark)}agent${RESET}`),
               ...e.actions.map(a => `  ${fg(C.white)}${a.name}${RESET}${a.key ? ` ${fg(C.dark)}${a.key}${RESET}` : ""}`),
               // Its schedules (PIE-754): when each runs, when next, and what the last run did.
-              ...(e.schedules ?? []).flatMap(x => [`  ${fg(C.grey)}schedule ${x.entry} ${fg(C.dark)}${x.every ? `every ${x.every}` : `cron ${x.cron}`}${RESET}`,
+              // Host-wide (PIE-767): once per host, and the outline it runs in when that's another.
+              ...(e.schedules ?? []).flatMap(x => [`  ${fg(C.grey)}schedule ${x.entry} ${fg(C.dark)}${x.every ? `every ${x.every}` : `cron ${x.cron}`}${x.once === "host" ? ` · once per host${x.runsIn ? ` · runs in ${x.runsIn}` : ""}` : ""}${RESET}`,
                 `    ${fg(C.dark)}${x.running ? "running · " : ""}${x.last ? `last ${x.last.ok ? x.last.message ?? "ok" : `failed: ${x.last.error ?? ""}`}` : "not run yet"} · next ${x.next.slice(0, 16).replace("T", " ")}${RESET}`]),
             ]).concat(l.tileKinds.map(t => `${fg(C.lcyan)}${t.kind}${RESET} ${fg(C.dark)}tile kind${RESET}`));
           return { title: "extensions", lines: rows.map(x => x.slice(0, req.cols + 40)) };

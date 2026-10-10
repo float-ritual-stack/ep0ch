@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { parseEnvFile } from "./backup/config";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
-import { canonicalLocalMachineName } from "./machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { BoardAddress } from "./notes-cli";
 import type { SocketBoard } from "./socket";

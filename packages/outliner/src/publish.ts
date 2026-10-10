@@ -28,6 +28,9 @@ import type {
   OutlinerServiceStatus,
   PageAddressResolution,
   ProjectedBlockCollection,
+  PublisherAddress,
+  NotePublication,
+  RenderedNote,
   ProjectedVisibleBlock,
 } from "./types";
 
@@ -84,10 +87,18 @@ export interface PublishedIndex {
   entries: PublishedEntry[];
   truncated: boolean;
   builtAt: string;
+  /** Links to published notes are their labels (a note rendered for elsewhere with no publisher URL to link to). */
+  labelsOnly?: boolean;
 }
 
+/**
+ * What the publisher asks of the service: a socket client (`publish serve`), or the service itself in-process, which
+ * only answers requests (`Publisher.inService`: `notes.render` and `notes.address`, PIE-767).
+ */
+export type PublishClient = Pick<OutlinerClient, "request"> & Partial<Pick<OutlinerClient, "requireCompatibleService" | "watch">>;
+
 export interface PublisherOptions {
-  client: OutlinerClient;
+  client: PublishClient;
   /** Extra allowed attachment roots; the outline's workspace root is always one. */
   roots?: readonly string[];
   /** Leave the workspace root out of the allowlist (tests, or an outline rooted too broadly). */
@@ -113,6 +124,11 @@ export interface PublisherOptions {
    * whole URL is what the index and `publish list` show for public notes.
    */
   publicUrl?: string;
+  /**
+   * The full URL the tailnet listener is opened at, base path included (`--url`, OUTLINER_PUBLISH_URL:
+   * `https://host.ts.net/pub`). The publisher tells the service, so `notes.address` can give a published note's web URL.
+   */
+  url?: string;
   log?: (line: string) => void;
 }
 
@@ -388,10 +404,24 @@ export function checkPublicBind(address: string, interfaces = networkInterfaces(
 }
 
 /** Where the public listener is mounted when nothing says otherwise. */
+/**
+ * Where a publisher is opened (`--url`, and a publisher's registration with the service, PIE-767): a full http(s) URL
+ * with no query, fragment or credentials, since a note's path is added after it. Answers it without a trailing slash;
+ * anything else throws, saying what is wanted.
+ */
+export function publisherUrl(value: string, label = "--url"): string {
+  let parsed: URL | undefined;
+  try { parsed = new URL(value); } catch { /* said below */ }
+  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.search || parsed.hash || parsed.username || parsed.password || value.length > 2_000) {
+    throw new Error(`${label} must be the full http(s) URL the publisher is opened at, with no query or fragment, such as https://host.ts.net/pub: ${value}`);
+  }
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+}
+
 export const DEFAULT_PUBLIC_BASE_PATH = "/share";
 
 export class Publisher {
-  private readonly client: OutlinerClient;
+  private readonly client: PublishClient;
   readonly basePath: string;
   /** The public listener's mount (`/share`) and, when known, the origin anyone opens it at. */
   readonly publicBase: { basePath: string; origin?: string };
@@ -442,6 +472,7 @@ export class Publisher {
    * so unpublishing takes effect on the next request.
    */
   async start(): Promise<OutlinerServiceStatus> {
+    if (!this.client.requireCompatibleService || !this.client.watch) throw new Error("Publisher.start needs a socket client");
     const status = await this.client.requireCompatibleService();
     const roots = [...(this.options.roots ?? [])];
     const location = status.location;
@@ -460,7 +491,8 @@ export class Publisher {
     };
     const connected = Promise.withResolvers<void>();
     this.watcher = this.client.watch({
-      client: { clientId: `publish-${crypto.randomUUID()}`, role: "observer", contextId: "publish" },
+      // Where it is opened, so the service can give a published note's web URL (notes.address, PIE-767).
+      client: { clientId: `publish-${crypto.randomUUID()}`, role: "observer", contextId: "publish", ...(this.address().url || this.address().publicUrl ? { publish: this.address() } : {}) },
       onConnect: () => {
         this.connected = true;
         this.invalidate();
@@ -476,6 +508,71 @@ export class Publisher {
     });
     await Promise.race([connected.promise, Bun.sleep(3_000)]);
     return status;
+  }
+
+  /** Where this publisher is opened: what it tells the service. */
+  address(): PublisherAddress {
+    const url = this.options.url?.trim().replace(/\/+$/, "");
+    const publicUrl = this.publicBase.origin ? `${this.publicBase.origin}${this.publicBase.basePath}` : undefined;
+    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}) };
+  }
+
+  /**
+   * The publisher over the service itself, in-process (PIE-767): no listener and no attachments, only the index and
+   * a note's rendering. `notes.render` and `notes.address` use it, so a note an extension sends somewhere reads as its
+   * published page does, through this one renderer.
+   */
+  static inService(client: PublishClient, address: PublisherAddress = {}): Publisher {
+    const publisher = new Publisher({ client, ...(address.publicUrl ? { publicUrl: address.publicUrl } : {}), ...(address.url ? { url: address.url } : {}) });
+    publisher.policy = { roots: [], workspaceRoot: "/", maxBytes: publisher.maxBytes, remoteService: true };
+    return publisher;
+  }
+
+  /**
+   * Where a note is published, when it is (and not locked): its slug, whether it is public, and its web URLs from
+   * the address the publisher gave (`url` by its slug; `permalink` by its id, which holds while it stays published).
+   */
+  async published(blockId: string): Promise<NotePublication | undefined> {
+    const entry = (await this.readIndex()).entries.find((candidate) => candidate.blockId === blockId);
+    if (!entry || (await this.lockedIds([blockId])).size) return undefined;
+    const { url, publicUrl } = this.address();
+    const isPublic = !!entry.public;
+    const permalinkBase = isPublic && publicUrl ? publicUrl : url;
+    return {
+      slug: entry.slug,
+      public: isPublic,
+      ...(url ? { url: `${url}${entry.path}` } : {}),
+      ...(isPublic && publicUrl ? { publicUrl: `${publicUrl}${entry.path}` } : {}),
+      ...(permalinkBase ? { permalink: `${permalinkBase}/p/${entry.blockId}` } : {}),
+    };
+  }
+
+  /**
+   * A note and the notes under it, rendered as its published page renders them (PIE-767), published or not: the
+   * text a reader of the page reads, as Markdown or as HTML (the article, without the page around it). Its links to
+   * published notes are their web URLs when the publisher said where it is opened, else their labels. A note that is
+   * `[publish::never]`, or under one, is refused: nothing renders it for anywhere outside.
+   */
+  async renderNote(blockId: string, format: "markdown" | "html", options: { audience?: PublishAudience; marks?: boolean } = {}): Promise<RenderedNote> {
+    const audience = options.audience ?? "tailnet";
+    const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["title", "properties", "timestamps"] });
+    const block = read.blocks[0];
+    if (!block) throw new Error(`Block not found: ${blockId}`);
+    if ((await this.lockedIds([blockId])).size) {
+      throw new Error(`${blockId} is [publish::never], or under a note that is: it isn't rendered for anywhere outside the outline`);
+    }
+    const full = audienceIndex(await this.readIndex(), audience);
+    const { url, publicUrl } = this.address();
+    const base = audience === "public" ? publicUrl : url;
+    // Without a URL to link to, a link is its label: a path on no host means nothing where the text is going.
+    const index = base ? full : { ...full, labelsOnly: true };
+    const entry = full.entries.find((candidate) => candidate.blockId === blockId) ?? {
+      blockId, title: publishedTitle(block.title ?? "", new Map()) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
+    };
+    const { markdown, marks } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, base ?? "");
+    const text = format === "markdown" ? markdown
+      : htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks), index, base ?? "");
+    return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
   }
 
   private invalidate(): void {
@@ -863,7 +960,7 @@ export class Publisher {
    * The block and its subtree as markdown, with its links and embeds. Annotations are not rows: read as HTML
    * (`withMarks`), the open ones are drawn on their passages (`publish-marginalia.ts`).
    */
-  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean): Promise<{ markdown: string; marks: PublishedAnnotation[] }> {
+  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean, base = this.basePathFor(audience)): Promise<{ markdown: string; marks: PublishedAnnotation[] }> {
     const whole = await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
@@ -878,7 +975,7 @@ export class Publisher {
     const decorations = await this.readDecorations(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
-    const markdown = renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds, decorations, marks, order);
+    const markdown = renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), base, pages, embeds, decorations, marks, order);
     return { markdown, marks: order };
   }
 
@@ -1048,7 +1145,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   const inCode = (offset: number) => code.has(lineOf(body, offset));
   const byId = new Map(index.entries.map((entry) => [entry.blockId, entry]));
   const link = (label: string, target: PublishedEntry | undefined) =>
-    target ? `[${label}](${basePath}${target.path})` : label;
+    target && !index.labelsOnly ? `[${label}](${basePath}${target.path})` : label;
   // Without an embed projection (a caller that has none), an embed reads as a link, never as
   // `![…](…)`, which markdown takes for an image.
   const embedStarts = new Set(embeds ? [] : embedMatches(body).map((match) => match.index));

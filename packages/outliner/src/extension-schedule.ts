@@ -13,8 +13,10 @@ import type { ExtensionSchedule, LoadedExtension } from "./extension-manifest";
  *   handler** runs again every line of it in the outline.
  *
  * Runs are per outline, like everything an extension does: a folder in an outline's `extensions/` runs there; one
- * in the user folder serves every outline the host opens, so its schedule runs in each (`EP0CH_WS` says which). One
- * run of an entry at a time; a run missed while the host was down runs once when it comes back, not once per miss.
+ * in the user folder serves every outline the host opens, so its schedule runs in each (`EP0CH_WS` says which),
+ * unless it says `once: "host"` (PIE-767): then one outline's runner holds it for the whole host (the first to see it,
+ * until that outline closes) and the others list where it runs. One run of an entry at a time (a host-wide entry's,
+ * across the host); a run missed while the host was down runs once when it comes back, not once per miss.
  *
  * The record is a file beside the outline (`extension-schedules.json` in its state folder), so `next` and `last`
  * survive a restart. It holds times and results, never anything an extension returned beyond its message.
@@ -111,6 +113,10 @@ export interface ScheduleListEntry {
   readonly entry: string;
   readonly every?: string;
   readonly cron?: string;
+  /** `"host"`: it runs in one outline of the host (PIE-767). */
+  readonly once?: "host";
+  /** A host-wide schedule another outline runs: that outline's name. `next`, `running` and `last` are its. */
+  readonly runsIn?: string;
   readonly next: string;
   readonly running?: true;
   readonly last?: ScheduleRun;
@@ -130,7 +136,22 @@ export interface ExtensionSchedulesOptions {
   readonly tickMs?: number;
   /** A run finished: listings change. */
   readonly ran?: (extensionId: string) => void;
+  /** The outline this runner serves (a host-wide schedule's listing says where it runs). */
+  readonly outline?: () => string | undefined;
 }
+
+/**
+ * Host-wide schedules (`once: "host"`, PIE-767): which runner holds each, and which are running, across the process.
+ * An outline host is one process serving every outline, so a module-level table is the host's. Keyed by the
+ * extension's folder and the entry: the user folder's copy is one entry for every outline it serves.
+ */
+const hostHolders = new Map<string, ExtensionSchedules>();
+const hostRunning = new Set<string>();
+/**
+ * A host-wide entry's latest run, whichever runner ran it (its schedule's run, or `ext run` in another outline): each
+ * runner works out `next` from it, so a handover or a run asked for elsewhere never repeats or restarts the interval.
+ */
+const hostLast = new Map<string, ScheduleRun>();
 
 const MAX_MESSAGE = 300;
 
@@ -180,6 +201,33 @@ export class ExtensionSchedules {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    // Its host-wide schedules go to the next outline whose runner looks for them.
+    for (const [key, holder] of hostHolders) if (holder === this) hostHolders.delete(key);
+  }
+
+  /** A host-wide entry's key in the host's table; undefined for a per-outline entry. */
+  private hostKey(entry: ScheduledEntry): string | undefined {
+    return entry.schedule.once === "host" ? `${entry.extension.directory}#${entry.entry}` : undefined;
+  }
+
+  /**
+   * The runner that runs `entry`: this one, or (host-wide) the one that holds it. When nobody holds it, a started
+   * runner takes it (the first to tick or list it); one never started (a read-only copy's) takes nothing.
+   */
+  private holder(entry: ScheduledEntry, take = this.timer !== null): ExtensionSchedules {
+    const key = this.hostKey(entry);
+    if (!key) return this;
+    const held = hostHolders.get(key);
+    // A holder that stopped, or no longer serves the entry (the extension left its outline), lets it go.
+    if (held && !held.stopped && (held === this || held.entries().some((candidate) => held.hostKey(candidate) === key))) return held;
+    if (take && !this.stopped) hostHolders.set(key, this);
+    return this;
+  }
+
+  /** Whether a run of `entry` is going: here, or for a host-wide entry anywhere on the host. */
+  private isRunning(entry: ScheduledEntry): boolean {
+    const key = this.hostKey(entry);
+    return key ? hostRunning.has(key) : this.running.has(this.key(entry));
   }
 
   /** Every scheduled entry the serving extensions declare. */
@@ -197,7 +245,10 @@ export class ExtensionSchedules {
   /** What is kept for an entry, its next run worked out again when the schedule itself changed. */
   private state(entry: ScheduledEntry): Kept {
     const key = this.key(entry);
-    const kept = this.kept.get(key);
+    let kept = this.kept.get(key);
+    // A host-wide entry run since by another outline's runner: its run is this one's last too.
+    const shared = this.hostKey(entry) ? hostLast.get(this.hostKey(entry)!) : undefined;
+    if (shared && (!kept?.last || Date.parse(shared.at) > Date.parse(kept.last.at))) kept = { firstSeen: kept?.firstSeen ?? shared.at, last: shared, next: "" };
     const firstSeen = kept?.firstSeen ?? new Date(this.now).toISOString();
     const from = Date.parse(kept?.last?.at ?? firstSeen);
     const next = new Date(nextRun(entry.schedule, from)).toISOString();
@@ -214,7 +265,7 @@ export class ExtensionSchedules {
     if (this.stopped) return;
     // One entry that can't say when it runs next never stops the others.
     const due = this.entries().filter((entry) => {
-      try { return !this.running.has(this.key(entry)) && Date.parse(this.state(entry).next) <= this.now; } catch { return false; }
+      try { return this.holder(entry, true) === this && !this.isRunning(entry) && Date.parse(this.state(entry).next) <= this.now; } catch { return false; }
     });
     await Promise.all(due.map((entry) => this.runOne(entry)));
   }
@@ -226,13 +277,18 @@ export class ExtensionSchedules {
       const names = this.entries().filter((candidate) => candidate.extension.id === extensionId).map((candidate) => candidate.entry);
       throw new Error(`${extensionId} has no schedule ${entryName}${names.length ? ` (its schedules: ${names.join(", ")})` : " (it declares none)"}`);
     }
-    if (this.running.has(this.key(entry))) throw new Error(`${extensionId}'s ${entryName} is running now; it runs once at a time`);
+    if (this.isRunning(entry)) {
+      const elsewhere = this.holder(entry) !== this ? this.holder(entry).options.outline?.() : undefined;
+      throw new Error(`${extensionId}'s ${entryName} is running now${elsewhere ? ` (in ${elsewhere})` : ""}; it runs once at a time`);
+    }
     return this.runOne(entry);
   }
 
   private async runOne(entry: ScheduledEntry): Promise<ScheduleRun> {
     const key = this.key(entry);
+    const hostKey = this.hostKey(entry);
     this.running.add(key);
+    if (hostKey) hostRunning.add(hostKey);
     const started = this.now;
     let run: ScheduleRun;
     try {
@@ -243,7 +299,9 @@ export class ExtensionSchedules {
       run = { at: new Date(started).toISOString(), ok: false, error: said.slice(0, MAX_MESSAGE), ms: Math.max(0, this.now - started) };
     } finally {
       this.running.delete(key);
+      if (hostKey) hostRunning.delete(hostKey);
     }
+    if (hostKey) hostLast.set(hostKey, run);
     const firstSeen = this.kept.get(key)?.firstSeen ?? run.at;
     this.kept.set(key, { firstSeen, last: run, next: new Date(nextRun(entry.schedule, started)).toISOString() });
     this.save();
@@ -254,14 +312,19 @@ export class ExtensionSchedules {
   /** An extension's schedules as `extensions.list` shows them. */
   list(extensionId: string): ScheduleListEntry[] {
     return this.entries().filter((entry) => entry.extension.id === extensionId).flatMap((entry) => {
+      // A host-wide schedule another outline holds is listed as that outline's: when it runs there, and how it went.
+      const holder = this.holder(entry);
       let state: Kept;
-      try { state = this.state(entry); } catch { return []; }
+      try { state = holder.state(entry); } catch { return []; }
+      const runsIn = holder !== this ? holder.options.outline?.() : undefined;
       return [{
         entry: entry.entry,
         ...(entry.schedule.every ? { every: entry.schedule.every } : {}),
         ...(entry.schedule.cron ? { cron: entry.schedule.cron } : {}),
+        ...(entry.schedule.once ? { once: entry.schedule.once } : {}),
+        ...(runsIn ? { runsIn } : {}),
         next: state.next,
-        ...(this.running.has(this.key(entry)) ? { running: true as const } : {}),
+        ...(this.isRunning(entry) ? { running: true as const } : {}),
         ...(state.last ? { last: state.last } : {}),
       }];
     });

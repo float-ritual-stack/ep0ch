@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { registerScreen } from "../src/desk/screen-spec";
-import { canonicalLocalMachineName } from "../src/machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { startScreens } from "../src/start";

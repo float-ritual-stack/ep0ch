@@ -1,6 +1,6 @@
-// This machine's name in a canonical ep0ch:// URI (ADR 0002). Its own module, with no door imports: the control
-// socket, main and the MCP server need it, and taking it from notes-cli made an import cycle that left PtyPane
-// undefined in any test that loads the edit or tile modules first.
+// This machine's name in a canonical ep0ch:// URI (ADR 0002). One rule for every client and the service: the door's
+// control socket, main and MCP server, and the outline service's `notes.address` (what an extension builds its
+// `ep0ch://` links from, PIE-767). It lives here, not in outline-core, because it reads the host name and hashes.
 import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { MACHINE_NAME_PATTERN } from "@ep0ch/outline-core/outline-location";
