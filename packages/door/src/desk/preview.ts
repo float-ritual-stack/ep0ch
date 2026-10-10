@@ -82,8 +82,12 @@ export class PreviewPane extends ReaderPane {
     this.show(fileNote(path), desk);
     // Polling, not fs.watch: an editor that saves by writing a new file and renaming it over the old one
     // (vim's backupcopy) would leave an inotify watch on the old inode.
-    watchFile(path, { interval: 250 }, (cur, prev) => {
-      if (this.watching !== path || (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size)) return;
+    // The baseline is taken now, not by watchFile's first poll: a change between this line and that poll (a fast save
+    // right after opening) would otherwise be taken as the starting state and never re-read.
+    let seen = (() => { try { const s = statSync(path); return { mtimeMs: s.mtimeMs, size: s.size }; } catch { return null; } })();
+    watchFile(path, { interval: 250 }, cur => {
+      if (this.watching !== path || (seen && cur.mtimeMs === seen.mtimeMs && cur.size === seen.size)) return;
+      seen = { mtimeMs: cur.mtimeMs, size: cur.size };
       this.reads++;
       this.refresh(fileNote(path));
       (this.on ?? desk).redraw();
