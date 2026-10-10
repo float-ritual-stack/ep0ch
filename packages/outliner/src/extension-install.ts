@@ -1,3 +1,4 @@
+import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
@@ -26,7 +27,7 @@ import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse
  *   handles them.
  * - `ls` asks the running service (`extensions.list`): each folder's state and
  *   its error; without a service it reads the folders itself.
- * - `act <name> <action> [--block <id>] [--line N] [--arg k=v]…` runs an
+ * - `act <name> <action> [--block <id>] [--line N] [--quote <words> [--near N]] [--arg k=v]…` runs an
  *   action, attributed to the extension.
  */
 
@@ -217,7 +218,8 @@ export async function listExtensions(): Promise<string[]> {
 const USAGE = `usage: outliner ext ls
        outliner ext add <name|path> [--outline-folder <outline root>]
        outliner ext remove <name> [--outline-folder <outline root>]
-       outliner ext act <name> <action> [--block <id>] [--line N] [--arg key=value]… [--actor <agent id>]
+       outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
+  An action on a passage (on: passage) takes --block and --quote: the words, exact, in the note's text now (--near picks among repeats).
   ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked.
   Folders are watched: add and remove apply without a restart.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
@@ -281,7 +283,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
     if (operation === "act") {
       const { values, positionals } = parseArgs({
         args: [...rest], allowPositionals: true, strict: true,
-        options: { block: { type: "string" }, line: { type: "string" }, arg: { type: "string", multiple: true }, json: { type: "boolean" }, actor: { type: "string" } },
+        options: { block: { type: "string" }, line: { type: "string" }, arg: { type: "string", multiple: true }, json: { type: "boolean" }, actor: { type: "string" }, quote: { type: "string" }, near: { type: "string" } },
       });
       const [extension, action, ...extra] = positionals;
       if (!extension || !action || extra.length) throw new Error(USAGE);
@@ -292,9 +294,18 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (at < 1) throw new Error(`--arg takes key=value, not ${pair}`);
         return [pair.slice(0, at), pair.slice(at + 1)];
       }));
-      const result = await client.request<{ message?: string; written: string[] }>({
+      // A passage (ADR 0004 contract 5): the quote found once in the block's current text (or nearest --near).
+      let passage: Passage | undefined;
+      if (values.quote !== undefined) {
+        if (!values.block) throw new Error("--quote needs --block: the note the words are in");
+        const block = await client.request<{ id: string; text: string; revision: number }>({ action: "get", blockId: values.block });
+        const at = findPassage(block.text, values.quote, values.near !== undefined ? { near: Number(values.near) } : {});
+        if (isMiss(at)) throw new Error(missMessage(at));
+        passage = passageAt(block.text, at.start, at.end, block.id, block.revision);
+      }
+      const result = await client.request<{ message?: string; written: string[]; copy?: string }>({
         action: "extensions.act", extension, extensionAction: action,
-        ...(values.block ? { blockId: values.block } : {}),
+        ...(passage ? { passage } : values.block ? { blockId: values.block } : {}),
         ...(values.line !== undefined ? { line: Number(values.line) } : {}),
         ...(Object.keys(argsMap).length ? { args: argsMap } : {}),
         // Who asked: the writes stay the extension's, this is recorded beside them (requestedBy).
@@ -304,6 +315,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       else {
         if (result.message) print(result.message);
         for (const id of result.written) print(`wrote ${id}`);
+        if (result.copy !== undefined) console.log(result.copy);
       }
       return 0;
     }

@@ -15,11 +15,14 @@ import {
   type PublishedFileType,
 } from "./publish-attachments";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
+import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
+import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE } from "./annotations";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
 import type {
+  AnnotationThread,
   BlockProperty,
   BlockReadCollection,
   OutlinerServiceStatus,
@@ -290,7 +293,7 @@ th{color:var(--dim);font-weight:normal}
 img{max-width:100%}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
-`;
+${MARGINALIA_STYLE}`;
 
 function htmlPage(title: string, body: string, nav: string): string {
   return `<!doctype html>
@@ -646,8 +649,11 @@ export class Publisher {
       }
       return respond(contents.text, "text/plain; charset=utf-8");
     }
-    const markdown = await this.blockMarkdown(entry, index, audience);
-    if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(markdown), index, this.basePathFor(audience)), audience));
+    if (asHtml) {
+      const { markdown, marks } = await this.blockMarkdown(entry, index, audience, true);
+      return renderedHtml(this.page(entry, htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks), index, this.basePathFor(audience)), audience));
+    }
+    const { markdown } = await this.blockMarkdown(entry, index, audience, false);
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
   }
 
@@ -853,19 +859,52 @@ export class Publisher {
       : undefined;
   }
 
-  /** The block and its subtree as markdown, with its links and embeds. */
-  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience): Promise<string> {
-    const subtree = await this.client.request<ProjectedBlockCollection>({
+  /**
+   * The block and its subtree as markdown, with its links and embeds. Annotations are not rows: read as HTML
+   * (`withMarks`), the open ones are drawn on their passages (`publish-marginalia.ts`).
+   */
+  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean): Promise<{ markdown: string; marks: PublishedAnnotation[] }> {
+    const whole = await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
       fields: ["text", "parent", "properties", "author", "revision"],
     });
+    const annotationRows = shownSubtree(whole).filter((row) => !row.locked && isAnnotationBlock(row.block));
+    const subtree = { ...whole, blocks: whole.blocks.filter((block) => !isAnnotationBlock(block)) };
     const rows = shownSubtree(subtree).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
     const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)));
     const decorations = await this.readDecorations(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
-    return renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds, decorations);
+    const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
+    const order: PublishedAnnotation[] = [];
+    const markdown = renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds, decorations, marks, order);
+    return { markdown, marks: order };
+  }
+
+  /**
+   * The open annotations on each shown block that has any (its annotation blocks are its children), read through
+   * `annotations.list`. A block whose read fails is published unmarked: a mark is never what a page depends on.
+   */
+  private async readMarks(blocks: readonly ProjectedVisibleBlock[], annotations: readonly ProjectedVisibleBlock[]): Promise<ReadonlyMap<string, readonly PublishedAnnotation[]>> {
+    const shown = new Set(annotations.map((block) => block.id));
+    const annotated = new Set(annotations.map((block) => block.parentId));
+    const out = new Map<string, readonly PublishedAnnotation[]>();
+    await Promise.all(blocks.filter((block) => annotated.has(block.id)).slice(0, MAX_DECORATED_BLOCKS).map(async (block) => {
+      try {
+        const threads = await this.client.request<AnnotationThread[]>({
+          action: "annotations.list", query: { subject: { kind: "block", blockId: block.id }, includeResolved: false },
+        });
+        const marks = publishedAnnotations(block.text ?? "", threads.filter((thread) => {
+          const subject = thread.resolvedTarget?.representation.subject;
+          return subject?.kind === "block" && subject.blockId === block.id;
+        }), shown);
+        if (marks.length) out.set(block.id, marks);
+      } catch (error) {
+        this.log(`publish: annotations.list: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }));
+    return out;
   }
 
   /**
@@ -1104,6 +1143,12 @@ function readerIndex(index: PublishedIndex): PublishedIndex {
   };
 }
 
+/** An annotation or a reply: drawn on its passage, never listed as a row of the note. */
+function isAnnotationBlock(block: ProjectedVisibleBlock): boolean {
+  const type = getProperty(block.properties ?? [], "type");
+  return type === ANNOTATION_TYPE || type === ANNOTATION_REPLY_TYPE;
+}
+
 /**
  * The rows of a published subtree in page order: the root, then each
  * descendant that is shown. A descendant marked `[publish::false]` (or
@@ -1154,12 +1199,22 @@ export function renderSubtreeMarkdown(
   pages: ReadonlyMap<string, string> = new Map(),
   embeds?: EmbedExpansion,
   decorations: ReadonlyMap<string, readonly Decoration[]> = new Map(),
+  marks: ReadonlyMap<string, readonly PublishedAnnotation[]> = new Map(),
+  order: PublishedAnnotation[] = [],
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree);
   if (!rootRow) return "";
   const root = rootRow.block;
   const context: TextContext = { index, basePath, pages, ...(embeds ? { embeds } : {}) };
-  const rootText = publishedText(decoratedText(root.text ?? "", decorations.get(root.id)), context);
+  // Each block's marks, numbered page-wide in page order (`order` collects them for drawMarginalia).
+  const marked = (block: ProjectedVisibleBlock, text: string) => {
+    const list = marks.get(block.id);
+    if (!list?.length || order.length >= MAX_PUBLISHED_MARKS) return text;
+    const first = order.length;
+    order.push(...list);
+    return placeMarkSentinels(text, list, first);
+  };
+  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id)), context));
   const [first = "", ...rest] = rootText.split("\n");
   const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
@@ -1167,7 +1222,7 @@ export function renderSubtreeMarkdown(
       : [`# ${first.trim() || root.id}`, ...rest];
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : publishedText(decoratedText(block.text ?? "", decorations.get(block.id)), context);
+    const text = locked ? placeholder(LOCKED_NOTE) : marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id)), context));
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);

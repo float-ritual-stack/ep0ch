@@ -564,14 +564,19 @@ export interface AnnotationResolutionEvent {
 
 export interface AnnotationCreateInput {
   readonly target: AnnotationTarget;
+  /** Empty for a highlight: an annotation of a passage with no body (ADR 0004, contract 6). */
   readonly body: string;
   readonly source: AnnotationSource;
+  /** Its own properties, open (`kind`, `tags`, `color` as a theme tone, or any other), written on its block. */
+  readonly properties?: Readonly<Record<string, string | readonly string[]>>;
 }
 
 /** A quote is exact source text; optional context must identify one occurrence. */
 export interface BlockCommentPassage {
   readonly quote: string;
   readonly start?: number;
+  /** Among repeats, the one nearest this offset (an agent's `near=`). */
+  readonly near?: number;
   readonly prefix?: string;
   readonly suffix?: string;
   readonly itemId?: string;
@@ -580,8 +585,10 @@ export interface BlockCommentPassage {
 export interface BlockCommentInput {
   readonly blockId: string;
   readonly expectedRevision: number;
+  /** Empty for a highlight (a passage's annotation with no body). */
   readonly body: string;
   readonly source: AnnotationSource;
+  readonly properties?: Readonly<Record<string, string | readonly string[]>>;
   /** Omit only for an intentional whole-block comment. */
   readonly passage?: BlockCommentPassage;
 }
@@ -598,6 +605,7 @@ export interface ResourceCommentInput {
   readonly expectedRevision: number;
   readonly body: string;
   readonly source: AnnotationSource;
+  readonly properties?: Readonly<Record<string, string | readonly string[]>>;
   readonly passage?: BlockCommentPassage;
   readonly referenceBlockId?: string;
 }
@@ -625,6 +633,8 @@ export interface AnnotationRecord {
   readonly lifecycle: AnnotationLifecycle;
   readonly promotedBlockIds?: readonly string[];
   readonly parentAnnotationId?: string;
+  /** Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. */
+  readonly properties?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface AnnotationThread extends AnnotationRecord {
@@ -2206,7 +2216,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */
   | {
-      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>;
+      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; passage?: import("@ep0ch/outline-core/passage").Passage;
       /**
        * Capability `extensions.act.requester`: who asks (the person, or an agent with its actor id). The writes
        * stay `ext:<id>`'s; the change feed records this beside them as `requestedBy`. `author`/`provenance`

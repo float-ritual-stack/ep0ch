@@ -2370,7 +2370,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const stale = placed.flatMap(([id, r0]) => {
       const r = this.boxOf(id, r0), last = this.views.get(id);
       const p = this.panes.get(id), look = p && this.looks.get(p);
-      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured);
+      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
       return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
@@ -2483,7 +2483,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : "";
     canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
-    const inner = contentRect(framed, look, !!pane.measured);
+    const inner = contentRect(framed, look, !!pane.measured, pane.beside?.() ?? 0);
     this.contents.set(id, inner);
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
@@ -5671,12 +5671,13 @@ function mapTree(n: LNode, f: (id: number) => number): LNode {
  * Where a tile's content goes inside its frame (`framed`) by its look (PIE-673): its padding (never so much that less
  * than 8 columns or 3 rows are left), and, for a note's text (`measured`), at most `measure` columns, centred.
  */
-export function contentRect(framed: Rect, look: Look | undefined, measured: boolean): Rect {
+export function contentRect(framed: Rect, look: Look | undefined, measured: boolean, beside = 0): Rect {
   if (!look) return framed;
   const v = look.values;
   const px = Math.max(0, Math.min(v["pad.x"], Math.floor((framed.cols - 8) / 2))), py = Math.max(0, Math.min(v["pad.y"], Math.floor((framed.rows - 3) / 2)));
   let col = framed.col + px, cols = framed.cols - 2 * px;
-  const m = v.measure;
+  // `beside`: columns the content keeps next to the measured text (a reader's margin column, ADR 0004 contract 6).
+  const m = v.measure > 0 ? v.measure + beside : 0;
   if (measured && m > 0 && cols > m) { col += Math.floor((cols - m) / 2); cols = m; }
   return { col, row: framed.row + py, cols, rows: framed.rows - 2 * py };
 }

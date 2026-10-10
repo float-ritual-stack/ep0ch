@@ -105,10 +105,11 @@ const Action = Type.Object(
     label: Type.String({ minLength: 1, maxLength: 60 }),
     description: Type.Optional(Type.String({ maxLength: 300 })),
     /**
-     * What it acts on: `block` (any block), `handler:<key>` (a line of that handler), `tile:<kind>`, or `bar` (a row of
-     * one of its bar sources: no block, the row's `args`). Default `block`.
+     * What it acts on: `block` (any block), `handler:<key>` (a line of that handler), `tile:<kind>`, `bar` (a row of
+     * one of its bar sources: no block, the row's `args`), or `passage` (ADR 0004 contract 5: an exact span of a block's
+     * or a Resource's text, `target.passage`, checked by the service before it runs). Default `block`.
      */
-    on: Type.Optional(Type.String({ pattern: "^(block|bar|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
+    on: Type.Optional(Type.String({ pattern: "^(block|bar|passage|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
     /** A suggested key for clients that bind one (the door's `ActionDef`). */
     key: Type.Optional(Type.String({ minLength: 1, maxLength: 12 })),
     /** `write`: it may return writes. `read` (default): it only answers. */
@@ -166,6 +167,11 @@ const Agent = Type.Object(
     /** `spend`: it costs money or model time (said in listings; a request line is the consent either way). */
     effects: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("spend")])),
     deadline: Type.Optional(Duration),
+    /**
+     * It answers in comment threads too: `@name …` in a comment on a passage (or a reply in its thread) runs `respond`
+     * with the passage, and its reply lands in that thread (the margin's, ADR 0004 contract 6). A client's Ask offers it.
+     */
+    threads: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -474,6 +480,9 @@ function checkManifest(manifest: ExtensionManifest): void {
       if ("problem" in kind) throw new ExtensionLoadError(`${where}/match/kind: ${kind.problem}`);
     }
     if (!rule.decorate && !rule.on) throw new ExtensionLoadError(`${where} does nothing: give it decorate, on, or both`);
+    if ((rule.decorate?.place === "span" || rule.decorate?.place === "margin") && !match.text) {
+      throw new ExtensionLoadError(`${where}/decorate/place ${rule.decorate.place} marks characters: it needs match/text (the words it marks)`);
+    }
     if (rule.decorate && !rule.decorate.use) codeRules += 1;
     if (rule.decorate?.use === undefined && rule.decorate && (rule.decorate.label || rule.decorate.fields || rule.decorate.pattern || rule.decorate.align || rule.decorate.tone || rule.decorate.style)) {
       throw new ExtensionLoadError(`${where}/decorate has a built-in decoration's fields but no use: name one (${BUILT_IN_DECORATIONS.join(", ")}) or leave them to the decorate operation`);
