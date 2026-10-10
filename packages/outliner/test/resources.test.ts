@@ -25,6 +25,10 @@ import {
   BasicWebMarkdownExtractor,
   type WebMarkdownExtractor,
 } from "../src/web-markdown";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 function withWorkspace(run: (root: string, store: OutlinerStore) => void): void {
   const root = mkdtempSync(join(tmpdir(), "outliner-resources-"));
@@ -198,7 +202,7 @@ test("Jira shorthand resolves through its configured Source only on activation",
   try {
     store.resources.createSource({
       name: "Product Jira",
-      provider: "jira",
+      provider: "ext:jira",
       boundary: {
         origin: "https://jira.example.test",
         project: "PC",
@@ -206,15 +210,15 @@ test("Jira shorthand resolves through its configured Source only on activation",
       },
     });
     expect(store.resources.resolveAuthoredReference({
-      kind: "jira",
+      kind: "ext:jira",
       key: "PC-515",
     })).toEqual({
       kind: "unregistered",
-      reason: "Jira issue is not registered: PC-515",
+      reason: "Jira entity is not registered: PC-515",
     });
 
     const receipt = await store.resources.followAuthoredReference({
-      kind: "jira",
+      kind: "ext:jira",
       key: "PC-515",
     });
 
@@ -222,12 +226,12 @@ test("Jira shorthand resolves through its configured Source only on activation",
     expect(receipt).toMatchObject({
       created: true,
       resource: {
-        provider: "jira",
+        provider: "ext:jira",
         address: { entityId: "immutable-515", key: "PC-515" },
       },
     });
     expect(store.resources.resolveAuthoredReference({
-      kind: "jira",
+      kind: "ext:jira",
       key: "PC-515",
     })).toEqual({ kind: "ready", resourceId: receipt.resource.id });
   } finally {

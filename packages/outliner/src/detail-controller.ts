@@ -107,7 +107,9 @@ import {
   resourceRevisionRefEquals,
   resourceAddressLabel,
   resourceDescriptionLabel,
+  providerLabel,
 } from "./resources";
+import { isRemoteEntity } from "./remote-entity";
 import { TextBuffer, type TextBufferRange } from "./text-buffer";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
 import type {
@@ -1523,11 +1525,7 @@ export function createDetailController(
     if (providerRevision.kind === "computed") {
       return `computed ${providerRevision.producerId}@${providerRevision.producerVersion}, input v${providerRevision.inputVersion}, dependencies ${providerRevision.dependencyFingerprint}`;
     }
-    const provider = providerRevision.kind === "github"
-      ? "GitHub"
-      : providerRevision.kind === "jira"
-      ? "Jira"
-      : "Linear";
+    const provider = providerRevision.kind === "github" ? "GitHub" : providerLabel(providerRevision.kind);
     return `${provider} ${providerRevision.validator.kind} ${providerRevision.validator.value}`;
   };
 
@@ -1604,11 +1602,7 @@ export function createDetailController(
               : "No negotiated open-external capability"
           }`,
         ];
-    const remoteProvider = resource.provider === "jira"
-      ? "Jira"
-      : resource.provider === "linear"
-      ? "Linear"
-      : null;
+    const remoteProvider = isRemoteEntity(resource) ? providerLabel(resource.provider) : null;
     const lines = computed && renderLocalContent
       ? [
           computed.markdown,
@@ -1705,8 +1699,7 @@ export function createDetailController(
     }
     if (
       resource.provider === "web" ||
-      resource.provider === "jira" ||
-      resource.provider === "linear"
+      isRemoteEntity(resource)
     ) {
       const status = resource.provider === "web"
         ? description.webStatus
@@ -3258,8 +3251,7 @@ export function createDetailController(
           !description ||
           (
             description.resource.provider !== "web" &&
-            description.resource.provider !== "jira" &&
-            description.resource.provider !== "linear" &&
+            !isRemoteEntity(description.resource) &&
             description.resource.provider !== "computed" &&
             !(description.resource.provider === "filesystem" &&
               description.resource.mediaType === "application/pdf")
@@ -3286,11 +3278,8 @@ export function createDetailController(
               : "Computed producer executed";
             break;
           }
-          if (
-            refreshed.resource.provider === "jira" ||
-            refreshed.resource.provider === "linear"
-          ) {
-            const provider = refreshed.resource.provider === "jira" ? "Jira" : "Linear";
+          if (isRemoteEntity(refreshed.resource)) {
+            const provider = providerLabel(refreshed.resource.provider);
             const freshness = refreshed.remoteStatus?.freshness ?? "unknown";
             if (freshness === "fresh") {
               state.status = `${provider} resource refreshed`;

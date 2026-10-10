@@ -525,6 +525,17 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "margin-replies", need: "talk in the margin and find the answers later: a thread is one conversation (@margin there resumes it; a reply without it is a note to self, never answered), and every reply on your threads comes back to one place, the new ones unread until you open the thread",
+    part: "a margin thread's session (outliner agent-requests.ts answerInThread: the thread's [margin-session::] handed back to marginalia's respond; the whole thread and the page's other comments every time) and Recent replies: a saved view in the views' grammar (outline-core recent-replies.ts: thread:me, unread:me over the service's read marks, PIE-708), the same question the web client's /replies page asks; opening a thread marks it read (annotations.read: the person's thread.toggle, a click on its card or mark)",
+    files: "outline-core/src/recent-replies.ts, outline-core/src/query-atoms.ts (unread:, thread:), outliner src/read-marks.ts, src/agent-requests.ts, extensions/marginalia, src/publish.ts (serveReplies), src/surface/note.ts (readThread)",
+    aside: "left: the greenhouse plan, its question answered and a note to self after it (no @margin, so no answer); right: Recent replies, the answer on it. Click the question's card (or ⏎ on its mark) to open the thread: it's read, and unread:me no longer lists it. Write @margin in a reply to ask again in the same conversation",
+    stage(n, show) {
+      const plan = new ReaderPane(), replies = new ReaderPane();
+      return deskOf({ title: "showcase · margin replies", panes: [plan, replies], names: ["plan", "replies"],
+        layout: ([a, b]) => row(0.58, a!, b!) }, show, [[plan, n.marginalia], [replies, n.recentReplies]]);
+    },
+  },
+  {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
@@ -557,6 +568,23 @@ export const SECTIONS: Section[] = [
       }).make({ kind: "showcase.extensions" });
       const r = new ReaderPane();
       return deskOf({ title: "showcase · extensions", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.omens]], d => { if (n.omens) d.setCurrent(n.omens); });
+    },
+  },
+  {
+    key: "ext-pages", need: "give an extension a page in the outline that explains and demonstrates it (its README, what it adds, its demo notes), list what's installed and what isn't, install or remove one", part: "the extensions' pages (outliner src/extension-pages.ts, src/extension-demo.ts): the service writes the Extensions hub and a page per installed extension from its folder (README drawn as the note, what its manifest adds, its CHANGELOG's head), and its demo/ notes under the page once, as ext:<id>, with fresh ids; extensions.list says the hub, each page and what's available; extensions.install and extensions.uninstall (demo=keep|remove, never silently) are actions in EXTENSION_INSTALL_ACTIONS, reached by the power bar's extensions scope (&: ⏎ or a click on a row) and act; the pages are notes, read by the note surface", files: "outliner src/extension-pages.ts, outliner src/extension-demo.ts, src/extensions.ts (EXTENSION_INSTALL_ACTIONS), src/bar/sources.ts (EXTENSIONS)",
+    aside: "the notifications hub (on made-up Gmail, Jira and Slack, pulled once) and the runbook extension, copied into the showcase's own config dir when try-it names the checkout; without them there is no hub, and the readers stay empty",
+    stage(_n, show) {
+      // The hub on the left; the notifications hub's page on the right, its demo boards under it, live.
+      const hub = new ReaderPane(), page = new ReaderPane();
+      const d = stageDesk({ title: "showcase · extension pages", panes: [hub, page], layout: ([a, b]) => row(0.5, a!, b!) });
+      show(ctx => void (async () => {
+        const l = extensionList() ?? await ctx.board.listExtensions().catch(() => null);
+        const [h, p] = await Promise.all([l?.hub ? ctx.board.get(l.hub) : null, l?.pages?.notify ? ctx.board.get(l.pages.notify) : null]);
+        if (h) hub.show(h, d);
+        if (p) page.show(p, d);
+        ctx.redraw();
+      })().catch(() => {}));
+      return d;
     },
   },
   {
@@ -715,7 +743,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, @ screens, an extension's own prefix; tab cycles), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action needing no argument), the what-changed store, screen.list, and an extension's bar[] through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
+    key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, @ screens, & extensions, an extension's own prefix; tab cycles), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action needing no argument), the what-changed store, screen.list, and an extension's bar[] through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
     aside: "ctrl+k (or a click on ^K at the status bar's left), anywhere: with nothing typed, the tiles open on every screen and in your drawer, indented as each screen's layout tree (● has the keys, ▸ a spine, ⧉ a float, ⇤ docked), then what others changed · type to look through everything at once, or start with % / > + @ (tab cycles) for one source · ⏎ or a double click goes: a tile gets the keys (the folded detail here opens from its spine; one on a screen under this one brings it up), a note opens where opens land, an action runs; alt+⏎ zooms a tile or opens a note in a new detail · esc puts it away · with the outliner's glyphs example installed, ~shade lists its rows, and on a note it offers to rule it · every scope finds a note by what names it: its title, its work id (PLOT-4) and its page name, and its rows read the way /notes does, `PLOT-4 Order the seed potatoes` · / with nothing typed lists the notes changed most recently first (the service's recency and what others changed, agents included), so / then ⏎ opens the latest; type and it runs the one search · `act bar.open query=… scope=…` answers the rows to an agent and opens nothing; `act bar.pick n=… query=…` picks as the agent, never your keys",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), a = detailPane(), b = detailPane();

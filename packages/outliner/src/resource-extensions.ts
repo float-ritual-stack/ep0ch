@@ -13,6 +13,7 @@ import {
   CredentialSchema,
   ExtensionLoadError,
   MAX_DEADLINE_MS,
+  RESERVED_EXTENSION_ENV,
   folderStamp,
   readExtensionFolder,
   type ExtensionHandler,
@@ -112,14 +113,45 @@ async function boundedFile(path: string): Promise<string> {
   return file.text();
 }
 
+/** The outlines folder whose host listens at `socket` (`<outlines>/.host/host.sock`), else undefined. */
+export function outlinesOfHostSocket(socket: string | undefined): string | undefined {
+  const suffix = "/.host/host.sock";
+  return socket?.endsWith(suffix) && socket.length > suffix.length ? socket.slice(0, -suffix.length) : undefined;
+}
+
 /** What every extension process gets besides its request (PIE-754): no more than this, and no host secrets. */
 export interface ExtensionProcessEnv {
   readonly [name: string]: string;
 }
 
-/** The base environment: a PATH and a locale. The connection and secrets are added per call. */
+/**
+ * The base environment: a PATH, a locale, the service user's HOME (a host CLI finds its login there: `gh`, `git`) and
+ * WITH_SECRETS_DIR when the service has one. The manifest's `env` names, the connection and secrets are added per call.
+ */
 function baseEnv(): Record<string, string> {
-  return { PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C.UTF-8" };
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C.UTF-8", HOME: process.env.HOME || homedir(),
+    ...(process.env.WITH_SECRETS_DIR ? { WITH_SECRETS_DIR: process.env.WITH_SECRETS_DIR } : {}),
+  };
+}
+
+/** How much of a failed process's stderr is shown: its last lines, this many characters at most. */
+const STDERR_TAIL_LINES = 6;
+const STDERR_TAIL_CHARS = 600;
+const STDERR_KEPT_BYTES = 16 * 1024;
+
+/** The last few lines of what a process wrote to stderr, one line each, escapes and control characters out. */
+export function stderrTail(text: string): string {
+  return plainText(text).split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STDERR_TAIL_LINES).join(" | ").slice(-STDERR_TAIL_CHARS);
+}
+
+/** Terminal escapes and control characters (all but newline and tab) out. */
+function plainText(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")
+    .replace(/\x1b[@-_]/g, "")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
 
 /** Process isolation provides deadlines and fresh code, not a sandbox. Only trusted installs may run. */
@@ -130,6 +162,8 @@ async function runCommand(
   timeoutMs: number,
   signal?: AbortSignal,
   env: Record<string, string> = baseEnv(),
+  /** The call's secrets, read when it fails, so its stderr is scrubbed of every one (a group asked for while it ran too). */
+  secrets: () => readonly string[] = () => [],
 ): Promise<string> {
   if (Buffer.byteLength(input) > MAX_REQUEST_BYTES)
     throw failure("request exceeds 256 KiB");
@@ -143,10 +177,20 @@ async function runCommand(
     const child = spawn(command[0]!, command.slice(1), {
       cwd,
       detached: process.platform !== "win32",
-      stdio: ["pipe", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "pipe"],
       env,
     });
     const chunks: Buffer[] = [];
+    // The end of stderr, kept only to say why a process failed (scrubbed, its last lines), never stored otherwise.
+    let stderr = Buffer.alloc(0);
+    let cut = false;
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = Buffer.concat([stderr, chunk]);
+      if (stderr.length > STDERR_KEPT_BYTES) {
+        stderr = stderr.subarray(stderr.length - STDERR_KEPT_BYTES);
+        cut = true;
+      }
+    });
     let length = 0,
       settled = false;
     const kill = () => {
@@ -188,15 +232,47 @@ async function runCommand(
       else chunks.push(chunk);
     });
     child.stdin.on("error", () => {});
-    child.on("close", (code) =>
-      finish(
-        code === 0
-          ? undefined
-          : failure("command failed; check extension configuration"),
-      ),
-    );
+    child.on("close", (code, killed) => {
+      if (code === 0) return finish();
+      const tail = stderrTail(scrubCredentials(cut ? uncut(plainText(stderr.toString("utf8")), secrets()) : plainText(stderr.toString("utf8")), secrets()) as string);
+      const how = code === null ? `was stopped (${killed ?? "a signal"})` : `exited with code ${code}`;
+      finish(failure(`command ${how}${tail ? `: ${tail}` : " and wrote nothing to stderr"}`));
+    });
     child.stdin.end(input);
   });
+}
+
+/**
+ * The end of a stream that was cut to its last bytes: its first, partial line dropped, and any start that is the end of
+ * a secret (cut through by the cut) redacted, so no piece of a value survives the scrub that follows.
+ */
+function uncut(text: string, secrets: readonly string[]): string {
+  const newline = text.indexOf("\n");
+  let rest = newline < 0 ? "" : text.slice(newline + 1);
+  for (const form of secretForms(secrets)) {
+    for (let length = form.length - 1; length > 0; length -= 1) {
+      if (rest.startsWith(form.slice(-length))) { rest = `[redacted]${rest.slice(length)}`; break; }
+    }
+  }
+  return rest;
+}
+
+/** One macOS Keychain item's password (`security find-generic-password -s <service> -w`), or undefined. */
+export async function keychainItem(service: string, cwd = "/", timeoutMs = 3000): Promise<string | undefined> {
+  if (process.platform !== "darwin") return undefined;
+  return (await runCommand(["/usr/bin/security", "find-generic-password", "-s", service, "-w"], cwd, "", timeoutMs).catch(() => "")).trim() || undefined;
+}
+
+/** The forms of a secret the scrub finds: as it is, base64 and URL-encoded; longest first. */
+function secretForms(secrets: readonly string[]): string[] {
+  const forms = new Set<string>();
+  for (const secret of secrets) {
+    if (!secret) continue;
+    forms.add(secret);
+    forms.add(Buffer.from(secret).toString("base64"));
+    forms.add(encodeURIComponent(secret));
+  }
+  return [...forms].sort((a, b) => b.length - a.length);
 }
 
 export function scrubCredentials(
@@ -206,9 +282,11 @@ export function scrubCredentials(
 ): unknown {
   if (depth > 64) throw failure("response exceeds nesting limit");
   if (typeof value === "string") {
-    for (const secret of secrets)
-      for (const token of [secret, Buffer.from(secret).toString("base64")])
-        value = (value as string).split(token).join("[redacted]");
+    if (!secrets.length) return value;
+    // Escapes out first, so a value split by one ("ab\x1b[0mcd") is found whole; then each form of each value.
+    value = plainText(value);
+    for (const token of secretForms(secrets))
+      value = (value as string).split(token).join("[redacted]");
     return value;
   }
   if (Array.isArray(value))
@@ -248,8 +326,35 @@ export interface ExtensionCallFor {
   /** Whether its process may write over its connection (default: no, it only reads). */
   readonly writes?: boolean;
   readonly requestedBy?: MutationProvenance;
+  /** Filled with what its process writes over its connection (the grant's `wrote`), for the caller to redraw. */
+  readonly wrote?: { blockId?: string; parentId?: string | null; previousParentId?: string | null }[];
 }
+
+type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar";
+/** What one call runs: the install, its manifest's part a call needs, its folder and stamp. */
+interface InstalledCall {
+  install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string } | { group: string; key: string }> };
+  manifest: { contract: 1 | 2; id: string; version: number; command: readonly string[]; name: string; env?: readonly string[]; secretGroups?: readonly string[] };
+  directory: string;
+  stamp: string;
+}
+
+/** An extension's last call (`extensions.list`'s `lastRun`): when, which, and why it failed. */
+export interface ExtensionRunStatus {
+  readonly at: string;
+  /** `ext.<id>.<action or handler>`, or the operation. */
+  readonly call: string;
+  readonly ok: boolean;
+  /** Why it failed, scrubbed of its secrets: a crash's last stderr lines, a timeout, a refusal code. */
+  readonly error?: string;
+}
+
 export class ResourceExtensionRuntime {
+  private readonly runs = new Map<string, ExtensionRunStatus>();
+  /** What an extension's last call did (absent before its first). */
+  lastRun(extensionId: string): ExtensionRunStatus | undefined {
+    return this.runs.get(extensionId);
+  }
   constructor(
     readonly configPath = defaultRegistryPath(),
     readonly timeoutMs = 15_000,
@@ -301,6 +406,18 @@ export class ResourceExtensionRuntime {
       };
     }
     return null;
+  }
+  /**
+   * The providers the legacy single-file registry (`resource-extensions.json`, contract 1) installs and enables: each
+   * an extension id whose Resources it serves (Jira's, before its folder). Empty when there is no such file.
+   */
+  async legacyProviders(): Promise<string[]> {
+    try {
+      const registry = Parse(Registry, JSON.parse(await boundedFile(this.configPath)));
+      return Object.entries(registry.providers).filter(([, install]) => install.enabled).map(([provider]) => provider);
+    } catch {
+      return [];
+    }
   }
   /** The installed extension for a provider key, without running it; null when none is installed. */
   async describe(provider: string): Promise<ExtensionDescription | null> {
@@ -391,7 +508,8 @@ export class ResourceExtensionRuntime {
     const before = await folderStamp(extension.directory);
     return this.invokeInstalled(extension.id, {
       install: { manifest: join(extension.directory, "extension.json"), enabled: true, config: extension.config, credentials: extension.credentials },
-      manifest: { contract: 2 as const, id: extension.id, version: extension.version, command: extension.command, name: extension.name },
+      manifest: { contract: 2 as const, id: extension.id, version: extension.version, command: extension.command, name: extension.name,
+        env: extension.manifest.env ?? [], secretGroups: extension.manifest.secretGroups ?? [] },
       directory: extension.directory,
       stamp: extension.stamp,
     }, operation, input, undefined, deadlineMs, callFor, async () => {
@@ -411,18 +529,35 @@ export class ResourceExtensionRuntime {
 
   private async invokeInstalled(
     provider: string,
-    loaded: {
-      install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string } | { group: string; key: string }> };
-      manifest: { contract: 1 | 2; id: string; version: number; command: readonly string[]; name: string };
-      directory: string;
-      stamp: string;
-    },
-    operation: "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar",
+    loaded: InstalledCall,
+    operation: ExtensionOperation,
     input: unknown,
     signal: AbortSignal | undefined,
     deadlineMs: number | undefined,
     callFor: ExtensionCallFor,
     /** Whether the extension is still the one that was called, asked once it answers. */
+    unchanged: () => Promise<boolean>,
+  ): Promise<ExtensionResult> {
+    const call = callFor.label ?? `ext.${loaded.manifest.id}.${operation}`;
+    try {
+      const result = await this.invokeProcess(provider, loaded, operation, input, signal, deadlineMs, callFor, unchanged);
+      this.runs.set(loaded.manifest.id, { at: new Date().toISOString(), call, ok: true });
+      return result;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
+      this.runs.set(loaded.manifest.id, { at: new Date().toISOString(), call, ok: false, error: reason });
+      throw error;
+    }
+  }
+
+  private async invokeProcess(
+    provider: string,
+    loaded: InstalledCall,
+    operation: ExtensionOperation,
+    input: unknown,
+    signal: AbortSignal | undefined,
+    deadlineMs: number | undefined,
+    callFor: ExtensionCallFor,
     unchanged: () => Promise<boolean>,
   ): Promise<ExtensionResult> {
     const deadline = Math.min(MAX_DEADLINE_MS, deadlineMs ?? this.timeoutMs);
@@ -440,7 +575,7 @@ export class ResourceExtensionRuntime {
       if ("group" in reference) {
         try {
           value = await readGroupSecret(reference.group, reference.key, `${loaded.manifest.name}'s ${name} secret`, process.platform === "darwin"
-            ? async (service) => (await runCommand(["/usr/bin/security", "find-generic-password", "-s", service, "-w"], loaded.directory, "", Math.min(this.timeoutMs, 3000), signal).catch(() => "")).trim() || undefined
+            ? (service) => keychainItem(service, loaded.directory, Math.min(this.timeoutMs, 3000))
             : undefined);
         } catch (error) {
           throw failure(error instanceof Error ? error.message : String(error));
@@ -506,20 +641,35 @@ export class ResourceExtensionRuntime {
     // Its connection to the service (PIE-754): the socket, the outline, and a grant that makes what it writes there
     // the extension's own (`ext:<id>`), valid while this process runs.
     const connection = this.connection();
+    // One list for the whole call: a group it asks for while it runs (`secrets.group`) joins it, so its answer, its
+    // writes and its stderr are scrubbed of those values too.
+    const secretValues = Object.values(secrets);
     const grant = issueGrant({
       extensionId: loaded.manifest.id,
       label: callFor.label ?? `ext.${loaded.manifest.id}.${operation}`,
       writes: callFor.writes === true,
-      secrets: Object.values(secrets),
+      secrets: secretValues,
+      ...(loaded.manifest.secretGroups?.length ? { secretGroups: loaded.manifest.secretGroups } : {}),
+      ...(callFor.wrote ? { wrote: callFor.wrote } : {}),
       ...(callFor.requestedBy ? { requestedBy: callFor.requestedBy } : {}),
     });
+    // The host variables its manifest names (`env`), when the service has them: never a secret's place.
+    const passed: Record<string, string> = {};
+    for (const name of loaded.manifest.env ?? []) {
+      const value = process.env[name];
+      if (value !== undefined && !RESERVED_EXTENSION_ENV.has(name)) passed[name] = value;
+    }
     const env: Record<string, string> = {
+      ...passed,
       ...secretEnv,
       ...baseEnv(),
       OUTLINER_EXTENSION: loaded.manifest.id,
       EP0CH_EXT_GRANT: grant,
       ...(connection.socket ? { EP0CH_SOCKET: connection.socket } : {}),
       ...(connection.outline ? { EP0CH_WS: connection.outline } : {}),
+      // An outline host's own socket says where its outlines are: a program it starts (`claude` for @margin) finds the
+      // same host and folder, and the mod knows the socket is this machine's.
+      ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
     };
     let output: string;
     try {
@@ -530,6 +680,7 @@ export class ResourceExtensionRuntime {
         deadline,
         signal,
         env,
+        () => secretValues,
       );
     } finally {
       revokeGrant(grant);
@@ -565,7 +716,7 @@ export class ResourceExtensionRuntime {
         ? `no ${loaded.manifest.name} credentials on this machine`
         : ERROR_MESSAGES[parsed.code] ?? "provider operation failed");
     return {
-      value: scrubCredentials(parsed.value, Object.values(secrets)),
+      value: scrubCredentials(parsed.value, secretValues),
       adapter: { id: loaded.manifest.id, version: loaded.manifest.version },
       manifestHash: loaded.stamp,
     };

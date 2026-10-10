@@ -18,12 +18,14 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -329,9 +331,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
+    // The plan's answered question beside Recent replies, which lists the answer.
+    "margin-replies": ["Greenhouse plan for the spring", "question · ", "Recent replies"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
+    // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
+    "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
     rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
     selection: ["Lentil soup", "Drag across these lines"],
@@ -860,6 +866,41 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(book?.blocks.filter(b => b.parentId === plan.id).length).toBeGreaterThanOrEqual(5);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
+
+  test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "margin-replies" }, as: "test-agent" })).toMatchObject({ key: "margin-replies" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "margin-replies")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    await until(() => tiles().find(t => t.name === "replies")?.showing?.id === seeded.notes.recentReplies.id && screen().includes("question · "), "the plan and Recent replies", 8000);
+    const plan = seeded.notes.marginalia;
+    const thread = (await board.comments(plan.id)).find(t => t.body === "Why ten days, not a week?")!;
+    const answer = thread.replies.find(r => r.author !== "user")!;
+    const aside = thread.replies.find(r => r.author === "user")!;
+    // The saved view: the agent's answer on his thread, not his own note to self.
+    const listed = (await board.readSavedView(seeded.notes.recentReplies.id))!.blocks.map(b => b.id);
+    expect(listed).toContain(answer.id);
+    expect(listed).not.toContain(aside.id);
+    // The note to self was never sent: nothing answered it.
+    expect(thread.replies.filter(r => r.author !== "user")).toHaveLength(1);
+    const unread = async () => (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
+    expect(await unread()).toContain(answer.id);
+    // A click on the question's card opens its thread: read now.
+    const lines = screen().split("\n");
+    const y = lines.findIndex(l => l.includes("question · "));
+    const x = lines[y]!.indexOf("question · ");
+    press({ kind: "mouse", action: "down", button: 0, x: x + 2, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 2, y });
+    const end = Date.now() + 5000;
+    while ((await unread()).includes(answer.id)) { if (Date.now() > end) throw new Error("timed out waiting for the thread to be read"); await Bun.sleep(50); }
+    // @margin in a reply asks again in the same thread (answered from the note: no model in a test).
+    await board.reply("showcase-margin-again", thread.id, "@margin and for the leeks?", { kind: "user" });
+    const again = Date.now() + 10_000;
+    while (!(await board.comments(plan.id)).find(t => t.id === thread.id)!.replies.some(r => r.author === "ext:marginalia")) {
+      if (Date.now() > again) throw new Error("timed out waiting for the margin's answer");
+      await Bun.sleep(50);
+    }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;
@@ -2255,6 +2296,78 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("extension pages: the Extensions hub and the notifications hub's page with its demo boards, live; one installed and removed through act and the power bar's extensions scope", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    await until(() => screen().includes("## Installed") && screen().includes("Notifications hub") && screen().includes("A deterministic fetcher"), "the hub and notify's page", 10_000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0];
+    // The page's demo notes, written once as the extension; its boards are views over what the pull wrote.
+    const demo = await board.children(listed.pages!.notify!);
+    expect(demo.map(title)).toEqual(["Start here: your notifications on two boards", "Notifications by read state [page::notifications-state]", "Notifications by source [page::notifications-source]"]);
+    expect(String(demo[0]!.author)).toContain("ext:notify");
+    const [unread] = await board.children(demo[1]!.id);
+    expect((await board.readSavedView(unread!.id))?.blocks.length).toBeGreaterThan(0);
+    const [runbook] = await board.children(listed.pages!.runbook!);
+    expect(title(runbook!)).toBe("Ship the demo widget [type::runbook] [env::scratch]");
+    // The hub lists what's installed, and what the repo has that isn't; the bar's extensions scope offers it.
+    const hubText = (await board.get(listed.hub!))!.text;
+    expect(hubText).toContain(`((${listed.pages!.notify}|Notifications hub))`);
+    expect(listed.available!.map(a => a.id)).toContain("horoscope");
+    const rows = await app.act({ action: "bar.open", args: { scope: "&", query: "horoscope" }, as: "test-agent" }) as { rows: { label: string }[] };
+    expect(rows.rows.map(r => r.label)).toContain("install Horoscope");
+    // Installed by act: its page is written before the answer; removed again, the demo's fate said.
+    const done = await app.act({ action: "extensions.install", args: { id: "horoscope" }, as: "test-agent" }) as { page?: string };
+    expect(title((await board.get(done.page!))!)).toBe("Horoscope [ext.page::horoscope] [page::ext-horoscope]");
+    await until(() => !!extensionNamed("horoscope"), "the door bound horoscope", 5000);
+    await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
+    await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
+    expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0]!;
+    const demo = await board.children(listed.pages!.structure!);
+    const beds = demo.find(m => title(m).startsWith("Beds"))!, plan = demo.find(m => title(m) === "Garden plan")!;
+    const names = async () => (await board.children(beds.id)).map(m => title(m).split(" [")[0]);
+    expect(await names()).toEqual(["Herb bed", "Root bed", "Bean row"]);
+    // The person's run: the bar asks, lit on the note's own [sort-by::bed-size]; "tit" then ⏎ picks title, ⏎ takes asc.
+    // The actions scope finds it by what it does, not only by its name.
+    const found = await app.act({ action: "bar.open", args: { scope: ">", query: "sort the children" }, as: "test-agent" }) as { rows: { label: string }[] };
+    expect(found.rows.map(r => r.label)).toContain("ext.structure.sort-blocks");
+    // The bar is the App's, over the showcase: what it lists is read from it.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
+    void app.dispatch.press("ext.structure.sort-blocks", { block: beds.id });
+    await until(() => asked()[0] === "Sort the children · Sort by = bed-size", "the bar asks for by, the note's own lit", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    expect(asked()).toEqual(["bed-size", "title", "created"].map(c => `Sort the children · Sort by = ${c}`));
+    for (const c of "tit") ch(c);
+    press({ kind: "enter" });
+    await until(() => asked()[0]?.startsWith("Sort the children · Order") ?? false, "the bar asks for order", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && (await names()).join() !== "Bean row,Herb bed,Root bed"; i++) await Bun.sleep(100);
+    expect(await names()).toEqual(["Bean row", "Herb bed", "Root bed"]);
+    // An agent names what it wants and is never asked; the note's own default fills in what it leaves out.
+    await app.act({ action: "ext.structure.sort-blocks", args: { block: beds.id }, as: "test-agent" });
+    expect(await names()).toEqual(["Herb bed", "Bean row", "Root bed"]);
+    // Extract: the child and the note's edit are one group, and one undo puts both back.
+    const quote = "The north fence needs mending before the beans go in";
+    const done = await app.act({ action: "ext.structure.extract", args: { block: plan.id, quote }, as: "test-agent" }) as { undo?: string; written: string[] };
+    const [child] = await board.children(plan.id);
+    expect(child!.text).toBe(quote);
+    expect((await board.get(plan.id))!.text).toContain(`!((${child!.id}))`);
+    await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
+    expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");
@@ -2677,7 +2790,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const head = rows().findIndex(l => /┌─ \d+ reader /.test(l));
     expect(titleRow).toBeGreaterThan(head);
     expect(head).toBeGreaterThan(0);
-    const hx = rows()[head]!.indexOf(" reader ") + 2;
+    // The reader's own header, not a " reader " in the index's words on the same row.
+    const at = /┌─ \d+ reader /.exec(rows()[head]!)!;
+    const hx = at.index + at[0].indexOf(" reader ") + 2;
     press({ kind: "mouse", action: "down", button: 0, x: fx, y: titleRow });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head + 1 });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head });

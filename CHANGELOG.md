@@ -10,6 +10,66 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Conversations in the margin: a thread is a conversation, and replies come back to you
+
+- **New:** a margin thread is one conversation. The first `@margin` starts the agent's session and keeps its id on the
+  thread (`[margin-session::<id>]`); a later `@margin` in a reply there resumes it, so it remembers the earlier turns.
+  A reply without `@margin` is a note to self: never sent, never answered. Every ask sees the whole thread and the
+  page's other comments. An answer that writes `[query::]`, `[sort::]` or `[group::]` has them checked by the outline,
+  and one that doesn't work is marked under it.
+- **New:** Recent replies. The web client's `/replies` page (bookmark it on the phone) lists every reply on a thread
+  you started or wrote in, newest first, the unread marked; opening one goes to its thread, and opening a thread (from
+  there, tapping it, replying, or expanding it in the door) marks it read. In the outline it's a saved view:
+  `Recent replies [type::virtual-branch] [query::type=annotation-reply AND thread:me AND NOT annotation-source=user] [sort::created] [direction::desc] [limit::50]`.
+- **New:** query atoms `unread:me` and `thread:me` (or an agent's actor id), over read marks per reader (PIE-708's
+  core: `id@revision`, set by `annotations.read`); and a counted `child>=N:`: `child>=2:type=virtual-branch` lists
+  every hub.
+- **Fixed:** wide tables on the web client scroll sideways instead of crushing their columns.
+- **Fixed:** `@margin`'s Claude session had its outline tools off when the host handed it `EP0CH_SOCKET` with
+  `EP0CH_WS`; the mod now takes that pair (a host on this machine and the outline on it) and still refuses a forward to
+  another machine.
+- Protocol 139. Schema stays 5: the read marks table joins version 5 before it ships (0005's migration creates it).
+
+### Any extension can provide Resources, as Jira does
+
+- **New:** an extension with a `kind: "resource"` handler is a provider of remote entities (`ext:<id>`): its keys are
+  read in notes (`kanboard:: KB-7`, `[kanboard::KB-7]`), each entity is a Resource the service keeps (Source, snapshot,
+  history, comments on its text) and a block the extension owns, refreshed on open and on its poll. The handler's
+  `keyPattern`, `fields` and `link` say its key grammar, what a projection shows and its web page. Before, only Jira
+  could; a new provider had to use `data`.
+- **Changed:** Jira is one of these providers: its Resources' provider is `ext:jira` (was `jira`); its Sources,
+  Resources, records and history are kept. Its `jira::` lines are read once its extension is installed (in a folder or
+  the legacy `resource-extensions.json`), as any provider's.
+- **Changed:** `extensions.list` lists `resourceProviders`; the door, Detail and the service read `key::` lines with
+  each outline's own.
+- Also in this change (wave 2's runtime, #379): `lastRun` on `extensions.list` entries.
+- Protocol 136 and schema 5: `ep0ch install --apply` on each machine migrates every outline at schema 4
+  (`packages/outliner/scripts/migrations/0005-extension-providers.ts`: the provider checks opened, `jira` renamed
+  `ext:jira`, nothing else changed) and restarts the host; update every client with it.
+
+### Every extension has a page in the outline, and ships its demo notes
+
+- **New:** an **Extensions** hub at the outline's root (`[[extensions]]`): what's installed, each a link to its page,
+  and what the repo's `extensions/` folder has that isn't, with its description. The outline service writes it from
+  the extensions' folders and again whenever one is added, updated or removed.
+- **New:** a page per installed extension under the hub: its README drawn as the note, its version, what it adds
+  (handlers, actions and their keys, schedules, tiles, rules, agents, power bar rows, secrets by group, settings) and
+  its newest CHANGELOG entry. A `key::` line or an `@name` in a README is drawn, never run.
+- **New:** an extension can ship notes. A `demo/` folder (`"demo": "demo"` in `extension.json`, one Blockdown file per
+  note, nested by folder or `parent:`) is written under its page when it's installed, once, as `ext:<id>`, with fresh
+  ids and its references rewritten. They're yours: a reinstall never writes them again; `ep0ch ext remove <id>` keeps
+  them, `--demo remove` moves the ones you didn't change to Trash.
+- **New:** install and remove from the door: `ctrl+k` then `&` lists the hub, each page, `install <name>` for each one
+  not installed, and (type a name) `remove <name>`, keeping its demo notes or not; agents `act extensions.install
+  id=<id>` and `act extensions.uninstall id=<id> demo=keep|remove`.
+- **Changed:** the notifications hub's boards and the runbook's demo runbook are their demo notes now (notify v2,
+  runbook v2): a pull no longer makes the boards.
+- **Changed:** `&` is the door's extensions scope: an extension's bar source can't take it as its prefix.
+- Kitchen sink: the `ext-pages` section shows the hub beside the notifications hub's page.
+- Protocol 135 (`extensions.install`, `extensions.uninstall`, `hub`, `pages` and `available` on
+  `extensions.list`): update the host and every client together, `ep0ch install --apply` on each machine. No schema
+  change. On the next start each outline the host serves gets its Extensions hub and a page per installed extension.
+
 ### Your outline in the browser on the tailnet: browse it like folders, read on the phone, mark it up (PIE-782, PIE-774, PIE-775)
 
 - **New:** on the tailnet every note is a page, no `[publish::]` needed: `https://float-2.<tailnet>.ts.net/pub/` (or

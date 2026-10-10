@@ -35,6 +35,20 @@ import type {
 type Ask<A extends OutlinerRequestAction["action"], Without extends string = never> =
   Omit<Extract<OutlinerRequestAction, { action: A }>, "id" | "action" | "author" | "provenance" | "mutation" | Without>;
 
+/** A structural write over the connection names the revision it read. */
+interface ExpectedRevision {
+  /** The block's revision as you read it (`get`): a block saved since is refused. */
+  expectedRevision: number;
+}
+
+/** What `secrets.group` takes. */
+interface SecretGroupAsk {
+  /** The group's name: `~/.config/secrets/<group>.env` (`WITH_SECRETS_DIR` moves the folder). */
+  group: string;
+  /** Only these keys, each of which must be set (default: every key in the group). */
+  keys?: string[];
+}
+
 interface Call<Request, Answer> {
   readonly request: Request;
   readonly answer: Answer;
@@ -63,6 +77,14 @@ export interface ExtensionCallReference {
    * it becomes a proposal (`outcome: "proposed"`). Text that didn't change answers the block as it is.
    */
   update: Call<Pick<Ask<"update">, "blockId" | "text" | "expectedRevision">, DraftPatchResult | Block>;
+  /**
+   * A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the
+   * blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one
+   * under it), and on a record an extension keeps.
+   */
+  move: Call<Ask<"move"> & ExpectedRevision, ReturnType<OutlinerStore["move"]>>;
+  /** A block and the blocks under it to Trash (restorable), checked and refused as `move` is. */
+  delete: Call<Pick<Ask<"delete">, "blockId" | "ifEmpty"> & ExpectedRevision, ReturnType<OutlinerStore["delete"]>>;
   /** The comment threads on a block (or a Resource), each with its replies and its own properties. */
   "annotations.list": Call<Ask<"annotations.list">, ReturnType<OutlinerStore["listAnnotationThreads"]>>;
   /**
@@ -80,6 +102,12 @@ export interface ExtensionCallReference {
    * history is gone, so read what you need afresh and resume from its `sequence`.
    */
   "changes.since": Call<Ask<"changes.since">, ChangeFeedPage>;
+  /**
+   * A `with-secrets` group's values, asked for by name while the call runs: one the manifest's `secretGroups` names
+   * (or any, with `*`). The values join the call's secrets: the service scrubs them from everything it writes,
+   * answers and prints to stderr. Use them (a command's environment); never write them anywhere.
+   */
+  "secrets.group": Call<SecretGroupAsk, { group: string; values: Record<string, string> }>;
   /** The outline, this machine's name and, with `blockId`, the note's `ep0ch://` URI and its web URLs when it is published. */
   "notes.address": Call<Ask<"notes.address">, NoteAddress>;
   /** A note and the notes under it, rendered by the publisher's renderer (Markdown or HTML), published or not. */

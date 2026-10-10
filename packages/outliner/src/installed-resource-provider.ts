@@ -9,6 +9,9 @@ import {
   type RemoteEntitySource,
 } from "./remote-entity";
 import {
+  isExtensionProvider,
+  providerExtension,
+  providerLabel,
   normalizeResourceAddress,
   normalizeResourceRevisionRef,
   ResourceCatalogError,
@@ -77,7 +80,10 @@ const invalid = () =>
     "Resource extension returned an invalid document or identity",
   );
 
-/** First binding of the process contract: read-only Jira entities. Other provider families retain their owners. */
+/**
+ * The process contract's binding for every extension provider (`ext:<id>`, Jira's first): resolve, read and changed
+ * run the extension that serves the provider. Linear keeps its built-in client.
+ */
 export class InstalledResourceProviderClient
   implements RemoteEntityProviderClient
 {
@@ -91,18 +97,18 @@ export class InstalledResourceProviderClient
     ),
   ) {}
   async resolveLocator(source: RemoteEntitySource, locator: string) {
-    if (source.provider !== "jira") {
+    if (!isExtensionProvider(source.provider)) {
       if (!this.builtin.resolveLocator) throw invalid();
       return this.builtin.resolveLocator(source, locator);
     }
-    const result = await this.runtime.invoke("jira", "resolve", {
+    const result = await this.runtime.invoke(providerExtension(source.provider), "resolve", {
       source: source.boundary,
       locator,
     });
     try {
       const value = Parse(Identity, result.value);
       normalizeResourceAddress(source, {
-        kind: "jira",
+        kind: source.provider,
         entityId: value.entityId,
         key: value.locator,
       });
@@ -112,8 +118,8 @@ export class InstalledResourceProviderClient
     }
   }
   async changedSince(source: RemoteEntitySource, locators: readonly string[], sinceMinutes: number) {
-    if (source.provider !== "jira") return this.builtin.changedSince?.(source, locators, sinceMinutes) ?? [];
-    const result = await this.runtime.invoke("jira", "changed", {
+    if (!isExtensionProvider(source.provider)) return this.builtin.changedSince?.(source, locators, sinceMinutes) ?? [];
+    const result = await this.runtime.invoke(providerExtension(source.provider), "changed", {
       source: source.boundary,
       locators: [...locators],
       sinceMinutes: Math.max(1, Math.ceil(sinceMinutes)),
@@ -124,7 +130,7 @@ export class InstalledResourceProviderClient
       throw invalid();
     }
   }
-  /** The installed extension behind a provider key, when there is one (wave A: Jira). */
+  /** The installed extension behind an extension's id, when there is one. */
   describeExtension(provider: string) {
     return this.runtime.describe(provider);
   }
@@ -132,11 +138,12 @@ export class InstalledResourceProviderClient
     resource: RemoteEntityResource,
     source: RemoteEntitySource,
   ): Promise<RemoteEntityDocument> {
-    if (resource.provider !== "jira")
+    const provider = resource.provider;
+    if (!isExtensionProvider(provider))
       return this.builtin.observe(resource, source);
-    if (source.provider !== "jira" || source.id !== resource.sourceId)
+    if (source.provider !== provider || source.id !== resource.sourceId || !("entityId" in resource.address))
       throw invalid();
-    const result = await this.runtime.invoke("jira", "read", {
+    const result = await this.runtime.invoke(providerExtension(provider), "read", {
       source: source.boundary,
       entityId: resource.address.entityId,
     });
@@ -144,7 +151,7 @@ export class InstalledResourceProviderClient
       const value = Parse(Document, result.value);
       if (value.entityId !== resource.address.entityId) throw invalid();
       normalizeResourceAddress(source, {
-        kind: "jira",
+        kind: provider,
         entityId: value.entityId,
         key: value.locator,
       });
@@ -161,7 +168,7 @@ export class InstalledResourceProviderClient
           resourceId: resource.id,
           addressVersion: resource.addressVersion,
           revision: {
-            kind: "jira",
+            kind: provider,
             validator: { kind: "updated-at", value: value.updatedAt },
           },
         },
@@ -176,7 +183,7 @@ export class InstalledResourceProviderClient
         externalUrl: url.href,
         commandDescriptors: [],
         sourceSnapshot: {
-          provider: "jira",
+          provider,
           resourceId: resource.id,
           addressVersion: resource.addressVersion,
           entityId: value.entityId,
@@ -204,10 +211,10 @@ export class InstalledResourceProviderClient
     source: RemoteEntitySource,
     input: ResourceProviderCommandInput,
   ) {
-    if (resource.provider === "jira")
+    if (isExtensionProvider(resource.provider))
       throw new ResourceCatalogError(
         "source-unavailable",
-        "Installed Jira extensions are read-only",
+        `Installed ${providerLabel(resource.provider)} extensions are read-only`,
       );
     return this.builtin.execute(resource, source, input);
   }

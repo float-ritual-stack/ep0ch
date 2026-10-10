@@ -8,7 +8,7 @@ import { readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
-import { ADDED_TABLES, migrate as migrate4 } from "../scripts/migrations/0004-block-revisions";
+import { migrate as migrate5, REBUILT_TABLES, SCHEMA_SQL_4 } from "../scripts/migrations/0005-extension-providers";
 
 const directories: string[] = [];
 function directory(): string {
@@ -94,61 +94,87 @@ test("the stamp script stamps a database whose shape matches, column order and f
   store.close();
 });
 
-/** A version-3 database holding one note: the current schema without what version 4 added. */
-function version3(path: string, change?: (database: Database) => void): string {
+/** A version-4 database holding one note and one Jira ticket's Source and Resource, as version 4 named them. */
+/** A made-up captured payload that names Jira as its fields would. */
+const CAPTURED = JSON.stringify({ key: "FIC-7", fields: { labels: [{ kind: "jira", provider: "jira" }], summary: "Fix the gate" } });
+
+function version4(path: string, change?: (database: Database) => void): { noteId: string; resourceId: string } {
   const store = new OutlinerStore(path);
-  const id = store.create("Kept through the migration").id;
+  const noteId = store.create("Kept through the migration").id;
   store.close();
   const database = new Database(path);
-  for (const table of ADDED_TABLES) database.exec(`DROP TABLE ${table}`);
-  database.exec("PRAGMA user_version = 3");
+  const v4 = new Database(":memory:");
+  v4.exec(SCHEMA_SQL_4);
+  database.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON; DROP TABLE read_marks;");
+  for (const table of REBUILT_TABLES) {
+    const rows = v4.query("SELECT type, sql FROM sqlite_master WHERE tbl_name = ? AND sql IS NOT NULL").all(table) as Array<{ type: string; sql: string }>;
+    database.exec(`ALTER TABLE ${table} RENAME TO ${table}__v5; ${rows.find(row => row.type === "table")!.sql}; INSERT INTO ${table} SELECT * FROM ${table}__v5; DROP TABLE ${table}__v5;`);
+    for (const row of rows.filter(row => row.type === "index")) database.exec(row.sql);
+  }
+  v4.close();
+  const sourceId = "11111111-1111-4111-8111-111111111111", resourceId = "22222222-2222-4222-8222-222222222222", at = "2026-10-01T09:00:00.000Z";
+  database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, root_binding, version, created_at, updated_at) VALUES (?, 'Made-up tickets', 'jira', ?, ?, NULL, 1, ?, ?)")
+    .run(sourceId, JSON.stringify({ origin: "https://tickets.example.com", project: "FIC" }), JSON.stringify({ deniedCapabilities: [] }), at, at);
+  database.query("INSERT INTO resources (id, source_id, provider, address_json, canonical_key, media_type, address_version, version, created_at, updated_at) VALUES (?, ?, 'jira', ?, '10007', NULL, 1, 1, ?, ?)")
+    .run(resourceId, sourceId, JSON.stringify({ kind: "jira", entityId: "10007", key: "FIC-7" }), at, at);
+  // A captured issue whose own fields say "kind": "jira": someone else's data, kept exactly as it came.
+  database.query("INSERT INTO remote_entity_source_snapshots (id, resource_id, address_version, provider, entity_id, revision_json, payload_json, captured_at) VALUES ('snap-1', ?, 1, 'jira', '10007', ?, ?, ?)")
+    .run(resourceId, JSON.stringify({ kind: "jira", updated: at }), CAPTURED, at);
+  database.exec("PRAGMA user_version = 4");
   change?.(database);
   database.close();
-  return id;
+  return { noteId, resourceId };
 }
 
-const tables = (path: string) => {
-  const database = new Database(path, { readonly: true });
-  try { return (database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(row => row.name); } finally { database.close(); }
-};
-
-test("a version 4 database missing its instance id is refused with the exact repair command, and 0004 repairs it", () => {
+test("a version 5 database missing its instance id is refused with the exact repair command, and 0005 repairs it", () => {
   const path = join(directory(), "outliner.sqlite");
   new OutlinerStore(path).close();
   const database = new Database(path);
   database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0004-block-revisions\\.ts ${path}\n`));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0005-extension-providers\\.ts ${path}\n`));
   // Not while a store (a service) has it open.
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
-  expect(() => migrate4(path)).toThrow("already owned");
+  expect(() => migrate5(path)).toThrow("already owned");
   held.close();
-  const repaired = migrate4(path);
+  const repaired = migrate5(path);
   expect(repaired).toMatchObject({ migrated: false, repaired: true });
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
-  expect(migrate4(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
+  expect(migrate5(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
   new OutlinerStore(path).close();
 });
 
-test("the version 4 migration adds block_revisions to a version 3 database, keeping its blocks; it refuses another shape or version", () => {
+test("the version 5 migration moves Jira onto the extension providers as ext:jira, keeping every row; it refuses another shape or version", () => {
   const path = join(directory(), "outliner.sqlite");
-  const noteId = version3(path);
+  const { noteId, resourceId } = version4(path);
   const id = outlineInstanceId(path);
-  expect(migrate4(path)).toEqual({ migrated: true, outlineInstanceId: id });
-  expect(userVersion(path)).toBe(4);
-  expect(tables(path)).toContain("block_revisions");
+  expect(migrate5(path)).toEqual({ migrated: true, outlineInstanceId: id,
+    renamed: { "resource_sources.provider": 1, "resources.provider": 1, "remote_entity_source_snapshots.provider": 1, "resources.address_json": 1, "remote_entity_source_snapshots.revision_json": 1 } });
+  expect(userVersion(path)).toBe(5);
+  {
+    const after = new Database(path, { readonly: true });
+    const snapshot = after.query("SELECT revision_json AS revision, payload_json AS payload FROM remote_entity_source_snapshots WHERE id = 'snap-1'").get() as { revision: string; payload: string };
+    after.close();
+    expect(JSON.parse(snapshot.revision)).toEqual({ kind: "ext:jira", updated: "2026-10-01T09:00:00.000Z" });
+    expect(snapshot.payload).toBe(CAPTURED);
+  }
   const store = new OutlinerStore(path);
   expect(store.get(noteId)?.text).toBe("Kept through the migration");
+  expect(store.readMarks.mark("user", [noteId])).toBe(1);
+  expect(store.resources.require(resourceId)).toMatchObject({ provider: "ext:jira", address: { kind: "ext:jira", entityId: "10007", key: "FIC-7" } });
+  // The check takes any extension's provider now, and still refuses a name that isn't one.
+  store.database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, version, created_at, updated_at) VALUES ('s2', 'x', 'ext:kanboard', '{}', '{}', 1, 'a', 'a')").run();
+  expect(() => store.database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, version, created_at, updated_at) VALUES ('s3', 'x', 'kanboard', '{}', '{}', 1, 'a', 'a')").run()).toThrow("CHECK");
   store.close();
   const odd = join(directory(), "outliner.sqlite");
-  version3(odd, database => database.exec("CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);"));
+  version4(odd, database => database.exec("CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);"));
   const before = readFileSync(odd);
-  expect(() => migrate4(odd)).toThrow("does not match schema version 3");
+  expect(() => migrate5(odd)).toThrow("does not match schema version 4");
   expect(readFileSync(odd).equals(before)).toBe(true);
   const older = join(directory(), "outliner.sqlite");
-  version3(older, database => database.exec("PRAGMA user_version = 2"));
-  expect(() => migrate4(older)).toThrow("is schema version 2, not 3");
+  version4(older, database => database.exec("PRAGMA user_version = 3"));
+  expect(() => migrate5(older)).toThrow("is schema version 3, not 4");
 });
 
 test("a copied database file has a different outline instance id", () => {
@@ -317,7 +343,7 @@ test("import makes a new outline with the blocks, properties, page addresses and
 });
 
 describe("the refusal says the exact commands for this machine (PIE-617)", () => {
-  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0004-block-revisions.ts");
+  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0005-extension-providers.ts");
   const at = (folder: string, name: string, version: number) => {
     const path = join(folder, `${name}.sqlite`);
     const database = new Database(path);

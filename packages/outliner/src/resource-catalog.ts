@@ -25,11 +25,13 @@ import {
   DefaultRemoteEntityProviderClient,
   REMOTE_ENTITY_MARKDOWN_ADAPTER,
   type RemoteEntityProviderClient,
+  isRemoteEntity,
 } from "./remote-entity";
 import type {
   AuthoredResourceReference,
   AuthoredResourceReferenceLookup,
 } from "./resource-references";
+import { isExtensionReference } from "./resource-references";
 import {
   ComputedProducerError,
   canonicalJson,
@@ -90,6 +92,9 @@ import {
   type RemoteEntityProvider,
   type ResourceProviderCommandInput,
   type ResourceProviderCommandReceipt,
+  type ExtensionProvider,
+  EXTENSION_PROVIDER_PATTERN,
+  providerLabel,
 } from "./resources";
 
 interface SourceRow {
@@ -397,7 +402,7 @@ const ComputedProducerDeclarationSnapshotSchema = Type.Object({
 }, { additionalProperties: false });
 const RemoteEntityCommandDescriptorSchema = Type.Union([
   Type.Object({
-    provider: Type.Literal("jira"),
+    provider: Type.String({ pattern: EXTENSION_PROVIDER_PATTERN.source }),
     command: Type.Literal("comment.create"),
     label: Type.String(),
     input: Type.Object({
@@ -466,7 +471,7 @@ function parseRelocationIdentity(value: unknown): RelocationIdentity {
 
 function parseRemoteEntitySnapshotPayload(value: unknown): RemoteEntitySnapshotPayload {
   try {
-    return Parse(RemoteEntitySnapshotPayloadSchema, value);
+    return Parse(RemoteEntitySnapshotPayloadSchema, value) as RemoteEntitySnapshotPayload;
   } catch {
     throw new ResourceCatalogError(
       "source-unavailable",
@@ -658,12 +663,6 @@ function sourceFromRow(row: SourceRow): ResourceSource {
         provider: "github",
         boundary: { kind: "github", ...normalized.boundary },
       };
-    case "jira":
-      return {
-        ...header,
-        provider: "jira",
-        boundary: { kind: "jira", ...normalized.boundary },
-      };
     case "linear":
       return {
         ...header,
@@ -681,6 +680,12 @@ function sourceFromRow(row: SourceRow): ResourceSource {
         ...header,
         provider: "computed",
         boundary: { kind: "computed", ...normalized.boundary },
+      };
+    default:
+      return {
+        ...header,
+        provider: normalized.provider,
+        boundary: { kind: normalized.provider, ...normalized.boundary },
       };
   }
 }
@@ -718,14 +723,14 @@ function resourceFromRow(row: ResourceRow, source: ResourceSource): Resource {
       return { ...header, provider: "web", address: normalized.address };
     case "github":
       return { ...header, provider: "github", address: normalized.address };
-    case "jira":
-      return { ...header, provider: "jira", address: normalized.address };
     case "linear":
       return { ...header, provider: "linear", address: normalized.address };
     case "application":
       return { ...header, provider: "application", address: normalized.address };
     case "computed":
       return { ...header, provider: "computed", address: normalized.address };
+    default:
+      return { ...header, provider: normalized.address.kind, address: normalized.address };
   }
 }
 
@@ -883,6 +888,8 @@ export class ResourceCatalog {
   readonly retention: ResourceRetentionRepository;
   /** When a fetched Jira or Linear copy reads as stale; an installed handler's `staleAfter` sets it. */
   remoteEntityStaleAfterMs: number;
+  /** A provider's own stale age (its resource handler's `staleAfter`), over `remoteEntityStaleAfterMs`. */
+  readonly remoteEntityStaleAfterByProvider = new Map<string, number>();
   /**
    * Called after a remote entity refresh commits, with what the provider
    * returned (including an extension's record). The service writes record
@@ -1311,12 +1318,14 @@ export class ResourceCatalog {
       );
   }
 
-  private jiraSourceCandidates(
+  /** The Sources of an extension provider whose project owns the key (`PC-12`: project `PC`). */
+  private entitySourceCandidates(
+    provider: ExtensionProvider,
     key: string,
-  ): Array<Extract<ResourceSource, { provider: "jira" }>> {
+  ): Array<Extract<ResourceSource, { provider: ExtensionProvider }>> {
     return this.listSources()
-      .filter((source): source is Extract<ResourceSource, { provider: "jira" }> =>
-        source.provider === "jira" && key.startsWith(`${source.boundary.project}-`)
+      .filter((source): source is Extract<ResourceSource, { provider: ExtensionProvider }> =>
+        source.provider === provider && "project" in source.boundary && key.startsWith(`${source.boundary.project}-`)
       )
       .sort((left, right) => left.id.localeCompare(right.id));
   }
@@ -1383,32 +1392,33 @@ export class ResourceCatalog {
         ? { kind: "ready", resourceId: resource.id }
         : { kind: "unregistered", reason: `Web Resource is not registered: ${reference.url}` };
     }
-    if (reference.kind === "jira") {
-      const candidates = this.jiraSourceCandidates(reference.key);
+    if (isExtensionReference(reference)) {
+      const label = providerLabel(reference.kind);
+      const candidates = this.entitySourceCandidates(reference.kind, reference.key);
       if (candidates.length === 0) {
         return {
           kind: "unavailable",
-          reason: `No Jira Source is configured for ${reference.key}`,
+          reason: `No ${label} Source is configured for ${reference.key}`,
         };
       }
       if (candidates.length > 1) {
         return {
           kind: "unavailable",
-          reason: `Multiple Jira Sources match ${reference.key}`,
+          reason: `Multiple ${label} Sources match ${reference.key}`,
         };
       }
       const row = this.database.query(`
         SELECT id
         FROM resources
         WHERE source_id = ?
-          AND provider = 'jira'
+          AND provider = ?
           AND json_extract(address_json, '$.key') = ?
         ORDER BY id
         LIMIT 1
-      `).get(candidates[0]!.id, reference.key) as { id: string } | null;
+      `).get(candidates[0]!.id, reference.kind, reference.key) as { id: string } | null;
       return row
         ? { kind: "ready", resourceId: row.id }
-        : { kind: "unregistered", reason: `Jira issue is not registered: ${reference.key}` };
+        : { kind: "unregistered", reason: `${label} entity is not registered: ${reference.key}` };
     }
     const candidates = this.applicationSourceCandidates(reference.uri);
     const source = candidates[0];
@@ -1464,28 +1474,29 @@ export class ResourceCatalog {
         address: { kind: "web", url: reference.url },
       });
     }
-    if (reference.kind === "jira") {
-      const source = this.jiraSourceCandidates(reference.key)[0];
+    if (isExtensionReference(reference)) {
+      const label = providerLabel(reference.kind);
+      const source = this.entitySourceCandidates(reference.kind, reference.key)[0];
       if (!source) {
         throw new ResourceCatalogError(
           "invalid-input",
-          `No Jira Source is configured for ${reference.key}`,
+          `No ${label} Source is configured for ${reference.key}`,
         );
       }
       if (source.policy.deniedCapabilities.includes("read")) {
-        throw new ResourceCatalogError("invalid-input", "Workspace policy denies reading this Jira Source");
+        throw new ResourceCatalogError("invalid-input", `Workspace policy denies reading this ${label} Source`);
       }
       if (!this.remoteEntityClient.resolveLocator) {
         throw new ResourceCatalogError(
           "source-unavailable",
-          "Jira locator resolution is unavailable",
+          `${label} locator resolution is unavailable`,
         );
       }
       const resolved = await this.remoteEntityClient.resolveLocator(source, reference.key);
       return this.intern({
         sourceId: source.id,
         address: {
-          kind: "jira",
+          kind: reference.kind,
           entityId: resolved.entityId,
           key: resolved.locator,
         },
@@ -1596,7 +1607,7 @@ export class ResourceCatalog {
             last_error = NULL
         `).run(resource.id, relocated.addressVersion);
       }
-      if (relocated.provider === "jira" || relocated.provider === "linear") {
+      if (isRemoteEntity(relocated)) {
         this.database.query(`
           INSERT INTO remote_entity_resource_state (
             resource_id, address_version, generation, source_snapshot_id,
@@ -1919,7 +1930,7 @@ export class ResourceCatalog {
     }
     let freshness = state.freshness;
     if (freshness === "fresh" && state.checked_at !== null &&
-      Date.parse(this.now()) - Date.parse(state.checked_at) >= this.remoteEntityStaleAfterMs) {
+      Date.parse(this.now()) - Date.parse(state.checked_at) >= (this.remoteEntityStaleAfterByProvider.get(resource.provider) ?? this.remoteEntityStaleAfterMs)) {
       freshness = "stale";
     }
     return {
@@ -2070,19 +2081,19 @@ export class ResourceCatalog {
           : resource.provider === "filesystem"
             // A PDF's text is derived again on refresh; any other file is read as it is.
             ? resource.mediaType === "application/pdf" ? ["read", "refresh"] : ["read"]
-            : resource.provider === "jira" || resource.provider === "linear"
+            : isRemoteEntity(resource)
               ? ["read", "refresh", "open-external", "command"]
               : resource.provider === "computed"
                 ? ["read", "refresh", "history"]
                 : [],
       );
       const remoteEntity =
-        (resource.provider === "jira" || resource.provider === "linear") &&
+        isRemoteEntity(resource) &&
           !readingDenied
           ? this.remoteEntityReadFromCurrentRead(resource, requestedRevision)
           : null;
       const remoteStatus =
-        resource.provider === "jira" || resource.provider === "linear"
+        isRemoteEntity(resource)
           ? this.remoteEntityStatusFromCurrentRead(resource)
           : null;
       const computedRead = resource.provider === "computed"
@@ -2160,7 +2171,7 @@ export class ResourceCatalog {
       await this.executeComputedResource(resource.id, destinationHostRegistered);
       return this.describe(resource.id, destinationHostRegistered);
     }
-    if (resource.provider === "jira" || resource.provider === "linear") {
+    if (isRemoteEntity(resource)) {
       return this.refreshRemoteEntity(resource.id, destinationHostRegistered);
     }
     if (resource.provider === "web" || resource.mediaType === "application/pdf") {
@@ -2227,7 +2238,7 @@ export class ResourceCatalog {
   ): Promise<ResourceDescription> {
     const normalized = normalizeResourceId(resourceId);
     const resource = this.require(normalized);
-    if (resource.provider !== "jira" && resource.provider !== "linear") {
+    if (!isRemoteEntity(resource)) {
       throw new ResourceCatalogError(
         "provider-mismatch",
         "Remote entity refresh requires a Jira or Linear Resource",
@@ -2273,8 +2284,8 @@ export class ResourceCatalog {
       const resource = this.requireFromCurrentRead(normalized);
       const source = this.requireSourceFromCurrentRead(resource.sourceId);
       if (
-        (resource.provider !== "jira" && resource.provider !== "linear") ||
-        (source.provider !== "jira" && source.provider !== "linear")
+        !isRemoteEntity(resource) ||
+        !isRemoteEntity(source)
       ) {
         throw new ResourceCatalogError(
           "provider-mismatch",
@@ -2805,8 +2816,8 @@ export class ResourceCatalog {
       const current = this.requireFromCurrentRead(resource.id);
       const source = this.requireSourceFromCurrentRead(current.sourceId);
       if (
-        (current.provider !== "jira" && current.provider !== "linear") ||
-        (source.provider !== "jira" && source.provider !== "linear") ||
+        !isRemoteEntity(current) ||
+        !isRemoteEntity(source) ||
         current.provider !== source.provider
       ) {
         throw new ResourceCatalogError(
@@ -2880,7 +2891,7 @@ export class ResourceCatalog {
     }
     const refreshedId = this.database.transaction(() => {
       const current = this.requireFromCurrentRead(initial.resource.id);
-      if (current.provider !== "jira" && current.provider !== "linear") {
+      if (!isRemoteEntity(current)) {
         throw new ResourceCatalogError(
           "provider-mismatch",
           "Remote entity Resource provider changed while refresh was in flight",
@@ -2897,9 +2908,9 @@ export class ResourceCatalog {
           "Remote entity Resource changed while refresh was in flight",
         );
       }
-      const locatorAddress = current.provider === "jira"
+      const locatorAddress = current.provider !== "linear"
         ? {
-            kind: "jira" as const,
+            kind: current.provider,
             entityId: current.address.entityId,
             key: observed.sourceSnapshot.locator,
           }
@@ -2940,7 +2951,7 @@ export class ResourceCatalog {
         }
       }
       const refreshed = this.requireFromCurrentRead(current.id);
-      if (refreshed.provider !== "jira" && refreshed.provider !== "linear") {
+      if (!isRemoteEntity(refreshed)) {
         throw new ResourceCatalogError(
           "provider-mismatch",
           "Remote entity Resource provider changed during refresh",
@@ -3087,7 +3098,7 @@ export class ResourceCatalog {
     sinceMinutes: number,
   ): Promise<readonly { entityId: string; locator: string }[] | null> {
     const source = this.requireSource(sourceId);
-    if (source.provider !== "jira" && source.provider !== "linear") return null;
+    if (!isRemoteEntity(source)) return null;
     if (source.policy.deniedCapabilities.includes("read") || source.policy.deniedCapabilities.includes("refresh")) return [];
     if (!this.remoteEntityClient.changedSince || locators.length === 0) return null;
     return this.remoteEntityClient.changedSince(source, locators, sinceMinutes);

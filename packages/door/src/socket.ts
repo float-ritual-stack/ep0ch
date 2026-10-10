@@ -13,7 +13,7 @@ import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
-import type { ExtensionActResult, ExtensionBarResult, ExtensionList } from "./extensions";
+import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -482,6 +482,19 @@ export class SocketBoard implements Board {
   }
 
   /**
+   * Install one of the repo's extensions (`extensions.install`, as `ep0ch ext add <id>`): the service copies it in, loads
+   * it, and writes its page and demo notes under the outline's Extensions hub before it answers.
+   */
+  installExtension(id: string, actor: Actor = USER): Promise<ExtensionInstalled> {
+    return this.request<ExtensionInstalled>("extensions.install", { extension: id, mutation: requesterOf(actor) });
+  }
+
+  /** Remove an installed extension (`extensions.uninstall`); its demo notes `keep` or `remove` (to Trash, unless changed). */
+  uninstallExtension(id: string, demo: "keep" | "remove", actor: Actor = USER): Promise<ExtensionUninstalled> {
+    return this.request<ExtensionUninstalled>("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
+  }
+
+  /**
    * Run an extension's action (`extensions.act`): the service runs it and applies what it writes, attributed to
    * the extension (`author: agent`, `actorId: ext:<id>`), whoever asked. `blockId` (and `line`, for a handler
    * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
@@ -489,6 +502,19 @@ export class SocketBoard implements Board {
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
+  }
+
+  /**
+   * Take an action's write group back whole (`extensions.undo`, PIE-784), as `actor`: its blocks to the Trash, its
+   * edits, moves and orders put back in one step; refused with nothing changed when any of it changed since.
+   */
+  undoExtension(undo: string, actor: Actor = USER): Promise<{ undone: string; extension: string; action: string; written: string[] }> {
+    return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
+  }
+
+  /** What an action asks for (`extensions.args`, PIE-784): each declared argument with its choices on `blockId` and its value when not given. */
+  extensionArgs(extension: string, action: string, blockId?: string): Promise<{ args: ExtensionArgChoice[] }> {
+    return this.request("extensions.args", { extension, extensionAction: action, ...(blockId ? { blockId } : {}) });
   }
 
   /**
@@ -982,6 +1008,14 @@ export class SocketBoard implements Board {
       requestId, ...who, input: { annotationId, body, source },
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
+  }
+
+  /**
+   * A thread read by the person (PIE-708): its comment and replies marked read, so they leave `unread:me` (Recent
+   * replies' new ones). Bookkeeping: nothing in the thread changes, and repeating it is harmless.
+   */
+  async readThread(annotationId: string): Promise<{ thread: string; marked: number }> {
+    return this.request("annotations.read", { annotationId });
   }
 
   /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */

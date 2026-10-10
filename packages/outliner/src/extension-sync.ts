@@ -2,7 +2,7 @@ import { commentBlockText, extensionActorId, recordBlockText, type ExtensionReco
 import { readResourceProjections, type ResourceProjection } from "./resource-projection";
 import { mayHaveResourceProjections } from "./resource-references";
 import type { ExtensionDescription } from "./resource-extensions";
-import type { RemoteEntityDocument, Resource } from "./resources";
+import { extensionProvider, providerLabel, type ExtensionProvider, type RemoteEntityDocument, type Resource } from "./resources";
 import type { OutlinerStore } from "./store";
 
 /**
@@ -33,6 +33,9 @@ import type { OutlinerStore } from "./store";
  * Every write goes through `OutlinerStore.writeExtensionRecord`, attributed to
  * the extension (`author: agent`, `actorId: ext:jira`), and skips a text that
  * didn't change.
+ *
+ * One sync per extension provider (`ext:<id>`: an extension with a `kind: "resource"` handler, Jira's first);
+ * `ExtensionSyncs` keeps one for each installed provider.
  */
 
 export interface ExtensionSyncOptions {
@@ -51,7 +54,6 @@ export interface ExtensionSyncState {
 
 const DEFAULT_POLL_MS = 12 * 60 * 1_000;
 const MAX_POLL_KEYS = 1_000;
-const EXTENSION_ID = "jira";
 /** Refused credentials: wait this long before fetching on our own again. */
 const AUTH_PAUSE_MS = 15 * 60 * 1_000;
 /** Rate-limited: the first wait, doubling to the most. */
@@ -94,16 +96,22 @@ export class ExtensionSync {
   private ratePauses = 0;
   lastPollResult: { at: string; checked: number; changed: number; error?: string } | null = null;
 
-  constructor(private readonly store: OutlinerStore, private readonly options: ExtensionSyncOptions = {}) {}
+  /** The provider this sync keeps: `ext:<extensionId>`. */
+  readonly provider: ExtensionProvider;
+
+  constructor(private readonly store: OutlinerStore, readonly extensionId: string, private readonly options: ExtensionSyncOptions = {}) {
+    this.provider = extensionProvider(extensionId);
+    this.label = providerLabel(this.provider);
+  }
 
   private get now(): number {
     return (this.options.now ?? Date.now)();
   }
 
-  /** The installed Jira extension, read once per sync pass (null when none is installed or the client is a fixture). */
+  /** The installed extension, read once per sync pass (null when none is installed or the client is a fixture). */
   private extension(): Promise<ExtensionDescription | null> {
     const client = this.store.resources.remoteEntityProviderClient as { describeExtension?: (provider: string) => Promise<ExtensionDescription | null> };
-    this.described ??= (client.describeExtension?.(EXTENSION_ID) ?? Promise.resolve(null)).catch(() => null)
+    this.described ??= (client.describeExtension?.(this.extensionId) ?? Promise.resolve(null)).catch(() => null)
       .then((described) => {
         if (described) this.label = described.name;
         setTimeout(() => { this.described = null; }, 1_000).unref?.();
@@ -112,12 +120,11 @@ export class ExtensionSync {
     return this.described;
   }
   /** How readers name the extension; the manifest's `name` once read. */
-  private label = "Jira";
+  private label: string;
 
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    this.store.resources.onRemoteEntityObserved = (resource, document) => this.observed(resource, document);
     void this.schedulePoll();
   }
 
@@ -125,19 +132,18 @@ export class ExtensionSync {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (this.store.resources.onRemoteEntityObserved) this.store.resources.onRemoteEntityObserved = undefined;
   }
 
   private async schedulePoll(): Promise<void> {
     if (this.stopped) return;
     const described = await this.extension();
-    const handler = described?.handlers.find((candidate) => candidate.key === EXTENSION_ID);
+    const handler = described?.handlers.find((candidate) => candidate.kind === "resource");
     const every = this.options.pollMs ??
       (Number(process.env.OUTLINER_EXTENSION_POLL_MS) || minutes(handler?.pollEvery) || DEFAULT_POLL_MS);
     if (every > 0) this.pollEveryMs = every;
     // The manifest's stale age is the one the catalog applies to its copies.
     const stale = minutes(handler?.staleAfter);
-    if (stale) this.store.resources.remoteEntityStaleAfterMs = stale;
+    if (stale) this.store.resources.remoteEntityStaleAfterByProvider.set(this.provider, stale);
     if (every <= 0 || this.stopped) return;
     this.timer = setTimeout(() => {
       void this.poll().finally(() => this.schedulePoll());
@@ -178,7 +184,7 @@ export class ExtensionSync {
     if (this.stopped || this.scheduled.has(blockId)) return;
     // Cheap guard: only a block with a provider line or property, or one that asked before, has work.
     const block = this.store.get(blockId);
-    if (!block || (!mayHaveResourceProjections(block.text) && !this.store.asksExtension(blockId))) return;
+    if (!block || (!mayHaveResourceProjections(block.text, this.store.resourceProviders) && !this.store.asksExtension(blockId))) return;
     this.scheduled.add(blockId);
     setTimeout(() => {
       this.scheduled.delete(blockId);
@@ -222,7 +228,7 @@ export class ExtensionSync {
     }
     const keys = new Map<string, number>();
     for (const projection of projections) {
-      if (projection.provider !== EXTENSION_ID || !projection.key) continue;
+      if (projection.provider !== this.provider || !projection.key) continue;
       if (projection.status === "ambiguous" || projection.status === "no-key") continue;
       keys.set(projection.key, Math.max(keys.get(projection.key) ?? 0, projection.options.comments ?? 0));
     }
@@ -231,7 +237,7 @@ export class ExtensionSync {
 
   /** The most comments any block that asks for a key wants to see. */
   private commentsFor(key: string): number {
-    return Math.max(0, ...this.store.extensionAskers(EXTENSION_ID, key).map((asker) => asker.comments));
+    return Math.max(0, ...this.store.extensionAskers(this.extensionId, key).map((asker) => asker.comments));
   }
 
   /**
@@ -239,15 +245,15 @@ export class ExtensionSync {
    * with no more comments than anyone asks for; in Trash when nothing asks.
    */
   private settle(key: string): void {
-    if (this.store.settleExtensionRecord(EXTENSION_ID, key) === "dropped") {
+    if (this.store.settleExtensionRecord(this.extensionId, key) === "dropped") {
       this.commentsWritten.delete(key);
       this.setState(key, null);
       return;
     }
-    const record = this.store.extensionRecords({ extensionId: EXTENSION_ID, role: "record", itemKey: key })[0];
+    const record = this.store.extensionRecords({ extensionId: this.extensionId, role: "record", itemKey: key })[0];
     const comments = this.commentsFor(key);
     if (record && comments < (this.commentsWritten.get(key) ?? Infinity)) {
-      this.store.trimExtensionComments(EXTENSION_ID, record.blockId, comments);
+      this.store.trimExtensionComments(this.extensionId, record.blockId, comments);
       this.commentsWritten.set(key, comments);
     }
   }
@@ -258,12 +264,12 @@ export class ExtensionSync {
     // A block in Trash keeps what it asked for: restored, it asks again (and its record comes back with it).
     const wanted = this.wanted(pageBlockId);
     if (!wanted) return;
-    const released = this.store.setExtensionAsks(pageBlockId, EXTENSION_ID, wanted);
+    const released = this.store.setExtensionAsks(pageBlockId, this.extensionId, wanted);
     for (const key of released) this.safely(key, () => this.settle(key));
     const paused = force ? undefined : this.paused();
     await Promise.all([...wanted.keys()].map(async (key) => {
       this.safely(key, () => this.settle(key));
-      const record = this.store.extensionRecords({ extensionId: EXTENSION_ID, role: "record", itemKey: key })[0];
+      const record = this.store.extensionRecords({ extensionId: this.extensionId, role: "record", itemKey: key })[0];
       try {
         const resourceId = await this.resourceFor(key, paused);
         const description = this.store.resources.describe(resourceId, false);
@@ -313,23 +319,24 @@ export class ExtensionSync {
 
   /** The Resource for a key: registered on first use (one provider call), Sources from the extension's config. */
   private async resourceFor(key: string, paused?: string): Promise<string> {
-    const lookup = () => this.store.resources.resolveAuthoredReference({ kind: "jira", key });
+    const lookup = () => this.store.resources.resolveAuthoredReference({ kind: this.provider, key });
+    const noSource = (reason: string) => reason.startsWith(`No ${providerLabel(this.provider)} Source`);
     let found = lookup();
-    if (found.kind === "unavailable" && /No Jira Source/.test(found.reason)) {
+    if (found.kind === "unavailable" && noSource(found.reason)) {
       await this.ensureSources();
       found = lookup();
     }
     if (found.kind === "ready") return found.resourceId;
     if (found.kind === "unavailable") {
-      throw new Error(/No Jira Source/.test(found.reason) && !(await this.extension())
-        ? `${found.reason}: no Jira extension on this machine (add it with \`outliner ext add jira\`)`
+      throw new Error(noSource(found.reason) && !(await this.extension())
+        ? `${found.reason}: no ${this.label} extension on this machine (add it with \`ep0ch ext add ${this.extensionId}\`)`
         : found.reason);
     }
     // Registering asks the provider too: not while it has refused or rate-limited us.
     if (paused) throw new Error(`${paused}; paused, r tries now`);
     const running = this.follows.get(key);
     if (running) return running;
-    const follow = this.store.resources.followAuthoredReference({ kind: "jira", key })
+    const follow = this.store.resources.followAuthoredReference({ kind: this.provider, key })
       .then((receipt) => receipt.resource.id)
       .finally(() => this.follows.delete(key));
     this.follows.set(key, follow);
@@ -345,12 +352,12 @@ export class ExtensionSync {
       // One bad entry in config.json doesn't stop the others (or every fetch).
       try {
         const origin = new URL(configured.origin).origin;
-        if (sources.some((source) => source.provider === "jira" && source.boundary.origin === origin &&
-          source.boundary.project === configured.project)) continue;
+        if (sources.some((source) => source.provider === this.provider && "project" in source.boundary &&
+          source.boundary.origin === origin && source.boundary.project === configured.project)) continue;
         this.store.resources.createSource({
           name: `${described.name} · ${configured.project}`,
-          provider: "jira",
-          boundary: { kind: "jira", origin, project: configured.project },
+          provider: this.provider,
+          boundary: { origin, project: configured.project },
         });
       } catch {
         continue;
@@ -359,33 +366,33 @@ export class ExtensionSync {
   }
 
   /** A refresh committed: write the key's one record under its home, now. */
-  private observed(resource: Resource, document: RemoteEntityDocument): void {
-    if (resource.provider !== "jira") return;
+  observed(resource: Resource, document: RemoteEntityDocument): void {
+    if (resource.provider !== this.provider) return;
     this.succeeded();
     if (!document.record) { this.recordless.add(resource.id); return; }
     this.recordless.delete(resource.id);
     const record = document.record;
     const keys = new Set([
       ...this.waiting.get(resource.id) ?? [],
-      ...this.store.extensionRecords({ extensionId: EXTENSION_ID, resourceId: resource.id, role: "record" }).map((row) => row.itemKey),
+      ...this.store.extensionRecords({ extensionId: this.extensionId, resourceId: resource.id, role: "record" }).map((row) => row.itemKey),
     ]);
     this.waiting.delete(resource.id);
     for (const key of keys) {
-      const found = this.store.resources.resolveAuthoredReference({ kind: "jira", key });
+      const found = this.store.resources.resolveAuthoredReference({ kind: this.provider, key });
       if (found.kind !== "ready" || found.resourceId !== resource.id) continue;
-      const home = this.store.extensionRecordHome(EXTENSION_ID, key);
+      const home = this.store.extensionRecordHome(this.extensionId, key);
       if (!home) continue;
       const comments = this.commentsFor(key);
       try {
-        this.asExtension(EXTENSION_ID, () => this.store.writeExtensionRecord({
-          extensionId: EXTENSION_ID,
+        this.asExtension(this.extensionId, () => this.store.writeExtensionRecord({
+          extensionId: this.extensionId,
           label: this.label,
           parentBlockId: home,
           itemKey: key,
           resourceId: resource.id,
-          text: recordBlockText(EXTENSION_ID, key, record),
+          text: recordBlockText(this.extensionId, key, record),
           // Nobody asks for comments: none; the provider returned none this time: keep what is there.
-          comments: !comments ? null : record.comments ? commentTexts(record, comments) : undefined,
+          comments: !comments ? null : record.comments ? commentTexts(this.extensionId, record, comments) : undefined,
         }));
         this.setState(key, null);
         if (!comments || record.comments) this.commentsWritten.set(key, comments);
@@ -421,15 +428,15 @@ export class ExtensionSync {
     }
     // The first poll looks back to the oldest record's last write (the service may have been down),
     // at most a week; later ones to the last poll that finished.
-    const oldest = Math.min(...this.store.extensionRecords({ extensionId: EXTENSION_ID, role: "record" }).map((row) => Date.parse(row.syncedAt)).filter(Number.isFinite));
+    const oldest = Math.min(...this.store.extensionRecords({ extensionId: this.extensionId, role: "record" }).map((row) => Date.parse(row.syncedAt)).filter(Number.isFinite));
     const from = Math.max(started - 7 * 24 * 60 * 60_000,
       this.lastPoll ?? (Number.isFinite(oldest) ? oldest : started - this.pollEveryMs));
     const sinceMinutes = Math.ceil((started - from) / 60_000) + 1;
     const bySource = new Map<string, Map<string, string>>();
-    for (const row of this.store.extensionRecords({ extensionId: EXTENSION_ID, role: "record" })) {
+    for (const row of this.store.extensionRecords({ extensionId: this.extensionId, role: "record" })) {
       if (!row.resourceId) continue;
       const resource = this.store.resources.get(row.resourceId);
-      if (!resource || resource.provider !== "jira") continue;
+      if (!resource || resource.provider !== this.provider || !("key" in resource.address)) continue;
       const keys = bySource.get(resource.sourceId) ?? new Map<string, string>();
       if (keys.size < MAX_POLL_KEYS) keys.set(resource.address.key, resource.id);
       bySource.set(resource.sourceId, keys);
@@ -475,6 +482,69 @@ export class ExtensionSync {
   }
 }
 
-function commentTexts(record: ExtensionRecordData, count: number): { itemKey: string; text: string }[] {
-  return (record.comments ?? []).slice(-count).map((comment) => ({ itemKey: comment.id, text: commentBlockText(EXTENSION_ID, comment) }));
+function commentTexts(extensionId: string, record: ExtensionRecordData, count: number): { itemKey: string; text: string }[] {
+  return (record.comments ?? []).slice(-count).map((comment) => ({ itemKey: comment.id, text: commentBlockText(extensionId, comment) }));
+}
+
+/**
+ * One `ExtensionSync` per extension provider installed (`use`, from the extension registry on every reload, and the
+ * legacy registry's providers): saves, opens, refreshes and polls reach each, and an observation reaches the one whose
+ * provider it is.
+ */
+export class ExtensionSyncs {
+  private readonly syncs = new Map<string, ExtensionSync>();
+  private started = false;
+
+  constructor(private readonly store: OutlinerStore, private readonly options: ExtensionSyncOptions = {}) {}
+
+  /** The extensions that provide Resources now; a sync for each, started when the set is. */
+  use(extensionIds: readonly string[]): void {
+    const wanted = new Set(extensionIds);
+    for (const [id, sync] of this.syncs) if (!wanted.has(id)) { sync.stop(); this.syncs.delete(id); }
+    for (const id of wanted) {
+      if (this.syncs.has(id)) continue;
+      const sync = new ExtensionSync(this.store, id, this.options);
+      this.syncs.set(id, sync);
+      if (this.started) sync.start();
+    }
+  }
+
+  /** The sync of one extension (`jira`), when it provides Resources here. */
+  for(extensionId: string): ExtensionSync | undefined {
+    return this.syncs.get(extensionId);
+  }
+
+  /** Whether an extension provides Resources here: its records are its sync's, not a data handler's. */
+  provides(extensionId: string): boolean {
+    return this.syncs.has(extensionId);
+  }
+
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    this.store.resources.onRemoteEntityObserved = (resource, document) => {
+      for (const sync of this.syncs.values()) sync.observed(resource, document);
+    };
+    for (const sync of this.syncs.values()) sync.start();
+  }
+
+  stop(): void {
+    this.started = false;
+    for (const sync of this.syncs.values()) sync.stop();
+    this.store.resources.onRemoteEntityObserved = undefined;
+  }
+
+  blockChanged(blockId: string): void {
+    for (const sync of this.syncs.values()) sync.blockChanged(blockId);
+  }
+
+  async materialize(blockId: string, force = false): Promise<void> {
+    await Promise.all([...this.syncs.values()].map((sync) => sync.materialize(blockId, force)));
+  }
+
+  /** What a reader may show beside a key of a provider: fetching, or why its last attempt failed. */
+  stateFor(provider: string, key: string): ExtensionSyncState | undefined {
+    for (const sync of this.syncs.values()) if (sync.provider === provider) return sync.stateFor(key);
+    return undefined;
+  }
 }

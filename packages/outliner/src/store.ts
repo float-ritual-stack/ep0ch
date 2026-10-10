@@ -20,7 +20,7 @@ import { dirname, resolve } from "node:path";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
-import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
+import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
@@ -54,6 +54,7 @@ import {
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
+import { ReadMarks } from "./read-marks";
 import {
   firstLineWithoutPropertyTokens,
   withHeaderDashes,
@@ -807,6 +808,11 @@ function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pi
 }
 
 export class OutlinerStore {
+  /**
+   * This outline's resource providers (its extensions' `kind: "resource"` handlers), set by its service: its `key::`
+   * lines are read with them, never with another outline's. Unset: the process-wide table.
+   */
+  resourceProviders?: readonly ResourceDirectiveProvider[];
   private readonly releaseOwnership: () => void;
   readonly database: Database;
   readonly workspaceRoot: string;
@@ -814,6 +820,8 @@ export class OutlinerStore {
   readonly annotations: AnnotationRepository;
   readonly workingSelections: WorkingSelectionRepository;
   readonly changes: ChangeFeed;
+  /** What each reader has read (PIE-708). */
+  readonly readMarks: ReadMarks;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
   /** Which database instance this file holds (outline-instance.ts); changes when the database is replaced. */
@@ -837,6 +845,7 @@ export class OutlinerStore {
       this.outlineInstanceId = this.instance.id;
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
+      this.readMarks = new ReadMarks(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         ...resourceOptions,
@@ -928,6 +937,17 @@ export class OutlinerStore {
     return readOutlineAbout(this.database);
   }
 
+  /** A value the service keeps about the outline that isn't note content (the metadata table), or undefined. */
+  readMetadata(key: string): string | undefined {
+    const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(key) as { value: string } | null;
+    return row?.value;
+  }
+
+  /** Keeps a value about the outline that isn't note content (src/extension-pages.ts keeps what it wrote). */
+  writeMetadata(key: string, value: string): void {
+    this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  }
+
   /** Records who made this outline and why (once, at creation). */
   setOutlineAbout(about: OutlineAbout): void {
     this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
@@ -935,11 +955,16 @@ export class OutlinerStore {
   }
 
 
+  /**
+   * `place`: an id minted beforehand (an extension's write group names its new blocks before any is written, so its
+   * other writes can link to them) and a position among the parent's children (the end when left out).
+   */
   create(
     text: string,
     parentId: string | null = null,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
+    place: { id?: string; position?: number } = {},
   ): Block {
     return this.createAt(
       text,
@@ -947,6 +972,8 @@ export class OutlinerStore {
       author,
       provenance,
       this.createdTime(),
+      place.position,
+      place.id,
     );
   }
 
@@ -978,10 +1005,12 @@ export class OutlinerStore {
     provenance: BlockProvenance | undefined,
     createdAt: string,
     position?: number,
+    minted?: string,
   ): Block {
     if (parentId !== null) this.requireActive(parentId);
     const { actorId, sessionId, taskId } = normalizeCreatorProvenance(author, provenance);
-    const id = crypto.randomUUID();
+    if (minted !== undefined && this.get(minted)) throw new Error(`Block already exists: ${minted}`);
+    const id = minted ?? crypto.randomUUID();
 
     this.database.transaction(() => {
       this.validateRoadmapText(text);
@@ -1168,6 +1197,21 @@ export class OutlinerStore {
     provenance?: BlockProvenance,
   ): AnnotationBatchReceipt {
     return this.annotations.batch(requestId, operations, author, provenance);
+  }
+
+  /**
+   * A thread read by `reader` (PIE-708): its comment and every reply marked read at their revisions, by the thread's
+   * id or a reply's. Bookkeeping only: no block changes.
+   */
+  markAnnotationThreadRead(annotationId: string, reader: string): { thread: string; marked: number } {
+    this.getAnnotation(annotationId);
+    const { root, ids } = this.readMarks.threadOf(annotationId);
+    return { thread: root, marked: this.readMarks.mark(reader, ids) };
+  }
+
+  /** Sets properties on a thread's comment (its other properties, body and lifecycle kept): a margin session's id. */
+  setAnnotationProperties(annotationId: string, properties: Readonly<Record<string, readonly string[]>>, mutation: MutationProvenance): AnnotationRecord {
+    return this.annotations.setProperties(annotationId, properties, mutation);
   }
 
   getAnnotation(annotationId: string): AnnotationRecord {
@@ -2229,7 +2273,7 @@ export class OutlinerStore {
 
   /** Every ticket key with a page, as `ticketPage` would answer each one. */
   private ticketPagesFromCurrentRead(): Map<string, string> {
-    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
     const pages = new Map<string, string>();
@@ -2255,7 +2299,7 @@ export class OutlinerStore {
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(normalized)) return null;
-    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
     const page = this.database.query(`
@@ -2712,6 +2756,40 @@ export class OutlinerStore {
   }
 
   /**
+   * A parent's children put in the order `ids` gives, in one step (an extension's sort): `ids` must be exactly its
+   * children not in the Trash, each once, so a child added or trashed since they were read is refused, not lost.
+   * Children in the Trash keep their places after them. Each child that moved is a `move` in the change feed.
+   */
+  reorderChildren(parentId: string | null, ids: readonly string[], mutation?: MutationProvenance): string[] {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    if (parentId !== null) this.requireActive(parentId);
+    return this.database.transaction(() => {
+      const all = this.childrenFromCurrentRead(parentId, true);
+      const live = all.filter((child) => !child.effectiveDeletedRootId);
+      const wanted = new Set(ids);
+      if (wanted.size !== ids.length) throw new Error("An order names a child twice");
+      const missing = live.filter((child) => !wanted.has(child.id));
+      const extra = ids.filter((id) => !live.some((child) => child.id === id));
+      if (missing.length || extra.length) {
+        throw new Error(`An order lists exactly the children there are now: ${[
+          missing.length ? `${missing.length} not listed (${missing.map((child) => child.id).join(", ")})` : "",
+          extra.length ? `${extra.length} not children here (${extra.join(", ")})` : "",
+        ].filter(Boolean).join("; ")}`);
+      }
+      const order = [...ids, ...all.filter((child) => child.effectiveDeletedRootId).map((child) => child.id)];
+      const moved = ids.filter((id, index) => live[index]!.id !== id);
+      const now = new Date().toISOString();
+      const updatePosition = this.database.query("UPDATE blocks SET position = ?, updated_at = ? WHERE id = ?");
+      order.forEach((id, index) => updatePosition.run(index, now, id));
+      for (const id of moved) {
+        if (provenance) this.recordActivity(id, provenance, "move", now);
+        this.bumpSequence({ kind: "move", blockId: id, previousParentId: parentId });
+      }
+      return moved;
+    })();
+  }
+
+  /**
    * To Trash. With `when.revision`, only the block as it was read: one changed since is refused and stays, so a
    * client that trashes what it read as empty never trashes what another client wrote meanwhile. With `when.ifEmpty`,
    * only a block with no text and no children: a child added under it doesn't change its revision, so a cleanup that
@@ -2905,6 +2983,8 @@ export class OutlinerStore {
     const sources = new Map<string, ReadonlySet<string>>();
     const targets = new Map<string, ReadonlySet<string>>();
     const calls = new Map<string, ReadonlySet<string>>();
+    const reads = new Map<string, ReadonlyMap<string, number>>();
+    const threads = new Map<string, ReadonlySet<string>>();
     return {
       linkTargets: (blockId) => {
         let found = targets.get(blockId);
@@ -2943,6 +3023,22 @@ export class OutlinerStore {
           `).all(-(call.length + 1), `#${call}`) as { id: string }[];
           found = new Set(rows.map(r => r.id));
           calls.set(call, found);
+        }
+        return found;
+      },
+      readRevisions: (reader) => {
+        let found = reads.get(reader);
+        if (!found) {
+          found = this.readMarks.revisions(reader);
+          reads.set(reader, found);
+        }
+        return found;
+      },
+      threadBlocks: (reader) => {
+        let found = threads.get(reader);
+        if (!found) {
+          found = this.readMarks.threadBlocks(reader);
+          threads.set(reader, found);
         }
         return found;
       },

@@ -1,4 +1,5 @@
-import { queryRequestProblem } from "./block-query";
+import { PERSON_READER, queryRequestProblem } from "./block-query";
+import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
@@ -30,14 +31,19 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
-import { ExtensionSync } from "./extension-sync";
+import { ExtensionSyncs } from "./extension-sync";
+import { resourceProviderEntries } from "./extension-registry";
+import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
 import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
-import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime, scrubCredentials } from "./resource-extensions";
+import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
+import { ExtensionPages } from "./extension-pages";
+import { addExtension, removeExtension } from "./extension-install";
+import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse } from "./resource-extensions";
+import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { extensionActorId, isExtensionActor } from "./extension-records";
@@ -50,6 +56,7 @@ import {
   normalizeResourceId,
   normalizeRetainedResourceRevisionRef,
   normalizeResourceProviderCommandInput,
+  isExtensionProvider,
 } from "./resources";
 import {
   negotiateResourcePresentation,
@@ -260,12 +267,12 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
  * to act) is refused, so an extension can't set another one off.
  */
-const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "annotations.create", "annotations.reply", "annotations.batch"]);
+const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "work-ids.status", "notes.render", "notes.address",
+  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address",
 ]);
 
 /** A publisher's address as it registers (PIE-767): each URL a full http(s) URL (`publisherUrl`), or refused. */
@@ -308,6 +315,7 @@ export class OutlinerServer {
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
+  private extensionRuntime!: ResourceExtensionRuntime;
   private readonly holderAnswers = new Map<string, { clientId: string; resolve: (answer: DraftHolderAnswer) => void; reject: (error: Error) => void; timer: Timer }>();
   /** Holds whose door missed an answer's deadline and hasn't been heard from since: asked again, they fail at once. */
   private readonly stalledHolds = new Set<string>();
@@ -326,7 +334,16 @@ export class OutlinerServer {
   /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_ACTIONS are answered. */
   readonly readOnly: boolean;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
-  readonly extensionSync: ExtensionSync;
+  /** One sync per extension provider of Resources (Jira's first). */
+  readonly extensionSync: ExtensionSyncs;
+  /** Who this outline's resource providers are in the process-wide `key::` table (resource-references.ts). */
+  private readonly providersOwner = crypto.randomUUID();
+  /** The resource providers served here: the folders' and the legacy registry's. */
+  private resourceProviders: readonly ResourceProviderEntry[] = [];
+  private providerRefreshes = 0;
+  /** Set when close() starts: work that finishes after it (a reload's refresh) writes and announces nothing. */
+  private stopping = false;
+  private readonly fixtureProviders: readonly ResourceProviderEntry[];
   /** The extension folders this outline reads, watched (src/extension-registry.ts). */
   readonly extensionRegistry: ExtensionRegistry;
   /** Handler lines, their results, and actions (src/extension-calls.ts). */
@@ -337,6 +354,10 @@ export class OutlinerServer {
   readonly extensionRules: ExtensionRules;
   /** Handlers and actions an extension runs on a schedule, and what each run did (src/extension-schedule.ts, PIE-754). */
   readonly extensionSchedules: ExtensionSchedules;
+  /** The Extensions hub, a page per extension and their demo notes (src/extension-pages.ts). */
+  readonly extensionPages: ExtensionPages;
+  /** What the pages said at the last sync (hub, pages, available): a change is announced as an extensions event. */
+  private pagesSaid = "";
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
   private readonly turns = new Turns();
@@ -350,8 +371,11 @@ export class OutlinerServer {
     private readonly promptDirectory?: string,
     options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
-      scheduleTickMs?: number; scheduleNow?: () => number } = {},
+      scheduleTickMs?: number; scheduleNow?: () => number;
+      /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
+      resourceProviders?: readonly ResourceProviderEntry[] } = {},
   ) {
+    this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
     this.watches = new QueryWatches({
@@ -377,8 +401,10 @@ export class OutlinerServer {
       },
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
+      // An extension's write group held as a proposal, applied anyway: checked and written by its writes' owner.
+      groups: (group, by) => this.extensionCalls.writes.forProposal(group, by),
     });
-    this.extensionSync = new ExtensionSync(store, {
+    this.extensionSync = new ExtensionSyncs(store, {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
       resourceChanged: (resourceId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "resources.extension-sync",
@@ -398,9 +424,15 @@ export class OutlinerServer {
         }
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
-        this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+        // Clients read the list again on the event: its resource providers are current by then.
+        void this.refreshResourceProviders().finally(() => {
+          if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+        });
       },
+      // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
+      onReload: () => { if (!this.readOnly) void this.syncExtensionPages(false); },
     });
+    this.extensionPages = new ExtensionPages(store, this.extensionRegistry, { builtIns: BUILT_IN_EXTENSIONS });
     // Jira's Resource path reads the same folders, so a jira folder in the outline works like the user's.
     const catalogClient = store.resources.remoteEntityProviderClient;
     // Every extension process reaches the service the way a tile program does (PIE-754): this socket, this outline.
@@ -411,6 +443,7 @@ export class OutlinerServer {
     }
     const extensionRuntime = new ResourceExtensionRuntime(undefined, 15_000, roots.map((root) => root.path));
     extensionRuntime.useConnection(connection);
+    this.extensionRuntime = extensionRuntime;
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),
@@ -422,6 +455,9 @@ export class OutlinerServer {
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
+      // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
+      patchGroup: (input) => this.draftPatches.patchGroup(input),
+      held: (blockId) => this.draftPatches.isHeld(blockId),
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),
@@ -446,6 +482,78 @@ export class OutlinerServer {
       // A run's record is part of what extensions.list says: readers read it again.
       ran: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
     });
+  }
+
+  /**
+   * Writes the Extensions hub and pages (all of them with `force`, else only when what they're made from changed), and
+   * announces it when the hub, a page or what's available changed, so clients read `extensions.list` again.
+   */
+  private async syncExtensionPages(force: boolean): Promise<void> {
+    if (this.readOnly) return;
+    await (force ? this.extensionPages.sync() : this.extensionPages.syncIfChanged());
+    // Closed while it wrote: nothing to announce, and the store is gone.
+    if (this.stopping) return;
+    const said = JSON.stringify([this.extensionPages.hub(), this.extensionPages.pages(), this.extensionPages.availableNow().map((entry) => entry.id)]);
+    if (said === this.pagesSaid) return;
+    this.pagesSaid = said;
+    this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+  }
+
+  /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
+  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
+    const hub = this.extensionPages.hub();
+    return {
+      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
+      ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
+    };
+  }
+
+  /**
+   * `extensions.install`: a built-in (the repo's extensions folder, as `ext add <name>`) copied into the user folder
+   * (every outline this host serves) or, with `where: "outline"` or when the host reads no user folder, this outline's
+   * own; then the registry reads it, and its page and demo notes are written before this answers.
+   */
+  private async installExtension(id: string, where: "user" | "outline" | undefined): Promise<{ id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string }> {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.install takes id: a built-in's name, such as moon (extensions.list's available)");
+    const available = this.extensionPages.availableNow().map((entry) => entry.id);
+    if (!existsSync(join(BUILT_IN_EXTENSIONS, id, "extension.json"))) {
+      throw new Error(`No extension ${id} in the repo's folder${available.length ? ` (available: ${available.join(", ")})` : ""}`);
+    }
+    const outline = where === "outline" || (where === undefined && !userExtensionsFolderInUse());
+    const lines = await addExtension(id, outline ? { outlineFolder: this.store.workspaceRoot } : {});
+    await this.extensionRegistry.reload();
+    await this.syncExtensionPages(true);
+    const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    const page = this.extensionPages.pages()[id], hub = this.extensionPages.hub();
+    return { id, lines, ...(page ? { page } : {}), ...(hub ? { hub } : {}), ...(entry ? { state: entry.state } : {}), ...(entry?.error ? { error: entry.error } : {}) };
+  }
+
+  /**
+   * `extensions.uninstall`: its folder deleted (the outline's or the user's, wherever it is installed; never the repo's)
+   * and its demo notes kept or moved to Trash, as `demo` says: there is no default, so they never go silently. With the
+   * folder already gone it does the demo part alone.
+   */
+  private async uninstallExtension(id: string, demo: "keep" | "remove", requestedBy: MutationProvenance | undefined): Promise<{ id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: readonly string[]; left: number } }> {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.uninstall takes id: an installed extension's name");
+    if (demo !== "keep" && demo !== "remove") throw new Error("extensions.uninstall needs demo: keep (its demo notes stay) or remove (to Trash, unless you changed one)");
+    const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    const lines: string[] = [];
+    if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : {}));
+    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id]) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
+    await this.extensionRegistry.reload();
+    // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.
+    const still = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    if (still) {
+      lines.push(`${id} is still installed from ${still.directory} (another copy): ${demo === "remove" ? "its demo notes stay. Remove that copy too to take them out" : "its demo notes stay"}`);
+      await this.syncExtensionPages(true);
+      return { id, lines, removed: !!entry, demo: { trashed: 0, kept: [], left: this.extensionPages.demoCount(id) } };
+    }
+    const removal = demo === "remove" ? this.extensionPages.removeDemo(id, requestedBy) : { trashed: 0, kept: [] };
+    await this.syncExtensionPages(true);
+    const left = this.extensionPages.demoCount(id);
+    if (demo === "remove") lines.push(`moved ${removal.trashed} demo ${removal.trashed === 1 ? "note" : "notes"} to Trash${removal.kept.length ? `; kept ${removal.kept.length} you changed: ${removal.kept.join(", ")}` : ""}`);
+    else if (left) lines.push(`kept its ${left} demo ${left === 1 ? "note" : "notes"} under its page: ep0ch ext remove ${id} --demo remove moves them to Trash`);
+    return { id, lines, removed: !!entry, demo: { ...removal, left } };
   }
 
   /** The named outline this service runs, reported by `ping`. */
@@ -473,6 +581,26 @@ export class OutlinerServer {
    * Serves connections an outline host accepts and hands over with
    * `acceptConnection`, instead of listening on `socketPath` itself.
    */
+  /**
+   * The extensions that provide Resources now (a `kind: "resource"` handler in a folder, or a provider the legacy
+   * registry installs): a sync for each, and their `key::` lines in the process-wide directive table.
+   */
+  private async refreshResourceProviders(): Promise<void> {
+    // The latest reload's providers win: an older refresh still reading the legacy file doesn't overwrite them.
+    const asked = ++this.providerRefreshes;
+    const folders = [...resourceProviderEntries(this.extensionRegistry.serving()), ...this.fixtureProviders];
+    const runtime = (this.store.resources.remoteEntityProviderClient as { runtime?: ResourceExtensionRuntime }).runtime;
+    const legacy = (await runtime?.legacyProviders().catch(() => []) ?? [])
+      .filter((id) => !folders.some((entry) => entry.provider === `ext:${id}`))
+      .map((id): ResourceProviderEntry => ({ provider: `ext:${id}`, key: id, label: id.charAt(0).toUpperCase() + id.slice(1) }));
+    if (asked !== this.providerRefreshes || this.stopping) return;
+    this.resourceProviders = [...folders, ...legacy];
+    // This outline reads its own `key::` lines with its own providers; the process-wide table is for the rest.
+    this.store.resourceProviders = directiveProvidersOf(this.resourceProviders);
+    useResourceDirectiveProviders(this.providersOwner, this.resourceProviders);
+    this.extensionSync.use(this.resourceProviders.map((entry) => entry.provider.slice(4)));
+  }
+
   startHosted(): void {
     if (this.running) throw new Error("Outliner service is already started");
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
@@ -485,7 +613,8 @@ export class OutlinerServer {
     this.extensionSync.start();
     this.extensionRules.start();
     this.extensionSchedules.start();
-    void this.extensionRegistry.watch().catch(() => {});
+    // Its resource providers once its folders are read (and again on every reload).
+    void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */
@@ -520,13 +649,17 @@ export class OutlinerServer {
     this.extensionRules.start();
     if (!this.readOnly) this.extensionSchedules.start();
     await this.extensionRegistry.watch().catch(() => {});
+    // Its resource providers once its folders are read: a note saved as soon as it answers reads its `key::` lines.
+    await this.refreshResourceProviders();
   }
 
   async close(): Promise<void> {
+    this.stopping = true;
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.watches.stop();
     this.extensionSync.stop();
+    useResourceDirectiveProviders(this.providersOwner, []);
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
     this.extensionRules.stop();
@@ -929,8 +1062,8 @@ export class OutlinerServer {
         // A key has one record block, wherever it sits: every block that asks for the key shows that one.
         const row = projection.anchor.kind === "record"
           ? owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner
-          : this.store.extensionRecords({ extensionId: projection.provider, role: "record", itemKey: projection.key })[0];
-        const state = this.extensionSync.stateFor(projection.key);
+          : this.store.extensionRecords({ extensionId: projection.provider.replace(/^ext:/, ""), role: "record", itemKey: projection.key })[0];
+        const state = this.extensionSync.stateFor(projection.provider, projection.key);
         const comments = row ? this.store.extensionRecords({ parentBlockId: row.blockId, role: "comment" }).map((comment) => comment.blockId) : [];
         const fetching = state?.fetching ?? (materializing && (!row || projection.freshness === "stale" || projection.freshness === "unknown"));
         return {
@@ -1697,10 +1830,27 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run") {
+    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
+      request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args") {
       try {
         let result: unknown;
-        if (request.action === "extensions.bar") {
+        if (request.action === "extensions.undo") {
+          // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
+          if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
+          result = this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+        } else if (request.action === "extensions.args") {
+          // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
+          if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
+          if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
+          result = this.extensionCalls.argChoices(request.extension, request.extensionAction, request.blockId);
+        } else if (request.action === "extensions.install") {
+          if (typeof request.extension !== "string") throw new Error("extensions.install needs extension: a built-in's name (extensions.list's available)");
+          if (request.where !== undefined && request.where !== "user" && request.where !== "outline") throw new Error("where is user (every outline this host serves) or outline (this one's own)");
+          result = await this.installExtension(request.extension, request.where);
+        } else if (request.action === "extensions.uninstall") {
+          if (typeof request.extension !== "string") throw new Error("extensions.uninstall needs extension: an installed extension's name");
+          result = await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall"));
+        } else if (request.action === "extensions.bar") {
           // A command-palette source (PIE-656): it only answers; picking a row goes through open, extensions.act or a copy.
           if (typeof request.extension !== "string" || typeof request.source !== "string") throw new Error("extensions.bar needs extension and source");
           if (typeof request.query !== "string" || request.query.length > 500) throw new Error("query must be text up to 500 characters");
@@ -1713,15 +1863,21 @@ export class OutlinerServer {
           });
         } else if (request.action === "extensions.list") {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
-          if (request.reload) await this.extensionRegistry.reload();
+          if (request.reload) {
+            await this.extensionRegistry.reload();
+            await this.syncExtensionPages(false);
+          }
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
           const listed = this.extensionRegistry.list();
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
           const extensions = listed.extensions.map((entry) => {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
-            return schedules.length ? { ...entry, schedules } : entry;
+            // Its last call (any kind): when, which, and why it failed (a crash's last stderr lines, scrubbed).
+            const lastRun = this.extensionRuntime.lastRun(entry.id);
+            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}) };
           });
-          result = { ...listed, extensions, ...this.extensionRules.list() };
+          // Resource providers: the folders' (listed) and the legacy registry's.
+          result = { ...listed, extensions, resourceProviders: this.resourceProviders, ...this.extensionRules.list(), ...this.extensionPagesListed() };
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
@@ -1785,7 +1941,7 @@ export class OutlinerServer {
         const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
         // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
         // on `line`) run now.
-        const dataRecord = record !== null && !record.resourceId && record.extensionId !== "jira";
+        const dataRecord = record !== null && !record.resourceId && !this.extensionSync.provides(record.extensionId);
         if (dataRecord && !(await this.extensionCalls.refreshRecord(record.extensionId, record.itemKey))) {
           throw new Error(`Nothing asks for ${record.itemKey} with a ${record.extensionId}:: line that parses, or ${record.extensionId} isn't installed here: nothing to refresh`);
         }
@@ -1887,8 +2043,8 @@ export class OutlinerServer {
       } else {
         const input = normalizeResourceProviderCommandInput(request.input);
         const resource = this.store.resources.require(request.resourceId);
-        if (resource.provider !== "jira" && resource.provider !== "linear") {
-          throw new Error("Resource provider commands require a Jira or Linear Resource");
+        if (!isExtensionProvider(resource.provider) && resource.provider !== "linear") {
+          throw new Error("Resource provider commands require an extension provider's or a Linear Resource");
         }
         if (input.provider !== resource.provider) {
           throw new Error("Resource provider command does not match the resolved Resource");
@@ -2184,6 +2340,10 @@ export class OutlinerServer {
         case "extensions.act":
         case "extensions.bar":
         case "extensions.schedule.run":
+        case "extensions.install":
+        case "extensions.uninstall":
+        case "extensions.undo":
+        case "extensions.args":
         case "notes.address":
         case "notes.render":
         case "computed.execute":
@@ -2513,6 +2673,9 @@ export class OutlinerServer {
           break;
         case "annotations.agent-evidence":
           result = this.store.summarizeAnnotationAgentEvidence(request.limit);
+          break;
+        case "annotations.read":
+          result = this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER));
           break;
         case "annotations.lifecycle":
           result = this.store.setAnnotationLifecycle(
@@ -3081,6 +3244,12 @@ export class OutlinerServer {
         domain = "content";
         blockId = request.input.annotationId;
         break;
+      case "annotations.read":
+        // Nothing in a block changed; views that ask `unread:` read again.
+        if (!(response.result as { marked: number }).marked) return null;
+        domain = "content";
+        blockId = (response.result as { thread: string }).thread;
+        break;
       case "attention.mark":
       case "attention.advance":
         domain = "attention";
@@ -3240,6 +3409,13 @@ export class OutlinerServer {
           this.agentRequests.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");
         }
       }
+      // A handler line reads its block's children and the blocks it names: a person's or agent's change to one
+      // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
+      // nothing loops.
+      if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")
+        && !isExtensionActor(event.change!.actor?.actorId)) {
+        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
+      }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
       // one in the Trash stops); an extension's own only moves what a trigger remembers.
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")) {
@@ -3373,8 +3549,8 @@ export class OutlinerServer {
     // What it writes never carries a secret it was given (its answers are scrubbed the same way).
     const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
     if (!EXTENSION_WRITES.has(action)) {
-      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action)) return rest as OutlinerRequest;
-      throw new Error(`${actor.actorId} can read, create, update, comment and annotate over its connection; ${action} isn't one of them` +
+      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
+      throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
         (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
     }
     if (!grant.writes) {
@@ -3386,6 +3562,9 @@ export class OutlinerServer {
         return { ...as, author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
+      case "move":
+      case "delete":
+        return this.extensionStructureWrite(action, as, actor);
       case "annotations.create":
       case "annotations.reply":
         return { ...as, input: asAgentSource(as.input), author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
@@ -3416,12 +3595,61 @@ export class OutlinerServer {
     }
   }
 
+  /**
+   * A move or a trash over an extension's connection: revision-checked (`expectedRevision`, the block as it read it),
+   * refused on a block a person has a draft open in (or one under it), and on a record another extension keeps.
+   */
+  private extensionStructureWrite(action: "move" | "delete", as: Record<string, unknown>, actor: MutationProvenance): OutlinerRequest {
+    const verb = action === "move" ? "move" : "trash";
+    if (typeof as.blockId !== "string" || !Number.isSafeInteger(as.expectedRevision)) {
+      throw new Error(`${action} needs blockId and expectedRevision (the revision you read): an extension ${verb}s only the block as it read it`);
+    }
+    const block = this.store.require(as.blockId);
+    if (block.effectiveDeletedRootId) throw new Error(`${block.id} is in Trash`);
+    if (block.revision !== as.expectedRevision) {
+      throw new Error(`${block.id} was saved since it was read (revision ${String(as.expectedRevision)}, now ${block.revision}); read it again`);
+    }
+    const owner = this.store.extensionOwner(block.id);
+    if (owner) throw new Error(`${block.id} is a record ${owner.extensionId} keeps: only its sync ${verb}s it`);
+    // A draft open in the block or under it: the person is writing there, so it stays where it is.
+    const held = this.draftHolds.list().find((hold) => {
+      for (let at: string | null = hold.blockId, depth = 0; at && depth < 10_000; depth += 1) {
+        if (at === block.id) return true;
+        at = this.store.get(at)?.parentId ?? null;
+      }
+      return false;
+    });
+    if (held) throw new Error(`${held.blockId === block.id ? block.id : `a block under ${block.id}`} has a draft open in a door; ${verb} it once the person has saved or closed it`);
+    if (action === "move" && as.parentId !== null && typeof as.parentId !== "string") throw new Error("move needs parentId (a block id, or null for the top level)");
+    return { ...as, mutation: actor } as unknown as OutlinerRequest;
+  }
+
+  /**
+   * `secrets.group` over an extension's connection: a `with-secrets` group its manifest's `secretGroups` names (or
+   * `*`), read now, answered as `{ group, values }`. The values join the call's secrets, so its answer, its writes
+   * and its stderr are scrubbed of them; nothing else gets them, and they are never logged or stored.
+   */
+  private async grantSecrets(request: OutlinerRequest, grant: ExtensionGrant): Promise<{ group: string; values: Record<string, string> }> {
+    const { group, keys } = request as unknown as { group?: unknown; keys?: unknown };
+    const who = extensionActorId(grant.extensionId);
+    if (typeof group !== "string") throw new Error("secrets.group needs group (a with-secrets group's name)");
+    if (keys !== undefined && (!Array.isArray(keys) || keys.some((key) => typeof key !== "string"))) throw new Error("keys must be a list of variable names");
+    if (!secretGroupAllowed(grant.secretGroups, group)) {
+      throw new Error(`${who} may not ask for the secret group ${group}: its extension.json's secretGroups ${grant.secretGroups?.length ? `names ${grant.secretGroups.join(", ")}` : "is empty"}; add "${group}" (or "*")`);
+    }
+    // On macOS a group with no file is read from the Keychain, as with-secrets reads it.
+    const values = await readGroupSecrets(group, `${who}'s secret group`, keys as string[] | undefined, process.platform === "darwin" ? keychainItem : undefined);
+    for (const value of Object.values(values)) if (!grant.secrets.includes(value)) grant.secrets.push(value);
+    return { group, values };
+  }
+
   private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
     const started = performance.now();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
     let loopMs: number | undefined;
+    let grant: ExtensionGrant | undefined;
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
@@ -3434,7 +3662,7 @@ export class OutlinerServer {
       }
       // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.
       const grantToken = (request as { grant?: unknown }).grant;
-      const grant = grantToken === undefined ? undefined : grantOf(grantToken);
+      grant = grantToken === undefined ? undefined : grantOf(grantToken);
       if (grantToken !== undefined && !grant) {
         throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
       }
@@ -3448,6 +3676,11 @@ export class OutlinerServer {
         ? this.registerSubscriber(socket, request.client)
         : undefined;
       const current = request;
+      if (grant && String(current.action) === "secrets.group") {
+        response = { id: request.id, ok: true, result: await this.grantSecrets(current, grant), sequence: this.store.sequence } as OutlinerResponse;
+        socket.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
       attribution = this.store.changes.attribution({
         action: grant ? grant.label : String(current.action),
         actor: declaredActor(current),
@@ -3471,6 +3704,8 @@ export class OutlinerServer {
     }
     // Changes are already durable in the feed; a failure below only costs the live event.
     const changes = attribution ? this.store.changes.committed(attribution) : [];
+    // What an extension's process wrote, for the action that started it: its line redraws as after returned writes.
+    if (grant?.wrote) for (const change of changes) grant.wrote.push({ blockId: change.blockId, parentId: change.parentId, previousParentId: change.previousParentId });
     socket.write(`${JSON.stringify(response)}\n`);
     const answered = performance.now();
     try {

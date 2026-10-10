@@ -9,6 +9,10 @@ import {
   readAuthoredLinks,
 } from "../src/authored-links";
 import { OutlinerStore } from "../src/store";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 function withStore(run: (store: OutlinerStore) => void): void {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-authored-links-"));

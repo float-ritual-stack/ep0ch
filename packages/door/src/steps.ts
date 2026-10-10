@@ -6,7 +6,7 @@
 import type { Msg } from "./board";
 import type { Source } from "./props";
 import { changeClock, changedSince } from "./refs";
-import type { ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
+import type { Actor, ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
 
 /** The status marks, as the service writes them (pi-herdr-outliner CHECKLIST_MARKS). */
 export const STEP_MARKS: Readonly<Record<StepStatus, string>> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
@@ -121,6 +121,9 @@ export function stepStillOn(step: ChecklistStep, text: string, line: number): bo
  * note the reader showed (Undo reverses changes made while reading that note, as Detail's does).
  */
 export interface UndoEntry { block: string; itemId: string; evidence: string; status: StepStatus; to: StepStatus; title: string; by: string; context: string }
+
+/** Who a change is for Undo: the person, or the agent by its id (each party undoes only its own). */
+export const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 
 /** Every change a reader records for undo, in order, so ctrl+z can tell which kind came last (a step's, a callout's). */
 let undoSeq = 0;

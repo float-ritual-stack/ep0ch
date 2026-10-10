@@ -6,12 +6,14 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
+import { DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -66,6 +68,7 @@ export const SEED = {
   society: "Allotment society",
   marginalia: "Greenhouse plan for the spring",
   marginaliaNotebook: "Marginalia notebook",
+  recentReplies: "Recent replies",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
@@ -515,6 +518,9 @@ export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
 ].join("\n");
 
 /** The notebook: a saved query over every annotation (properties are open: kind, tags, colour as written), in outline order, so each note's sit together. */
+/** Recent replies (Conversations in the margin): the saved view, the same question the web client's /replies page asks. */
+export const RECENT_REPLIES = `${recentRepliesView(SEED.recentReplies)}\nEvery reply on a thread you started or wrote in, newest first. Opening a thread (a click on its card or mark, or the web client's link) marks it read; unread:me narrows to the new ones.`;
+
 export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
@@ -896,7 +902,7 @@ const TICKET_PAGE = "Rollout ticket [jira::ACME-12]\nOur own notes under the tic
 async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   const sourceId = await ticketSource(board);
   if (!ticketsConfig) {
-    for (const [key, t] of Object.entries(SHOWCASE_TICKETS)) await board.request("resources.intern", { input: { sourceId, address: { kind: "jira", entityId: t.id, key } } });
+    for (const [key, t] of Object.entries(SHOWCASE_TICKETS)) await board.request("resources.intern", { input: { sourceId, address: { kind: "ext:jira", entityId: t.id, key } } });
     return;
   }
   installTickets(ticketsConfig, SHOWCASE_TICKETS);
@@ -1174,6 +1180,24 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
     const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
     await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
+    // A note to self in the same thread: no @margin, so nothing answers it.
+    await board.reply("showcase-ask-aside", asked.id, "Try the lid half open on day one and see.", { kind: "user" });
+  }
+  notes.recentReplies = await make(notes.root.id, RECENT_REPLIES);
+  // Extensions that ship demo notes (each one's page under the Extensions hub): the notifications hub on its made-up
+  // sources, pulled once so its demo boards have cards, and the runbook with its demo runbook.
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, DEMO_EXAMPLES).length) {
+    writeFileSync(join(opts.ticketsConfig, "pi-herdr-outliner", "extensions", "notify", "config.json"), JSON.stringify({ config: {
+      sources: ["gmail", "jira", "slack"], days: 3650, fixtures: { gmail: "fixtures/gmail.json", jira: "fixtures/jira.json", slack: "fixtures/slack.json" },
+    } }));
+    // Their pages are written once the service reads the folders (a reload answers after it).
+    const end = Date.now() + 15_000;
+    while (Date.now() < end) {
+      const listed = await board.listExtensions(true).catch(() => null);
+      if (DEMO_EXAMPLES.every(id => listed?.pages?.[id])) break;
+      await Bun.sleep(100);
+    }
+    await board.request("extensions.schedule.run", { extension: "notify", entry: "action:pull" }).catch(() => null);
   }
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);

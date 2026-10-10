@@ -6,6 +6,7 @@ import {
   failureReasonOf,
   mentionsModeOf,
   namedWorkspaceOf,
+  sameHostSocket,
   sessionWorkspaceOf,
   workspaceEnvOf,
   workspacesOf,
@@ -106,5 +107,18 @@ describe('mention-message', () => {
     expect(() => namedWorkspaceOf('/tmp', null, 'Not A Name', undefined)).toThrow('isn\'t an outline name')
     expect(() => namedWorkspaceOf('/tmp', null, 'garden', 'a b')).toThrow('isn\'t an ssh config name')
     expect(workspaceEnvOf(namedWorkspaceOf('/tmp', null, 'garden', 'far')!)).toEqual({ OUTLINER_WORKSPACE_ROOT: '/tmp', EP0CH_WS: 'garden', EP0CH_MACHINE: 'far' })
+  })
+
+  test('EP0CH_SOCKET beside EP0CH_WS is taken only when it is this machine\'s host socket (what an outline host gives @margin)', async () => {
+    const home = '/home/someone'
+    expect(sameHostSocket(undefined, undefined, undefined, home)).toBe(true)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '', undefined, home)).toBe(true)
+    expect(sameHostSocket('/scratch/outlines/.host/host.sock', '', '/scratch/outlines/', home)).toBe(true)
+    // A forward anywhere else could be another machine's host: refused, wherever it lives.
+    expect(sameHostSocket('/tmp/remote.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/tmp/outlines/.host/host.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.remote/far.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', 'far', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '', undefined, undefined)).toBe(false)
   })
 })

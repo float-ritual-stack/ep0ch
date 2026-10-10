@@ -2,7 +2,9 @@
 
 An extension is a folder. Put one in a watched folder and the outline service loads it, with no
 restart. Delete the folder and everything it added goes away (its handlers, actions, tiles and kept
-line results); records it wrote stay, because they are data. The service runs the extension's
+line results); records it wrote stay, because they are data, and so do its demo notes unless you say to remove them.
+Every installed extension has a [page](#an-extensions-page-and-its-demo-notes) in the outline, under one Extensions
+hub: its README, what it adds, and its demo notes, live. The service runs the extension's
 code; clients (Detail, the door, the publisher, agents) only draw what the service returns.
 
 There are four kinds, and **rules** that say when a block gets one (PIE-600). One extension may provide
@@ -20,8 +22,8 @@ The canonical examples ship in [`extensions/`](../../extensions): [moon](../../e
 [jira](../../extensions/jira) (data), [horoscope](../../extensions/horoscope) (inline output),
 [fancy-horror](../../extensions/fancy-horror) (rich component) and [tarot](../../extensions/tarot)
 (a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates), [glyphs](../../extensions/glyphs) (a bar source),
-[done-stamp](../../extensions/done-stamp) (a rule that runs) and [shout](../../extensions/shout) (a rule on a
-text pattern). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
+[done-stamp](../../extensions/done-stamp) (a rule that runs), [shout](../../extensions/shout) (a rule on a
+text pattern) and [runbook](../../extensions/runbook) (actions that run a note's command blocks with a secrets group and record each run). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
 is yours to edit.
 
 Extensions are **trusted code, not a sandbox**, like nvim or Claude Code plugins. They run as the
@@ -41,9 +43,10 @@ saver's write and is accepted.
 
 Defence in depth, not a sandbox: the service keeps what an extension returns free of terminal
 escapes and control characters (outputs, replies, messages, record text, manifest names, labels and
-descriptions, and what `outliner ext` prints), and scrubs a secret's exact value (and its base64)
-from every answer. That scrub matches exact strings only: an extension that re-encodes a secret
-(reversed, URL-encoded, split) gets it past the scrub. Trust the code you install.
+descriptions, and what `outliner ext` prints), and scrubs every secret a call was given from its answer, its writes
+and the stderr a failure shows: the value, its base64 and its URL encoding, with terminal escapes taken out first so a
+value split by one is found whole. Anything else (reversed, hashed, split by other text) gets past the scrub. Trust
+the code you install.
 
 ## Where extensions live
 
@@ -81,7 +84,8 @@ outliner ext ls                                   # every folder, its state, its
 outliner ext add horoscope                        # a built-in, into the user folder
 outliner ext add ./my-extension                   # any folder (checked first; a broken one is refused)
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/
-outliner ext remove horoscope                     # deletes the folder; the service drops it at once
+outliner ext remove horoscope                     # deletes the folder; the service drops it at once (its demo notes stay)
+outliner ext remove notify --demo remove          # and its demo notes, the ones you didn't change, to Trash
 outliner ext act fancy-horror ward --block <id>   # runs an action, attributed to the extension
 ```
 
@@ -94,7 +98,9 @@ extensions/horoscope/
   extension.json   the manifest (contract 2)
   horoscope.ts     code; `bun` in run means the service's own Bun
   config.json      optional: this install's settings and secret references. Never a secret value.
-  README.md
+  README.md        drawn as the body of its page in the outline (below)
+  CHANGELOG.md     optional: one `## <version>` section per version; the newest is on its page
+  demo/            optional (manifest `demo`): notes written under its page when it's installed, once
 ```
 
 ### `extension.json` (contract 2)
@@ -129,13 +135,16 @@ extensions/horoscope/
 | `run` | The program each call starts. Needed by handlers and actions; a tile-only extension can leave it out. |
 | `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m. A handler may set its own. |
 | `configSchema`, `secrets` | A JSON schema for `config.json`'s `config`, and the secrets it needs by name. |
+| `secretGroups` | `with-secrets` groups a call may ask for while it runs, by name, or `["*"]` for any ([chosen at run time](#secrets-chosen-at-run-time)). |
+| `env` | Host variables its process gets besides the base ones, by name (`["GH_CONFIG_DIR"]`), when the service has them. Never a secret: those are `secrets` and `secretGroups`. The service's own (`PATH`, `HOME`, `EP0CH_*`, …) are refused. |
 | `handlers[]` | The `key::` lines it serves (kinds 1–3). |
 | `actions[]` | What it can do: one action is a key, a click and an agent call alike. |
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
-| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
+| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4; `&` is the door's own extensions scope, so a prefix is one of `! # $ * : ; = ^ \| ~`); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
+| `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
 
 ### `config.json`
 
@@ -156,13 +165,67 @@ A manifest's `secrets` may name the group itself (`"token": { "group": "readwise
 (`credentials`; a group key also as its own variable), and are scrubbed from what it returns. `"enabled": false` keeps the folder
 but serves nothing.
 
+## An extension's page and its demo notes
+
+Every installed extension has a page in the outline that explains and demonstrates it, under one **Extensions** hub
+(`Extensions [page::extensions]`, at the outline's root). The service writes them from the folders, never by hand
+(src/extension-pages.ts), whenever the registry reloads: an extension added, updated or removed, or its README,
+CHANGELOG or demo changed.
+
+- **The hub** lists what's installed (each a link to its page, its version and description), what was removed but left
+  notes behind, and what the repo's `extensions/` has that isn't installed, each with its description. `extensions.list`
+  says `hub`, `pages` (extension id to its page) and `available` (`{ id, name, version, description }`).
+- **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
+  the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
+  it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,
+  component schemas, secrets by group, settings), and the newest section of `CHANGELOG.md`. The README stays words: a
+  `key::` line or an `@name` in it is drawn, never run (a code fence is as you wrote it). The page's text is the
+  service's, written again when what it's made from changes: change the README, not the page.
+- **Demo notes** are the page's children: the notes in the manifest's `demo` folder, written once, as the extension
+  (`author: agent`, `actorId: ext:<id>`), with ids minted fresh. Write one to show the extension working: a board of
+  views over what it writes, a runbook with steps to run, a line its handler answers.
+
+```text
+extensions/notify/demo/
+  01-start-here.md              one note per file, its whole text (first line the title, properties and all)
+  02-read-state.md              Notifications by read state [page::notifications-state]
+  02-read-state/01-unread.md    a child of the note beside its folder; a leading 01- orders and isn't part of the name
+  02-read-state/02-read.md
+```
+
+- **Front matter** (optional): `id: unread` names a note for references in the demo (default its path, `read-state/unread`),
+  `parent: <id>` nests it under another instead of by folder. A reference in a demo note to a demo id (`((unread))`,
+  `((unread|Unread))`, `!((unread))`, `((unread^a1))`) is rewritten to the block it became.
+- **Once.** The service keeps, in the outline's metadata, which demo notes it wrote and at which revision. A reinstall
+  or an update writes none of them again (wherever you moved them, whatever you changed); a demo note added in a later
+  version is written by itself. A deleted one stays deleted.
+- **Uninstalling asks.** `extensions.uninstall` needs `demo: "keep"` (they stay under the page) or `"remove"` (to Trash:
+  each one nobody changed since it was written, with nothing but such notes under it; one you edited, or put a note
+  under, is kept and named). From a shell, `ep0ch ext remove <id>` keeps them and says so; `--demo remove` takes them
+  out, also after the folder is gone. The page stays while anything is under it, and goes with the last of it.
+- At most 64 notes, 32 KiB each. A demo's `@name` line asks its agent when it's written, like any note's.
+
+**Installing from the outline.** `extensions.install { extension: "<id>" }` copies one of the repo's extensions in
+(`ep0ch ext add <id>`: the user folder, or `where: "outline"` this outline's own) and answers once its page and demo
+notes are written: `{ id, lines, page, hub, state, error? }`. `extensions.uninstall { extension, demo }` removes one
+wherever it's installed. In the door they are the power bar's extensions scope (`ctrl+k` then `&`: ⏎ or a click on a
+row) and `act extensions.install id=<id>`, `act extensions.uninstall id=<id> demo=keep|remove`.
+
 ## The wire
 
 One process per call. The service writes one JSON request to stdin and reads one JSON response
 from stdout, then the process exits (its whole process group is killed at the deadline). The
-environment is `PATH`, `LANG`, `OUTLINER_EXTENSION` (its id), its connection to the service (`EP0CH_SOCKET`,
-`EP0CH_WS`, `EP0CH_EXT_GRANT`: [Extensions as programs](#a-connection-to-the-service)) and the with-secrets keys its
-manifest names, nothing else of the host's; the working directory is the extension's folder.
+environment is `PATH`, `LANG`, the service user's `HOME` (a host CLI such as `gh` finds its login there),
+`WITH_SECRETS_DIR` when the service has one, `OUTLINER_EXTENSION` (its id), its connection to the service
+(`EP0CH_SOCKET`, `EP0CH_WS`, `EP0CH_EXT_GRANT`: [Extensions as programs](#a-connection-to-the-service)), the with-secrets
+keys its manifest names and the host variables its manifest's `env` names, nothing else of the host's; the working
+directory is the extension's folder.
+
+**A crash says why.** A process that exits non-zero (or is killed) fails the call with its exit code and the last
+lines it wrote to stderr, scrubbed of its secrets: `command exited with code 3: opening the sluice | failed: no such
+gate`. That is the refusal the asker sees (`ext act`, the door's message line), a line's `reason`, a schedule's
+`last.error`, and the extension's `lastRun` in [`extensions.list`](#extensionslist). Stderr is kept for nothing else;
+write what a person should read there, and never a secret.
 
 ```json
 { "contract": 2, "operation": "run", "input": { … }, "config": { … }, "credentials": { … } }
@@ -183,9 +246,9 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `run` | an output or component handler | `{ handler, argument, options, context }` | output: `{ markdown, title? }`; component: `{ data, view, targets?, title? }` |
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
-| `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
+| `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
 | `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }` |
-| `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
+| `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
 
@@ -198,6 +261,12 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
   "now": "2026-10-01T09:00:00.000Z"
 }
 ```
+
+- `block.text` is the block's whole saved text (16 000 characters at most): its first line with its properties, and
+  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it.
+- `children` are the block's first 50 children, each its text (2 000 characters at most).
+- `ancestors` are every block above it, **the outline's top first and the block's parent last** (so the nearest is
+  `ancestors.at(-1)`), each its id and its first line (200 characters at most).
 
 ## Handler lines
 
@@ -222,13 +291,14 @@ key:: [argument] [--option[=value]]…
 
 | `effects` | Runs by itself | Otherwise |
 |---|---|---|
-| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, or (an output or component) the extension's `version` changed | `r` |
+| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, (an output or component) the extension's `version` changed, or what it reads changed: the block's text, its children (one added, edited, moved away or trashed) or a block the line names `((id))`. A person's or agent's change to a child or a named block runs it, as opening the note would | `r` |
 | `spend` (costs money or model time) | Once, when a person's own save adds the line. Editing it afterwards, a line an agent wrote, and a line from before the service started wait. | `r` |
 | `write` | Never | `r` |
 
 `r` is `resources.projection.refresh` (the door's `projection.refresh`; Detail's `r` on a note).
-`r` on a data record refetches that one key. Saves an extension makes never trigger a run, so
-extensions can't loop; the one exception is deliberate: after an action writes, its own `read` line
+`r` on a data record refetches that one key. What a line reads is kept as a short hash beside its result, bounded as
+`context` is, so telling whether it changed costs one read of the block and its children. Saves an extension makes
+never trigger a run, so extensions can't loop; the one exception is deliberate: after an action writes, its own `read` line
 runs once so the view shows the change.
 
 ### What readers get
@@ -255,7 +325,8 @@ projection per line, ordered by line:
   why); `not-run` (with `reason`: when it will run); `not-fetched` (data not fetched yet);
   `unavailable` (a bad line, or a failure with nothing to show). `fetching: true` while it runs.
 - `output.markdown` is inert BlockDown: it never adds properties or provider lines to a note.
-- `output.inputsChanged` / `versionChanged`: the block or the extension changed since it ran.
+- `output.inputsChanged` / `versionChanged`: what the line reads (the block, its children, a block it names) or the
+  extension changed since it ran.
 - A component adds `output.component: { data, view }`; `output.markdown` is its markdown rendering.
 - A data line adds `record: { blockId, pageBlockId, syncedAt }` and the `fields` the handler lists.
 - A `resource-catalog` event (`extensions.output`, with `blockId`) says a line's result changed.
@@ -288,8 +359,32 @@ Moon on 2026-10-26: Full Moon
   `ext.moon.sync` in the change feed. `activity.recent` with `extensions: "exclude"` leaves them out.
 - `fields` in the handler lists what the projection shows beside the title.
 - Jira is the full version: a Resource snapshot, comments as child blocks, a poll, drift views
-  ([extensions/jira](../../extensions/jira)). Its `kind: "resource"` path is Jira's alone for now;
-  a new provider uses `data`.
+  ([extensions/jira](../../extensions/jira)). That is the `kind: "resource"` path, and it is any extension's
+  ([A provider of Resources](#a-provider-of-resources)).
+
+### A provider of Resources
+
+A `kind: "resource"` handler makes its extension a **provider** of remote entities, as Jira is (schema 5): each key
+is a Resource the service keeps (its Source, snapshots and history, annotations on its text) as well as a block the
+extension owns. Use it over `data` when the entity has a home of its own on the web and should keep its history, a
+stored text to comment on, and a poll.
+
+```json
+"handlers": [{ "key": "kanboard", "kind": "resource", "effects": "read", "keyPattern": "^KB-[1-9][0-9]*$",
+  "record": true, "fields": ["lane", "owner"], "link": "cards/{key}", "staleAfter": "15m", "pollEvery": "12m" }]
+```
+
+- The provider is `ext:<extension id>` (Jira's is `ext:jira`): in Resources, Sources, revisions and authored
+  references (`{ "kind": "ext:kanboard", "key": "KB-7" }`). `extensions.list` lists each as `resourceProviders`
+  (`{ provider, key, label, keyPattern?, fields?, link? }`); clients read `key::` lines and `[key::KEY]` tokens with it.
+- Its keys are `<PROJECT>-…` in a Source's project: `config.json`'s `sources: [{ origin, project }]` makes the Sources
+  on first use. `keyPattern` (default `PROJECT-123`) is the grammar; a token that doesn't match is a warning on it.
+  Keys are upper-cased as written (`kb-7` is `KB-7`), as a project is: write the pattern for upper-case keys.
+- `fields`: the record fields a projection shows (default status, assignee, type, priority, labels). `link`: the
+  entity's page before its first fetch, relative to the Source's origin (`{key}` the key).
+- The process answers `resolve`, `read` and `changed` ([resource-process.md](resource-process.md)).
+- One resource handler per extension, and no `data` handler beside it: the provider's records are its sync's.
+- Its Resources are read-only from the outline (no provider command), like Jira's.
 
 **Worked example: "make me an extension that puts a book's details into a block".**
 
@@ -397,6 +492,7 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | Primitive | Fields |
 |---|---|
 | `text` | `text`, `tone?`, `strong?` |
+| `blockdown` | `text` (16 000 characters at most): Blockdown each client draws with its own reader, as it draws a note (the door's note surface, Detail's, the publisher's HTML), so headings, lists, links and properties read as written |
 | `badge` | `label`, `tone?` |
 | `stat` | `label`, `value` (number or text), `unit?`, `tone?` |
 | `bar` | `label`, `value`, `max`, `tone?` |
@@ -405,7 +501,8 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `sparkline` | `label?`, `values` |
 | `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)), `children?` |
 | `box` | `title?`, `children` |
-| `stack`, `row` | `children` (top to bottom; side by side) |
+| `stack` | `children`, top to bottom |
+| `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
 
@@ -415,21 +512,32 @@ with a path to the problem (`view.children[0].max must be more than 0`), and the
 
 ### Targets and fallbacks
 
-Data first, rendered to the target the reader names (`extensions.render`, or the publisher by
-`Accept` header later):
+Data first, rendered to the target the reader names (`extensions.render`; the publisher asks for `html`, a
+Markdown export for `markdown`):
 
 | Target | From the primitives |
 |---|---|
 | `terminal` | Plain text with box drawing; a client that draws primitives (the door) takes `view` instead |
 | `markdown` | Lists, a GFM table, `- [x]` items |
 | `blockdown` | The markdown, made inert: it can't add properties to a note |
-| `html` | Semantic HTML with `ext-*` classes |
+| `html` | Semantic HTML with `ext-*` classes; a `blockdown` primitive is its escaped source in `<div class="ext-blockdown">`, which the publisher draws with its own reader |
 | `json` | The data |
 | `csv` | The view's first table, else data that is a list of flat objects |
 
 For one target the chain is: (1) the component's own `targets[target]`; (2) the version composed from
 its primitives; (3) the fallback the requester names (`fallback`, default `json`). An unknown
 component never breaks a reader: it degrades to its data.
+
+A component's own `targets.html` is kept to a reading page's markup: headings, paragraphs, lists, tables, `section`,
+`div`, `span`, links with a safe scheme and images, with `class` and nothing else. Scripts, styles, frames, forms,
+event handlers and `style`/`id` attributes are dropped, and its tags are balanced. Prefer the primitives: the web lays
+them out as the door does (a `row` is a grid that stacks below its `minWidth`), and every target follows from them.
+
+**Every client draws it.** The door draws the view; Detail draws it as Markdown in the note, a `row` side by side
+when the pane is wide enough; a published page (and `notes.render`) asks `extensions.render` for `html` and puts it
+under the line, its Blockdown read by the page's own reader, and a Markdown export takes the `markdown` target. A
+line with nothing to show yet (not run, a bad argument, a failed first run) shows its source as code on a page,
+never nothing. An output's Markdown is read by the page as its own text.
 
 **Worked example: "make me an extension that shows my open bugs as a little board in a note".**
 
@@ -618,30 +726,89 @@ actions yet; `r` is its path today.
   service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes
   the outline (a block, an annotation, a cursor on a page) is `write`. A handler that costs money or model time per
   run is `spend`. See [writes to an outside service](#writes-to-an-outside-service).
-- `act` returns `{ message?, writes? }`. Writes are
-  `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
-  at most 20; an action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
+- `act` returns `{ message?, writes? }`, and its writes are **one group** (PIE-784), at most 20:
+
+  | Write | Does |
+  |---|---|
+  | `{ "op": "create", "parentId", "text", "as"?, "position"? }` | makes a block (inert BlockDown, below); `as: "c1"` names it for the group's later writes |
+  | `{ "op": "update", "blockId", "expectedRevision", "text" }` | an agent's edit of the block (below) |
+  | `{ "op": "move", "blockId", "parentId", "position"?, "expectedRevision" }` | moves the block, revision-checked |
+  | `{ "op": "order", "parentId", "children": [ids] }` | the block's children in this order, in one step: exactly the children it has, or refused |
+
+  A later write names a block made earlier in the group by its `as`: as a `parentId`, `blockId` or one of an order's
+  `children`, and in text as `((c1))`, `!((c1))`, `((c1|label))` or `((c1^anchor))` (its id is minted before anything is
+  written). A name used before the write that makes it is refused. The whole group lands in one transaction or none of
+  it does: one write refused (a stale revision, a block gone, an order that doesn't match) writes nothing, said with
+  "nothing was written". Each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed, with
+  `requestedBy` beside it. They may land anywhere in the outline (PIE-754; a record an extension keeps is its sync's
+  alone, so an update or move of one is refused).
+
+  ```json
+  { "writes": [
+    { "op": "create", "parentId": "<note>", "text": "Mend the north fence", "as": "child" },
+    { "op": "update", "blockId": "<note>", "expectedRevision": 4, "text": "Garden plan\n!((child)), said the wind." }
+  ] }
+  ```
+
+  **One undo step.** A group that landed answers `undo: "<id>"`. `extensions.undo { undo, mutation }` takes it back whole
+  (its blocks to Trash, its edits, moves and orders put back, in one transaction, as whoever asks), refused with nothing
+  changed when anything it wrote changed since; the last 100 since the host started are kept, each undone once. The
+  door's reader runs it on `ctrl+z` for an action run there (`ext.undo`); a shell has `ep0ch ext undo <id>`. A group of
+  updates that went into a door's live draft answers `undoNote` instead: the draft's own `ctrl+z` undoes it.
+
+  An action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
   the passage (ADR 0004 contract 6): no body is a highlight; `properties` are open (`kind`, `tags`, `color` as a theme
-  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They may land anywhere in
-  the outline (PIE-754; a record an extension keeps is its sync's alone, so an update to one is refused); they apply
-  together or not at all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
-  After an action on a `read` handler's line writes, that line runs again before the answer comes back.
+  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). An answer returns
+  annotations or block writes, not both.
+  After an action on a `read` handler's line writes, that line runs again before the answer comes back: a returned
+  write anywhere, or a write its process makes [over its connection](#a-connection-to-the-service) to the acted-on
+  block or a child of it (moved in or out, too). Its answer's `written` lists both kinds.
 - **An update is an agent's edit.** It is revision-checked against the saved note, then applied
   through `draft.patch` with the `edit` policy, as an `@agent`'s edit is: only the changed lines are
-  the patch, a door's live draft of the note gets it (not the saved note under the person's typing),
-  and the guard refuses one that drops a `[page::…]` or a linked `^anchor` (nothing is written; the
-  error says what it would drop). When the person is typing in that passage it becomes a proposal
-  (`proposalId` in the answer) and the action's other writes aren't made; its `message` says so.
+  the patch, and the guard refuses one that drops a `[page::…]` or a linked `^anchor` (nothing is written; the
+  error says what it would drop). A group of updates alone goes where any patch goes: a door's live draft of the note
+  gets it (not the saved note under the person's typing), and when the person is typing in that passage it becomes a
+  proposal (`proposalId` in the answer). A group that also makes, moves or orders blocks is never half applied: while
+  a door holds a live draft of any block it edits, moves or reorders, the **whole group** waits as one proposal beside
+  the note it acted on (its new blocks' text shown in it), and applying that proposal writes all of it in one step.
+  Either way the answer's `message` says so and nothing else is written.
 - **A created block's text is inert BlockDown**: a `key::` line or `[key::value]` in it stays words,
   not a property, and terminal escapes go. (A block the extension's process creates over its
   [connection](#a-connection-to-the-service) is a normal write, properties and all, as an agent's is.) No write may add an `@name` request line (extensions
   can't ask agents).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
-  `author`/`provenance` as on `create` work too. The writes stay `ext:<id>`'s; each change in
+  `author`/`provenance` as on `create` work too. The action gets it as its input's `requestedBy`
+  (`{ "author": "user" }` or `{ "author": "agent", "actorId": "loki" }`; absent for a scheduled run, or a request
+  that named no one), so a step that is the person's alone checks `input.requestedBy?.author === "user"` and refuses
+  an agent, as runbook's apply steps do. The writes stay `ext:<id>`'s; each change in
   `changes.since` (and its live event) carries `requestedBy` with who asked. `outliner ext act` asks
   as the person, or as an agent with `--actor <id>`; a tile's program passes the person at its keys.
 - `keep` is built in for every output and component handler.
+- **Declared arguments** (PIE-784): an action may say what it asks for, `args: [{ name, type, … }]`, at most 8:
+
+  | Field | Meaning |
+  |---|---|
+  | `name` | lowercase; not one the request already uses (`block`, `line`, `with`, `quote`, `near`, `tile`, `action`, `color`) |
+  | `type` | `text`, `number`, `choice` (one of `options`), or `property` (a property's name) |
+  | `options` | a choice's values; a property's fixed choices offered first (`title`, `created`) |
+  | `from` | a property's keys offered from `block` (every key in its text), `children` (theirs) or `outline` |
+  | `required`, `default` | a required one missing is refused, with its choices; `default` fills it in |
+  | `defaultProperty` | the acted-on block's own value of this property fills it in first (`[sort-by::price]`) |
+  | `label`, `description` | what a client's prompt says |
+
+  The service checks them (a choice among its options, a number a number), fills in the defaults, and passes the
+  action `args` with them; arguments it doesn't declare are passed on as they are. `extensions.args { extension,
+  extensionAction, blockId? }` answers each with its `choices` on that block and its `value` when not given: what a
+  client prompts with. The door asks for every declared choice or property (and any required one) the person didn't
+  give when they run the action by key, a click or the power bar, its default lit; `act` takes them as `name=value`;
+  the action list shows them; `ep0ch ext act … --arg name=value` and `ext ls` lists them.
+
+  ```json
+  { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [
+    { "name": "by", "type": "property", "options": ["title", "created"], "from": "children", "default": "title", "defaultProperty": "sort-by" },
+    { "name": "order", "type": "choice", "options": ["asc", "desc"], "default": "asc" } ] }
+  ```
 
 ```json
 { "action": "extensions.act", "extension": "fancy-horror", "extensionAction": "ward", "blockId": "…", "line": 1,
@@ -825,6 +992,8 @@ socket call.
 An extension is a program (PIE-754), not only something a line or a key calls: it can run on a schedule, reach the
 outline over its own connection, write anywhere its host serves, read a `with-secrets` key, and keep a collection.
 [almanac](../../extensions/almanac) is the example: every morning it writes a dated note under the `almanac` page.
+[notify](../../extensions/notify) is a kit: a scheduled fetcher (GitHub for real, Gmail, Jira and Slack behind the same
+shape) that writes one note per notification and seeds two boards.
 [readwise](../../extensions/readwise) is the full one: an action that sends a note to Readwise Reader, and an hourly
 pull, once per host, that writes each highlight back as an annotation at its passage, or onto a board in another
 outline.
@@ -916,6 +1085,8 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 | create | `create { parentId, text }` | a normal block: properties and all, as an agent's |
 | update | `update { blockId, expectedRevision, text }` | revision-checked, then a `draft.patch` under the `edit` policy: a door's live draft gets it, and while the person types in that passage it becomes a proposal (the answer is `draft.patch`'s: `{ outcome: "applied" \| "proposed", proposalId? }`); the guard refuses one that drops a `[page::…]` or a linked `^anchor` |
 | edit | `draft.patch { edits \| blockId, revision, patches }` | the same guard |
+| move | `move { blockId, parentId, position?, expectedRevision }` | revision-checked; refused on a block a person has a draft open in (or one under it) and on a record an extension keeps |
+| trash | `delete { blockId, expectedRevision, ifEmpty? }` | the same; to Trash, restorable |
 | comment, annotate | `annotations.batch` (a `block-comment` on a `passage`), `annotations.create`, `annotations.reply` | an annotation with `properties` (`kind`, `tags`, `color`, any key), its source an agent's |
 
 - **Only a call that may write writes**: an action with `effects: "write"` (or a handler with `effects: "write"`).
@@ -923,7 +1094,7 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
 - **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
   it writes waits for a person's `r`.
-- Anything else (moving, deleting, settings, `extensions.act`) is refused with what it may do.
+- Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
 
@@ -1055,6 +1226,29 @@ The rest of the group never reaches it, no other extension gets it, it's never l
 returned (the answer is scrubbed). A group file others can read is refused (`run: chmod 600 …`); a missing key says
 `with-secrets --add readwise READWISE_TOKEN`. The service itself never runs under `with-secrets`.
 
+### Secrets chosen at run time
+
+When the note says which group a run needs (a runbook step's `--secrets=deploy-demo`), the manifest can't name it
+ahead. Declare which groups a call may ask for, by name or `"*"` for any:
+
+```json
+"secretGroups": ["*"]
+```
+
+and ask over the connection while the call runs:
+
+```ts
+const { values } = await outline<{ values: Record<string, string> }>({ action: "secrets.group", group: "deploy-demo" });
+const child = Bun.spawn(["sh", "-c", command], { env: { ...process.env, ...values } });
+```
+
+- The service reads the group as for a manifest secret (mode 0600, `WITH_SECRETS_DIR`, the Keychain on macOS), and
+  answers every key (or only `keys: [...]`). A group the manifest doesn't allow is refused, saying what to add.
+- From then on the values are the call's secrets: scrubbed from its answer, from everything it writes over its
+  connection and from the stderr a failure shows (plain, base64, URL-encoded, and split by terminal escapes). Write
+  a command's output into the outline as it is; the service takes the values out.
+- Only a process the service started for the extension can ask (the grant); a client can't.
+
 ### Collections
 
 A data handler's `read` may answer many records, keyed by the extension's own ids (a library of highlights):
@@ -1165,6 +1359,31 @@ A block's whole new text, checked against the revision you read. The service app
 
 Answers `Block \| DraftPatchResult`.
 
+#### `move`
+
+A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one under it), and on a record an extension keeps.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `parentId` | `string \| null` |  |
+| `position?` | `number` |  |
+| `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
+
+Answers `Block`.
+
+#### `delete`
+
+A block and the blocks under it to Trash (restorable), checked and refused as `move` is.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `ifEmpty?` | `boolean` |  |
+| `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
+
+Answers `Block`.
+
 #### `annotations.list`
 
 The comment threads on a block (or a Resource), each with its replies and its own properties.
@@ -1207,6 +1426,17 @@ What changed in the outline after `sequence` (a cursor you keep), oldest first: 
 | `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
 
 Answers `ChangeFeedPage`.
+
+#### `secrets.group`
+
+A `with-secrets` group's values, asked for by name while the call runs: one the manifest's `secretGroups` names (or any, with `*`). The values join the call's secrets: the service scrubs them from everything it writes, answers and prints to stderr. Use them (a command's environment); never write them anywhere.
+
+| Field | Type | |
+|---|---|---|
+| `group` | `string` | The group's name: `~/.config/secrets/<group>.env` (`WITH_SECRETS_DIR` moves the folder). |
+| `keys?` | `string[]` | Only these keys, each of which must be set (default: every key in the group). |
+
+Answers `{ group: string; values: Record<string, string>; }`.
 
 #### `notes.address`
 
@@ -1530,6 +1760,21 @@ Run 2 built the Readwise extension with no core change, reading the source for t
 | A worked "sync from an outside API" | [Worked example](#worked-example-sync-my-starred-items-from-an-outside-api-every-hour) |
 | The suggested `pgrep` check matched other agents' runs | [Running it on float-2](#testing-an-extension): `agent-env --test` waits for a slot itself |
 
+### Cold-start runs 3 and 4 (runbooks, the notifications hub)
+
+Both built with no core change, working around these. Wave 2 closed them:
+
+| Gap | Now |
+|---|---|
+| Who asked isn't in an action's input (runbook probed `changes.since` after a write) | [`requestedBy`](#actions) in the `act` input |
+| A connection write doesn't redraw the acted-on line | It does, for a write to the block or a child of it ([Actions](#actions)) |
+| Secrets only by manifest name, so a group the note chooses needed a `with-secrets` wrapper and the extension's own scrub | [Secrets chosen at run time](#secrets-chosen-at-run-time) |
+| No `HOME` or `WITH_SECRETS_DIR`, and no way to ask for a host variable | Both [by default](#the-wire); the manifest's `env` for more |
+| A crashing extension shows no reason | [Its last stderr lines](#the-wire), scrubbed, in the refusal and `lastRun` |
+| `context.ancestors`: capped at 8, order unstated | [Every ancestor, top first](#the-wire) |
+| What `context.block.text` holds | [The wire](#the-wire) |
+| The connection can't move or trash | [`move` and `delete`](#writes-anywhere-through-the-normal-paths) |
+
 ## `extensions.list`
 
 ```json
@@ -1543,8 +1788,12 @@ Run 2 built the Readwise extension with no core change, reading the source for t
     "actions": [{ "id": "keep", "name": "ext.horoscope.keep", "builtIn": true, … }],
     "tiles": [],
     "bar": [],
-    "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }]
+    "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }],
+    "lastRun": { "at": "…", "call": "ext.horoscope.horoscope", "ok": false, "error": "command exited with code 1: no sign given" }
+  }, {
+    "id": "jira", "handlers": [{ "key": "jira", "kind": "resource", "effects": "read", … }], …
   }],
+  "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{key}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
   "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
@@ -1556,7 +1805,10 @@ Run 2 built the Readwise extension with no core change, reading the source for t
 ```
 
 `state` is `active`, `failed` (with `error`; it may still serve its last good version), `disabled`
-or `shadowed`. `extensions.list { reload: true }` reads the folders now instead of waiting for the
+or `shadowed`. `lastRun` is its last call of any kind since the service started: when, which, and why it failed (a
+crash's last stderr lines, scrubbed). `hub`, `pages`, `demos` (how many demo notes each has left) and `available` are
+the extensions' pages ([above](#an-extensions-page-and-its-demo-notes)); `pagesProblem` says why the last write of them
+failed, when it did. `extensions.list { reload: true }` reads the folders now instead of waiting for the
 watcher.
 
 ## Testing an extension
@@ -1679,6 +1931,5 @@ properties your sync writes; never a list of keys in code ([properties are open]
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
   until `r` on it (or it's worded differently).
-- **The publisher** shows data records (they are blocks) but not yet handler outputs; it will ask
-  `extensions.render` for `html`. So `notes.render` doesn't draw a handler line's output either.
-- **Generic Resource providers.** `kind: "resource"` is Jira's path; others use `data`.
+- **Provider commands for extensions.** An extension's Resources are read-only from the outline: `comment.create` and
+  other provider commands are Linear's built-in client's only.

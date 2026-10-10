@@ -1,0 +1,67 @@
+{
+  "contract": 2,
+  "id": "runbook",
+  "version": 2,
+  "name": "Runbook",
+  "description": "A note is a runbook: each step is a command block you run by name, secrets join a step from a with-secrets group at run time, and every run is recorded under the step.",
+  "demo": "demo",
+  "run": [
+    "bun",
+    "runbook.ts"
+  ],
+  "deadline": "5m",
+  "secretGroups": [
+    "*"
+  ],
+  "handlers": [
+    {
+      "key": "run",
+      "kind": "component",
+      "effects": "read",
+      "options": {
+        "mode": {
+          "type": "string",
+          "pattern": "^(dry|apply)$",
+          "default": "dry"
+        },
+        "secrets": {
+          "type": "string",
+          "pattern": "^[a-z0-9._-]+(,[a-z0-9._-]+)*$"
+        },
+        "confirm": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "run-step",
+      "label": "Run this step",
+      "on": "handler:run",
+      "key": "x",
+      "effects": "write",
+      "description": "Runs the step's command (its first code fence) with its secrets group, and records the run under it. An apply step is the person's, and needs confirm=<its confirm word>."
+    },
+    {
+      "id": "run-all",
+      "label": "Run the runbook",
+      "on": "block",
+      "effects": "write",
+      "description": "Runs a [type::runbook] note's steps in order and stops at the first one that fails or is not an agent's to run. Records each run under its step."
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "timeoutSeconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 240,
+        "description": "How long one step may run (default 120)"
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -10,11 +10,13 @@ import {
   mayHaveResourceProjections,
   providerKeyOccurrences,
   resourceDirectiveOccurrences,
-  RESOURCE_DIRECTIVE_PROVIDERS,
+  resourceDirectiveProviders,
 } from "../src/resource-references";
+import { useJiraProvider } from "./resource-providers";
 
 // Fictional tickets: a Source claims project ACME; nothing claims PIE.
-const jira = RESOURCE_DIRECTIVE_PROVIDERS[0]!;
+useJiraProvider();
+const jira = resourceDirectiveProviders()[0]!;
 const acme: ContextKeyMatcher = {
   propertyKey: "jira",
   keysIn: (text) => providerKeyOccurrences(jira, text).filter((key) => key.key.startsWith("ACME-")),
@@ -58,9 +60,9 @@ test("an option-only provider line is not a malformed key, while other bad value
   expect(occurrences.map((occurrence) => occurrence.kind === "authored-resource"
     ? occurrence.reference
     : occurrence.message)).toEqual([
-    "Jira Resource key must look like PROJECT-123",
-    { kind: "jira", key: "ACME-9" },
-    { kind: "jira", key: "ACME-4" },
+    "Jira Resource key HELLO doesn't match its key pattern (^[A-Z][A-Z0-9_]*-[1-9][0-9]*$)",
+    { kind: "ext:jira", key: "ACME-9" },
+    { kind: "ext:jira", key: "ACME-4" },
   ]);
   // A preamble `jira:: KEY` is the ticket page's property, not a provider line.
   expect(resourceDirectiveOccurrences("Ticket page\njira:: ACME-5")).toEqual([]);
@@ -68,7 +70,7 @@ test("an option-only provider line is not a malformed key, while other bad value
   expect(resourceDirectiveOccurrences("Ticket page\njira:: ACME-2 --comments"))
     .toMatchObject([{ line: 1, explicitKey: "ACME-2", options: { comments: 5 } }]);
   expect(authoredResourceReferenceOccurrences("Ticket page\njira:: ACME-2 --comments"))
-    .toMatchObject([{ kind: "authored-resource", reference: { kind: "jira", key: "ACME-2" } }]);
+    .toMatchObject([{ kind: "authored-resource", reference: { kind: "ext:jira", key: "ACME-2" } }]);
   expect(mayHaveResourceProjections("Ticket page\njira:: ACME-5")).toBe(true);
   expect(mayHaveResourceProjections("Ticket page [status::open]")).toBe(false);
   expect(parsePropertyRecords("Ticket page\njira:: ACME-5")[0]!.scope).toBe("block");

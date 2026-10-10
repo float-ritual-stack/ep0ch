@@ -2,6 +2,7 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
+import { safeExtensionHtml } from "./extension-html";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -22,7 +23,7 @@ import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-re
  * An unknown primitive never breaks a reader: it degrades to its text.
  */
 
-export const PRIMITIVE_TYPES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
+export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
@@ -30,6 +31,11 @@ export type Tone = typeof TONES[number];
 
 export type Primitive =
   | { type: "text"; text: string; tone?: Tone; strong?: boolean }
+  /**
+   * Blockdown a client draws with its own reader (the door's note surface, Detail's, the publisher's HTML), so its
+   * headings, lists, links and properties read as they do in a note. A text target gets the source as written.
+   */
+  | { type: "blockdown"; text: string }
   | { type: "badge"; label: string; tone?: Tone }
   | { type: "stat"; label: string; value: string | number; unit?: string; tone?: Tone }
   | { type: "bar"; label: string; value: number; max: number; tone?: Tone }
@@ -40,7 +46,11 @@ export type Primitive =
   | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; children?: Primitive[] }
   | { type: "box"; title?: string; children: Primitive[] }
   | { type: "stack"; children: Primitive[] }
-  | { type: "row"; children: Primitive[] }
+  /**
+   * Side by side. `minWidth`: the narrowest a child may be, in characters (terminal cells; `ch` on the web); where
+   * the reader can't give each child that much, the row stacks them, one under the other. Default 12.
+   */
+  | { type: "row"; children: Primitive[]; minWidth?: number }
   /**
    * A heading in a band of glyph tracks (PIE-599's banner, PIE-600's heading style): three rows, the text on `row`
    * (top, middle or bottom), aligned. `level` is the heading it stands for (a text target draws `#`, `##`, `###`).
@@ -68,6 +78,9 @@ export interface RenderedComponent {
 const MAX_DEPTH = 8;
 const MAX_NODES = 400;
 const MAX_TEXT = 2_000;
+/** A blockdown primitive holds a section of a note: as much as a child note a component reads (`context.children`). */
+const MAX_BLOCKDOWN = 16_000;
+export const ROW_MIN_WIDTH = 12;
 const MAX_CHILDREN = 100;
 const MAX_ROWS = 200;
 const MAX_COLUMNS = 12;
@@ -92,10 +105,10 @@ function fail(path: string, message: string): never {
   throw new ComponentError(`${path || "view"} ${message}`);
 }
 
-function text(value: unknown, path: string, optional = false): string | undefined {
+function text(value: unknown, path: string, optional = false, max = MAX_TEXT): string | undefined {
   if (value === undefined && optional) return undefined;
   if (typeof value !== "string") fail(path, "must be text");
-  if (value.length > MAX_TEXT) fail(path, `is longer than ${MAX_TEXT} characters`);
+  if (value.length > max) fail(path, `is longer than ${max} characters`);
   // Kept clean: terminal escapes and control characters never reach a reader (the door's own drawing, `terminal`).
   return cleanExtensionText(value, true);
 }
@@ -132,6 +145,9 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       only(node, ["type", "text", "tone", "strong"], path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
       return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}) };
+    case "blockdown":
+      only(node, ["type", "text"], path);
+      return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
     case "badge":
       only(node, ["type", "label", "tone"], path);
       return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
@@ -206,9 +222,13 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       only(node, ["type", "title", "children"], path);
       return { type: "box", ...(node.title !== undefined ? { title: text(node.title, `${path}.title`)! } : {}), children: children() };
     case "stack":
-    case "row":
       only(node, ["type", "children"], path);
-      return { type: node.type, children: children() };
+      return { type: "stack", children: children() };
+    case "row": {
+      only(node, ["type", "children", "minWidth"], path);
+      if (node.minWidth !== undefined && (!Number.isInteger(node.minWidth) || (node.minWidth as number) < 4 || (node.minWidth as number) > 200)) fail(`${path}.minWidth`, "must be a whole number from 4 to 200");
+      return { type: "row", children: children(), ...(node.minWidth !== undefined ? { minWidth: node.minWidth as number } : {}) };
+    }
     case "band": {
       only(node, ["type", "text", "level", "style", "pattern", "align", "row", "tone"], path);
       if (node.style !== undefined && (typeof node.style !== "string" || !HEADING_STYLE_NAME.test(node.style))) fail(`${path}.style`, "must be a heading style's name");
@@ -293,6 +313,7 @@ const oneLine = (value: string) => value.replace(/[\u0000-\u001f\u007f-\u009f]+/
 function terminalLines(node: Primitive): string[] {
   switch (node.type) {
     case "text": return oneLine(node.text).split(/\n/);
+    case "blockdown": return node.text.split("\n").map(oneLine);
     case "badge": return [`[${oneLine(node.label)}]`];
     case "stat": return [`${oneLine(node.label)}  ${oneLine(statText(node))}`];
     case "bar": return [`${oneLine(node.label)}  ${meter(node.value, node.max)}  ${node.value}/${node.max}`];
@@ -333,9 +354,20 @@ function terminalLines(node: Primitive): string[] {
 
 const mdInline = (value: string) => oneLine(value).replace(/([\\`*_|<>])/g, "\\$1");
 
-function markdownLines(node: Primitive): string[] {
+/**
+ * How a reader that draws Markdown wants a row: `row` gets each child's Markdown and returns the lines that stand for
+ * the row (Detail lays them side by side, src/detail-embeds.ts). Without it a row is its children in order.
+ */
+export interface MarkdownDraw {
+  row?(parts: readonly string[], node: Extract<Primitive, { type: "row" }>): string[];
+}
+
+function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
+  const inner = (child: Primitive) => markdownLines(child, draw);
   switch (node.type) {
     case "text": return [node.strong ? `**${mdInline(node.text)}**` : mdInline(node.text), ""];
+    // Blockdown is the reader's own: as written, between blank lines.
+    case "blockdown": return [node.text.replace(/\r\n?/g, "\n").trim(), ""];
     case "badge": return [`\`${oneLine(node.label).replace(/`/g, "'")}\``, ""];
     case "stat": return [`- **${mdInline(node.label)}:** ${mdInline(statText(node))}`];
     case "bar": return [`- ${mdInline(node.label)}: ${meter(node.value, node.max)} ${node.value}/${node.max}`];
@@ -350,22 +382,26 @@ function markdownLines(node: Primitive): string[] {
     case "card": return [
       `**${mdInline(node.title)}**${node.badge ? ` \`${oneLine(node.badge.label).replace(/`/g, "'")}\`` : ""}${node.subtitle ? ` · _${mdInline(node.subtitle)}_` : ""}`,
       "",
-      ...(node.children ?? []).flatMap(markdownLines),
+      ...(node.children ?? []).flatMap(inner),
     ];
-    case "box": return [...(node.title ? [`**${mdInline(node.title)}**`, ""] : []), ...node.children.flatMap(markdownLines)];
-    case "stack":
-    case "row": return node.children.flatMap(markdownLines);
+    case "box": return [...(node.title ? [`**${mdInline(node.title)}**`, ""] : []), ...node.children.flatMap(inner)];
+    case "stack": return node.children.flatMap(inner);
+    case "row": return draw.row ? [...draw.row(node.children.map((child) => tidy(inner(child))), node), ""] : node.children.flatMap(inner);
     // A band is its heading wherever a target can't draw tracks; a track is a thematic break.
     case "band": return node.text ? [`${"#".repeat(node.level ?? 2)} ${mdInline(node.text)}`, ""] : ["---", ""];
     case "track": return ["---", ""];
   }
 }
 
-function markdown(view: Primitive): string {
-  const lines = markdownLines(view);
-  // A list ends where a paragraph starts; collapse runs of blank lines.
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+// A list ends where a paragraph starts; collapse runs of blank lines.
+const tidy = (lines: readonly string[]) => lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+/** A view as Markdown; `draw` is how the reader wants what it draws itself (a row). */
+export function componentMarkdown(view: Primitive, draw: MarkdownDraw = {}): string {
+  return tidy(markdownLines(view, draw));
 }
+
+const markdown = (view: Primitive) => componentMarkdown(view);
 
 const html = (value: string | number) => String(value).replace(/[&<>"']/g, (character) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
@@ -374,6 +410,9 @@ const toneClass = (value: Tone | undefined) => value && value !== "default" ? ` 
 function htmlOf(node: Primitive): string {
   switch (node.type) {
     case "text": return `<p class="ext-text${toneClass(node.tone)}">${node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text)}</p>`;
+    // The source, escaped: a reader with a Blockdown renderer draws it (the publisher, BLOCKDOWN_HTML), any other
+    // shows it as written.
+    case "blockdown": return `<div class="ext-blockdown">${html(node.text)}</div>`;
     case "badge": return `<span class="ext-badge${toneClass(node.tone)}">${html(node.label)}</span>`;
     case "stat": return `<div class="ext-stat${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <strong>${html(statText(node))}</strong></div>`;
     case "bar": return `<div class="ext-bar${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <meter min="0" max="${node.max}" value="${node.value}">${node.value}/${node.max}</meter> ${node.value}/${node.max}</div>`;
@@ -385,7 +424,7 @@ function htmlOf(node: Primitive): string {
       node.subtitle ? `<div class="ext-subtitle">${html(node.subtitle)}</div>` : ""}</header>${(node.children ?? []).map(htmlOf).join("")}</section>`;
     case "box": return `<section class="ext-box">${node.title ? `<h4>${html(node.title)}</h4>` : ""}${node.children.map(htmlOf).join("")}</section>`;
     case "stack": return `<div class="ext-stack">${node.children.map(htmlOf).join("")}</div>`;
-    case "row": return `<div class="ext-row">${node.children.map(htmlOf).join("")}</div>`;
+    case "row": return `<div class="ext-row"${node.minWidth !== undefined ? ` style="--ext-min:${node.minWidth}ch"` : ""}>${node.children.map(htmlOf).join("")}</div>`;
     case "band": {
       const level = node.level ?? 2;
       return `<div class="ext-band ext-${node.pattern ?? "rule"}${toneClass(node.tone)}" data-align="${node.align ?? "left"}" data-row="${node.row ?? "middle"}">${
@@ -439,7 +478,11 @@ function fromPrimitives(output: ComponentOutput, target: RenderTarget): string |
  */
 export function renderComponent(output: ComponentOutput, target: RenderTarget, fallback: RenderTarget = "json"): RenderedComponent {
   const own = output.targets?.[target];
-  if (own !== undefined) return { target, body: target === "blockdown" ? inertBlockdown(own) : cleanExtensionText(own, true), via: "component", contentType: CONTENT_TYPES[target] };
+  if (own !== undefined) {
+    // Its own HTML is kept to the page's markup: no scripts, styles, frames or handlers (src/extension-html.ts).
+    const body = target === "blockdown" ? inertBlockdown(own) : target === "html" ? `<div class="ext-component">${safeExtensionHtml(own)}</div>` : cleanExtensionText(own, true);
+    return { target, body, via: "component", contentType: CONTENT_TYPES[target] };
+  }
   const composed = fromPrimitives(output, target);
   if (composed !== null) return { target, body: composed, via: "primitives", contentType: CONTENT_TYPES[target] };
   const backup = fromPrimitives(output, fallback === target ? "json" : fallback) ?? JSON.stringify(output.data, null, 2);

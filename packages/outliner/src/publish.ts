@@ -1,5 +1,6 @@
 import type { Decoration } from "./extension-rules";
-import type { ResourceProjectionReadResult } from "./resource-projection";
+import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
+import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
@@ -19,7 +20,8 @@ import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
-import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE } from "./annotations";
+import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
+import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
@@ -319,14 +321,14 @@ header.bar{border-bottom:1px solid var(--rule);padding-bottom:.5rem;margin-botto
 footer{border-top:1px solid var(--rule);margin-top:3rem;padding-top:.5rem}
 pre,code{font:14px/1.45 ui-monospace,Menlo,monospace}
 pre{overflow-x:auto;padding:.75rem;border:1px solid var(--rule)}
-table{border-collapse:collapse;width:100%;font:14px/1.5 ui-monospace,Menlo,monospace}
-th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+table{border-collapse:collapse;font:14px/1.5 ui-monospace,Menlo,monospace;display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var(--rule);vertical-align:top;min-width:7em;overflow-wrap:normal}
 th{color:var(--dim);font-weight:normal}
 .dim{color:var(--dim)}
 img{max-width:100%}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
-${CALLOUT_STYLE}${MARGINALIA_STYLE}`;
+${CALLOUT_STYLE}${COMPONENT_STYLE}${MARGINALIA_STYLE}`;
 
 /**
  * A tailnet page (PIE-782): phone first, a reading measure, targets a thumb can hit, and dark throughout. Evan is
@@ -348,6 +350,8 @@ ul.kids .t{display:block;color:var(--link)}
 ul.kids .s{display:block;color:#c9c7bf;font-size:15px;line-height:1.45;margin-top:.15rem}
 ul.kids .m{display:block;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);margin-top:.2rem;overflow-wrap:anywhere}
 ul.kids li.locked{padding:.75rem .35rem;color:var(--dim);font-style:italic}
+ul.replies li.new .t{color:var(--fg);font-weight:600}
+ul.replies .dot{color:var(--link);font-size:.8em}
 ::selection{background:#3b4250;color:inherit}
 main.browse [hidden],.mg-ui[hidden]{display:none!important}
 .mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
@@ -707,9 +711,9 @@ export class Publisher {
     const entry = full.entries.find((candidate) => candidate.blockId === blockId) ?? {
       blockId, title: publishedTitle(block.title ?? "", new Map()) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
     };
-    const { markdown, marks } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "" });
+    const { markdown, marks, components } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
     const text = format === "markdown" ? markdown
-      : htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown, await this.callouts()), marks), index, base ?? "");
+      : htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(markdown, await this.callouts()), components), marks), index, base ?? "");
     return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
   }
 
@@ -847,6 +851,8 @@ export class Publisher {
         }
         return renderedHtml(renderIndexHtml(await this.readIndex(), this.basePath, this.publicHrefs()));
       }
+      // Recent replies (a bookmark on the phone): every reply on his threads, newest first, the unread marked.
+      if (audience === "tailnet" && (path === "/replies" || path === "/replies/")) return await this.serveReplies(await this.readIndex());
       if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
@@ -940,12 +946,12 @@ export class Publisher {
       const browse = audience === "tailnet";
       const rendered = await this.blockMarkdown(entry, index, audience, true, { browse });
       const base = this.basePathFor(audience);
-      const article = htmlViewLinks(drawMarginalia(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.marks, browse), rendered.index, base);
+      const article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
       const crumbs = await this.crumbs(entry, index, true);
       return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true)}`, crumbs, { reader: this.readerTag(entry, true) }), 200, READER_CSP);
     }
-    const { markdown } = await this.blockMarkdown(entry, index, audience, false);
+    const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown" });
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
   }
 
@@ -962,7 +968,7 @@ export class Publisher {
       const whole = await this.noteWithAnnotations(entry.blockId);
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", true, { whole, browse: true });
-      article = htmlViewLinks(drawMarginalia(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.marks, true), rendered.index, base);
+      article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.index, base);
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     const listed = children.slice(0, MAX_LISTED_CHILDREN);
@@ -978,6 +984,57 @@ export class Publisher {
     return entry
       ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false) }), 200, READER_CSP)
       : renderedHtml(htmlPage(title, body, crumbs, { browse: true }));
+  }
+
+  /**
+   * Recent replies (the capability "Conversations in the margin"): the saved view's question (outline-core
+   * recent-replies.ts) asked of the service, the unread ones (`unread:me`) marked. Each opens its note at the thread,
+   * and opening it there marks it read. A reply on a locked note, or marked `[publish::never]`, isn't listed.
+   */
+  private async serveReplies(index: PublishedIndex): Promise<Response> {
+    const base = this.basePath;
+    const fields = ["text", "parent", "properties", "author", "timestamps"] as const;
+    const [all, unread] = await Promise.all([
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: RECENT_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields: [...fields] }),
+      // The same order and limit: every unread one among those shown is among the newest unread.
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: UNREAD_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields: ["parent"] }),
+    ]);
+    const fresh = new Set(unread.blocks.map((block) => block.id));
+    // A reply's tree parent is its thread's comment; the comment's is the note it's on.
+    const roots = [...new Set(all.blocks.map((block) => block.parentId).filter((id): id is string => !!id))];
+    const read = async (ids: string[], wanted: ("text" | "parent" | "properties")[]) =>
+      ids.length ? (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids, fields: wanted })).blocks : [];
+    const rootOf = new Map((await read(roots, ["text", "parent"])).map((block) => [block.id, block]));
+    const notes = [...new Set([...rootOf.values()].map((block) => block.parentId).filter((id): id is string => !!id))];
+    const [locked, titles, noteBlocks] = await Promise.all([
+      this.lockedIds([...notes, ...all.blocks.map((block) => block.id)]),
+      this.titles(notes),
+      read(notes, ["properties"]),
+    ]);
+    const noteOf = new Map(noteBlocks.map((block) => [block.id, block]));
+    const rows: string[] = [];
+    let unreadCount = 0;
+    for (const reply of all.blocks) {
+      const root = reply.parentId ? rootOf.get(reply.parentId) : undefined;
+      const noteId = root?.parentId ?? undefined;
+      if (!root || !noteId || locked.has(noteId) || locked.has(reply.id)) continue;
+      const isNew = fresh.has(reply.id);
+      if (isNew) unreadCount += 1;
+      const by = reply.author === "user" ? "you" : (reply.actorId ?? "agent").replace(/^ext:/, "");
+      const quote = /^[A-Z][a-z-]{0,23} on “(.*)”$/.exec((root.text ?? "").split("\n")[0] ?? "")?.[1] ?? "";
+      const said = plainBody(extractAnnotationBody(reply.text ?? "")).replace(/\s+/g, " ").trim();
+      const href = `${base}${notePath(noteOf.get(noteId) ?? { id: noteId }, index)}#thread=${root.id}`;
+      const meta = [by, (reply.createdAt ?? "").slice(0, 16).replace("T", " "), `on ${noteTitle(titles.get(noteId) ?? "") || "a note"}`].join(" · ");
+      rows.push(`<li${isNew ? ` class="new"` : ""}><a href="${escapeHtml(href)}"><span class="t">${isNew ? `<span class="dot" aria-label="unread">●</span> ` : ""}${escapeHtml(said.length > 220 ? `${said.slice(0, 219).trimEnd()}…` : said || "(empty)")}</span>` +
+        `${quote ? `<span class="s">“${escapeHtml(quote)}”</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`);
+    }
+    const list = rows.length
+      ? `<ul class="kids replies">\n${rows.join("\n")}\n</ul>\n`
+      : `<p class="dim">No replies yet. When someone (or @margin) answers in a thread you started or wrote in, it shows here.</p>\n`;
+    const body = `<article>\n<h1>Recent replies</h1>\n<p class="dim">${unreadCount ? `${unreadCount} unread · ` : ""}replies on your threads, newest first. Opening one marks its thread read.</p>\n</article>\n` +
+      `<section class="inside">${list}</section>\n<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Recent replies</span></nav>`;
+    return renderedHtml(htmlPage("Recent replies", body, crumbs, { browse: true }));
   }
 
   /** Breadcrumbs from the outline's top level down to `entry`, each a link but the note itself (on its full page, a link back to the folder). */
@@ -1281,8 +1338,8 @@ export class Publisher {
    */
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
-    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean } = {},
-  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex }> {
+    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; format?: "markdown" | "html" } = {},
+  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[] }> {
     const base = options.base ?? this.basePathFor(audience);
     const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
@@ -1295,14 +1352,50 @@ export class Publisher {
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
     const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)));
-    const decorations = await this.readDecorations(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
+    const { decorations, lines } = await this.readProjections(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
     let linked = await this.linkable(index, shown, pages, embeds, audience);
     // On a tailnet page every note it names is a page too (PIE-782), not only published ones.
     if (options.browse) linked = await this.browseIndex(linked, shown, pages, embeds);
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order);
-    return { markdown, marks: order, index: linked };
+    const components: string[] = [];
+    const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
+    const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under);
+    return { markdown, marks: order, index: linked, components };
+  }
+
+  /**
+   * What each extension handler line on the page shows, under the line (its `key::` line is a property, which a page
+   * doesn't show): an output's Markdown; a component's HTML (`extensions.render`, with its Blockdown read by this
+   * page's reader), or in Markdown its Markdown target; and a line with nothing to show yet, its source as code.
+   */
+  private async handlerLines(
+    lines: ReadonlyMap<string, readonly ResourceProjection[]>, texts: ReadonlyMap<string, string>, format: "markdown" | "html",
+    components: string[], context: TextContext,
+  ): Promise<Map<string, Map<number, string>>> {
+    const out = new Map<string, Map<number, string>>();
+    // A section's callouts draw as the page's do.
+    const callouts = lines.size && format === "html" ? await this.callouts() : BUILTIN_CALLOUT_REGISTRY;
+    for (const [blockId, projections] of lines) {
+      const html = format === "html" && projections.some((projection) => projection.kind === "component" && hasResult(projection))
+        ? await this.client.request<{ results: { line: number; rendered: { body: string } }[] }>({ action: "extensions.render", blockId, target: "html" })
+          .then((answer) => answer.results, () => [])
+        : [];
+      const text = (texts.get(blockId) ?? "").split("\n");
+      const shown = new Map<number, string>();
+      for (const projection of projections) {
+        const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
+        const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
+        if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
+          components.push(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)));
+          shown.set(line, componentSentinel(components.length - 1));
+        } else if (output?.markdown.trim()) shown.set(line, output.markdown);
+        else shown.set(line, lineSource(text[line] ?? projection.propertyKey));
+      }
+      out.set(blockId, shown);
+    }
+    return out;
   }
 
   /**
@@ -1331,20 +1424,25 @@ export class Publisher {
   }
 
   /**
-   * What the rules draw on each shown block (PIE-600), as the service answers `resources.projection.read`. A block
-   * whose read fails is published as written: a decoration is never what a page depends on.
+   * What the rules draw on each shown block (PIE-600) and its extension handler lines, as the service answers
+   * `resources.projection.read`. A block whose read fails is published as written: neither is what a page depends on.
    */
-  private async readDecorations(rows: readonly { id: string; revision?: number }[]): Promise<ReadonlyMap<string, readonly Decoration[]>> {
-    const out = new Map<string, readonly Decoration[]>();
+  private async readProjections(rows: readonly { id: string; revision?: number }[]): Promise<{
+    decorations: ReadonlyMap<string, readonly Decoration[]>; lines: ReadonlyMap<string, readonly ResourceProjection[]>;
+  }> {
+    const decorations = new Map<string, readonly Decoration[]>(), lines = new Map<string, readonly ResourceProjection[]>();
     const revisions = new Map(rows.map((row) => [row.id, row.revision]));
     await Promise.all(rows.slice(0, MAX_DECORATED_BLOCKS).map(async ({ id: blockId }) => {
       try {
         const read = await this.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId });
         // Placed by line: only against the revision this page shows (an edit since would move them).
-        if (read.decorations?.length && read.revision === revisions.get(blockId)) out.set(blockId, read.decorations);
+        if (read.revision !== revisions.get(blockId)) return;
+        if (read.decorations?.length) decorations.set(blockId, read.decorations);
+        const drawn = read.projections.filter(drawnLine);
+        if (drawn.length) lines.set(blockId, drawn);
       } catch { /* published as written */ }
     }));
-    return out;
+    return { decorations, lines };
   }
 
   /** An attached markdown file rendered: its `((block))` and `[[page]]` links and its embeds, as a block's. */
@@ -1514,6 +1612,8 @@ function fileChip(source: string, index: PublishedIndex, basePath: string): stri
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A folder page lists at most this many children, and counts what's inside the first this many. */
 const MAX_LISTED_CHILDREN = 500;
+/** Recent replies lists at most this many. */
+const MAX_RECENT_REPLIES = 60;
 const MAX_COUNTED_CHILDREN = 200;
 
 /** A note's title (the service's) as a tailnet page shows it: a reference read as its label, a heading's marks left out. */
@@ -1574,8 +1674,8 @@ const MAX_DECORATED_BLOCKS = 200;
  * above. One not drawn yet leaves the text as written. The service made the Markdown inert, so it adds no
  * properties or links.
  */
-export function decoratedText(text: string, decorations: readonly Decoration[] | undefined): string {
-  if (!decorations?.length) return text;
+export function decoratedText(text: string, decorations: readonly Decoration[] | undefined, under?: ReadonlyMap<number, string>): string {
+  if (!decorations?.length && !under?.size) return text;
   const lines = text.split("\n");
   const block = (decoration: Decoration) => ["", ...decoration.markdown!.split("\n"), ""];
   // Placed against the text as written, then emitted once: the first rule to take a line's place has it, as in the door.
@@ -1583,7 +1683,9 @@ export function decoratedText(text: string, decorations: readonly Decoration[] |
   const head: string[][] = [], tail: string[][] = [];
   const replaced = new Map<number, { end: number; lines: string[] }>();
   const taken = (from: number, to: number) => [...replaced].some(([at, r]) => from < r.end && at < to);
-  for (const decoration of decorations) {
+  // What a handler line shows goes right under it (src/publish-components.ts).
+  for (const [line, shown] of under ?? []) if (line < lines.length) after[line]!.push(["", ...shown.split("\n"), ""]);
+  for (const decoration of decorations ?? []) {
     if ((decoration.status !== "ready" && decoration.status !== "stale") || !decoration.markdown?.trim()) continue;
     const { at, line } = decoration.hit, end = Math.min(decoration.hit.end, lines.length);
     if (at === "block") { (decoration.place === "below" ? tail : head).push(block(decoration)); continue; }
@@ -1697,6 +1799,7 @@ export function renderSubtreeMarkdown(
   decorations: ReadonlyMap<string, readonly Decoration[]> = new Map(),
   marks: ReadonlyMap<string, readonly PublishedAnnotation[]> = new Map(),
   order: PublishedAnnotation[] = [],
+  under: ReadonlyMap<string, ReadonlyMap<number, string>> = new Map(),
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree);
   if (!rootRow) return "";
@@ -1710,7 +1813,7 @@ export function renderSubtreeMarkdown(
     order.push(...list);
     return placeMarkSentinels(text, list, first);
   };
-  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id)), context, { title: true }));
+  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id)), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
@@ -1718,7 +1821,7 @@ export function renderSubtreeMarkdown(
       : [`# ${first.trim() || root.id}`, ...rest];
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id)), context));
+    const text = locked ? placeholder(LOCKED_NOTE) : marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id), under.get(block.id)), context));
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);

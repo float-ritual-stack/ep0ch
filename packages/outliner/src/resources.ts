@@ -32,11 +32,30 @@ export const RESOURCE_CAPABILITY_FACTORS = [
   "connectivity",
 ] as const;
 
+/**
+ * An extension's remote-entity provider (its `kind: "resource"` handler): `ext:<extension id>`, so Jira's is
+ * `ext:jira`. Any installed extension may be one; the service owns the Resource, its Source boundary
+ * (`{ origin, project }`), snapshots and history, and the extension's process resolves, reads and reports changes.
+ */
+export type ExtensionProvider = `ext:${string}`;
+export const EXTENSION_PROVIDER_PATTERN = /^ext:[a-z0-9][a-z0-9.-]{0,99}$/;
+export function isExtensionProvider(value: unknown): value is ExtensionProvider {
+  return typeof value === "string" && EXTENSION_PROVIDER_PATTERN.test(value);
+}
+/** The provider an extension's resource handler names: `ext:<id>`. */
+export function extensionProvider(extensionId: string): ExtensionProvider {
+  return `ext:${extensionId}`;
+}
+/** The extension behind a provider (`ext:jira` → `jira`). */
+export function providerExtension(provider: ExtensionProvider): string {
+  return provider.slice(4);
+}
+
 export type ResourceProvider =
   | "filesystem"
   | "web"
   | "github"
-  | "jira"
+  | ExtensionProvider
   | "linear"
   | "application"
   | "computed";
@@ -75,9 +94,9 @@ export type ResourceSource =
       };
     }
   | ResourceSourceHeader & {
-      readonly provider: "jira";
+      readonly provider: ExtensionProvider;
       readonly boundary: {
-        readonly kind: "jira";
+        readonly kind: ExtensionProvider;
         readonly origin: string;
         readonly project: string;
         readonly credentialEnv?: string;
@@ -135,7 +154,7 @@ export type CreateResourceSourceInput =
     }
   | {
       readonly name: string;
-      readonly provider: "jira";
+      readonly provider: ExtensionProvider;
       readonly boundary: {
         readonly origin: string;
         readonly project: string;
@@ -198,7 +217,7 @@ type NormalizedResourceSourceInput =
     }
   | {
       readonly name: string;
-      readonly provider: "jira";
+      readonly provider: ExtensionProvider;
       readonly boundary: {
         readonly origin: string;
         readonly project: string;
@@ -245,7 +264,7 @@ export type ResourceAddress =
       readonly number: number;
     }
   | {
-      readonly kind: "jira";
+      readonly kind: ExtensionProvider;
       readonly entityId: string;
       readonly key: string;
     }
@@ -271,7 +290,7 @@ export type Resource =
   | ResourceHeader & { readonly provider: "filesystem"; readonly address: Extract<ResourceAddress, { kind: "filesystem" }> }
   | ResourceHeader & { readonly provider: "web"; readonly address: Extract<ResourceAddress, { kind: "web" }> }
   | ResourceHeader & { readonly provider: "github"; readonly address: Extract<ResourceAddress, { kind: "github" }> }
-  | ResourceHeader & { readonly provider: "jira"; readonly address: Extract<ResourceAddress, { kind: "jira" }> }
+  | ResourceHeader & { readonly provider: ExtensionProvider; readonly address: Extract<ResourceAddress, { kind: ExtensionProvider }> }
   | ResourceHeader & { readonly provider: "linear"; readonly address: Extract<ResourceAddress, { kind: "linear" }> }
   | ResourceHeader & { readonly provider: "application"; readonly address: Extract<ResourceAddress, { kind: "application" }> }
   | ResourceHeader & { readonly provider: "computed"; readonly address: Extract<ResourceAddress, { kind: "computed" }> };
@@ -298,7 +317,7 @@ export type ResourceRevision =
         | { readonly kind: "updated-at"; readonly value: string };
     }
   | {
-      readonly kind: "jira";
+      readonly kind: ExtensionProvider;
       readonly validator: { readonly kind: "updated-at"; readonly value: string };
     }
   | {
@@ -648,7 +667,7 @@ export interface WebResourceDocument {
 }
 export const MAX_REMOTE_ENTITY_COMMENT_LENGTH = 10_000;
 
-export type RemoteEntityProvider = "jira" | "linear";
+export type RemoteEntityProvider = ExtensionProvider | "linear";
 export type RemoteEntityMetadataValue = string | readonly string[] | null;
 export type RemoteEntityMetadata = Readonly<Record<string, RemoteEntityMetadataValue>>;
 
@@ -665,12 +684,12 @@ interface CommentCreateDescriptor {
 }
 
 export type ResourceProviderCommandDescriptor =
-  | CommentCreateDescriptor & { readonly provider: "jira" }
+  | CommentCreateDescriptor & { readonly provider: ExtensionProvider }
   | CommentCreateDescriptor & { readonly provider: "linear" };
 
 export type ResourceProviderCommandInput =
   | {
-      readonly provider: "jira";
+      readonly provider: ExtensionProvider;
       readonly command: "comment.create";
       readonly payload: { readonly body: string };
     }
@@ -913,7 +932,7 @@ function invalid(message: string): never {
 }
 const ResourceProviderCommandInputSchema = Type.Union([
   Type.Object({
-    provider: Type.Literal("jira"),
+    provider: Type.String({ pattern: EXTENSION_PROVIDER_PATTERN.source }),
     command: Type.Literal("comment.create"),
     payload: Type.Object({
       body: Type.String(),
@@ -952,7 +971,7 @@ export function normalizeResourceProviderCommandInput(
     );
   }
   return {
-    provider: input.provider,
+    provider: input.provider as RemoteEntityProvider,
     command: input.command,
     payload: { body },
   };
@@ -1067,26 +1086,37 @@ function credentialEnvironmentName(value: unknown): string {
   return name;
 }
 
-function remoteEntityId(value: unknown, provider: "Jira" | "Linear"): string {
+function remoteEntityId(value: unknown, provider: string): string {
   return printable(value, `${provider} entity ID`, 255);
 }
 
-function normalizeJiraAddress(
-  source: Extract<ResourceSource, { provider: "jira" }>,
+/** How messages name a provider: `ext:jira` → "Jira". */
+export function providerLabel(provider: ResourceProvider): string {
+  const name = isExtensionProvider(provider) ? providerExtension(provider) : provider;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * An extension provider's entity (Jira's issue first): an immutable `entityId` and a key in its Source's project
+ * (`PC-12` in project `PC`), upper-cased as people write it.
+ */
+function normalizeExtensionEntityAddress(
+  source: Extract<ResourceSource, { provider: ExtensionProvider }>,
   value: unknown,
 ): NormalizedResourceAddress {
-  const input = record(value, "Jira resource address");
-  if (input.kind !== "jira") invalid("Jira resource address kind must be jira");
-  const entityId = remoteEntityId(input.entityId, "Jira");
-  const key = printable(input.key, "Jira issue key", 255).toUpperCase();
+  const label = providerLabel(source.provider);
+  const input = record(value, `${label} resource address`);
+  if (input.kind !== source.provider) invalid(`${label} resource address kind must be ${source.provider}`);
+  const entityId = remoteEntityId(input.entityId, label);
+  const key = printable(input.key, `${label} key`, 255).toUpperCase();
   if (!key.startsWith(`${source.boundary.project}-`)) {
     throw new ResourceCatalogError(
       "outside-source",
-      "Jira issue key is outside its source project",
+      `${label} key is outside its source project`,
     );
   }
   return {
-    address: { kind: "jira", entityId, key },
+    address: { kind: source.provider, entityId, key },
     canonicalKey: entityId,
   };
 }
@@ -1271,17 +1301,6 @@ export function normalizeResourceSourceInput(value: unknown): NormalizedResource
         policy,
       };
     }
-    case "jira":
-      return {
-        name,
-        provider: "jira",
-        boundary: {
-          origin: normalizeRemoteOrigin(boundary.origin, "Jira source origin"),
-          project: printable(boundary.project, "Jira source project", 255).toUpperCase(),
-          ...(boundary.credentialEnv === undefined ? {} : { credentialEnv: credentialEnvironmentName(boundary.credentialEnv) }),
-        },
-        policy,
-      };
     case "linear":
       return {
         name,
@@ -1321,8 +1340,20 @@ export function normalizeResourceSourceInput(value: unknown): NormalizedResource
         },
         policy,
       };
-    default:
-      invalid(`Unsupported resource provider: ${String(input.provider)}`);
+    default: {
+      if (!isExtensionProvider(input.provider)) invalid(`Unsupported resource provider: ${String(input.provider)}`);
+      const label = providerLabel(input.provider);
+      return {
+        name,
+        provider: input.provider,
+        boundary: {
+          origin: normalizeRemoteOrigin(boundary.origin, `${label} source origin`),
+          project: printable(boundary.project, `${label} source project`, 255).toUpperCase(),
+          ...(boundary.credentialEnv === undefined ? {} : { credentialEnv: credentialEnvironmentName(boundary.credentialEnv) }),
+        },
+        policy,
+      };
+    }
   }
 }
 
@@ -1337,14 +1368,14 @@ export function normalizeResourceAddress(
       return normalizeWebAddress(source, value);
     case "github":
       return normalizeGithubAddress(value);
-    case "jira":
-      return normalizeJiraAddress(source, value);
     case "linear":
       return normalizeLinearAddress(value);
     case "application":
       return normalizeApplicationAddress(source, value);
     case "computed":
       return normalizeComputedAddress(value);
+    default:
+      return normalizeExtensionEntityAddress(source, value);
   }
 }
 
@@ -1392,16 +1423,17 @@ export function normalizeRelocateResourceInput(
   }
   const normalized = normalizeResourceAddress(destination, input.address);
   if (
-    resource.provider === "jira" &&
+    isExtensionProvider(resource.provider) && resource.address.kind === resource.provider &&
     (
       destination.id !== resource.sourceId ||
-      normalized.address.kind !== "jira" ||
+      normalized.address.kind !== resource.provider ||
+      !("entityId" in normalized.address) ||
       normalized.address.entityId !== resource.address.entityId
     )
   ) {
     throw new ResourceCatalogError(
       "provider-mismatch",
-      "Jira relocation cannot change provider instance or immutable entity identity",
+      `${providerLabel(resource.provider)} relocation cannot change provider instance or immutable entity identity`,
     );
   }
   if (
@@ -1578,7 +1610,7 @@ function normalizeProviderRevision(
     }
     invalid("Unsupported GitHub revision validator");
   }
-  if (revision.kind === "jira" || revision.kind === "linear") {
+  if (isExtensionProvider(revision.kind) || revision.kind === "linear") {
     if (validator.kind !== "updated-at") {
       invalid(`Unsupported ${revision.kind} revision validator`);
     }
@@ -1596,7 +1628,7 @@ function normalizeProviderRevision(
     };
   }
   invalid(
-    "Resource revision provider must be filesystem, web, github, jira, linear, or computed",
+    "Resource revision provider must be filesystem, web, github, linear, computed, or an extension's (ext:<id>)",
   );
 }
 
@@ -1661,10 +1693,10 @@ export function resourceRevisionRefEquals(
       left.revision.validator.value === right.revision.validator.value;
   }
   if (
-    (left.revision.kind === "jira" && right.revision.kind === "jira") ||
-    (left.revision.kind === "linear" && right.revision.kind === "linear")
+    (left.revision.kind === "linear" && right.revision.kind === "linear") ||
+    (isExtensionProvider(left.revision.kind) && left.revision.kind === right.revision.kind)
   ) {
-    return left.revision.validator.value === right.revision.validator.value;
+    return (left.revision as { validator: { value: string } }).validator.value === (right.revision as { validator: { value: string } }).validator.value;
   }
   if (left.revision.kind === "computed" && right.revision.kind === "computed") {
     return left.revision.executionId === right.revision.executionId &&
@@ -1691,14 +1723,14 @@ export function resourceAddressLabel(address: ResourceAddress): string {
       return address.url;
     case "github":
       return `${address.entity} #${address.number}`;
-    case "jira":
-      return address.key;
     case "linear":
       return address.identifier;
     case "application":
       return address.uri;
     case "computed":
       return `producer:${address.invocationId}`;
+    default:
+      return address.key;
   }
 }
 
@@ -1708,7 +1740,7 @@ export interface ResourceProviderProfile {
   readonly capabilities: Partial<Record<ResourceCapability, true>>;
 }
 
-const RESOURCE_PROVIDER_PROFILES: Readonly<Record<ResourceProvider, ResourceProviderProfile>> = {
+const RESOURCE_PROVIDER_PROFILES: Readonly<Record<Exclude<ResourceProvider, ExtensionProvider> | "extension", ResourceProviderProfile>> = {
   filesystem: {
     kind: "document",
     access: "local",
@@ -1744,7 +1776,8 @@ const RESOURCE_PROVIDER_PROFILES: Readonly<Record<ResourceProvider, ResourceProv
       "open-external": true,
     },
   },
-  jira: {
+  // Every extension's provider (Jira's first): an entity it reads; a command only where the provider has one.
+  extension: {
     kind: "entity",
     access: "remote",
     capabilities: {
@@ -1786,7 +1819,7 @@ const RESOURCE_PROVIDER_PROFILES: Readonly<Record<ResourceProvider, ResourceProv
 };
 
 export function resourceProviderProfile(provider: ResourceProvider): ResourceProviderProfile {
-  return RESOURCE_PROVIDER_PROFILES[provider];
+  return RESOURCE_PROVIDER_PROFILES[isExtensionProvider(provider) ? "extension" : provider];
 }
 
 function blocked(reason: string, detail: string): CapabilityAssessment {

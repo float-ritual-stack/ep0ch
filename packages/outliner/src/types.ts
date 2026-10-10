@@ -1400,9 +1400,9 @@ export type QueryExpression =
    * block with what sits under it (a ticket page's `[status::]` with its
    * Jira record's `jira.status`).
    */
-  | { kind: "property"; key: string; value?: string; relation?: "child" }
+  | { kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
-  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~` and `call:` (outline-core `query-atoms.ts`); the service evaluates them. */
+  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~`, `call:`, `unread:` and `thread:` (outline-core `query-atoms.ts`); the service evaluates them. */
   | QueryAtom
   | { kind: "not"; operand: QueryExpression }
   | { kind: "and" | "or"; operands: QueryExpression[] };
@@ -2238,6 +2238,16 @@ export type OutlinerRequestAction =
       action: "annotations.agent-evidence";
       limit?: number;
     }
+  /**
+   * A thread read (PIE-708): its comment and replies marked read by `reader` (`user`, the person, when left out; an
+   * agent passes its actor id). Clears its replies from `unread:` views.
+   */
+  | {
+      id: string;
+      action: "annotations.read";
+      annotationId: string;
+      reader?: string;
+    }
   | {
       id: string;
       action: "annotations.lifecycle";
@@ -2284,8 +2294,30 @@ export type OutlinerRequestAction =
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
    */
   | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
+  /**
+   * An action's write group taken back whole (PIE-784): `undo` is the id its answer gave. Every block it made goes to
+   * the Trash, every edit, move and order is put back, in one step, as `mutation`; refused when any of it changed since.
+   * `{ undone, extension, action, written }`.
+   */
+  | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  /**
+   * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
+   * when not given: what a client prompts with. `{ extension, action, args: [{ name, type, …, choices?, value? }] }`.
+   */
+  | { id: string; action: "extensions.args"; extension: string; extensionAction: string; blockId?: string }
   /** Runs one of an extension's schedules now (PIE-754): `entry` is `action:<id>` or `handler:<key>`; recorded as any run. */
   | { id: string; action: "extensions.schedule.run"; extension: string; entry: string }
+  /**
+   * A built-in from the repo's extensions folder installed (as `ext add <name>`): into the user folder (every outline
+   * the host serves) or `where: "outline"`, this one's own. Answers once its page and demo notes are written:
+   * `{ id, lines, page?, hub?, state?, error? }`.
+   */
+  | { id: string; action: "extensions.install"; extension: string; where?: "user" | "outline"; mutation?: MutationProvenance }
+  /**
+   * An installed extension removed (its folder deleted), and its demo notes kept or moved to Trash as `demo` says
+   * (no default: they never go silently). `{ id, lines, removed, demo: { trashed, kept, left } }`.
+   */
+  | { id: string; action: "extensions.uninstall"; extension: string; demo: "keep" | "remove"; mutation?: MutationProvenance }
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */

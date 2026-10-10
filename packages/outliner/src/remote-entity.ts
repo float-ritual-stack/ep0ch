@@ -16,6 +16,9 @@ import {
   type ResourceRepresentationAdapter,
   type ResourceRevisionRef,
   type ResourceSource,
+  type ExtensionProvider,
+  isExtensionProvider,
+  providerLabel,
 } from "./resources";
 
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
@@ -23,8 +26,13 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type UnknownRecord = Static<typeof UnknownRecordSchema>;
 
-export type RemoteEntityResource = Extract<Resource, { provider: "jira" | "linear" }>;
-export type RemoteEntitySource = Extract<ResourceSource, { provider: "jira" | "linear" }>;
+export type RemoteEntityResource = Extract<Resource, { provider: ExtensionProvider | "linear" }>;
+export type RemoteEntitySource = Extract<ResourceSource, { provider: ExtensionProvider | "linear" }>;
+
+/** A Resource or Source of the remote-entity family: an extension provider's (`ext:<id>`) or Linear's. */
+export function isRemoteEntity<T extends { readonly provider: string }>(value: T): value is Extract<T, { provider: ExtensionProvider | "linear" }> {
+  return value.provider === "linear" || isExtensionProvider(value.provider);
+}
 export type RemoteEntityCredentialResolver = (
   credentialEnvironment: string,
 ) => string | null | undefined | Promise<string | null | undefined>;
@@ -458,7 +466,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
   }
 
   private async credential(source: RemoteEntitySource): Promise<string> {
-    if (source.provider !== "linear") throw providerError("Jira requires an installed Resource extension");
+    if (source.provider !== "linear") throw providerError(`${providerLabel(source.provider)} requires an installed Resource extension`);
     const resolved = await this.credentialResolver(source.boundary.credentialEnv);
     if (typeof resolved !== "string" || !resolved.trim()) {
       throw providerError(`${source.provider} credentials are unavailable`);
@@ -488,7 +496,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
     source: RemoteEntitySource,
   ): Promise<RemoteEntityDocument> {
     providerPair(resource, source);
-    if (resource.provider === "jira") throw providerError("Jira requires an installed Resource extension");
+    if (isExtensionProvider(resource.provider)) throw providerError(`${providerLabel(resource.provider)} requires an installed Resource extension`);
     const credential = await this.credential(source);
     const observedAt = this.observedAt();
     if (resource.provider === "linear" && source.provider === "linear") {
@@ -516,7 +524,7 @@ export class DefaultRemoteEntityProviderClient implements RemoteEntityProviderCl
   ): Promise<ResourceProviderCommandReceipt> {
     const command = normalizeResourceProviderCommandInput(input);
     providerPair(resource, source);
-    if (resource.provider === "jira") throw providerError("Jira requires an installed Resource extension");
+    if (isExtensionProvider(resource.provider)) throw providerError(`${providerLabel(resource.provider)} requires an installed Resource extension`);
     if (command.provider !== resource.provider) {
       throw new ResourceCatalogError(
         "provider-mismatch",
