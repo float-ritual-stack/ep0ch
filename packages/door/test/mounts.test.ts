@@ -169,7 +169,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     render();
     expect(D().pane("shell")).toBe(pty);
     expect(tile("shell").terminal.running).toBe(true);
-    expect(tile(others[0]).agents).toBe("edit");
+    expect(tile(others[0]!).agents).toBe("edit");
     void t;
   }, 20_000);
 });
