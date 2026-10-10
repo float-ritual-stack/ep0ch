@@ -16,7 +16,9 @@ import {
   type ResourceRepresentationKind,
   type ResourceSurface,
   type ResourceRepresentationAdapter,
+  isExtensionProvider,
 } from "./resources";
+import { resourceDirectiveProviderFor } from "./resource-references";
 
 const SURFACES = ["tui", "gui", "native", "external"] as const;
 const PLACEMENTS = ["inline", "pane", "window", "external"] as const;
@@ -137,11 +139,12 @@ function externalUrl(description: ResourceDescription): string | null {
       `${source.boundary.origin.replace(/\/$/, "")}/`,
     ).href;
   }
-  if (resource.address.kind === "jira" && source.provider === "jira") {
-    return new URL(
-      `browse/${encodeURIComponent(resource.address.key)}`,
-      `${source.boundary.origin.replace(/\/$/, "")}/`,
-    ).href;
+  // An extension's entity: the link its manifest gives (Jira's `browse/{key}`), at its Source's origin.
+  if (isExtensionProvider(source.provider) && "key" in resource.address && "project" in source.boundary) {
+    const link = resourceDirectiveProviderFor(source.provider)?.link;
+    if (link) {
+      return new URL(link.replace("{key}", encodeURIComponent(resource.address.key)), `${source.boundary.origin.replace(/\/$/, "")}/`).href;
+    }
   }
   if (remoteEntity?.externalUrl) return remoteEntity.externalUrl;
   return null;

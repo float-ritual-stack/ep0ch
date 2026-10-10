@@ -401,6 +401,18 @@ export class ResourceExtensionRuntime {
     }
     return null;
   }
+  /**
+   * The providers the legacy single-file registry (`resource-extensions.json`, contract 1) installs and enables: each
+   * an extension id whose Resources it serves (Jira's, before its folder). Empty when there is no such file.
+   */
+  async legacyProviders(): Promise<string[]> {
+    try {
+      const registry = Parse(Registry, JSON.parse(await boundedFile(this.configPath)));
+      return Object.entries(registry.providers).filter(([, install]) => install.enabled).map(([provider]) => provider);
+    } catch {
+      return [];
+    }
+  }
   /** The installed extension for a provider key, without running it; null when none is installed. */
   async describe(provider: string): Promise<ExtensionDescription | null> {
     const folder = await this.folderInstallation(provider);

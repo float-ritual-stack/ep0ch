@@ -16,6 +16,10 @@ import { readSavedView } from "../src/saved-view-read";
 import type { ResourceProjectionReadResult } from "../src/resource-projection";
 import type { BacklinkCollection, Block, ChangeFeedPage, PageAddressResolution } from "../src/types";
 import { FAKE_TOKEN, installJira, startFakeJira, type FakeIssue } from "./fake-jira";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 const TOKEN_ENV = "OUTLINER_FAKE_JIRA_TOKEN_WAVE_A";
 const PERSON = { author: "user" as const };
@@ -252,7 +256,7 @@ test("the poll applies a changed ticket; a poll or refresh that finds nothing ne
 
   // Nothing changed at Jira: no change events at all.
   let before = store.sequence;
-  expect(await server.extensionSync.poll()).toEqual({ checked: 1, changed: 0 });
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 1, changed: 0 });
   expect(visibleChangesSince(before)).toEqual([]);
   before = store.sequence;
   await client.request({ action: "resources.projection.refresh", blockId: page.id });
@@ -263,7 +267,7 @@ test("the poll applies a changed ticket; a poll or refresh that finds nothing ne
   issue.status = "Done";
   issue.updated = recent();
   before = store.sequence;
-  expect(await server.extensionSync.poll()).toEqual({ checked: 1, changed: 1 });
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 1, changed: 1 });
   expect(store.get(record.id)!.properties).toContainEqual({ key: "jira.status", value: "Done" });
   const changes = visibleChangesSince(before);
   expect(changes.map((change) => change.blockId)).toEqual([record.id]);
@@ -353,11 +357,11 @@ test("follow-authored records who registered, and describe/refresh work without 
   // The first page creates the Source from the extension's config.
   await recordOf((await create("PC-1 Rollout [jira::PC-1]")).id);
   const receipt = await client.request<{ resource: { id: string }; provenance?: unknown }>({
-    action: "resources.follow-authored", reference: { kind: "jira", key: "PC-2" },
+    action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" },
     mutation: { author: "agent", actorId: "helper-agent" },
   });
   expect(receipt.provenance).toEqual({ author: "agent", actorId: "helper-agent" });
-  await expect(client.request({ action: "resources.follow-authored", reference: { kind: "jira", key: "PC-2" }, mutation: { author: "agent" } }))
+  await expect(client.request({ action: "resources.follow-authored", reference: { kind: "ext:jira", key: "PC-2" }, mutation: { author: "agent" } }))
     .rejects.toThrow("requires actorId");
 
   const refreshed = await client.request<{ remoteEntity: { title: string } | null; capabilities: { refresh: { status: string } } }>({
@@ -394,7 +398,7 @@ test("a fetch that failed (offline) is tried again on the next open, and one fai
   fake.issues.get("PC-2")!.updated = new Date().toISOString();
   const originalId = pc1.id;
   pc1.id = "29999";
-  await server.extensionSync.poll();
+  await server.extensionSync.for("jira")!.poll();
   pc1.id = originalId;
   expect(store.get(other.id)!.properties).toContainEqual({ key: "jira.status", value: "Done" });
 });
@@ -526,15 +530,15 @@ test("401, 403 and 429 pause the automatic fetches (saves, opens, the poll); r s
     const requests = fake.requests.length;
     await server.extensionSync.materialize(other.id);
     expect(fake.requests.length).toBe(requests);
-    expect(server.extensionSync.paused()).toBeTruthy();
+    expect(server.extensionSync.for("jira")!.paused()).toBeTruthy();
     const read = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: other.id });
     expect(read.projections[0]!.fetchError).toContain("paused, r tries now");
-    expect(await server.extensionSync.poll()).toEqual({ checked: 0, changed: 0 });
-    expect(server.extensionSync.lastPollResult?.error).toContain("paused");
+    expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 0, changed: 0 });
+    expect(server.extensionSync.for("jira")!.lastPollResult?.error).toContain("paused");
     // r tries now; once Jira answers, the pause is over.
     fake.status = null;
     await client.request({ action: "resources.projection.refresh", blockId: other.id });
-    expect(server.extensionSync.paused()).toBeUndefined();
+    expect(server.extensionSync.for("jira")!.paused()).toBeUndefined();
     await until("the other ticket's record", () => store.extensionRecords({ extensionId: "jira", role: "record", itemKey: "PC-2" }).length === 1);
     await client.request({ action: "update", blockId: other.id, text: "gone", expectedRevision: store.get(other.id)!.revision, mutation: PERSON });
     await until("PC-2 released", () => store.extensionRecords({ extensionId: "jira", role: "record", itemKey: "PC-2" }).length === 0);
@@ -545,16 +549,16 @@ test("a failed search keeps the poll's window, and one bad source in config.json
   const { fake, server, create, recordOf } = await setup({ extraSources: [{ origin: "not a url", project: "ZZ" }] });
   const page = await create("PC-1 Rollout [jira::PC-1]");
   await recordOf(page.id);
-  const sync = server.extensionSync as unknown as { lastPoll: number | null };
-  await server.extensionSync.poll();
+  const sync = server.extensionSync.for("jira") as unknown as { lastPoll: number | null };
+  await server.extensionSync.for("jira")!.poll();
   const first = sync.lastPoll;
   expect(first).not.toBeNull();
   fake.status = 503;
-  await server.extensionSync.poll();
-  expect(server.extensionSync.lastPollResult?.error).toBeTruthy();
+  await server.extensionSync.for("jira")!.poll();
+  expect(server.extensionSync.for("jira")!.lastPollResult?.error).toBeTruthy();
   expect(sync.lastPoll).toBe(first);
   fake.status = null;
-  await server.extensionSync.poll();
+  await server.extensionSync.for("jira")!.poll();
   expect(sync.lastPoll).toBeGreaterThan(first!);
 });
 
@@ -567,9 +571,9 @@ test("a ticket deleted at Jira doesn't stop the poll: the refused key search is 
   const issue = fake.issues.get("PC-1")!;
   issue.status = "Done";
   issue.updated = new Date().toISOString();
-  expect(await server.extensionSync.poll()).toEqual({ checked: 2, changed: 1 });
+  expect(await server.extensionSync.for("jira")!.poll()).toEqual({ checked: 2, changed: 1 });
   expect(store.get(record.id)!.properties).toContainEqual({ key: "jira.status", value: "Done" });
   expect(fake.requests.filter((request) => request.startsWith('JQL project = "PC"'))).toHaveLength(1);
   // A missing ticket is not a refusal: nothing pauses.
-  expect(server.extensionSync.paused()).toBeUndefined();
+  expect(server.extensionSync.for("jira")!.paused()).toBeUndefined();
 }, 30_000);

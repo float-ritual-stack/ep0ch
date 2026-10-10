@@ -33,7 +33,7 @@ function hash(value: string): string {
 }
 
 function commandDescriptor(
-  provider: "jira" | "linear",
+  provider: string,
 ): ResourceProviderCommandDescriptor {
   const descriptor = {
     command: "comment.create",
@@ -42,8 +42,8 @@ function commandDescriptor(
       body: { type: "string", required: true, maxLength: 10_000 },
     },
   } as const;
-  return provider === "jira"
-    ? { ...descriptor, provider: "jira" }
+  return provider === "ext:jira"
+    ? { ...descriptor, provider: "ext:jira" }
     : { ...descriptor, provider: "linear" };
 }
 
@@ -77,9 +77,9 @@ class RemoteEntityFixture implements RemoteEntityProviderClient {
         revision: {
           resourceId: resource.id,
           addressVersion: resource.addressVersion,
-          revision: resource.provider === "jira"
+          revision: resource.provider === "ext:jira"
             ? {
-                kind: "jira",
+                kind: "ext:jira",
                 validator: { kind: "updated-at", value: observedAt },
               }
             : {
@@ -162,7 +162,7 @@ async function createJiraResource(
     action: "resource-sources.create",
     input: {
       name: "Jira",
-      provider: "jira",
+      provider: "ext:jira",
       boundary: {
         origin: "https://issues.example.test",
         project: "PIE",
@@ -175,7 +175,7 @@ async function createJiraResource(
     action: "resources.intern",
     input: {
       sourceId: source.id,
-      address: { kind: "jira", entityId: "immutable-255", key: "PIE-255" },
+      address: { kind: "ext:jira", entityId: "immutable-255", key: "PIE-255" },
     },
   });
   return { source, resourceId: receipt.resource.id };
@@ -243,8 +243,8 @@ test("remote entity open is local-only while refresh and command explicitly use 
   expect(relocated).toMatchObject({
     id: initial.id,
     sourceId: initial.sourceId,
-    provider: "jira",
-    address: { kind: "jira", entityId: "immutable-255", key: "PIE-256" },
+    provider: "ext:jira",
+    address: { kind: "ext:jira", entityId: "immutable-255", key: "PIE-256" },
     addressVersion: initial.addressVersion + 1,
     version: initial.version + 1,
   });
@@ -257,7 +257,7 @@ test("remote entity open is local-only while refresh and command explicitly use 
     target: { kind: "resource", resourceId },
     destinationClientId: "remote-detail",
   });
-  expect(commandView.availableCommands).toEqual([commandDescriptor("jira")]);
+  expect(commandView.availableCommands).toEqual([commandDescriptor("ext:jira")]);
   store.database.query("UPDATE resource_sources SET policy_json = ? WHERE id = ?")
     .run(JSON.stringify({ deniedCapabilities: ["refresh"] }), source.id);
 
@@ -266,14 +266,14 @@ test("remote entity open is local-only while refresh and command explicitly use 
     resourceId,
     destinationClientId: "remote-detail",
     input: {
-      provider: "jira",
+      provider: "ext:jira",
       command: "comment.create",
       payload: { body: "A typed remote comment" },
     },
   });
   expect(result.receipt).toEqual({
     resourceId,
-    provider: "jira",
+    provider: "ext:jira",
     command: "comment.create",
     entityId: "immutable-255",
     externalId: "comment-1",
@@ -313,7 +313,7 @@ test("remote entity open is local-only while refresh and command explicitly use 
     resourceId,
     expectedVersion: current.version,
     destinationSourceId: current.sourceId,
-    address: { kind: "jira", entityId: "different-entity", key: "PIE-257" },
+    address: { kind: "ext:jira", entityId: "different-entity", key: "PIE-257" },
   })).toThrow("immutable entity identity");
   const previousState = store.database.query(
     "SELECT source_snapshot_id FROM remote_entity_resource_state WHERE resource_id = ?",
@@ -322,10 +322,10 @@ test("remote entity open is local-only while refresh and command explicitly use 
     resourceId,
     expectedVersion: current.version,
     destinationSourceId: current.sourceId,
-    address: { kind: "jira", entityId: "immutable-255", key: "PIE-257" },
+    address: { kind: "ext:jira", entityId: "immutable-255", key: "PIE-257" },
   });
   expect(locatorMoved.address).toEqual({
-    kind: "jira",
+    kind: "ext:jira",
     entityId: "immutable-255",
     key: "PIE-257",
   });
@@ -395,7 +395,7 @@ test("remote commands reject malformed, mismatched, denied, and unavailable requ
     action: "resources.command.execute",
     resourceId,
     destinationClientId: "command-detail",
-    input: { provider: "jira", command: "comment.create", payload: { body: " " } },
+    input: { provider: "ext:jira", command: "comment.create", payload: { body: " " } },
   })).rejects.toThrow("Comment body must be");
   await expect(client.request<unknown>({
     action: "resources.command.execute",
@@ -412,7 +412,7 @@ test("remote commands reject malformed, mismatched, denied, and unavailable requ
       action: "resources.command.execute",
       resourceId,
       destinationClientId,
-      input: { provider: "jira", command: "comment.create", payload: { body: "No" } },
+      input: { provider: "ext:jira", command: "comment.create", payload: { body: "No" } },
     })).rejects.toThrow("Resource command unavailable");
   }
   expect(provider.executeCalls).toBe(0);
@@ -423,7 +423,7 @@ test("remote commands reject malformed, mismatched, denied, and unavailable requ
     action: "resources.command.execute",
     resourceId,
     destinationClientId: "command-detail",
-    input: { provider: "jira", command: "comment.create", payload: { body: "No" } },
+    input: { provider: "ext:jira", command: "comment.create", payload: { body: "No" } },
   })).rejects.toThrow("Workspace policy denies command");
   expect(provider.executeCalls).toBe(0);
 
@@ -434,7 +434,7 @@ test("remote commands reject malformed, mismatched, denied, and unavailable requ
     action: "resources.command.execute",
     resourceId,
     destinationClientId: "command-detail",
-    input: { provider: "jira", command: "comment.create", payload: { body: "Wrong receipt" } },
+    input: { provider: "ext:jira", command: "comment.create", payload: { body: "Wrong receipt" } },
   })).rejects.toThrow("receipt does not match the resolved Resource");
   expect(provider.executeCalls).toBe(1);
 });

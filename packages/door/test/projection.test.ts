@@ -13,7 +13,8 @@ import { subject, type Msg } from "../src/board";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
-import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { bindExtensions } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
@@ -86,10 +87,17 @@ describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/d
   });
 
   test("the door asks about every note the service could project, by the service's own provider keys", () => {
-    expect([...PROJECTION_KEYS].sort()).toEqual(refs.RESOURCE_DIRECTIVE_PROVIDERS.map((p: any) => p.propertyKey).sort());
+    // The service's providers as extensions.list lists them (Jira's, a made-up second one), in both tables.
+    const providers = [{ provider: "ext:jira", key: "jira", label: "Jira" }, { provider: "ext:kanboard", key: "kanboard", label: "Kanboard" }];
+    refs.useResourceDirectiveProviders("door-parity", providers);
+    bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: providers });
+    expect(projectionKeys().sort()).toEqual(refs.resourceDirectiveProviders().map((p: any) => p.propertyKey).sort());
+    expect(mayHaveProjections("Board card\nkanboard:: KB-7")).toBe(true);
     const corpus = ["Vendor call ACME-12\njira::", "Page [jira::ACME-12]", "- jira:: --comments", "[type::note] jira:: ACME-1", "JIRA::", "no provider here [type::x]", "jira: not a property", "text jira::"];
     for (const text of corpus) if (refs.mayHaveResourceProjections(text)) expect({ text, asks: mayHaveProjections(text) }).toEqual({ text, asks: true });
     expect(mayHaveProjections("no provider here [type::x]")).toBe(false);
+    refs.useResourceDirectiveProviders("door-parity", []);
+    bindExtensions(null);
   });
 });
 
@@ -132,6 +140,9 @@ const TEXT = "Vendor call ACME-12\nNotes from the call.\njira::\nAfter the regio
 const readOf = (projections: ResourceProjection[], revision = 4): ResourceProjectionRead => ({ blockId: NOTE_ID, revision, projections });
 
 describe("a projection in a reader", () => {
+  // The service lists Jira's provider (the door asks about `jira::` notes only then).
+  beforeAll(() => { bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: [{ provider: "ext:jira", key: "jira", label: "Jira" }] }); });
+  afterAll(() => { bindExtensions(null); });
   test("ready: the key, summary, allowed fields, updated time and fetched time with its age, under the jira:: line, shaded", async () => {
     const p = { ...READY, fetchedAt: minutesAgo(12) };
     const r = await shown(stub(() => readOf([p])), note(TEXT));

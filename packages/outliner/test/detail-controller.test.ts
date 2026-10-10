@@ -59,6 +59,10 @@ import type {
   ResolvedBlockReferences,
   VisibleBlockCollection,
 } from "../src/types";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 const viewport: DetailViewport = { width: 60, height: 12 };
 
@@ -2314,9 +2318,9 @@ describe("detail controller projection and deferred refresh", () => {
     const source = {
       id: "20000000-0000-4000-8000-000000000255",
       name: "Product Jira",
-      provider: "jira" as const,
+      provider: "ext:jira" as const,
       boundary: {
-        kind: "jira" as const,
+        kind: "ext:jira" as const,
         origin: "https://jira.example.test",
         project: "PIE",
         credentialEnv: "JIRA_TOKEN",
@@ -2329,8 +2333,8 @@ describe("detail controller projection and deferred refresh", () => {
     const resource = {
       id: target.resourceId,
       sourceId: source.id,
-      provider: "jira" as const,
-      address: { kind: "jira" as const, entityId: "10042", key: "PIE-255" },
+      provider: "ext:jira" as const,
+      address: { kind: "ext:jira" as const, entityId: "10042", key: "PIE-255" },
       version: 1,
       addressVersion: 1,
       mediaType: "text/markdown",
@@ -2360,7 +2364,7 @@ describe("detail controller projection and deferred refresh", () => {
           externalUrl: "https://jira.example.test/browse/PIE-255",
           sourceSnapshot: {
             contentHash: "c".repeat(64),
-            provider: "jira",
+            provider: "ext:jira",
             resourceId: resource.id,
             addressVersion: 1,
             entityId: "10042",
@@ -2369,7 +2373,7 @@ describe("detail controller projection and deferred refresh", () => {
               resourceId: resource.id,
               addressVersion: 1,
               revision: {
-                kind: "jira",
+                kind: "ext:jira",
                 validator: {
                   kind: "updated-at",
                   value: "2026-09-17T12:00:00.000Z",
@@ -2385,7 +2389,7 @@ describe("detail controller projection and deferred refresh", () => {
             derivedAt: "2026-09-17T12:00:02.000Z",
           },
           commandDescriptors: [{
-            provider: "jira",
+            provider: "ext:jira",
             command: "comment.create",
             label: "Provider-advertised command",
             input: {
@@ -2413,7 +2417,7 @@ describe("detail controller projection and deferred refresh", () => {
     harness.effects.loadTarget = async () => ({ kind: "resource", target, description: current });
     harness.effects.refreshResource = async () => {
       current = describe("# Remote entities\n\nRefreshed Jira body.", [{
-        provider: "jira",
+        provider: "ext:jira",
         command: "comment.create",
         label: "Create comment",
         input: {
@@ -2438,7 +2442,7 @@ describe("detail controller projection and deferred refresh", () => {
     expect(harness.controller.state.resolvedProvenance?.runs).toMatchObject([
       {start:0,end:38,origin:{kind:'source',slices:[{start:0,end:38,document:{
         subject:{kind:'resource',resourceId:target.resourceId},text:'# Remote entities\n\nRetained Jira body.',
-        resource:{revision:{revision:{kind:'jira',validator:{kind:'updated-at',value:'2026-09-17T12:00:00.000Z'}}},adapter:{id:'jira.issue-markdown',version:1}},
+        resource:{revision:{revision:{kind:'ext:jira',validator:{kind:'updated-at',value:'2026-09-17T12:00:00.000Z'}}},adapter:{id:'jira.issue-markdown',version:1}},
       }}]}},
       {start:38,origin:{kind:'generated',reason:'resource presentation and diagnostics'}},
     ]);
@@ -6191,7 +6195,7 @@ describe("resource projections in Detail", () => {
       const selected = makeBlock({ text: "Vendor call\n- jira::" });
       const harness = createHarness(selected, null, undefined, async (text) => ({
         text, provenance: generatedDocument(text, "test resource projection"), embeds: [], embedRanges: [],
-        resourceProjections: [{ anchor: { kind: "directive" as const, line: 1, start: 12, end: 20 }, provider: "jira" as const,
+        resourceProjections: [{ anchor: { kind: "directive" as const, line: 1, start: 12, end: 20 }, provider: "ext:jira" as const,
           label: "Jira", propertyKey: "jira", options: { unknown: [] }, status, fields: [] }],
       }));
       await harness.controller.initialize();
@@ -6209,7 +6213,7 @@ describe("resource projections in Detail", () => {
     let summary = "Before refresh";
     const projection = () => ({
       anchor: { kind: "directive" as const, line: 1, start: 22, end: 28 },
-      provider: "jira" as const, label: "Jira", propertyKey: "jira", options: { unknown: [] },
+      provider: "ext:jira" as const, label: "Jira", propertyKey: "jira", options: { unknown: [] },
       status: "ready" as const, key: "ACME-60", resourceId: "resource-60", sourceId: "source-tickets",
       summary, fields: [],
     });

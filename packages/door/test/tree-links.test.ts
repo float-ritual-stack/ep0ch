@@ -20,6 +20,7 @@ import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
+import { bindExtensions } from "../src/extensions";
 
 // Under a parallel test run the scratch service and the door share the CPU with every other suite: a wait that
 // takes 100 ms alone can take seconds (PIE-509 saw these time out). Every wait here allows 15 s, every test 60 s.
@@ -51,7 +52,7 @@ describe("the rows' words, as the outliner's Tree says them", () => {
   test("a resource: a file reads as its name, the rest is context; one not registered says ⏎ registers it", () => {
     const file: AuthoredResourceLink = { kind: "resource", key: "k", label: "notes/compost.md", firstSpan: span, occurrenceCount: 1, resolution: { kind: "unregistered", reference: { kind: "filesystem", path: "notes/compost.md" }, reason: "File is not registered" } };
     expect(resourceWords(file)).toMatchObject({ text: "compost.md", context: "not registered · ⏎ registers and shows it · notes", problem: false });
-    const ticket: AuthoredResourceLink = { ...file, label: "ACME-12", resolution: { kind: "ready", target: { kind: "resource", resourceId: "r1" }, sourceName: "Tickets (made up)", provider: "jira", addressLabel: "ACME-12" } };
+    const ticket: AuthoredResourceLink = { ...file, label: "ACME-12", resolution: { kind: "ready", target: { kind: "resource", resourceId: "r1" }, sourceName: "Tickets (made up)", provider: "ext:jira", addressLabel: "ACME-12" } };
     expect(resourceWords(ticket)).toMatchObject({ text: "ACME-12", context: "Tickets (made up) · jira" });
     expect(resourceWords({ ...file, resolution: { kind: "missing", reason: "No Jira Source is configured for ACME-9" } }).problem).toBe(true);
   });
@@ -70,13 +71,13 @@ describe("the rows' words, as the outliner's Tree says them", () => {
     const ts = resourceNote(desc({ resource: { ...desc({}).resource, address: { kind: "filesystem", path: "tools/rota.ts" } }, filesystem: { text: "export const day = 6;\n", capturedAt: "2026-09-01T10:00:00.000Z" } }));
     expect(ts.text).toContain("```ts\nexport const day = 6;\n```");
     const ticket = resourceNote(desc({
-      resource: { ...desc({}).resource, provider: "jira", address: { kind: "jira", key: "ACME-12", entityId: "1012" } },
-      source: { id: "s2", name: "Tickets (made up)", provider: "jira" },
+      resource: { ...desc({}).resource, provider: "ext:jira", address: { kind: "ext:jira", key: "ACME-12", entityId: "1012" } },
+      source: { id: "s2", name: "Tickets (made up)", provider: "ext:jira" },
       remoteEntity: { title: "Rollout checklist", markdown: "# Rollout checklist\n\nSteps for the depot.", externalUrl: "https://tickets.example.test/browse/ACME-12", metadata: { key: "ACME-12", status: "In progress", labels: ["rollout"], assignee: null } },
     }));
     expect(ticket.text.split("\n")[0]).toBe("ACME-12 · Rollout checklist");
     expect(ticket.text).toContain("status In progress · labels rollout\n\nSteps for the depot.");
-    expect(resourceNote(desc({ resource: { ...desc({}).resource, provider: "jira", address: { kind: "jira", key: "ACME-3" } }, source: { id: "s2", name: "Tickets (made up)", provider: "jira" } })).text).toContain("Nothing is stored for this Resource yet.");
+    expect(resourceNote(desc({ resource: { ...desc({}).resource, provider: "ext:jira", address: { kind: "ext:jira", key: "ACME-3" } }, source: { id: "s2", name: "Tickets (made up)", provider: "ext:jira" } })).text).toContain("Nothing is stored for this Resource yet.");
     expect(isOutlineNote({ id: "file:/x", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "file", props: {} })).toBe(false);
   });
 
@@ -159,6 +160,8 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     board = new SocketBoard(await scratch.start());
     await board.info();
     await ticketSource(board);
+    // What the app binds at start: the service's extensions, its resource providers (the made-up tickets' jira::) among them.
+    bindExtensions(await board.listExtensions());
     mkdirSync(join(scratch.workspace, "notes"), { recursive: true });
     file = join(scratch.workspace, "notes", "compost.md");
     writeFileSync(file, "# Compost rota\n\n- Turn the heap on Saturdays.\n- [ ] Buy a second fork\n");

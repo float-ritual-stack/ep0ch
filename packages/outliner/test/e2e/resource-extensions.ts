@@ -54,7 +54,7 @@ const result = await runHerdrScenario({
       action: "resource-sources.create",
       input: {
         name: "External fixture",
-        provider: "jira",
+        provider: "ext:jira",
         boundary: {
           origin: "https://jira.example.test",
           project: "PC",
@@ -64,7 +64,7 @@ const result = await runHerdrScenario({
     });
     const receipt = await s.client.request<InternResourceReceipt>({
       action: "resources.follow-authored",
-      reference: { kind: "jira", key: "PC-762" },
+      reference: { kind: "ext:jira", key: "PC-762" },
     });
     const source = (await s.registrations()).find(
       (c) => c.runtime?.paneId === s.panes.tree,

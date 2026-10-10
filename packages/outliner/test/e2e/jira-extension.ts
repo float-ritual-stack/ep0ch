@@ -74,13 +74,13 @@ try {
         action: "resource-sources.create",
         input: {
           name: "Installed Jira",
-          provider: "jira",
+          provider: "ext:jira",
           boundary: { origin, project: "DEMO" },
         },
       });
       const receipt = await s.client.request<InternResourceReceipt>({
         action: "resources.follow-authored",
-        reference: { kind: "jira", key: "DEMO-123" },
+        reference: { kind: "ext:jira", key: "DEMO-123" },
       });
       const clients = await s.registrations();
       const detail = clients.find((c) => c.runtime?.paneId === s.panes.detail)!;

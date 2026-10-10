@@ -1,14 +1,20 @@
 import { createHash } from "node:crypto";
 import { parsePropertyDirectiveLines, parsePropertyRecords } from "./properties";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
-import type { ResourceSource } from "./resources";
+import type { ExtensionProvider, ResourceSource } from "./resources";
 
 export type AuthoredResourceReference =
   | { readonly kind: "resource"; readonly resourceId: string }
   | { readonly kind: "filesystem"; readonly path: string }
   | { readonly kind: "web"; readonly url: string }
-  | { readonly kind: "jira"; readonly key: string }
+  /** An extension provider's entity by its key (`[jira::PC-12]`, a `jira:: PC-12` line): `kind` is `ext:<id>`. */
+  | { readonly kind: ExtensionProvider; readonly key: string }
   | { readonly kind: "application"; readonly uri: string };
+
+/** A reference to an extension provider's entity (`{ kind: "ext:jira", key }`). */
+export function isExtensionReference(reference: AuthoredResourceReference): reference is Extract<AuthoredResourceReference, { kind: ExtensionProvider }> {
+  return reference.kind.startsWith("ext:");
+}
 
 export type AuthoredResourceReferenceOccurrence =
   | {
@@ -31,9 +37,10 @@ export type AuthoredResourceReferenceLookup =
   | { readonly kind: "unavailable"; readonly reason: string };
 
 const REMOTE_FILE_PATTERN = /^([^/@\s]+)@([^/\s]+)\/(.+)$/;
-const JIRA_KEY_PATTERN = /^([A-Z][A-Z0-9_]*)-([1-9][0-9]*)$/;
+/** A provider's key grammar when its manifest gives none: `PROJECT-123`. */
+export const DEFAULT_ENTITY_KEY_PATTERN = "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$";
 const MAX_AUTHORED_RESOURCE_LOCATOR_UNITS = 4_096;
-const MAX_JIRA_KEY_UNITS = 255;
+const MAX_ENTITY_KEY_UNITS = 255;
 
 function invalid(start: number, end: number, message: string): AuthoredResourceReferenceOccurrence {
   return { kind: "invalid-authored-resource", start, end, message };
@@ -73,12 +80,11 @@ export function authoredResourceReferenceKey(reference: AuthoredResourceReferenc
     case "web":
       locator = reference.url;
       break;
-    case "jira":
-      locator = reference.key;
-      break;
     case "application":
       locator = reference.uri;
       break;
+    default:
+      locator = reference.key;
   }
   const digest = createHash("sha256").update(locator).digest("hex");
   return JSON.stringify(["authored-resource", reference.kind, digest]);
@@ -86,13 +92,13 @@ export function authoredResourceReferenceKey(reference: AuthoredResourceReferenc
 
 /**
  * A provider whose property key may be written as a line of its own
- * (`jira::`, `jira:: --comments`, `- jira:: KEY`). The key pattern is the
- * provider's, so context resolution stays provider-agnostic. Slice 5 of
- * PIE-445 derives this table from the extension registry; until then Jira is
- * its only entry.
+ * (`jira::`, `jira:: --comments`, `- jira:: KEY`): an installed extension's `kind: "resource"` handler. The key
+ * pattern is the handler's, so context resolution stays provider-agnostic. The table is the installed extensions'
+ * (`useResourceDirectiveProviders`, which the service's extension registry calls on every reload and a client calls
+ * from `extensions.list`'s `resourceProviders`); nothing here names a provider.
  */
 export interface ResourceDirectiveProvider {
-  readonly provider: "jira";
+  readonly provider: ExtensionProvider;
   readonly propertyKey: string;
   /** How readers name one of these resources, e.g. "Jira". */
   readonly label: string;
@@ -104,24 +110,79 @@ export interface ResourceDirectiveProvider {
   claims(source: ResourceSource, key: string): boolean;
   /** Snapshot metadata a projection may show, in display order. Others stay in the Resource. */
   readonly fields: readonly string[];
+  /** Its web page relative to its Source's origin before the first fetch (`browse/{key}`), from its manifest. */
+  readonly link?: string;
 }
 
-export const RESOURCE_DIRECTIVE_PROVIDERS: readonly ResourceDirectiveProvider[] = [{
-  provider: "jira",
-  propertyKey: "jira",
-  label: "Jira",
-  keyPattern: JIRA_KEY_PATTERN,
-  keyInProsePattern: /(?<![\p{L}\p{N}_-])[A-Z][A-Z0-9_]*-[1-9][0-9]*(?![\p{L}\p{N}_-])/gu,
-  claims: (source, key) => source.provider === "jira" && key.startsWith(`${source.boundary.project}-`),
-  fields: ["status", "assignee", "type", "priority", "labels"],
-}];
+/** A resource handler as `extensions.list` lists it (`resourceProviders`): enough to build its directive provider. */
+export interface ResourceProviderEntry {
+  readonly provider: ExtensionProvider;
+  /** Its property key (`jira`). */
+  readonly key: string;
+  readonly label: string;
+  /** Its key grammar, anchored (default `PROJECT-123`). */
+  readonly keyPattern?: string;
+  readonly fields?: readonly string[];
+  readonly link?: string;
+}
 
-const DIRECTIVE_KEYS: ReadonlySet<string> = new Set(
-  RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
-);
+/** The fields a projection shows when the handler names none: the ones a ticket has. */
+const DEFAULT_FIELDS = ["status", "assignee", "type", "priority", "labels"];
 
-export function resourceDirectiveProvider(propertyKey: string): ResourceDirectiveProvider | undefined {
-  return RESOURCE_DIRECTIVE_PROVIDERS.find((provider) => provider.propertyKey === propertyKey);
+export function directiveProviderOf(entry: ResourceProviderEntry): ResourceDirectiveProvider {
+  const source = entry.keyPattern ?? DEFAULT_ENTITY_KEY_PATTERN;
+  const keyPattern = new RegExp(source, "u");
+  const inner = source.replace(/^\^/, "").replace(/\$$/, "");
+  return {
+    provider: entry.provider,
+    propertyKey: entry.key,
+    label: entry.label,
+    keyPattern,
+    keyInProsePattern: new RegExp(`(?<![\\p{L}\\p{N}_-])(?:${inner})(?![\\p{L}\\p{N}_-])`, "gu"),
+    claims: (candidate, key) => candidate.provider === entry.provider && key.startsWith(`${candidate.boundary.project}-`),
+    fields: entry.fields?.length ? entry.fields : DEFAULT_FIELDS,
+    ...(entry.link ? { link: entry.link } : {}),
+  };
+}
+
+const registered = new Map<string, readonly ResourceDirectiveProvider[]>();
+let table: readonly ResourceDirectiveProvider[] = [];
+let directiveKeys: ReadonlySet<string> = new Set();
+
+/**
+ * The resource providers one owner knows (an outline's extension registry, a client's `extensions.list`), replaced
+ * whole on each call; an empty list forgets them. The table is every owner's, the first to name a key keeping it: a
+ * host serving several outlines reads `jira::` the same way in each.
+ */
+export function useResourceDirectiveProviders(owner: string, entries: readonly ResourceProviderEntry[]): void {
+  if (entries.length) registered.set(owner, entries.map(directiveProviderOf));
+  else registered.delete(owner);
+  const byKey = new Map<string, ResourceDirectiveProvider>();
+  for (const providers of registered.values()) for (const provider of providers) if (!byKey.has(provider.propertyKey)) byKey.set(provider.propertyKey, provider);
+  table = [...byKey.values()];
+  directiveKeys = new Set(byKey.keys());
+}
+
+/** Every resource provider an installed extension serves now. */
+export function resourceDirectiveProviders(): readonly ResourceDirectiveProvider[] {
+  return table;
+}
+
+export function resourceDirectiveProvider(propertyKey: string, providers: readonly ResourceDirectiveProvider[] = table): ResourceDirectiveProvider | undefined {
+  return providers.find((provider) => provider.propertyKey === propertyKey);
+}
+
+/** One outline's providers as a table (the store keeps its own, so another outline's never reads its lines). */
+export function directiveProvidersOf(entries: readonly ResourceProviderEntry[]): ResourceDirectiveProvider[] {
+  return entries.map(directiveProviderOf);
+}
+
+const keysOf = (providers: readonly ResourceDirectiveProvider[]): ReadonlySet<string> =>
+  providers === table ? directiveKeys : new Set(providers.map((provider) => provider.propertyKey));
+
+/** The provider an authored reference's kind names, when one is installed. */
+export function resourceDirectiveProviderFor(provider: ExtensionProvider): ResourceDirectiveProvider | undefined {
+  return table.find((candidate) => candidate.provider === provider);
 }
 
 /** Host display options. They never reach a provider. */
@@ -156,7 +217,7 @@ function parseDirectiveValue(
   let explicitKey: string | undefined;
   if (words[0] && !words[0].startsWith("--")) {
     const key = words[0].toUpperCase();
-    if (!provider.keyPattern.test(key) || key.length > MAX_JIRA_KEY_UNITS) return null;
+    if (!provider.keyPattern.test(key) || key.length > MAX_ENTITY_KEY_UNITS) return null;
     explicitKey = key;
     words.shift();
   }
@@ -190,9 +251,15 @@ function parseDirectiveValue(
  * keeps its authored-reference diagnostic. A preamble `jira:: KEY` is the
  * block's own property (the ticket page), not a directive.
  */
-export function resourceDirectiveOccurrences(text: string): ResourceDirectiveOccurrence[] {
-  return parsePropertyDirectiveLines(text, DIRECTIVE_KEYS).flatMap((line) => {
-    const provider = resourceDirectiveProvider(line.key)!;
+/**
+ * `providers`: the outline's own table (a store's `resourceProviders`); default the process-wide one, which a client
+ * (Detail) fills from `extensions.list`.
+ */
+export function resourceDirectiveOccurrences(text: string, providers: readonly ResourceDirectiveProvider[] = table): ResourceDirectiveOccurrence[] {
+  const keys = keysOf(providers);
+  if (!keys.size) return [];
+  return parsePropertyDirectiveLines(text, keys).flatMap((line) => {
+    const provider = resourceDirectiveProvider(line.key, providers)!;
     const parsed = parseDirectiveValue(provider, line.value);
     // A preamble `jira:: KEY` alone is the page's property; with options it is a directive.
     if (!parsed || (line.blockScope && parsed.explicitKey && line.value.trim().toUpperCase() === parsed.explicitKey)) return [];
@@ -213,10 +280,11 @@ export function resourceDirectiveOccurrences(text: string): ResourceDirectiveOcc
  * Whether text could hold a provider line or a provider block property. Only
  * a cheap guard so readers skip a service round trip; the service decides.
  */
-export function mayHaveResourceProjections(text: string): boolean {
+export function mayHaveResourceProjections(text: string, providers: readonly ResourceDirectiveProvider[] = table): boolean {
   if (!text.includes("::")) return false;
-  return resourceDirectiveOccurrences(text).length > 0 ||
-    parsePropertyRecords(text).some((record) => record.scope === "block" && DIRECTIVE_KEYS.has(record.key));
+  const keys = keysOf(providers);
+  return resourceDirectiveOccurrences(text, providers).length > 0 ||
+    parsePropertyRecords(text).some((record) => record.scope === "block" && keys.has(record.key));
 }
 
 export interface ProviderKeyOccurrence {
@@ -243,9 +311,10 @@ export function providerKeyOccurrences(
 
 export function authoredResourceReferenceOccurrences(
   text: string,
+  providers: readonly ResourceDirectiveProvider[] = table,
 ): AuthoredResourceReferenceOccurrence[] {
   const occurrences: AuthoredResourceReferenceOccurrence[] = [];
-  const directives = new Map(resourceDirectiveOccurrences(text).map((directive) => [directive.start, directive]));
+  const directives = new Map(resourceDirectiveOccurrences(text, providers).map((directive) => [directive.start, directive]));
   for (const property of parsePropertyRecords(text)) {
     const directive = property.syntax === "bare" ? directives.get(property.start) : undefined;
     if (directive) {
@@ -253,7 +322,7 @@ export function authoredResourceReferenceOccurrences(
       if (directive.explicitKey) {
         occurrences.push({
           kind: "authored-resource",
-          reference: { kind: "jira", key: directive.explicitKey },
+          reference: { kind: directive.provider, key: directive.explicitKey },
           label: directive.explicitKey,
           start: property.start,
           end: property.end,
@@ -261,9 +330,10 @@ export function authoredResourceReferenceOccurrences(
       }
       continue;
     }
+    const entity = resourceDirectiveProvider(property.key, providers);
     if (
-      property.key !== "file" && property.key !== "web" &&
-      property.key !== "jira" && property.key !== "app" && property.key !== "raw-capture" && property.key !== "before-rewrite"
+      property.key !== "file" && property.key !== "web" && !entity &&
+      property.key !== "app" && property.key !== "raw-capture" && property.key !== "before-rewrite"
     ) continue;
     const value = property.value.trim();
     const range = { start: property.start, end: property.end };
@@ -323,13 +393,13 @@ export function authoredResourceReferenceOccurrences(
         });
         continue;
       }
-      if (property.key === "jira") {
+      if (entity) {
         const key = value.toUpperCase();
-        if (!JIRA_KEY_PATTERN.test(key)) throw new Error("Jira Resource key must look like PROJECT-123");
-        boundedLocator(key, "Jira Resource key", MAX_JIRA_KEY_UNITS);
+        if (!entity.keyPattern.test(key)) throw new Error(`${entity.label} Resource key ${key} doesn't match its key pattern (${entity.keyPattern.source})`);
+        boundedLocator(key, `${entity.label} Resource key`, MAX_ENTITY_KEY_UNITS);
         occurrences.push({
           kind: "authored-resource",
-          reference: { kind: "jira", key },
+          reference: { kind: entity.provider, key },
           label: key,
           ...range,
         });
@@ -359,7 +429,7 @@ export function authoredResourceReferenceOccurrences(
     if (!directive.explicitKey) continue;
     occurrences.push({
       kind: "authored-resource",
-      reference: { kind: "jira", key: directive.explicitKey },
+      reference: { kind: directive.provider, key: directive.explicitKey },
       label: directive.explicitKey,
       start: directive.start,
       end: directive.end,

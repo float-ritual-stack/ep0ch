@@ -17,6 +17,7 @@ import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
 import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { resourceProviderKeys } from "./resource-providers";
 import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
@@ -107,17 +108,25 @@ export interface Decoration {
 export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[]; decorations?: Decoration[] }
 
 /**
- * The property keys that name a projection (the service's RESOURCE_DIRECTIVE_PROVIDERS, parity-tested).
- * Only a note that mentions one is asked about: this is a cheap filter, never the service's parse.
+ * The property keys that name a projection: the service's resource providers (`extensions.list`'s `resourceProviders`,
+ * Jira's `jira` when it is installed). Only a note that mentions one is asked about: this is a cheap filter, never the
+ * service's parse.
  */
-export const PROJECTION_KEYS = ["jira"] as const;
+export const projectionKeys = (): string[] => resourceProviderKeys();
+let mentionsFor: { keys: string; pattern: RegExp | null } = { keys: "", pattern: null };
 // A provider line (`jira::`) or a ticket block's own `[jira.key::…]`, which shows its ticket's header.
-const MENTIONS = new RegExp(`(?:${PROJECTION_KEYS.join("|")})(?:\\.key)?::`, "i");
+function mentionsProvider(text: string): boolean {
+  const keys = projectionKeys();
+  if (keys.join("|") !== mentionsFor.keys) {
+    mentionsFor = { keys: keys.join("|"), pattern: keys.length ? new RegExp(`(?:${keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:\\.key)?::`, "i") : null };
+  }
+  return !!mentionsFor.pattern && mentionsFor.pattern.test(text);
+}
 /**
  * A provider line, or a line an extension the service lists answers (a handler's `key::`, an `@name` request), or any
  * note while a rule decorates (PIE-600: a rule matches properties, queries and constructs, so only the service knows).
  */
-export const mayHaveProjections = (text: string) => (text.includes("::") && MENTIONS.test(text)) || mentionsExtension(text) || decoratingRules();
+export const mayHaveProjections = (text: string) => (text.includes("::") && mentionsProvider(text)) || mentionsExtension(text) || decoratingRules();
 
 // ── Detail's layout (src/detail-embeds.ts), as it reads once drawn ──────────────────────────────────
 

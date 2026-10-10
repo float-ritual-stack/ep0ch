@@ -30,7 +30,9 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
-import { ExtensionSync } from "./extension-sync";
+import { ExtensionSyncs } from "./extension-sync";
+import { resourceProviderEntries } from "./extension-registry";
+import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
 import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
@@ -53,6 +55,7 @@ import {
   normalizeResourceId,
   normalizeRetainedResourceRevisionRef,
   normalizeResourceProviderCommandInput,
+  isExtensionProvider,
 } from "./resources";
 import {
   negotiateResourcePresentation,
@@ -330,7 +333,14 @@ export class OutlinerServer {
   /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_ACTIONS are answered. */
   readonly readOnly: boolean;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
-  readonly extensionSync: ExtensionSync;
+  /** One sync per extension provider of Resources (Jira's first). */
+  readonly extensionSync: ExtensionSyncs;
+  /** Who this outline's resource providers are in the process-wide `key::` table (resource-references.ts). */
+  private readonly providersOwner = crypto.randomUUID();
+  /** The resource providers served here: the folders' and the legacy registry's. */
+  private resourceProviders: readonly ResourceProviderEntry[] = [];
+  private providerRefreshes = 0;
+  private readonly fixtureProviders: readonly ResourceProviderEntry[];
   /** The extension folders this outline reads, watched (src/extension-registry.ts). */
   readonly extensionRegistry: ExtensionRegistry;
   /** Handler lines, their results, and actions (src/extension-calls.ts). */
@@ -358,8 +368,11 @@ export class OutlinerServer {
     private readonly promptDirectory?: string,
     options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
-      scheduleTickMs?: number; scheduleNow?: () => number } = {},
+      scheduleTickMs?: number; scheduleNow?: () => number;
+      /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
+      resourceProviders?: readonly ResourceProviderEntry[] } = {},
   ) {
+    this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
     this.watches = new QueryWatches({
@@ -386,7 +399,7 @@ export class OutlinerServer {
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
     });
-    this.extensionSync = new ExtensionSync(store, {
+    this.extensionSync = new ExtensionSyncs(store, {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
       resourceChanged: (resourceId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "resources.extension-sync",
@@ -406,7 +419,9 @@ export class OutlinerServer {
         }
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
-        this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+        // Clients read the list again on the event: its resource providers are current by then.
+        void this.refreshResourceProviders().finally(() =>
+          this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }));
       },
       // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
       onReload: () => { if (!this.readOnly) void this.syncExtensionPages(false); },
@@ -555,6 +570,26 @@ export class OutlinerServer {
    * Serves connections an outline host accepts and hands over with
    * `acceptConnection`, instead of listening on `socketPath` itself.
    */
+  /**
+   * The extensions that provide Resources now (a `kind: "resource"` handler in a folder, or a provider the legacy
+   * registry installs): a sync for each, and their `key::` lines in the process-wide directive table.
+   */
+  private async refreshResourceProviders(): Promise<void> {
+    // The latest reload's providers win: an older refresh still reading the legacy file doesn't overwrite them.
+    const asked = ++this.providerRefreshes;
+    const folders = [...resourceProviderEntries(this.extensionRegistry.serving()), ...this.fixtureProviders];
+    const runtime = (this.store.resources.remoteEntityProviderClient as { runtime?: ResourceExtensionRuntime }).runtime;
+    const legacy = (await runtime?.legacyProviders().catch(() => []) ?? [])
+      .filter((id) => !folders.some((entry) => entry.provider === `ext:${id}`))
+      .map((id): ResourceProviderEntry => ({ provider: `ext:${id}`, key: id, label: id.charAt(0).toUpperCase() + id.slice(1) }));
+    if (asked !== this.providerRefreshes) return;
+    this.resourceProviders = [...folders, ...legacy];
+    // This outline reads its own `key::` lines with its own providers; the process-wide table is for the rest.
+    this.store.resourceProviders = directiveProvidersOf(this.resourceProviders);
+    useResourceDirectiveProviders(this.providersOwner, this.resourceProviders);
+    this.extensionSync.use(this.resourceProviders.map((entry) => entry.provider.slice(4)));
+  }
+
   startHosted(): void {
     if (this.running) throw new Error("Outliner service is already started");
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
@@ -567,7 +602,8 @@ export class OutlinerServer {
     this.extensionSync.start();
     this.extensionRules.start();
     this.extensionSchedules.start();
-    void this.extensionRegistry.watch().catch(() => {});
+    // Its resource providers once its folders are read (and again on every reload).
+    void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */
@@ -602,6 +638,8 @@ export class OutlinerServer {
     this.extensionRules.start();
     if (!this.readOnly) this.extensionSchedules.start();
     await this.extensionRegistry.watch().catch(() => {});
+    // Its resource providers once its folders are read: a note saved as soon as it answers reads its `key::` lines.
+    await this.refreshResourceProviders();
   }
 
   async close(): Promise<void> {
@@ -609,6 +647,7 @@ export class OutlinerServer {
     this.holderAnswers.clear();
     this.watches.stop();
     this.extensionSync.stop();
+    useResourceDirectiveProviders(this.providersOwner, []);
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
     this.extensionRules.stop();
@@ -1011,8 +1050,8 @@ export class OutlinerServer {
         // A key has one record block, wherever it sits: every block that asks for the key shows that one.
         const row = projection.anchor.kind === "record"
           ? owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner
-          : this.store.extensionRecords({ extensionId: projection.provider, role: "record", itemKey: projection.key })[0];
-        const state = this.extensionSync.stateFor(projection.key);
+          : this.store.extensionRecords({ extensionId: projection.provider.replace(/^ext:/, ""), role: "record", itemKey: projection.key })[0];
+        const state = this.extensionSync.stateFor(projection.provider, projection.key);
         const comments = row ? this.store.extensionRecords({ parentBlockId: row.blockId, role: "comment" }).map((comment) => comment.blockId) : [];
         const fetching = state?.fetching ?? (materializing && (!row || projection.freshness === "stale" || projection.freshness === "unknown"));
         return {
@@ -1816,7 +1855,8 @@ export class OutlinerServer {
             const lastRun = this.extensionRuntime.lastRun(entry.id);
             return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}) };
           });
-          result = { ...listed, extensions, ...this.extensionRules.list(), ...this.extensionPagesListed() };
+          // Resource providers: the folders' (listed) and the legacy registry's.
+          result = { ...listed, extensions, resourceProviders: this.resourceProviders, ...this.extensionRules.list(), ...this.extensionPagesListed() };
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
@@ -1880,7 +1920,7 @@ export class OutlinerServer {
         const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
         // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
         // on `line`) run now.
-        const dataRecord = record !== null && !record.resourceId && record.extensionId !== "jira";
+        const dataRecord = record !== null && !record.resourceId && !this.extensionSync.provides(record.extensionId);
         if (dataRecord && !(await this.extensionCalls.refreshRecord(record.extensionId, record.itemKey))) {
           throw new Error(`Nothing asks for ${record.itemKey} with a ${record.extensionId}:: line that parses, or ${record.extensionId} isn't installed here: nothing to refresh`);
         }
@@ -1982,8 +2022,8 @@ export class OutlinerServer {
       } else {
         const input = normalizeResourceProviderCommandInput(request.input);
         const resource = this.store.resources.require(request.resourceId);
-        if (resource.provider !== "jira" && resource.provider !== "linear") {
-          throw new Error("Resource provider commands require a Jira or Linear Resource");
+        if (!isExtensionProvider(resource.provider) && resource.provider !== "linear") {
+          throw new Error("Resource provider commands require an extension provider's or a Linear Resource");
         }
         if (input.provider !== resource.provider) {
           throw new Error("Resource provider command does not match the resolved Resource");

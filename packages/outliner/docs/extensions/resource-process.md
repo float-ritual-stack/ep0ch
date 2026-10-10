@@ -2,7 +2,8 @@
 
 ## Contract 2: an extension is a folder
 
-This page is the Resource process contract Jira's data path uses. The four kinds
+This page is the Resource process contract every provider of Resources uses: an extension with a
+`kind: "resource"` handler, provider `ext:<id>` (Jira's `ext:jira`, schema 5). The four kinds
 of extension, the whole manifest, the watched folders and the other operations
 (`run`, `act`) are in [the four kinds](README.md). An extension is a folder in
 `<outline root>/extensions/<id>/` or the service host's user extensions folder,
@@ -11,7 +12,8 @@ of extension, the whole manifest, the watched folders and the other operations
 
 - `extension.json`: `{contract: 2, id, version, name, run, configSchema?, secrets?, handlers}`.
   `run` is an argument vector run in the folder; `bun` means the service's own Bun.
-  Jira's handler is `{key, kind: "resource", effects: "read"|"spend"|"write", keyPattern?, record?, staleAfter?, pollEvery?}`;
+  A provider's handler is `{key, kind: "resource", effects: "read"|"spend"|"write", keyPattern?, record?, fields?, link?, staleAfter?, pollEvery?}`
+  (one per extension, with no `data` handler beside it);
   the other kinds (`data`, `output`, `component`), `actions` and `tiles` are in [the four kinds](README.md).
   An unknown field is an error that names it.
 - `config.json`: `{config, secrets, sources, enabled?}`. Secrets are references
@@ -38,9 +40,12 @@ operation:
   `{items: [{entityId, locator}]}`: which registered keys changed recently, in
   one provider search. The service's poll uses it.
 
-Still to come: Jira's handler table derived from its manifest (today
-`RESOURCE_DIRECTIVE_PROVIDERS` still names Jira), a generic remote-entity
-provider family, `ext doctor|migrate`, `command` secrets, and renderers served
+The handler table (which `key::` lines and `[key::KEY]` tokens name a provider's entities, its key grammar,
+fields and link) is derived from the installed manifests and listed by `extensions.list` as `resourceProviders`; the
+service keeps one sync (records, poll, back-off) per provider. A provider in the legacy registry below is a provider
+too (`ext:<its name>`, the default key grammar).
+
+Still to come: provider commands for extensions, `ext doctor|migrate`, `command` secrets, and renderers served
 by `extensions.list`.
 
 ## Contract 1

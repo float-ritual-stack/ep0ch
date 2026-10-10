@@ -15,6 +15,7 @@
 //
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
+import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -100,6 +101,8 @@ export interface ExtensionList {
   demos?: Record<string, number>;
   /** The repo's extensions not installed here: `extensions.install` adds one with its page and demo notes. */
   available?: AvailableExtension[];
+  /** The service's resource providers (Jira's, and any extension's with a `kind: "resource"` handler). */
+  resourceProviders?: ResourceProviderEntry[];
 }
 /** What `extensions.install` answers: what it did, and the page it wrote (with the demo notes under it). */
 export interface ExtensionInstalled { id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string }
@@ -167,6 +170,7 @@ function cleaned(l: ExtensionList): ExtensionList {
     rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
     ruleProblems: (l.ruleProblems ?? []).map(oneLine),
     available: (l.available ?? []).map(a => ({ ...a, id: oneLine(a.id), name: oneLine(a.name) || oneLine(a.id), description: clean(a.description) })),
+    resourceProviders: (l.resourceProviders ?? []).filter(p => /^[a-z0-9][a-z0-9.-]*$/.test(p.key)).map(p => ({ ...p, label: oneLine(p.label) })),
   };
 }
 
@@ -505,6 +509,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   const saidRules = new Set(current?.ruleProblems ?? []);
   const before = new Set((current?.extensions ?? []).filter(serving).map(e => e.id));
   current = next;
+  useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
   const problems: string[] = [];
   // An extension that started failing (it may still serve its last good version): said once, with why.

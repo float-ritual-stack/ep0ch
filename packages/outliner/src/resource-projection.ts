@@ -12,12 +12,12 @@ import {
   providerKeyOccurrences,
   resourceDirectiveOccurrences,
   resourceDirectiveProvider,
-  RESOURCE_DIRECTIVE_PROVIDERS,
+  resourceDirectiveProviders,
   type ResourceDirectiveOptions,
   type ResourceDirectiveProvider,
 } from "./resource-references";
 import type { AuthoredResourceReferenceLookup } from "./resource-references";
-import type { ResourceDescription, ResourceSource } from "./resources";
+import { extensionProvider, type ExtensionProvider, type ResourceDescription, type ResourceSource } from "./resources";
 import type { Block } from "./types";
 
 /**
@@ -166,11 +166,13 @@ export interface ResourceProjectionReadResult {
 
 export interface ResourceProjectionDataSource {
   blockContext(blockId: string): { selected: Block | null; ancestors: readonly Block[] };
+  /** This outline's resource providers (a store's); default the process-wide table. */
+  readonly resourceProviders?: readonly ResourceDirectiveProvider[];
   /** When the block is an extension's record (or one of its comments), what it shows. */
   extensionOwner?(blockId: string): { role: "record" | "comment"; itemKey: string; parentBlockId: string; extensionId: string } | null;
   readonly resources: {
     listSources(): ResourceSource[];
-    resolveAuthoredReference(reference: { kind: "jira"; key: string }): AuthoredResourceReferenceLookup;
+    resolveAuthoredReference(reference: { kind: ExtensionProvider; key: string }): AuthoredResourceReferenceLookup;
     describe(resourceId: string, destinationHostRegistered: boolean): ResourceDescription;
   };
 }
@@ -340,7 +342,8 @@ export function readResourceProjections(
   // An extension's record block (or a comment in it) shows the ticket it holds.
   const owner = source.extensionOwner?.(block.id);
   const record = owner?.role === "comment" ? source.extensionOwner?.(owner.parentBlockId) : owner;
-  const recordProvider = record ? resourceDirectiveProvider(record.extensionId) : undefined;
+  const providers = source.resourceProviders ?? resourceDirectiveProviders();
+  const recordProvider = record ? providers.find((candidate) => candidate.provider === extensionProvider(record.extensionId)) : undefined;
   if (record && recordProvider) {
     const base = baseFor(recordProvider, { kind: "record", line: 0, ...lineRange(block.text, 0) }, { unknown: [] });
     return result([keyedProjection(source, recordProvider, base, record.itemKey, { step: "explicit", blockId: block.id, line: 0 })]);
@@ -349,10 +352,10 @@ export function readResourceProjections(
   const ancestors: ContextBlock[] = [...context.ancestors].reverse()
     .map((ancestor) => ({ id: ancestor.id, text: ancestor.text }));
   // One resolver per provider parses this block once, however many lines it resolves.
-  const resolvers = new Map(RESOURCE_DIRECTIVE_PROVIDERS.map((provider) =>
+  const resolvers = new Map(providers.map((provider) =>
     [provider.propertyKey, createContextResolver({ block: self, ancestors, matcher: contextMatcher(provider, sources) })] as const));
   // Only the first MAX_PROJECTIONS provider lines are resolved; the rest would be dropped anyway.
-  const directives = resourceDirectiveOccurrences(block.text)
+  const directives = resourceDirectiveOccurrences(block.text, providers)
     .filter((directive) => request.line === undefined || directive.line === request.line)
     .slice(0, MAX_PROJECTIONS);
   const projections: ResourceProjection[] = [];
@@ -372,7 +375,7 @@ export function readResourceProjections(
 
   for (const directive of directives) {
     if (projections.length >= MAX_PROJECTIONS) break;
-    const provider = resourceDirectiveProvider(directive.propertyKey)!;
+    const provider = resourceDirectiveProvider(directive.propertyKey, providers)!;
     const base = baseFor(provider, { kind: "directive", line: directive.line, start: directive.start, end: directive.end }, directive.options);
     projections.push(contextual(provider, base, resolvers.get(provider.propertyKey)!.resolve(directive.line, directive.explicitKey)));
   }
@@ -381,7 +384,7 @@ export function readResourceProjections(
     // A page shows its resource at the top of the body, unless a provider line
     // in the page already shows that resource where the author placed it.
     const line = pageAnchorLine(block.text);
-    for (const provider of RESOURCE_DIRECTIVE_PROVIDERS) {
+    for (const provider of providers) {
       for (const key of resolvers.get(provider.propertyKey)!.ownPropertyKeys()) {
         if (directiveKeys.has(key) || projections.length >= MAX_PROJECTIONS) continue;
         projections.push(keyedProjection(source, provider,
@@ -389,8 +392,8 @@ export function readResourceProjections(
           key, { step: "block-property", blockId: block.id, line }));
       }
     }
-  } else if (directives.length === 0) {
-    const provider = RESOURCE_DIRECTIVE_PROVIDERS[0]!;
+  } else if (directives.length === 0 && providers.length) {
+    const provider = providers[0]!;
     const base = baseFor(provider, { kind: "line", line: request.line, ...lineRange(block.text, request.line) }, { unknown: [] });
     projections.push(contextual(provider, base, resolvers.get(provider.propertyKey)!.resolve(request.line)));
   }

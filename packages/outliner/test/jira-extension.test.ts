@@ -95,21 +95,21 @@ test("installed Jira supports explicit Basic/Bearer, immutable identity, readabl
     },
   });
   const origin = `http://127.0.0.1:${server.port}`;
-  const source: Extract<ResourceSource, { provider: "jira" }> = {
+  const source: Extract<ResourceSource, { provider: `ext:${string}` }> = {
     id: "11111111-1111-4111-8111-111111111111",
     name: "Fixture Jira",
     version: 1,
-    provider: "jira",
-    boundary: { kind: "jira", origin, project: "PC" },
+    provider: "ext:jira",
+    boundary: { kind: "ext:jira", origin, project: "PC" },
     policy: { deniedCapabilities: [] },
     createdAt: "2026-09-25T00:00:00Z",
     updatedAt: "2026-09-25T00:00:00Z",
   };
-  const resource: Extract<Resource, { provider: "jira" }> = {
+  const resource: Extract<Resource, { provider: `ext:${string}` }> = {
     id: "22222222-2222-4222-8222-222222222222",
     sourceId: source.id,
-    provider: "jira",
-    address: { kind: "jira", entityId: "10001", key: "PC-1" },
+    provider: "ext:jira",
+    address: { kind: "ext:jira", entityId: "10001", key: "PC-1" },
     addressVersion: 1,
     version: 1,
     mediaType: null,

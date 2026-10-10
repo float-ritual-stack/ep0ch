@@ -18,7 +18,8 @@ export type AuthoredResourceReference =
   | { kind: "resource"; resourceId: string }
   | { kind: "filesystem"; path: string }
   | { kind: "web"; url: string }
-  | { kind: "jira"; key: string }
+  /** An extension provider's entity by key (`[jira::PC-12]`): `kind` is `ext:<id>` (Jira's `ext:jira`). */
+  | { kind: `ext:${string}`; key: string }
   | { kind: "application"; uri: string };
 
 export interface AuthoredLinkDiagnostic { span: { start: number; end: number }; message: string }
@@ -175,7 +176,8 @@ export function resourceNote(d: ResourceDescription, from?: string): Msg {
   // The service reads a file each time it's asked; nothing means it couldn't (src/files.ts `readFileContents`).
   else if (r.provider === "filesystem") { body = `The file can't be read now: it's gone, isn't a regular file, or is over ${SERVICE_FILE_LIMIT / 1024 / 1024} MiB.`; why = "the file can't be read now: its threads stay, but nothing new can be quoted"; }
   else { body = readable(d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet."); why = "nothing is stored for this Resource yet"; }
-  const said = [d.source.name, d.source.name.toLowerCase().startsWith(r.provider) ? "" : r.provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
+  const provider = providerWords(r.provider);
+  const said = [d.source.name, d.source.name.toLowerCase().startsWith(provider) ? "" : provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
   const at = Date.parse(r.updatedAt) || Date.now();
   const line = (t: string) => readable(t).replace(/\n/g, " ");
   const header = `${line(title)}\n*${line(said)}*\n\n`;
@@ -261,6 +263,9 @@ export function outlinkWords(l: AuthoredOutlink): { text: string; context: strin
 }
 
 /** A resource's row: its label and dim context (where it's registered, or that ⏎ registers it, or why not). */
+/** A provider as people read it: an extension's by its id (`ext:jira` → `jira`), a built-in one as it is. */
+export const providerWords = (provider: string): string => provider.startsWith("ext:") ? provider.slice(4) : provider;
+
 export function resourceWords(l: AuthoredResourceLink): { text: string; context: string; problem: boolean } {
   const r = l.resolution;
   const n = occurrences(l.occurrenceCount);
@@ -268,7 +273,7 @@ export function resourceWords(l: AuthoredResourceLink): { text: string; context:
   const file = (r.kind === "ready" && r.provider === "filesystem") || (r.kind === "unregistered" && r.reference.kind === "filesystem");
   const text = file && l.label.includes("/") ? basename(l.label) : l.label;
   const dir = text !== l.label ? dirname(l.label) : "";
-  if (r.kind === "ready") return { text, context: [`${r.sourceName} · ${r.provider}`, r.addressLabel !== text ? r.addressLabel : "", l.recordBlockId ? "⏎ opens the ticket" : "", n].filter(Boolean).join(" · "), problem: false };
+  if (r.kind === "ready") return { text, context: [`${r.sourceName} · ${providerWords(r.provider)}`, r.addressLabel !== text ? r.addressLabel : "", l.recordBlockId ? "⏎ opens the ticket" : "", n].filter(Boolean).join(" · "), problem: false };
   if (r.kind === "unregistered") return { text, context: ["not registered · ⏎ registers and shows it", dir, n].filter(Boolean).join(" · "), problem: false };
   return { text, context: [`unavailable: ${r.reason}`, n].filter(Boolean).join(" · "), problem: true };
 }

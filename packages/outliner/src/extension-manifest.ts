@@ -116,7 +116,12 @@ const Handler = Type.Object(
     /** A resource or data handler's key grammar, anchored. */
     keyPattern: Type.Optional(Type.String({ maxLength: 200 })),
     options: Type.Optional(Type.Record(Type.String({ pattern: EXTENSION_ID_PATTERN }), OptionSpec, { maxProperties: 16 })),
-    /** A data handler's record fields a projection shows, in order. */
+    /**
+     * A resource handler's web page for an entity before its first fetch, relative to its Source's origin, `{key}`
+     * the entity's key (Jira's `browse/{key}`).
+     */
+    link: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    /** A data or resource handler's record fields a projection shows, in order. */
     fields: Type.Optional(Type.Array(Type.String({ pattern: "^[a-z][a-z0-9_-]{0,39}$" }), { maxItems: 8 })),
     staleAfter: Type.Optional(Duration),
     pollEvery: Type.Optional(Duration),
@@ -497,8 +502,10 @@ function checkManifest(manifest: ExtensionManifest): void {
     if (RESERVED_HANDLER_KEYS.has(handler.key)) {
       throw new ExtensionLoadError(`extension.json: handlers/${index}/key ${handler.key} is a property the outline already uses; pick another key`);
     }
-    if (handler.kind === "resource" && handler.key !== "jira") {
-      throw new ExtensionLoadError(`extension.json: handlers/${index} is a resource handler; only jira has one yet. Use kind "data" for a record put into a block`);
+    // A resource handler makes the extension a provider of Resources (`ext:<id>`): one per extension, and its records
+    // are its sync's, so it keeps no data handler beside it.
+    if (handler.kind === "resource" && (manifest.handlers ?? []).some((other, at) => at !== index && (other.kind === "resource" || other.kind === "data"))) {
+      throw new ExtensionLoadError(`extension.json: handlers/${index} is a resource handler: it is the extension's one resource or data handler (a provider's records are its sync's); put another in an extension of its own`);
     }
     checkPattern(handler.keyPattern, `handlers/${index}/keyPattern`);
     checkPattern(handler.argument?.pattern, `handlers/${index}/argument/pattern`);

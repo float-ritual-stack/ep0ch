@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -68,6 +68,14 @@ function blockActivityTableSql(): string {
 }
 
 /** Every table, index and trigger, with the rows a new outline starts with. */
+/**
+ * A Resource's provider: a built-in one, or an extension's (`ext:<id>`, Jira's `ext:jira`: any extension with a
+ * `kind: "resource"` handler, resources.ts `EXTENSION_PROVIDER_PATTERN`). Schema 5 opened the providers to extensions.
+ */
+export const EXTENSION_PROVIDER_SQL = "(provider GLOB 'ext:[a-z0-9]*' AND provider NOT GLOB 'ext:*[^a-z0-9.-]*' AND length(provider) <= 104)";
+export const RESOURCE_PROVIDER_CHECK = `CHECK (provider IN ('filesystem', 'web', 'github', 'application', 'linear', 'computed') OR ${EXTENSION_PROVIDER_SQL})`;
+export const REMOTE_ENTITY_PROVIDER_CHECK = `CHECK (provider = 'linear' OR ${EXTENSION_PROVIDER_SQL})`;
+
 export const SCHEMA_SQL = `
   -- The outline: blocks, their derived properties, selection and history, views, work ids, page addresses, capture, extensions and agent requests (store.ts).
   CREATE TABLE IF NOT EXISTS blocks (
@@ -260,7 +268,7 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS resource_sources (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    provider TEXT NOT NULL CHECK (provider IN ('filesystem', 'web', 'github', 'application', 'jira', 'linear', 'computed')),
+    provider TEXT NOT NULL ${RESOURCE_PROVIDER_CHECK},
     boundary_json TEXT NOT NULL,
     policy_json TEXT NOT NULL,
     root_binding TEXT,
@@ -273,7 +281,7 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS resources (
     id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL REFERENCES resource_sources(id) ON DELETE RESTRICT,
-    provider TEXT NOT NULL CHECK (provider IN ('filesystem', 'web', 'github', 'application', 'jira', 'linear', 'computed')),
+    provider TEXT NOT NULL ${RESOURCE_PROVIDER_CHECK},
     address_json TEXT NOT NULL,
     canonical_key TEXT NOT NULL,
     media_type TEXT,
@@ -403,7 +411,7 @@ export const SCHEMA_SQL = `
     id TEXT PRIMARY KEY,
     resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
     address_version INTEGER NOT NULL CHECK (address_version >= 1),
-    provider TEXT NOT NULL CHECK (provider IN ('jira', 'linear')),
+    provider TEXT NOT NULL ${REMOTE_ENTITY_PROVIDER_CHECK},
     entity_id TEXT NOT NULL,
     revision_json TEXT NOT NULL,
     payload_json TEXT,
@@ -790,8 +798,8 @@ const userVersion = (database: Database) => (database.query("PRAGMA user_version
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 
-/** The one-off script for schema 3 → 4, which also repairs a version-4 database without an outline instance id. */
-const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0004-block-revisions.ts");
+/** The one-off script for schema 4 → 5, which also repairs a version-5 database without an outline instance id. */
+const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0005-extension-providers.ts");
 
 export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;

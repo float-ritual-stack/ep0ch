@@ -498,9 +498,10 @@ export class ExtensionCalls {
     }
     const before = new Set(this.store.extensionAsksOf(blockId).map((ask) => ask.extensionId));
     for (const extensionId of new Set([...before, ...wanted.keys()])) {
-      // Jira's asks are its own sync's (src/extension-sync.ts). An extension that is gone (its folder
+      // A resource provider's asks (Jira's) are its own sync's (src/extension-sync.ts). An extension that is gone (its folder
       // removed or broken beyond its last good copy) leaves its records and asks as they are: data stays.
-      if (extensionId === "jira" || !this.registry.extension(extensionId) || typing.has(extensionId)) continue;
+      const extension = this.registry.extension(extensionId);
+      if (!extension || (extension.manifest.handlers ?? []).some((handler) => handler.kind === "resource") || typing.has(extensionId)) continue;
       const released = this.store.setExtensionAsks(blockId, extensionId, wanted.get(extensionId) ?? new Map());
       for (const key of [...released, ...(wanted.get(extensionId)?.keys() ?? [])]) {
         try {
