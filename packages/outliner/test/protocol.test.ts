@@ -3687,7 +3687,7 @@ test("streams one content event for a fresh workflow promotion and none for its 
   }
 });
 
-test("runs and navigates a targeted structure-first walkthrough over protocol v37", async () => {
+test("runs and navigates a targeted structure-first walkthrough over the protocol", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-workflow-protocol-"));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const source = store.create([
