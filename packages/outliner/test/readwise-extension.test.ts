@@ -22,8 +22,17 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-interface FakeHighlight { id: number; text: string; note?: string; color?: string; tags?: { name: string }[]; highlighted_at?: string; is_deleted?: boolean }
-interface FakeBook { user_book_id: number; title: string; author?: string; category?: string; source?: string; source_url?: string; unique_url?: string; document_note?: string; highlights: FakeHighlight[] }
+// Readwise v2 /export/'s shape (fictional values).
+interface FakeHighlight {
+  id: number; text: string; note?: string; color?: string; tags?: { name: string }[]; is_deleted?: boolean; location?: number; location_type?: string;
+  end_location?: number | null; highlighted_at?: string | null; created_at?: string; updated_at?: string; external_id?: string | null; url?: string | null;
+  book_id?: number; is_favorite?: boolean; is_discard?: boolean; readwise_url?: string;
+}
+interface FakeBook {
+  user_book_id: number; title: string; is_deleted?: boolean; author?: string; readable_title?: string; source?: string; cover_image_url?: string; unique_url?: string;
+  book_tags?: { name: string }[]; category?: string; document_note?: string; summary?: string; readwise_url?: string; source_url?: string; external_id?: string;
+  asin?: string; highlights: FakeHighlight[];
+}
 
 /** A made-up Readwise: Reader's save and Readwise's export, as their docs describe them, with a bearer check. */
 function fakeReadwise() {
@@ -203,12 +212,12 @@ test("pull: a highlight on a sent note becomes an annotation at its passage; oth
   expect(page.text.split("\n")[0]).toMatch(/^Readwise \[page::readwise\] \[readwise\.synced::\d{4}-/);
   const books = await children("readwise", page.id);
   expect(books.map((b) => b.text.split("\n")[0])).toEqual(["Pond Days — Ann Example"]);
-  expect(books[0]!.text).toContain("[readwise.book::8] [readwise.category::books] [readwise.source::kindle] [readwise.author::Ann Example]");
+  expect(books[0]!.text).toContain("[readwise.book::8] [title::Pond Days] [author::Ann Example] [category::books] [source::kindle]");
   expect(books[0]!.text).toEndWith("A made-up book about ponds.");
   const highlights = await children("readwise", books[0]!.id);
   expect(highlights.map((h) => h.text)).toEqual([
-    "Moss keeps its own calendar. And never shares it.\n[readwise.highlight::201] [highlighted::2026-09-30] [tags::moss]\n\n> Moss keeps its own calendar.\n> And never shares it.",
-    "Stand still on purpose, see Herons and mood::calm.\n[readwise.highlight::202]\n\n> Stand still on purpose, see [\\[Herons]] and \\[mood::calm].\n\ntry this",
+    "Moss keeps its own calendar. And never shares it.\n[readwise.highlight::201] [highlighted::2026-09-30] [highlighted-year::2026] [highlighted-month::2026-09] [tags::moss] [readwise.book::8] [title::Pond Days] [author::Ann Example] [category::books] [source::kindle]\n\n> Moss keeps its own calendar.\n> And never shares it.",
+    "Stand still on purpose, see Herons and mood::calm.\n[readwise.highlight::202] [readwise.has-note::true] [readwise.book::8] [title::Pond Days] [author::Ann Example] [category::books] [source::kindle]\n\n> Stand still on purpose, see [\\[Herons]] and \\[mood::calm].\n\ntry this",
   ]);
   expect(highlights.every((h) => h.actorId === "ext:readwise")).toBe(true);
   const props = await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "mood=calm", limit: 5 } });
@@ -294,4 +303,172 @@ test("a refused token, a missing board outline, and the token never in the exten
   await send(join(root, "outlines", ".host", "host.sock"), { outline: "garden", action: "extensions.list", reload: true });
   expect((await act("garden", "pull")).message).toBe("readwise: there's no reading-room outline yet: run `ep0ch init reading-room` (or set config.board)");
   for (const file of readdirSync(EXTENSION)) expect(readFileSync(join(EXTENSION, file), "utf8")).not.toContain(TOKEN);
+});
+
+/** Two books, in Readwise's export shape: what "all highlights by an author" and the like are asked of. */
+function library(): FakeBook[] {
+  return [
+    {
+      user_book_id: 8, is_deleted: false, title: "Pond Days: A Year", readable_title: "Pond Days", author: "Ann Example", source: "kindle", category: "books",
+      cover_image_url: "https://img.example.invalid/pond.jpg", unique_url: "https://books.example.invalid/pond-days", source_url: "https://books.example.invalid/pond-days",
+      book_tags: [{ name: "nature" }, { name: "fiction" }], document_note: "A made-up book about ponds.", summary: "Twelve months at one pond.",
+      readwise_url: "https://readwise.example.invalid/bookreview/8", external_id: "kb-8", asin: "B000MADEUP",
+      highlights: [
+        { id: 201, is_deleted: false, text: "Moss keeps its own calendar.", note: "calendar!", location: 120, location_type: "location", end_location: 125, color: "yellow",
+          highlighted_at: "2024-03-02T10:00:00Z", created_at: "2024-03-03T08:00:00Z", updated_at: "2024-03-04T08:00:00Z", external_id: "h-201", url: "https://books.example.invalid/pond-days#120",
+          book_id: 8, tags: [{ name: "moss" }], is_favorite: true, is_discard: false, readwise_url: "https://readwise.example.invalid/open/201" },
+        { id: 202, is_deleted: false, text: "The pond forgets nothing.", location: 300, location_type: "location", end_location: null, color: "blue",
+          highlighted_at: "2023-11-05T10:00:00Z", created_at: "2023-11-06T08:00:00Z", updated_at: "2023-11-06T08:00:00Z", book_id: 8, tags: [], is_favorite: false, is_discard: false },
+      ],
+    },
+    {
+      user_book_id: 12, is_deleted: false, title: "Stone Almanac", author: "Bo Placeholder", source: "reader", category: "articles", book_tags: [{ name: "stone" }],
+      unique_url: "https://read.example.invalid/read/almanac",
+      highlights: [
+        { id: 301, is_deleted: false, text: "Moss is a slow stone.", location: 4, location_type: "order", highlighted_at: "2024-06-10T10:00:00Z", book_id: 12,
+          tags: [{ name: "moss" }, { name: "stone" }], is_favorite: false },
+        { id: 302, is_deleted: false, text: "Cairns are patient.", location: 9, location_type: "order", highlighted_at: "2025-01-01T10:00:00Z", book_id: 12, is_discard: true, is_favorite: true },
+      ],
+    },
+  ];
+}
+
+test("every highlight on the board carries its book's identity and every useful field, so one query finds it", async () => {
+  const { fake, call, act } = await setup();
+  fake.state.pages = [library()];
+  expect((await act("garden", "pull")).message).toBe("pulled: 4 new, 0 changed (0 on notes, 4 on the readwise board)");
+  const ids = async (where: string, extra: Record<string, unknown> = {}) => {
+    const found = await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50, ...extra } });
+    return found.blocks.map((block) => /\[readwise\.highlight::(\d+)\]/.exec(block.text)?.[1] ?? `book:${/\[readwise\.book::(\d+)\]/.exec(block.text)?.[1]}`).sort();
+  };
+  // Finding them, as the README says.
+  expect(await ids('readwise.highlight AND author="Ann Example"')).toEqual(["201", "202"]);
+  expect(await ids("readwise.highlight AND tags=moss")).toEqual(["201", "301"]);
+  expect(await ids("readwise.highlight AND favorite=true")).toEqual(["201", "302"]);
+  expect(await ids("readwise.highlight AND highlighted-year=2024")).toEqual(["201", "301"]);
+  expect(await ids("readwise.highlight AND highlighted-month=2024-03")).toEqual(["201"]);
+  expect(await ids("readwise.highlight AND readwise.book=12")).toEqual(["301", "302"]);
+  expect(await ids("readwise.highlight AND book-tags=fiction")).toEqual(["201", "202"]);
+  expect(await ids('readwise.highlight AND title="Pond Days" AND category=books AND source=kindle')).toEqual(["201", "202"]);
+  expect(await ids("readwise.highlight AND readwise.discard=true")).toEqual(["302"]);
+  expect(await ids("readwise.highlight AND readwise.has-note=true")).toEqual(["201"]);
+  // The book blocks are books, not highlights: their tags are their own, and `readwise.book` finds the book alone.
+  expect(await ids("readwise.book=8 AND NOT readwise.highlight")).toEqual(["book:8"]);
+  expect(await ids("tags=nature")).toEqual(["book:8"]);
+  // Group by a property name: the service answers it, no code here knows `author`.
+  const grouped = await call<{ groups?: Array<{ key?: string; value?: string; blocks?: Block[]; count?: number }> }>("readwise", { action: "blocks.query", query: { where: "readwise.highlight", group: "author", limit: 50 } });
+  const sizes = Object.fromEntries((grouped.groups ?? []).map((group) => [group.key ?? group.value, group.blocks?.length ?? group.count]));
+  expect(sizes).toMatchObject({ "Ann Example": 2, "Bo Placeholder": 2 });
+
+  // The fields themselves, on the highlight and on the book.
+  const [first] = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.highlight=201" } })).blocks;
+  expect(first!.text.split("\n")[1]).toBe([
+    "[readwise.highlight::201] [readwise.color::yellow] [highlighted::2024-03-02] [highlighted-year::2024] [highlighted-month::2024-03]",
+    "[readwise.created::2024-03-03] [readwise.updated::2024-03-04] [favorite::true] [readwise.has-note::true] [readwise.location::120]",
+    "[readwise.location-type::location] [readwise.end-location::125] [readwise.url::https://readwise.example.invalid/open/201] [readwise.external-id::h-201]",
+    "[readwise.source-url::https://books.example.invalid/pond-days#120] [tags::moss] [readwise.book::8] [title::Pond Days] [author::Ann Example] [category::books]",
+    "[source::kindle] [url::https://books.example.invalid/pond-days] [book-tags::nature] [book-tags::fiction]",
+  ].join(" "));
+  const [book] = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.book=8 AND NOT readwise.highlight" } })).blocks;
+  expect(book!.text.split("\n")[1]).toBe([
+    "[readwise.book::8] [title::Pond Days] [author::Ann Example] [category::books] [source::kindle] [url::https://books.example.invalid/pond-days] [tags::nature] [tags::fiction]",
+    "[readwise.url::https://readwise.example.invalid/bookreview/8] [readwise.cover::https://img.example.invalid/pond.jpg] [readwise.asin::B000MADEUP] [readwise.external-id::kb-8]",
+    "[readwise.title::Pond Days: A Year] [readwise.summary::Twelve months at one pond.]",
+  ].join(" "));
+  expect(book!.text).toEndWith("A made-up book about ponds.");
+  // Empty values are skipped: a highlight with no tags, note or favourite carries none of them.
+  const [plain] = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.highlight=202" } })).blocks;
+  expect(plain!.text).not.toMatch(/\[(tags|favorite|readwise\.has-note|readwise\.end-location|readwise\.external-id)::/);
+});
+
+test("a pull refreshes the properties of blocks and annotations it wrote when Readwise changed a field, and writes nothing when nothing changed", async () => {
+  const { fake, call, act, create, threads } = await setup();
+  const note = await create("garden", NOTE);
+  await act("garden", "send", note.id);
+  const sent: FakeBook = {
+    user_book_id: 7, title: "Pond notes", author: "Ann Example", category: "articles", source: "reader", source_url: String(fake.saved[0]!.url), book_tags: [{ name: "pond" }],
+    highlights: [{ id: 101, text: "The heron came back on Tuesday", note: "again?", color: "yellow", tags: [{ name: "birds" }], highlighted_at: "2024-05-01T09:00:00Z" }],
+  };
+  const books = library();
+  fake.state.pages = [[sent, ...books]];
+  await act("garden", "pull");
+  // The annotation carries the book's identity too, so one query on the garden finds it.
+  const found = async (where: string) => (await call<{ blocks: Block[] }>("garden", { action: "blocks.query", query: { where, limit: 20 } })).blocks;
+  expect((await found("type=annotation AND author=\"Ann Example\" AND highlighted-year=2024")).length).toBe(1);
+  const [thread] = await threads("garden", note.id);
+  expect(thread!.properties).toMatchObject({ kind: ["highlight"], color: ["warn"], tags: ["birds"], "book-tags": ["pond"], author: ["Ann Example"], title: ["Pond notes"], category: ["articles"], "readwise.has-note": ["true"] });
+
+  // Nothing changed on Readwise: nothing written.
+  const before = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.book", limit: 50 } })).blocks.map((b) => `${b.id}:${b.revision}`).sort();
+  fake.state.pages = [[sent, ...books]];
+  expect((await act("garden", "pull")).message).toBe("pulled: nothing new in 5 highlights");
+  const after = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.book", limit: 50 } })).blocks.map((b) => `${b.id}:${b.revision}`).sort();
+  expect(after).toEqual(before);
+  expect((await threads("garden", note.id))[0]!.block.revision).toBe(thread!.block.revision);
+
+  // Readwise changes fields: a favourite, a new tag, an author fixed.
+  sent.author = "Ann Q. Example";
+  sent.highlights[0]!.is_favorite = true;
+  sent.highlights[0]!.tags = [{ name: "birds" }, { name: "dusk" }];
+  books[0]!.author = "Ann Q. Example";
+  books[0]!.highlights[1]!.is_favorite = true;
+  expect((await act("garden", "pull")).message).toBe("pulled: 0 new, 3 changed (1 on notes, 4 on the readwise board)");
+  const [changed] = await threads("garden", note.id);
+  expect(changed!.properties).toMatchObject({ favorite: ["true"], tags: ["birds", "dusk"], author: ["Ann Q. Example"] });
+  expect(changed!.body).toBe("again?");
+  // The board: both highlights of the changed book and the book itself, no duplicates.
+  const ids = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks.length;
+  expect(await ids("readwise.highlight AND author=\"Ann Q. Example\"")).toBe(2);
+  expect(await ids("readwise.highlight AND author=\"Ann Example\"")).toBe(0);
+  expect(await ids("readwise.highlight AND favorite=true")).toBe(3);
+  expect(await ids("readwise.book=8 AND NOT readwise.highlight")).toBe(1);
+  // And then it is quiet again.
+  expect((await act("garden", "pull")).message).toBe("pulled: nothing new in 5 highlights");
+});
+
+test("a tweet thread reads as a thread: the first tweet under the book, the rest under it in order, and a compiled block that embeds them", async () => {
+  const { fake, call, act, children } = await setup();
+  // Readwise saves a thread as one book of category "tweets" whose highlights are the tweets, `location` their order.
+  const tweet = (id: number, text: string, order: number, at: string): FakeHighlight =>
+    ({ id, text, location: order, location_type: "order", highlighted_at: at, book_id: 40, is_deleted: false });
+  const thread: FakeBook = {
+    user_book_id: 40, title: "Tweets from @pondwatcher", author: "Pond Watcher", category: "tweets", source: "twitter",
+    highlights: [
+      tweet(403, "3/ So watch the edges first.", 3, "2025-02-02T09:02:00Z"),
+      tweet(401, "1/ How to read a pond in a minute.", 1, "2025-02-02T09:00:00Z"),
+      tweet(402, "2/ Look for what moves, then what stays.", 2, "2025-02-02T09:01:00Z"),
+    ],
+  };
+  const lone: FakeBook = { user_book_id: 41, title: "One tweet", author: "Pond Watcher", category: "tweets", source: "twitter", highlights: [tweet(410, "Just the one.", 1, "2025-03-01T09:00:00Z")] };
+  fake.state.pages = [[thread, lone]];
+  await act("garden", "pull");
+  const page = (await call<{ block: Block }>("readwise", { action: "pages.resolve", address: "readwise" })).block;
+  const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 20 } })).blocks;
+  const [book] = await find("readwise.book=40 AND NOT readwise.highlight");
+  const [head] = await find("readwise.highlight=401");
+  expect(head!.parentId).toBe(book!.id);
+  const rest = await children("readwise", head!.id);
+  expect(rest.map((b) => /readwise\.highlight::(\d+)/.exec(b.text)![1])).toEqual(["402", "403"]);
+  const [compiled] = await find("readwise.compiled=40");
+  expect(compiled!.parentId).toBe(book!.id);
+  const ids = [head!.id, ...rest.map((b) => b.id)];
+  expect(compiled!.text).toBe(`Thread, compiled [readwise.compiled::40]\n${ids.map((id) => `\n!((${id}))`).join("\n")}`);
+  expect(compiled!.text).not.toContain("pond in a minute");
+  // A single tweet stays as it was: a block under its book, no compiled view.
+  const [loneBook] = await find("readwise.book=41 AND NOT readwise.highlight");
+  expect((await children("readwise", loneBook!.id)).map((b) => b.text.split("\n")[0])).toEqual(["Just the one."]);
+  expect(await find("readwise.compiled=41")).toHaveLength(0);
+  expect(await children("readwise", page.id)).toHaveLength(2);
+
+  // Nothing changed: nothing written. A fourth tweet arrives (only it, as an update export): it joins the thread and the view.
+  const revision = compiled!.revision;
+  fake.state.pages = [[thread]];
+  expect((await act("garden", "pull")).message).toBe("pulled: nothing new in 3 highlights");
+  expect((await find("readwise.compiled=40"))[0]!.revision).toBe(revision);
+  fake.state.pages = [[{ ...thread, highlights: [tweet(404, "4/ Then the middle.", 4, "2025-02-02T09:03:00Z")] }]];
+  expect((await act("garden", "pull")).message).toStartWith("pulled: 1 new, 0 changed");
+  expect((await children("readwise", head!.id)).map((b) => /readwise\.highlight::(\d+)/.exec(b.text)![1])).toEqual(["402", "403", "404"]);
+  const [again] = await find("readwise.compiled=40");
+  expect(again!.text.match(/!\(\(/g)).toHaveLength(4);
+  expect(await find("readwise.compiled")).toHaveLength(1);
 });
