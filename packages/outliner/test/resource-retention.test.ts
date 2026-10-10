@@ -325,7 +325,11 @@ test("young representations keep their older source snapshots available", async 
 test("computed dependencies retain their exact noncurrent source revision", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-retention-computed-"));
   let version = 1;
+  // A clock that moves on every read (as the PDF retention test's): two fetches in one millisecond share a timestamp,
+  // and retention then orders them by random id, so "the newest" revision was not always the second.
+  let tick = Date.parse("2026-09-01T12:00:00.000Z");
   const store = new OutlinerStore(join(directory, "outliner.sqlite"), {
+    now: () => new Date((tick += 1_000)).toISOString(),
     fetch: (async (_input: string | URL | Request, _init?: RequestInit) =>
       new Response(`<h1>Revision ${version}</h1>`, {
         headers: { "content-type": "text/html", etag: `"v${version}"` },
