@@ -75,9 +75,10 @@ function contentBeforeAnchor(line: string, match: RegExpMatchArray | null): stri
   return match ? line.slice(0, match.index).trimEnd() : line.trimEnd();
 }
 
-function paragraphLabel(lines: readonly string[], lineIndex: number, finalLine: string): string {
-  let start = lineIndex;
+function paragraphLabel(lines: readonly string[], lineIndex: number, finalLine: string, from?: number): string {
+  let start = from ?? lineIndex;
   while (
+    from === undefined &&
     start > 0 &&
     lines[start - 1]!.trim() !== "" &&
     !contentBeforeAnchor(
@@ -328,8 +329,13 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   const note = parsedNote(text);
   const offsets = lineOffsets(text);
   const items = new Map(note.listItems.map(item => [item.span.startLine, item]));
-  const inItem = new Set<number>();
-  for (const item of note.listItems) for (let l = item.span.startLine; l <= item.span.endLine; l++) inItem.add(l);
+  // Each line's own list item, the innermost that holds it: an item's anchor can sit on any of its own lines.
+  const ownerOf = new Map<number, number>();
+  for (const item of [...note.listItems].sort((a, b) => a.span.startLine - b.span.startLine)) {
+    for (let l = item.span.startLine; l <= item.span.endLine; l++) ownerOf.set(l, item.span.startLine);
+  }
+  const itemAnchored = new Set<number>();
+  for (const [l, owner] of ownerOf) if (fragmentAnchorMatch(lines[l] ?? "")) itemAnchored.add(owner);
   const component = new Set<number>();
   for (const c of componentBlocks(lines)) for (let l = c.start; l <= c.end + 1; l++) component.add(l);
   const skip = (i: number) => note.codeLines.has(i) || component.has(i);
@@ -342,16 +348,20 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
     const item = items.get(lineIndex);
     if (item) {
       const label = line.trimEnd().slice(item.span.start - offsets[lineIndex]!).replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "").trim();
-      if (label) out.push({ kind: "list-item", label, lineIndex });
+      if (label && !itemAnchored.has(lineIndex)) out.push({ kind: "list-item", label, lineIndex });
       continue;
     }
-    if (inItem.has(lineIndex)) continue;
+    if (ownerOf.has(lineIndex)) continue;
     const next = lines[lineIndex + 1];
     if (next !== undefined && next.trim() && !heading(next) && !items.has(lineIndex + 1) && !skip(lineIndex + 1)) continue;
+    // Back to the paragraph's first line: a blank line, a heading, code, a component or a list item ends it. One
+    // that reaches the title is the title's (link the note itself); one with an anchor on an earlier line has one.
     let start = lineIndex;
-    while (start > 0 && lines[start - 1]!.trim() !== "" && !heading(lines[start - 1]!)) start -= 1;
+    const ends = (l: number) => !lines[l]!.trim() || heading(lines[l]!) || skip(l) || ownerOf.has(l);
+    while (start > 0 && !ends(start - 1)) start -= 1;
     if (start === 0) continue;
-    out.push({ kind: "paragraph", label: paragraphLabel(lines, lineIndex, line.trimEnd()), lineIndex });
+    if (lines.slice(start, lineIndex).some(l => fragmentAnchorMatch(l))) continue;
+    out.push({ kind: "paragraph", label: paragraphLabel(lines, lineIndex, line.trimEnd(), start), lineIndex });
   }
   return out;
 }

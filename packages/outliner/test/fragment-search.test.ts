@@ -65,6 +65,10 @@ test("passage mode (PIE-762): only the notes named, in their order; anchors firs
   expect(searchFragmentCandidates([other, meeting], { blockIds: ["meet0001"], fragmentQuery: "frost", mode: "passage" }).items.map(i => i.blockId)).toEqual(["meet0001"]);
   expect(searchFragmentCandidates([other, meeting], { blockIds: ["other001", "meet0001"], fragmentQuery: "frost", mode: "passage" }).items.map(i => i.blockId)).toEqual(["other001", "meet0001"]);
   expect(() => searchFragmentCandidates([meeting], { blockIds: "meet0001" as any })).toThrow("blockIds");
+  // A list item anchored on its second line has its anchor; a paragraph right after a fence starts after it.
+  const shed = note("shed0002", ["Shed", "", "- Oil the hinge", "  and the latch ^latch", "```", "code", "```", "Sweep the floor."].join("\n"));
+  expect(searchFragmentCandidates([shed], { blockIds: ["shed0002"], fragmentQuery: "", mode: "passage" }).items.map(i => i.fragmentId ?? `+${i.anchor?.fragmentId}`))
+    .toEqual(["latch", "+sweep-the-floor"]);
 });
 
 const cleanups: Array<() => Promise<void>> = [];
