@@ -13,6 +13,7 @@
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
+import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { randomUUID } from "node:crypto";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
@@ -44,6 +45,7 @@ import type {
   BlockSearchQuery,
   MutationProvenance,
   ProjectedBlock,
+  ResolvedBlockReferences,
   PropertyFilter,
   VirtualBranchOrder,
   VisibleBlockCollection,
@@ -474,6 +476,8 @@ export interface EditResult {
   section?: { heading: string; previous: string };
   /** With allowStructural: the `[page::…]` properties and `^anchors` the edit removed. */
   dropped?: string[];
+  /** References the saved text kept that lead nowhere, with a did-you-mean (PIE-761): saved anyway. */
+  warnings?: string[];
 }
 
 /** A short line diff: the changed lines between the common head and tail, `-` then `+`, at most `max` lines. */
@@ -489,6 +493,24 @@ export function shortDiff(before: string, after: string, max = 40): string {
   const lines = [`@@ line ${head + 1}`, ...removed, ...added];
   if (!removed.length && !added.length) return "";
   return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more lines`].join("\n") : lines.join("\n");
+}
+
+/**
+ * The references `text` kept that lead nowhere, each with what it may have meant (PIE-761): said after the write,
+ * never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
+ */
+export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string): Promise<string[]> {
+  try {
+    const warnings = await referenceWarnings(text, {
+      resolve: async t => (await client.request<ResolvedBlockReferences>({ action: "references.resolve", text: t })).references,
+      search: async query => (await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query, ...(near ? { contextBlockId: near } : {}) })).matches
+        .slice(0, 1).map(m => ({ id: m.block.id, title: m.title })),
+      text: async blockId => (await client.request<Block | null>({ action: "get", blockId }))?.text ?? null,
+    });
+    return warnings.map(describeReferenceWarning);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -547,7 +569,13 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     diff: shortDiff(block.text, updated.text),
     ...(section ? { section } : {}),
     ...(dropped.length ? { dropped } : {}),
+    ...(await warned(client, updated.text, updated.id)),
   };
+}
+
+async function warned(client: AgentToolsClient, text: string, near?: string): Promise<{ warnings?: string[] }> {
+  const warnings = await referenceWarningsFor(client, text, near);
+  return warnings.length ? { warnings } : {};
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -557,7 +585,7 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[] }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
@@ -567,7 +595,7 @@ export async function createBlock(
     await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) });
   }
-  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId };
+  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id)) };
 }
 
 // ─── A view's hand-set order ────────────────────────────────────────────────
@@ -631,6 +659,8 @@ export interface CommentResult {
   actorId?: string;
   lifecycle: string;
   deduplicated?: boolean;
+  /** References the comment kept that lead nowhere, with a did-you-mean (PIE-761): sent anyway. */
+  warnings?: string[];
 }
 
 function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> = {}): CommentResult {
@@ -681,7 +711,7 @@ export async function commentOn(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
-  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}) });
+  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, block.id)) });
 }
 
 /**
@@ -747,7 +777,7 @@ export async function replyTo(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
-  return { ...commentResult(record, receipt.deduplicated ? { deduplicated: true } : {}), thread: annotationId, reply: record.block.id };
+  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body)) }), thread: annotationId, reply: record.block.id };
 }
 
 /** Resolves (or reopens) a comment thread, as the agent. */
@@ -877,7 +907,7 @@ export async function patchDraft(
   client: AgentToolsClient,
   input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchProposeWhen },
   actor: AgentActor,
-): Promise<DraftPatchResult> {
+): Promise<DraftPatchResult & { warnings?: string[] }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -889,7 +919,7 @@ export async function patchDraft(
   }
   await client.requireCompatibleService();
   const block = await writableBlock(client, input.ref);
-  return client.request<DraftPatchResult>({
+  const result = await client.request<DraftPatchResult>({
     action: "draft.patch",
     blockId: block.id,
     revision,
@@ -900,6 +930,12 @@ export async function patchDraft(
     ...(typeof input.mark === "string" && input.mark.trim() ? { mark: { text: input.mark } } : {}),
     ...(input.propose !== undefined ? { propose: input.propose } : {}),
   }, 15_000);
+  // The note as it is now, read whole (a replacement alone loses its context); a warning the note had before isn't this write's (PIE-761).
+  const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
+  if (!after || after.text === block.text) return result;
+  const before = new Set(await referenceWarningsFor(client, block.text, block.id));
+  const warnings = (await referenceWarningsFor(client, after.text, block.id)).filter(w => !before.has(w));
+  return { ...result, ...(warnings.length ? { warnings } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────

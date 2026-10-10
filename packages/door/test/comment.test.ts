@@ -284,7 +284,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await idle(pane);
     expect(pane.session!.mode).toBe("compose");
-    expect(pane.session!.error).toBe("the note changed since you picked the passage · not sent · ctrl+r finds the quote in the current text");
+    expect(pane.session!.error).toMatch(/^the note changed since you picked the passage · not sent · your text is kept here and copied to .+-comment-.+\.md · ctrl\+r finds the quote in the current text$/);
     expect(pane.session!.composer!.text).toBe("Friday is tight.");
     expect(await threads(b.id)).toHaveLength(0);
 

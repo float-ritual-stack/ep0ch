@@ -283,4 +283,22 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     app.pop();
     A.dispose();
   });
+  // PIE-761: a reader that follows holds its note while a comment is open there; the status line says so, once.
+  test("a following reader with a comment open stays on its note as the current note changes and an agent opens one; it follows again once the comment closes", async () => {
+    await mine("reader.mode", { mode: "follows" }, "follower");
+    D().setCurrent(notes.beans, {});
+    expect(pane("follower").msg?.id).toBe(notes.beans.id);
+    await mine("passage.select", {}, "follower");
+    await mine("comment.write", { body: "Two to a hole, or three?" }, "follower");
+    expect(pane("follower").editing).toBe(true);
+    D().setCurrent(notes.shed, { from: pane("keeps"), reveal: true });
+    expect(pane("follower").msg?.id).toBe(notes.beans.id);
+    expect(message()).toContain("keeps the comment on “Sow the beans”");
+    await act("open", { id: notes.plan.id }).catch(() => null);
+    expect(pane("follower").msg?.id).toBe(notes.beans.id);
+    expect(pane("follower").surface.session?.composer?.text).toBe("Two to a hole, or three?");
+    await mine("comment.close", { discard: true }, "follower");
+    D().setCurrent(notes.plan, {});
+    expect(pane("follower").msg?.id).toBe(notes.plan.id);
+  });
 });
