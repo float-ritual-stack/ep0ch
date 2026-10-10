@@ -20,6 +20,8 @@ export interface ThreadRow {
   anchored: boolean;
   /** The first comment, then each reply, oldest first. */
   comments: ThreadComment[];
+  /** The thread's own properties (ADR 0004 contract 6), open: kind (a highlight has no comment text), tags, color. */
+  properties: Record<string, string[]>;
 }
 
 const iso = (ms: number) => ms > 0 ? new Date(ms).toISOString() : null;
@@ -31,6 +33,7 @@ export function threadRows(comments: Comment[]): ThreadRow[] {
     quote: t.quote,
     anchored: t.start !== null,
     comments: [{ id: t.id, author: t.author, by: actorLabel(t.author), at: iso(t.at), body: t.body }, ...t.replies.map(r => ({ id: r.id, author: r.author, by: actorLabel(r.author), at: iso(r.at), body: r.body }))],
+    properties: t.props ?? {},
   }));
 }
 
