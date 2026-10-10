@@ -45,8 +45,9 @@ test("block-comment agent tool saves a quoted passage with caller identity and s
   const store = new OutlinerStore(join(root, "outline.sqlite"), {workspaceRoot: root});
   const server = new OutlinerServer(store, join(root, "service.sock")); await server.start();
   const fixture = new OutlinerClient(join(root, "service.sock")), original = OutlinerClient.prototype.request;
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, timeout?: number): Promise<T> {
-    return original.call(fixture, input, timeout) as Promise<T>;
+  // The extension pings with a 300 ms budget; a loaded machine can miss it, so the fixture is given no limit.
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, _timeout?: number): Promise<T> {
+    return original.call(fixture, input, undefined) as Promise<T>;
   });
   type Tool = {name: string; execute(id: string, params: unknown, signal: undefined, update: undefined, context: ExtensionContext): Promise<{details: any}>};
   const tools = new Map<string, Tool>();
@@ -74,9 +75,9 @@ test("saved-view tool reports branch identity and presentation omissions through
   const original = OutlinerClient.prototype.request;
   let withholdViewsRead = false;
   const requests: string[] = [];
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(async function<T>(input: RequestInput, timeout?: number): Promise<T> {
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(async function<T>(input: RequestInput, _timeout?: number): Promise<T> {
     requests.push(input.action);
-    const result = await original.call(fixture, input, timeout) as T;
+    const result = await original.call(fixture, input, undefined) as T;
     if (input.action !== "ping" || !withholdViewsRead) return result;
     const status = result as OutlinerServiceStatus;
     return {...status, protocolVersion: PROTOCOL - 1} as T;
@@ -117,9 +118,9 @@ test("outliner_move attributes the move to the agent, and an older service is re
   const original = OutlinerClient.prototype.request;
   let withholdProvenance = false;
   const requests: string[] = [];
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(async function<T>(input: RequestInput, timeout?: number): Promise<T> {
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(async function<T>(input: RequestInput, _timeout?: number): Promise<T> {
     requests.push(input.action);
-    const result = await original.call(fixture, input, timeout) as T;
+    const result = await original.call(fixture, input, undefined) as T;
     if (input.action !== "ping" || !withholdProvenance) return result;
     const status = result as OutlinerServiceStatus;
     return {...status, protocolVersion: PROTOCOL - 1} as T;

@@ -559,7 +559,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(await lastBy(cards.squash.id)).toEqual(["agent", AS]);
     expect(B().lastMove).toMatchObject({ by: AS, to: "Doing" });
     expect(message()).toContain("an agent (test-agent-7) · moved to Doing");
-    await settled();
+    // No wait: a move answers once the lanes are read again, so a second one straight after finds the card in Doing.
     await expect(act("card.move", { lane: "Doing", card: cards.squash.id })).rejects.toThrow("already in Doing");
     await expect(act("card.move", { lane: "Compost" })).rejects.toThrow("no lane Compost");
     await expect(act("card.fly", {})).rejects.toThrow("no action card.fly");

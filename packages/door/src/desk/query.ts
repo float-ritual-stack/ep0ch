@@ -71,6 +71,8 @@ export class QueryPane implements Pane {
   cursor = new RowView();
   /** A card the next read should select (a move or a create landing here), and the word for it if it's not there. */
   want?: string;
+  /** The latest read still on its way, for whoever needs the lane as the service has it now. */
+  private inflight: Promise<void> | null = null;
   wantVerb?: string;
   /** The board's lane cursor is here (drawn brighter while another tile has the keys). */
   current = false;
@@ -133,8 +135,9 @@ export class QueryPane implements Pane {
     const def = this.def;
     if (!def) return Promise.resolve();
     const n = ++this.asked;
-    return readView(desk.ctx.board, def).then(read => {
-      if (n !== this.asked) return;
+    const mine: Promise<void> = readView(desk.ctx.board, def).then(read => {
+      if (n !== this.asked) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
+      this.inflight = null;
       const items = read.items;
       this.read = read;
       const keep = this.want ?? this.items?.[this.sel]?.id;
@@ -147,7 +150,9 @@ export class QueryPane implements Pane {
       this.sel = Math.max(0, at >= 0 ? at : Math.min(this.sel, items.length - 1));
       this.loaded?.(this);
       desk.redraw();
-    }, () => { if (n === this.asked) { this.items = []; desk.redraw(); } });
+    }, () => { if (n === this.asked) { this.inflight = null; this.items = []; desk.redraw(); } });
+    this.inflight = mine;
+    return mine;
   }
   /** Called once each read lands (the board's preview follows its lane's card). */
   loaded?: (q: QueryPane) => void;
