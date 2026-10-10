@@ -88,8 +88,8 @@ async function holdingDoor(client: OutlinerClient, block: Block, clientId: strin
   });
   cleanups.push(() => watcher.stop());
   await connected.promise;
-  await client.request({ action: "drafts.hold", blockId: block.id, clientId, revision: block.revision });
-  return door;
+  const held = await client.request<{ holdId: string }>({ action: "drafts.hold", blockId: block.id, clientId, revision: block.revision });
+  return Object.assign(door, { holdId: held.holdId });
 }
 
 test("a block made in the group is named, linked from the note's edit, and both land as one step that undo takes back", async () => {
@@ -214,4 +214,21 @@ test("declared arguments: checked, filled in from the block's own property or th
   expect(JSON.parse((await act("sort", own.id)).message!)).toEqual({ by: "days", order: "asc" });
   const asked = await client.request<{ args: Array<{ name: string; choices?: string[]; value?: string }> }>({ action: "extensions.args", extension: "grouper", extensionAction: "sort", blockId: seeds.id });
   expect(asked.args.map((arg) => [arg.name, arg.choices, arg.value])).toEqual([["by", ["title", "price", "days"], undefined], ["order", ["asc", "desc"], "asc"]]);
+});
+
+test("undo is refused, with nothing changed, when a block it made has a proposal waiting under it", async () => {
+  const { store, write, note, live, client } = await setup();
+  const garden = await note("Garden");
+  const done = await write(garden.id, [{ op: "create", parentId: garden.id, text: "Beds\nSow the beans.", as: "c1" }]);
+  const [beds] = live(garden.id);
+  // A door holds the new block's draft.
+  const door = await holdingDoor(client, beds!, "door-beds");
+  // A group that makes a block and edits the held one waits whole, as one proposal under it.
+  const edit = await write(beds!.id, [{ op: "create", parentId: beds!.id, text: "Peas" }, { op: "update", blockId: beds!.id, expectedRevision: beds!.revision, text: "Beds\nSow the beans and peas." }]);
+  expect(store.get(edit.proposalId!)!.parentId).toBe(beds!.id);
+  expect(live(beds!.id).some((child) => child.properties.some((p) => p.key === "type" && p.value === "draft-proposal"))).toBe(true);
+  // The door lets go of the draft; the proposal still waits.
+  await client.request({ action: "drafts.release", holdId: door.holdId });
+  await expect(client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } })).rejects.toThrow(/has a proposal waiting under it; apply or dismiss it, then undo/);
+  expect(store.get(beds!.id)!.effectiveDeletedRootId).toBeFalsy();
 });

@@ -186,6 +186,12 @@ export class ExtensionWrites {
     for (const [parentId, children] of receipt.children) {
       if (this.liveChildren(parentId).join() !== children.join()) throw new Error(`the blocks under "${name(parentId)}" changed since; nothing was undone`);
     }
+    // A block it made that has a proposal waiting under it would take the proposal to the Trash with it.
+    for (const step of receipt.steps) {
+      if (step.kind !== "create") continue;
+      const waiting = this.store.children(step.blockId).filter(isProposal).length;
+      if (waiting) throw new Error(`"${name(step.blockId)}" has ${waiting === 1 ? "a proposal" : `${waiting} proposals`} waiting under it; apply or dismiss ${waiting === 1 ? "it" : "them"}, then undo (nothing was undone)`);
+    }
     const attribution = this.store.changes.attribution({ action: `${receipt.action}.undo`, actor: by });
     const written = new Set<string>();
     this.store.changes.run(attribution, () => this.store.atomically(() => {
