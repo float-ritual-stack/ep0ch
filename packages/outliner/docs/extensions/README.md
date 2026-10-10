@@ -613,7 +613,11 @@ actions yet; `r` is its path today.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
   `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
   it must be); `outliner ext act` prints `open <ref>`.
-- `effects`: `read` (the default) answers only; `write` may return writes.
+- `effects`: `read` (the default) answers only; `write` may return writes, and lets its process write over its
+  connection. `effects` is about the outline, never about the outside world: an action that only writes to an outside
+  service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes
+  the outline (a block, an annotation, a cursor on a page) is `write`. A handler that costs money or model time per
+  run is `spend`. See [writes to an outside service](#writes-to-an-outside-service).
 - `act` returns `{ message?, writes? }`. Writes are
   `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
   at most 20; an action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
@@ -822,7 +826,12 @@ An extension is a program (PIE-754), not only something a line or a key calls: i
 outline over its own connection, write anywhere its host serves, read a `with-secrets` key, and keep a collection.
 [almanac](../../extensions/almanac) is the example: every morning it writes a dated note under the `almanac` page.
 [readwise](../../extensions/readwise) is the full one: an action that sends a note to Readwise Reader, and an hourly
-pull that writes each highlight back as an annotation at its passage, or onto a board in another outline.
+pull, once per host, that writes each highlight back as an annotation at its passage, or onto a board in another
+outline.
+
+For a program that talks to an outside service, the sections below say how to run it once per host, make a sync
+idempotent, keep its cursor, edit what it wrote, link and render a note, keep imported words inert, and test it with a
+fake service; [the call reference](#the-call-reference) has every call's fields.
 
 ### A schedule
 
@@ -843,12 +852,24 @@ A handler or an action may declare `schedule`: `{ "every": "15m" }` (at least `1
   never matches, `0 0 31 2 *`, is refused when the folder loads). A run missed while the host was down runs once when
   it comes back, not once per miss. One run of an entry at a time, and an action on the outline runs one at a time
   whoever asks (its schedule, a person, an agent), so "is today's note there? then write it" never races itself.
-- **Per outline.** Runs are per outline, like everything an extension does. A folder in an outline's `extensions/`
-  runs there; one in the user folder serves every outline the host opens, so its schedule runs in each (`EP0CH_WS`
-  says which). Put a scheduled extension in the outline it belongs to.
+- **Per outline, or once per host.** Runs are per outline, like everything an extension does. A folder in an outline's
+  `extensions/` runs there; one in the user folder serves every outline the host opens, so its schedule runs in each
+  (`EP0CH_WS` says which). Put a scheduled extension in the outline it belongs to, or, when its work isn't any one
+  outline's (a sync that writes to several, a feed that notifies once), say **`"once": "host"`** (PIE-767):
+
+  ```json
+  "schedule": { "every": "1h", "once": "host" }
+  ```
+
+  Then one outline's runner holds it for the whole host (the first to see it, until that outline closes or stops serving
+  the extension; then the next takes it, with its last run, so it is due one interval after that run) and the others list where it runs (`runsIn`). Its runs are one at a time across the host, and so
+  is its action whoever asks, in any outline: a person's `ext act` in one outline waits for the scheduled run in
+  another. `EP0CH_WS` is the outline holding it, so a host-wide program names the outlines it writes to (`outline`
+  on each request). A run asked for by hand (`ext run`, `ext act`) runs in the outline it's asked in.
 - **The record.** Each run's time, result and message (or error) is kept beside the outline
   (`extension-schedules.json` in its folder), so a restart keeps it. `extensions.list` gives each extension's
-  `schedules: [{ entry: "action:write-day", cron, next, running?, last?: { at, ok, message?, error?, ms } }]`;
+  `schedules: [{ entry: "action:write-day", cron, once?, runsIn?, next, running?, last?: { at, ok, message?, error?, ms } }]`
+  (a host-wide one another outline holds: its `next`, `running` and `last` are that outline's);
   `ep0ch ext ls` prints `schedule action:write-day (cron 5 6 * * *): next … ; last … ok: …`; the door's
   extensions list (the showcase's `extensions` section) shows the same.
 - **Run it now:** `ep0ch ext run almanac action:write-day` (`extensions.schedule.run { extension, entry }`), recorded
@@ -879,12 +900,16 @@ await outline({ action: "get", blockId: "…" }, "another-outline");   // any ou
 ```
 
 One request per connection: a JSON line out (`{ id, outline?, grant, action, … }`), a JSON line back
-(`{ ok, result | error }`).
+(`{ ok, result | error }`). A refusal is `ok: false` with `error` in words (outline.ts throws it), and saying what
+to do: `… was saved since it was read (revision 4, now 5); read it again`.
+
+The calls an extension makes most, with what each takes and answers, are [the call reference](#the-call-reference)
+below.
 
 ### Writes anywhere, through the normal paths
 
 Over its connection an extension may **read** (`get`, `children`, `pages.resolve`, `blocks.query`, `tree.search`,
-`annotations.list`, `changes.since`, …) and **write** through the paths a person's or an agent's writes take:
+`annotations.list`, `changes.since`, `notes.address`, `notes.render`, …) and **write** through the paths a person's or an agent's writes take:
 
 | Write | Request | What holds |
 |---|---|---|
@@ -901,6 +926,121 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - Anything else (moving, deleting, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
+
+### Writes to an outside service
+
+`effects` says what a call may do to the **outline**; the service can't see or limit what it does elsewhere.
+
+| What the action does | `effects` | Why |
+|---|---|---|
+| Only reads the outline and writes to an outside service (sends a note to Reader, posts a notification) | `read` | Its connection reads only, which is all it needs. A person's or agent's `act` runs it. |
+| Also writes the outline (the results, a cursor, a "sent" mark) | `write` | Its returned `writes` and its connection's writes are allowed, as `ext:<id>`. |
+| A handler line whose every run costs money or model time | `spend` | It runs by itself only once, when a person's save adds the line. |
+
+An outside write isn't revision-checked or undoable from the outline, so make it safe to repeat: send with the outside
+service's own idempotency (Reader keeps the first document for a URL, so `send` twice says it's there), or record
+what you sent in the outline and check it first. Write a refusal the person can act on into `message` (it is
+shown, scrubbed of secrets); a failure the service should report is `{ ok: false, code }`.
+
+### Making a sync idempotent
+
+A sync runs again and again (on its schedule, by hand, after a crash halfway), so each run must find what an
+earlier one wrote and write only what changed. Readwise's pull is the pattern:
+
+1. **Key everything by the outside id, in a property.** Each highlight's block carries `[readwise.highlight::201]`;
+   each annotation carries it in its `properties`. Properties are open and queryable, so the key is how you find it.
+2. **Look before writing.** Find the block (`blocks.query` with `where: "readwise.book=8"` and `subtreeRootId`), or the
+   annotations on a note (`annotations.list`, then `properties["readwise.highlight"]`). Found: compare, and `update`
+   only when the text differs. Not found: `create`.
+3. **Compare the whole text you would write** with what is there (`block.text !== wanted`): an unchanged block isn't
+   written, so a run that changed nothing writes nothing and adds nothing to the change feed.
+4. **Keep a cursor** (below) so the next run asks the outside service only for what changed since.
+
+**`requestId` is a retry key, not a sync key.** `annotations.batch`, `annotations.create` and `annotations.reply`
+take one: the same id with the same operations answers the first receipt again (`deduplicated: true`) and writes
+nothing; the same id with *different* operations is refused (`Annotation request ID was already used with different
+input`). Ids are kept for good. So make it unique per write, and stable across a retry of that same write:
+Readwise uses `readwise-<highlight>-<block>-<revision>`, so a retry of one comment dedupes, and a later run against
+an edited note (a new revision) is a new request. Finding what's already there is step 2's job, not the id's.
+
+A **collection** (a data handler answering `records`, [below](#collections)) is idempotent by itself: keyed records
+the service writes, updates and trashes. Use one when the outside records belong as blocks under one line and fit in
+500 per answer. Anything else (annotations at a passage, writes to several notes or outlines, more than 500, a cursor)
+is a program writing over its connection, with the steps above.
+
+### Where an extension keeps its state
+
+| State | Where | Not |
+|---|---|---|
+| A sync's cursor, last-synced time, a page token | Properties on a block the extension owns in the outline: Readwise keeps `[readwise.synced::…]`, `[readwise.sweep::…]` and `[readwise.next-page::…]` on its board page, and reads them back with `get` or `pages.resolve` | Its own folder: a write there is a change the service watches, so it reloads the extension and discards the answer of any call running then |
+| The records it syncs | Blocks (a collection, or its own writes) with its keys as properties | A file beside the outline, which no view, search or backlink sees |
+| Settings and secret references | `config.json` (the person's) and the manifest's `secrets` | Anything the extension writes |
+| Its schedule's runs | The service's own record (`extension-schedules.json`) | |
+
+State in the outline is shared by every machine that serves it, backed up with it, visible (`[readwise.synced::…]` on
+the page says when it last pulled) and revision-checked: read the page, `update` it with the revision you read, and
+a concurrent run fails its write instead of losing one. Namespace the keys with the extension's id.
+
+### Editing an annotation's body
+
+An annotation is a block: `annotations.list` answers each thread's `block` (its id and revision) and `body`. The body
+is part of that block's text, so to change it, `get` the block and `update` it with the body replaced, checked
+against the revision you read:
+
+```ts
+const current = await outline<Block>({ action: "get", blockId: thread.block.id });
+const at = current.text.lastIndexOf(thread.body);
+const text = at >= 0 ? current.text.slice(0, at) + newBody + current.text.slice(at + thread.body.length) : `${current.text.trimEnd()}\n${newBody}`;
+if (text !== current.text) await outline({ action: "update", blockId: current.id, expectedRevision: current.revision, text });
+```
+
+The passage it is anchored to, its properties and its thread stay as they are. To add to the conversation instead, reply
+(`annotations.reply`, its `annotationId` the thread's `block.id`).
+
+### A note's address and its rendering
+
+Two calls let an extension say where a note is and send it somewhere as it reads (PIE-767):
+
+- **`notes.address`** answers the outline's name, this host's **machine** name (as `ep0ch://` URIs name it: the
+  door's `canonicalLocalMachineName`) and, with `blockId`, the note's `uri` (`ep0ch://garden@float-2/b/<id>`) and, when
+  it is published and not `[publish::never]`, `published`: its `slug`, whether it is `public`, and its web URLs:
+  `url` (by its slug), `publicUrl` (a public note's, for anyone with the link) and `permalink` (by its id: `/p/<id>`,
+  which holds while it stays published, whatever its slug). The URLs come from the publisher: `ep0ch publish serve`
+  tells the service where it is opened, from `--url` (OUTLINER_PUBLISH_URL, the tailnet listener's full URL:
+  `https://host.ts.net/pub`) and `--public-url`; with no publisher connected there is a slug but no URL.
+- **`notes.render`** renders a note and the notes under it with the publisher's own renderer, published or not:
+  `format: "markdown"`, or `"html"` (the article, no page around it). Properties are left out, embeds are drawn, a link
+  to a published note is its web URL (or its label, with no publisher URL), and `audience: "public"` links only public
+  notes. A note that is `[publish::never]`, or under one, is refused: nothing sends it out of the outline. Readwise's
+  `send` sends this HTML.
+
+The machine name is this host's. A person who reaches the host from another machine by an ssh name (`--machine
+float-2`) may know it by that name; an extension that builds links for a particular machine takes a config override,
+as Readwise's `machine` does.
+
+### Imported text: keep its words words
+
+Text from outside (a highlight, a message, a title) must not become properties or links when it lands in a note:
+
+- **A code span or fence is the escape for links and properties** (PIE-764, #366): `` `[[Herons]]` ``,
+  `` `((ref))` `` and `` `[mood::calm]` `` are text, for every reader, the index and the publisher. Use it for text
+  that *is* code or a literal (an id, a command, a path).
+- **For prose, a backslash** (a highlight in monospace reads wrong, and a backtick in the text needs a longer
+  fence). A `[key::value]` takes outline-core's escape, `\[mood::calm]`. A link is a pair, so break the pair: a
+  backslash after each `[` or `(` that has another after it (`[\[Herons]]`, `(\(ref))`), so no two are side by side
+  and no reader finds a link. Readwise's `inert()` does both in one line:
+
+  ```ts
+  const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[")
+    .replace(/\[(?=\[)/g, "[\\").replace(/\((?=\()/g, "(\\");
+  ```
+
+  The publisher, `notes.render`, Detail and Reader draw the words without the backslash (`[[Herons]]`, as Markdown
+  escapes do); the door's note surface shows it as typed, as it does a `\[key::value]`'s. This is the escape: the
+  grammar has no separate one for `[[` and `((`, and needs none (PIE-767 checked; adding one would change what
+  outline-core matches in text people already wrote).
+- **A block an action's `writes` creates is inert** by itself (its `key::` lines and `[key::value]` stay words); a
+  block written over the connection is a normal write, so escape what you import there.
 
 ### Secrets by with-secrets group
 
@@ -933,6 +1073,10 @@ A data handler's `read` may answer many records, keyed by the extension's own id
   what changed since.
 - At most 500 records an answer; two with one key refuse the whole answer. A scheduled handler (above) keeps it
   fresh.
+- **Collection or program?** A collection is the right shape when the outside records belong as blocks under the
+  line that asks for them and a full or "since" list fits in 500. Annotations at a passage, writes to several notes or
+  outlines, a cursor and more than 500 records a run are a program: a scheduled action writing over its connection
+  ([idempotently](#making-a-sync-idempotent)).
 
 ### Opening a Resource
 
@@ -944,6 +1088,392 @@ Where a view, a bar row or an action answer names something to open, it may name
   stored text shown as a note, where opens land (`act open resource=<ref>`).
 - A bad ref is refused with why (`file: takes an absolute path`). A `[file::…]` token in a block an action returns is
   inert words; write it over the connection, or link it from a view, to make it something to open.
+
+## The call reference
+
+What each call takes and answers (PIE-767). The tables are written from the service's own types
+(`src/extension-call-reference.ts`, by `bun scripts/extension-calls-doc.ts`), and
+`test/extension-call-reference.test.ts` fails when a field changes and they weren't written again. A request is
+`{ action, …its fields }`; outline.ts adds `id`, `outline` and `grant`, and the service sets who wrote it (`ext:<id>`),
+so no call takes `author`, `provenance` or `mutation` from an extension. Over a connection an extension may also read
+`blocks.read`, `blocks.context`, `block.revisions`, `tree.search`, `references.backlinks`, `changes.since`,
+`activity.recent`, `annotations.get`, `properties.inventory`, `extensions.list` and the rest of the read-only calls;
+their types are in `src/types.ts` (`OutlinerRequestAction`).
+
+<!-- extension-calls:start (written by scripts/extension-calls-doc.ts from src/extension-call-reference.ts; don't edit by hand) -->
+
+#### `get`
+
+One block whole: its full text, properties, revision and who last wrote it. A block that isn't there is refused.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+
+Answers `Block`.
+
+#### `children`
+
+A block's children in order, each whole (`null`: the outline's top level). Trash is left out.
+
+| Field | Type | |
+|---|---|---|
+| `parentId` | `string \| null` |  |
+
+Answers `Block[]`.
+
+#### `blocks.query`
+
+Blocks matching a question in the views' grammar (`where: "readwise.book=8"`), under a block (`subtreeRootId`), by text (`text`), sorted, grouped and counted. The usual way to find what a sync wrote before, by its own key. (`fields` projects the rows, and answers `ProjectedBlockCollection`; `watch` keeps a question on a connection, which an extension's one-request connection can't.)
+
+| Field | Type | |
+|---|---|---|
+| `query` | `BlockSearchQuery` |  |
+
+Answers `VisibleBlockCollection`.
+
+#### `pages.resolve`
+
+The block a page address names (`[page::readwise]` answers `readwise`), or why none does.
+
+| Field | Type | |
+|---|---|---|
+| `address` | `string` |  |
+
+Answers `PageAddressResolution`.
+
+#### `create`
+
+A new block under `parentId` (none: the top level), last among its siblings. Properties in its text are properties.
+
+| Field | Type | |
+|---|---|---|
+| `parentId?` | `string \| null` |  |
+| `text` | `string` |  |
+
+Answers `Block`.
+
+#### `update`
+
+A block's whole new text, checked against the revision you read. The service applies only the lines that changed, as a `draft.patch` under the `edit` policy: a door's live draft gets it, and while the person types in that passage it becomes a proposal (`outcome: "proposed"`). Text that didn't change answers the block as it is.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `text` | `string` |  |
+| `expectedRevision` | `number` |  |
+
+Answers `Block \| DraftPatchResult`.
+
+#### `annotations.list`
+
+The comment threads on a block (or a Resource), each with its replies and its own properties.
+
+| Field | Type | |
+|---|---|---|
+| `query` | `AnnotationListQuery` |  |
+
+Answers `AnnotationThread[]`.
+
+#### `annotations.batch`
+
+Up to 100 comments in one write, all or none: a `block-comment` on a block (at a `passage`, or the whole block), a `reply`, a `resource-comment`. `requestId` makes a retry safe: the same id with the same operations answers the first receipt again (`deduplicated: true`) and writes nothing; the same id with other operations is refused.
+
+| Field | Type | |
+|---|---|---|
+| `requestId` | `string` |  |
+| `operations` | `AnnotationBatchOperation[]` |  |
+
+Answers `AnnotationBatchReceipt`.
+
+#### `annotations.reply`
+
+A reply in a thread; `requestId` as `annotations.batch`'s.
+
+| Field | Type | |
+|---|---|---|
+| `requestId` | `string` |  |
+| `input` | `AnnotationReplyInput` |  |
+
+Answers `AnnotationBatchReceipt`.
+
+#### `changes.since`
+
+What changed in the outline after `sequence` (a cursor you keep), oldest first: each change's block, kind and who wrote it. The way to react to the outline ("a note mentions me", "a card moved") without reading it all: keep `nextSequence` as your cursor ([where state lives](#where-an-extension-keeps-its-state)); a `reset` page says the history is gone, so read what you need afresh and resume from its `sequence`.
+
+| Field | Type | |
+|---|---|---|
+| `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
+| `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
+
+Answers `ChangeFeedPage`.
+
+#### `notes.address`
+
+The outline, this machine's name and, with `blockId`, the note's `ep0ch://` URI and its web URLs when it is published.
+
+| Field | Type | |
+|---|---|---|
+| `blockId?` | `string` |  |
+
+Answers `NoteAddress`.
+
+#### `notes.render`
+
+A note and the notes under it, rendered by the publisher's renderer (Markdown or HTML), published or not.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `format` | `"markdown" \| "html"` |  |
+| `audience?` | `"tailnet" \| "public"` |  |
+| `marks?` | `boolean` |  |
+
+Answers `RenderedNote`.
+
+#### The types they name
+
+**`Block`**: A block as the service sends it whole. Projected reads (`fields`) send a subset.
+
+| Field | Type | |
+|---|---|---|
+| `id` | `string` |  |
+| `parentId` | `string \| null` |  |
+| `position` | `number` |  |
+| `text` | `string` |  |
+| `revision` | `number` |  |
+| `author` | `BlockAuthor` |  |
+| `actorId?` | `string` |  |
+| `sessionId?` | `string` |  |
+| `taskId?` | `string` |  |
+| `createdAt` | `string` |  |
+| `updatedAt` | `string` |  |
+| `deletedAt?` | `string` |  |
+| `effectiveDeletedRootId?` | `string` |  |
+| `properties` | `BlockProperty[]` |  |
+
+**`BlockProperty`**
+
+| Field | Type | |
+|---|---|---|
+| `key` | `string` |  |
+| `value` | `string` |  |
+
+**`BlockSearchQuery`**: `blocks.query`'s question. `where` (the views' grammar), `this`, `group`, `sort`, `limit` and `facets` are the question every client writes (outline-core's `QuestionFields`, ADR 0004); `filters`, `predicate`, `text`, `subtreeRootId`, `rankViewId`, `includeDeleted` and `propertyScope` narrow it the way Tree and the CLI need. Normalized (`normalizeBlockSearchQuery`), `where` is parsed into `predicate`, `this` is bound, `sort` is an object and `limit` is set.
+
+| Field | Type | |
+|---|---|---|
+| `filters?` | `PropertyFilter[]` |  |
+| `predicate?` | `QueryExpression` | Structured predicate, ANDed with filters and `where`. |
+| `where?` | `string` | Query text in the documented grammar, parsed by the service and ANDed with predicate. |
+| `this?` | `string` | The block `this` stands for in `where` (a component's note, a tile's aim). |
+| `text?` | `string` |  |
+| `subtreeRootId?` | `string` |  |
+| `rankViewId?` | `string` |  |
+| `includeDeleted?` | `"roots" \| "all"` |  |
+| `propertyScope?` | `PropertyQueryScope` |  |
+| `sort?` | `string \| BlockQuerySort` | An object, or `"<field>[ asc\|desc]"` (asc unless said). |
+| `limit?` | `number` | Rows returned: 200 when left out, at most 1000. |
+| `group?` | `string` | A property name, or created:day\|week\|month, updated:day\|week\|month: the answer's `groups`, over every match. |
+| `facets?` | `true \| string[]` | `true`: value counts for every key the matches carry; or these keys. |
+
+**`VisibleBlockCollection`**
+
+| Field | Type | |
+|---|---|---|
+| `blocks` | `VisibleBlock[]` |  |
+| `completeness` | `BlockCollectionCompleteness` |  |
+| `generation?` | `number` |  |
+| `groups?` | `QuestionGroup[]` |  |
+| `facets?` | `QuestionFacet[]` |  |
+| `hint?` | `string` | Said only when a key the question names is carried by no block in the outline: "no notes have <key>; nearest: …". |
+
+**`VisibleBlock`**
+
+| Field | Type | |
+|---|---|---|
+| `depth` | `number` |  |
+| `deletedDescendantCount?` | `number` |  |
+| `hasChildren` | `boolean` |  |
+| `displayText` | `string` |  |
+| `propertyMatches?` | `PropertyMatchContext[]` |  |
+| `id` | `string` |  |
+| `parentId` | `string \| null` |  |
+| `position` | `number` |  |
+| `text` | `string` |  |
+| `revision` | `number` |  |
+| `author` | `BlockAuthor` |  |
+| `actorId?` | `string` |  |
+| `sessionId?` | `string` |  |
+| `taskId?` | `string` |  |
+| `createdAt` | `string` |  |
+| `updatedAt` | `string` |  |
+| `deletedAt?` | `string` |  |
+| `effectiveDeletedRootId?` | `string` |  |
+| `properties` | `BlockProperty[]` |  |
+
+**`PageAddressResolution`**
+
+| Field | Type | |
+|---|---|---|
+| `address` | `string` |  |
+| `normalizedAddress` | `string` |  |
+| `status` | `"resolved" \| "deleted" \| "missing"` | `resolved` (then `block`), `deleted` (its block is in Trash) or `missing` (no block has that address). |
+| `registeredAddress?` | `string` |  |
+| `kind?` | `PageAddressKind` |  |
+| `block?` | `Block` |  |
+| `deletionRootId?` | `string` |  |
+
+**`DraftPatchResult`**
+
+- `DraftPatchApplied`
+- `DraftPatchProposed`
+
+*`DraftPatchApplied`*
+
+| Field | Type | |
+|---|---|---|
+| `outcome` | `"applied"` |  |
+| `edits` | `{ blockId: string; route: DraftPatchRoute; revision?: number \| undefined; holder?: string \| undefined; rebasedFrom?: number \| undefined; }[]` |  |
+
+*`DraftPatchProposed`*
+
+| Field | Type | |
+|---|---|---|
+| `outcome` | `"proposed"` |  |
+| `reason` | `string` | Why it didn't apply, in words. |
+| `proposalId` | `string` | The proposal block, beside the note: a new one, or the same open one this actor proposed before (`deduped`). |
+| `beside` | `string` | The note it sits beside (a child of it), whose text and revision it left as they were. |
+| `deduped?` | `true` | Set when the same actor's same patch was already open beside the note: `proposalId` is that one, and nothing was written. |
+
+**`AnnotationListQuery`**
+
+| Field | Type | |
+|---|---|---|
+| `subject` | `{ readonly kind: "block"; readonly blockId: string; } \| { readonly kind: "resource"; readonly resourceId: string; }` | The block (`{ kind: "block", blockId }`) or Resource (`{ kind: "resource", resourceId }`) the threads are on. |
+| `lifecycle?` | `AnnotationLifecycle` | Only `open` or only `resolved` threads. |
+| `includeResolved?` | `boolean` | Resolved threads too (left out by default). |
+
+**`AnnotationSubject`**
+
+- `{ readonly kind: "block"; readonly blockId: string; }`
+- `{ readonly kind: "resource"; readonly resourceId: string; }`
+- `{ readonly kind: "legacy-file"; readonly sourceBlockId: string; readonly filePath: string; }`
+
+**`AnnotationThread`**
+
+| Field | Type | |
+|---|---|---|
+| `replies` | `AnnotationRecord[]` |  |
+| `block` | `Block` | The annotation's own block: its id is the annotation's, and its text holds the body (update the block to edit the body). |
+| `originalTarget` | `AnnotationTarget` |  |
+| `resolvedTarget` | `AnnotationTarget \| null` | Where it is anchored now (the passage, re-found after edits), or null when its words are gone. |
+| `currentResolution` | `AnnotationResolutionEvent` |  |
+| `resolutionHistory` | `readonly AnnotationResolutionEvent[]` |  |
+| `body` | `string` | What it says; empty for a highlight. |
+| `source` | `AnnotationSource` |  |
+| `lifecycle` | `AnnotationLifecycle` |  |
+| `promotedBlockIds?` | `readonly string[]` |  |
+| `parentAnnotationId?` | `string` |  |
+| `properties?` | `Readonly<Record<string, readonly string[]>>` | Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. |
+
+**`AnnotationBatchOperation`**
+
+- `{ readonly operationId: string; readonly type: "block-comment"; readonly input: BlockCommentInput; }`
+- `{ readonly operationId: string; readonly type: "resource-comment"; readonly input: ResourceCommentInput; }`
+- `{ readonly operationId: string; readonly type: "create"; readonly input: AnnotationCreateInput; }`
+- `{ readonly operationId: string; readonly type: "reply"; readonly input: AnnotationReplyInput; }`
+
+**`BlockCommentInput`**
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `expectedRevision` | `number` | The block's revision you read: a block saved since is refused. |
+| `body` | `string` | Empty for a highlight (a passage's annotation with no body). |
+| `source` | `AnnotationSource` | `user` or `agent`; an extension's is always `agent` (the service sets it). |
+| `properties?` | `Readonly<Record<string, string \| readonly string[]>>` | Its own properties, open (`kind`, `tags`, `color` as a theme tone, any key): `annotations.list` answers them, and a view's `where=` finds them. |
+| `passage?` | `BlockCommentPassage` | Omit only for an intentional whole-block comment. |
+
+**`BlockCommentPassage`**: A quote is exact source text; optional context must identify one occurrence.
+
+| Field | Type | |
+|---|---|---|
+| `quote` | `string` | The words, exactly as the block's text has them. |
+| `start?` | `number` | Where the quote starts in the block's text, when you know. |
+| `near?` | `number` | Among repeats, the one nearest this offset (an agent's `near=`). |
+| `prefix?` | `string` | Text just before the quote, to tell repeats apart. |
+| `suffix?` | `string` | Text just after the quote, to tell repeats apart. |
+| `itemId?` | `string` |  |
+
+**`AnnotationReplyInput`**
+
+| Field | Type | |
+|---|---|---|
+| `annotationId` | `string` | The thread's first annotation (`AnnotationThread.block.id`). |
+| `body` | `string` |  |
+| `source` | `AnnotationSource` | `user` or `agent`; an extension's is always `agent` (the service sets it). |
+
+**`AnnotationBatchReceipt`**
+
+| Field | Type | |
+|---|---|---|
+| `annotations` | `AnnotationRecord[]` | What was written, one per operation, in order. |
+| `deduplicated` | `boolean` | True when the `requestId` had been used with these same operations: the first receipt, and nothing written now. |
+
+**`ChangeFeedPage`**
+
+- `{ kind: "changes"; changes: OutlinerChange[]; nextSequence: number; completeness: BlockCollectionCompleteness; sequence: number; }`
+- `{ kind: "reset"; reason: "history-unavailable" \| "sequence-ahead"; oldestSequence: number; sequence: number; }`
+
+**`OutlinerChange`**
+
+| Field | Type | |
+|---|---|---|
+| `sequence` | `number` | Service sequence after the change; changes are ordered by sequence, then `changeId`. |
+| `changeId` | `number` | Monotonic feed position; unique even when two changes share a sequence. |
+| `action` | `string` | The request (or internal) action that caused the change. |
+| `kind` | `OutlinerChangeKind` |  |
+| `blockId?` | `string` | Primary block. Other blocks (a moved subtree, reordered siblings) may change too. |
+| `parentId?` | `string \| null` | Parent after the change; `null` for a root. Absent without a readable block. |
+| `previousParentId?` | `string \| null` | Parent before a `move`. |
+| `revision?` | `number` | Block revision after the change. |
+| `deleted?` | `boolean` | True when the block is in Trash after the change. |
+| `actor?` | `MutationProvenance` | Declared provenance of the request; absent when the request carried none. |
+| `requestedBy?` | `MutationProvenance` | Who asked for the change when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent (`extensions.act`'s `mutation`). Absent when the writer acted on its own. |
+| `recordedAt` | `string` |  |
+
+**`NoteAddress`**: A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names), the note's URI, and where it is published when it is.
+
+| Field | Type | |
+|---|---|---|
+| `outline?` | `string` | The outline's name; absent on a service that serves no named outline. |
+| `machine` | `string` | This host's machine name in `ep0ch://` URIs (the door's `canonicalLocalMachineName`). |
+| `blockId?` | `string` |  |
+| `uri?` | `string` | `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. |
+| `published?` | `NotePublication` | Where the publisher serves it, when it is published (and not `[publish::never]`). |
+
+**`NotePublication`**: Where a note is published (`notes.address`, PIE-767).
+
+| Field | Type | |
+|---|---|---|
+| `slug` | `string` | Its slug: the page is at `/p/<slug>` below the publisher's base. |
+| `public` | `boolean` | `[publish::public…]`: anyone with the link may open it. |
+| `url?` | `string` | Its tailnet URL, by its slug: when the publisher said where it is opened (`--url`). |
+| `publicUrl?` | `string` | Its URL for anyone with the link, by its slug: a public note, when the public URL is known (`--public-url`). |
+| `permalink?` | `string` | Its URL by its block id (`/p/<id>`): holds while it stays published, whatever its slug. The public one when it is public. |
+
+**`RenderedNote`**: A note rendered as its published page renders it (`notes.render`, PIE-767).
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `title` | `string` | Its title as the page shows it. |
+| `format` | `"markdown" \| "html"` |  |
+| `text` | `string` | The Markdown, or the HTML article (no page, styles or scripts around it). |
+| `published` | `boolean` | Whether it is published itself (rendering doesn't need it to be). |
+
+<!-- extension-calls:end -->
 
 ## ADR 0004: what has shipped
 
@@ -961,6 +1491,7 @@ The kernel contracts of [ADR 0004](../../../../docs/adr/0004-kernel-contracts.md
 | 5. The passage target | PIE-751 | shipped | [`on: "passage"`](#actions) |
 | 6. Highlights and margin notes, annotation properties | PIE-753 | shipped | `annotate` writes, `properties` on annotations |
 | Extensions as programs (not in 0004: schedule, connection, writes anywhere, group secrets, collections, Resource refs) | PIE-754 | shipped | [above](#extensions-as-programs) |
+| Cold-start run 2's gaps: the call reference, a schedule once per host, `notes.address`, `notes.render` | PIE-767 | shipped | [the call reference](#the-call-reference), [a schedule](#a-schedule), [a note's address](#a-notes-address-and-its-rendering) |
 
 ### The cold-start gap list
 
@@ -977,6 +1508,27 @@ these. Each is closed here or tracked:
 | No writes to the notes documents came from, or to another outline | PIE-754: by `outline` over the connection |
 | `with-secrets` groups as a secret reference | PIE-754: [`{ group, key }`](#secrets-by-with-secrets-group) |
 | (kitty, lego night) A Resource can be listed but not opened; an action can't say what to open | PIE-754: [Resource refs](#opening-a-resource) and `open` |
+
+### Cold-start run 2 (Readwise, after PIE-754)
+
+Run 2 built the Readwise extension with no core change, reading the source for these. PIE-767 closed them:
+
+| Gap | Now |
+|---|---|
+| Call shapes for `blocks.query`, `annotations.list/batch`, `children`, `get` | [The call reference](#the-call-reference), written from the types and checked by a test |
+| `requestId` dedupes on id plus content, so it isn't an idempotency key | [Making a sync idempotent](#making-a-sync-idempotent) |
+| Editing an annotation's body | [Editing an annotation's body](#editing-an-annotations-body) |
+| A schedule once per host, or in one outline (Readwise needed a claim on its board page) | [`"once": "host"`](#a-schedule); Readwise's claim is gone |
+| Where a sync keeps its cursor (its folder reloads it) | [Where an extension keeps its state](#where-an-extension-keeps-its-state) |
+| A collection doesn't fit annotations or cursors, and caps at 500 | [Collection or program?](#collections) |
+| No escape for `[[page]]` or `((ref))` in imported text | [Imported text](#imported-text-keep-its-words-words): code spans (PIE-764) for literals; for prose, the pair broken with a backslash, which every renderer but the door's surface draws as the plain words. No grammar escape is needed |
+| No web URL for a note, no machine name for an `ep0ch://` link | [`notes.address`](#a-notes-address-and-its-rendering) |
+| No HTML or Markdown render of a note | [`notes.render`](#a-notes-address-and-its-rendering), the publisher's renderer |
+| Whether a write only to an outside service is `read` or `write` | [Writes to an outside service](#writes-to-an-outside-service) |
+| Tests across two outlines | [Testing an extension](#testing-an-extension): `OutlineHost` and the variables |
+| A showcase for an extension that calls an outside API | [A showcase recipe](#a-showcase-recipe-an-extension-that-calls-an-outside-api) |
+| A worked "sync from an outside API" | [Worked example](#worked-example-sync-my-starred-items-from-an-outside-api-every-hour) |
+| The suggested `pgrep` check matched other agents' runs | [Running it on float-2](#testing-an-extension): `agent-env --test` waits for a slot itself |
 
 ## `extensions.list`
 
@@ -1009,10 +1561,108 @@ watcher.
 
 ## Testing an extension
 
-Never against a real outline. Start a scratch service whose outline root is a temp folder, copy the
-extension into its `extensions/`, and drive it over the socket, as
-[`test/extensions-wave-b.test.ts`](../../test/extensions-wave-b.test.ts) does for the four examples.
-Use made-up data. The runtime is the same one the live service uses.
+Never against a real outline, a real token or a real outside service. Start a scratch service in a temp folder, copy
+the extension in, and drive it over the socket with made-up data. The runtime is the same one the live service uses.
+
+**The environment a scratch service reads**, set before it starts and put back after (a test changes `process.env`;
+anything it spawns gets the environment passed explicitly):
+
+| Variable | Point it at |
+|---|---|
+| `OUTLINER_EXTENSIONS_DIR` | the user folder: a temp folder the test copies the extension into (an extension there serves every outline) |
+| `OUTLINER_RESOURCE_EXTENSIONS` | a file that doesn't exist, so no old registry is read |
+| `WITH_SECRETS_DIR` | a temp folder with a made-up group file (`readwise.env`, mode 0600), never `~/.config/secrets` |
+
+**One outline:** an `OutlinerServer` over an `OutlinerStore` in the temp folder, with `server.setOutline({ name })` so
+`EP0CH_WS` and `notes.address` have a name; the extension in `<outline root>/extensions/<id>/` or the user folder.
+[`test/extension-programs.test.ts`](../../test/extension-programs.test.ts)'s `setup()` is the one to copy (its
+`scheduleTickMs` and `scheduleNow` drive a schedule by hand: `server.extensionSchedules.tick()`).
+
+**Two outlines** (a sync that writes to another outline, a host-wide schedule): an `OutlineHost`, as the live host
+runs, over an outlines folder in the temp folder; make the outlines over its socket, and name the outline on each
+request:
+
+```ts
+const outlines = outlineLayout(join(root, "outlines"));          // outline-core's layout: <root>/<name>.sqlite, .host/
+const host = new OutlineHost({ outlinesFolder: outlines.root, log: () => {} });
+await host.start();
+await send(host.socketPath, { action: "outlines.create", name: "garden" });
+await send(host.socketPath, { action: "outlines.create", name: "readwise" });
+await send(host.socketPath, { outline: "garden", action: "extensions.list", reload: true });   // the extension loads
+await send(host.socketPath, { outline: "garden", action: "extensions.act", extension: "readwise", extensionAction: "pull", mutation: { author: "user" } });
+```
+
+[`test/readwise-extension.test.ts`](../../test/readwise-extension.test.ts) is the whole recipe: two outlines, a
+group file, a fake outside API and a publisher.
+
+**A fake outside API:** `Bun.serve({ port: 0, hostname: "127.0.0.1", fetch })` answering the few paths the extension
+calls, as the real API's docs describe them, checking the made-up token, and recording what it was sent; the extension
+takes the API's address in its config (`"api": "http://127.0.0.1:<port>"`, written to its `config.json` by the test).
+Make it able to fail the ways the real one does (401, 429 with `Retry-After`, a second page), and assert on what the
+outline holds afterwards and on the fake's record of requests.
+
+**A publisher** (for `notes.address`'s URLs and `notes.render`'s links): `new Publisher({ client: createOutlinerClient({
+socket, mode: "host", outline }), url: "https://pub.example.invalid/pub" })`, then `start()`; it registers with the
+service as `publish serve` does.
+
+**Running it on float-2:** one file at a time, through the test slots: `scripts/agent-env <your name> --test --
+timeout 900 bun test test/<file>.test.ts` (it waits for a free slot itself, so there's nothing to check with `pgrep`,
+which also matches other agents' runs). Whole suites run on CI or `scripts/box-test`.
+
+### A showcase recipe: an extension that calls an outside API
+
+The door's showcase (`ep0ch --showcase`, `packages/door/src/showcase/`) runs a scratch service and installs the
+outliner's example extensions into its own config folder (`installExamples` in `src/showcase/tickets/install.ts`).
+An extension that calls an outside API is shown the same way, with the outside world made up:
+
+1. **A fake, in the showcase.** Either the extension answers from a file in its folder (the showcase's ticket
+   provider, `src/showcase/tickets/tickets.ts`, is a Jira-shaped extension that reads `tickets.json` and contacts
+   nothing), or the showcase process serves a fake API on `127.0.0.1:0` and writes the extension's `config.json` with
+   `api` pointing at it.
+2. **A made-up secret, never the person's.** The showcase's scratch service must not read `~/.config/secrets`: give it
+   `WITH_SECRETS_DIR` pointing at a folder the showcase writes (a group file with a made-up token, mode 0600), or give
+   the extension no secret in the showcase. Don't install an extension that names a real group into a showcase
+   without one: its first call would send the person's real token to the real service.
+3. **A section and its test.** The section shows what the person would see (the extension's lines, its schedule in the
+   extensions list, the notes it wrote), and `packages/door/test/showcase.test.ts` opens it, runs the action through
+   `act` (`ext.<id>.<action>`) and checks what the fake was sent and what the outline holds.
+
+### Worked example: "sync my starred items from an outside API every hour"
+
+1. **The manifest:** a scheduled action on the outline that writes, the token by `with-secrets` group, the API's
+   address in config so a test can point it at a fake:
+
+   ```json
+   {
+     "contract": 2, "id": "stars", "version": 1, "name": "Stars", "run": ["bun", "stars.ts"], "deadline": "2m",
+     "secrets": { "token": { "group": "stars", "key": "STARS_TOKEN", "description": "Stars API token" } },
+     "configSchema": { "type": "object", "properties": { "api": { "type": "string" } }, "additionalProperties": false },
+     "actions": [{ "id": "pull", "label": "Pull starred items", "on": "outline", "effects": "write",
+                   "schedule": { "every": "1h", "once": "host" } }]
+   }
+   ```
+
+2. **The page it owns, and its cursor:** `pages.resolve` for `stars`; none, `create` it (`Stars [page::stars]`). Read
+   `[stars.synced::…]` from its first line.
+3. **Fetch what changed since**, with the token from `credentials.token` (`?updated_after=<synced>`), a page at a time.
+4. **Write each item idempotently:** `blocks.query` `{ where: "stars.item=<id>", subtreeRootId: <page>, limit: 1 }`;
+   found and different, `update` with the revision you read; not found, `create` under the page with
+   `[stars.item::<id>]` and its fields as properties. Escape the item's words ([imported text](#imported-text-keep-its-words-words)).
+5. **Move the cursor** last: `update` the page with `[stars.synced::<when this run started>]`. A run that fails halfway
+   leaves the old cursor, and the next run writes only what's missing.
+6. **Answer** `{ ok: true, value: { message: "pulled: 3 new, 1 changed" } }`: the schedule's record shows it
+   (`ep0ch ext ls`), and a refusal from the API is `{ ok: false, code: "unauthorized" }`.
+7. **Test it** against a fake API in two outlines ([above](#testing-an-extension)), twice: the second run writes
+   nothing.
+
+[readwise](../../extensions/readwise) is this, with annotations at passages and a board in another outline.
+
+**Around the extension (a kit).** A sync is usually one part of a kit: what it writes is shown and sorted by parts
+that are notes, not code. An inbox is a **view** (`[type::virtual-branch]` with a `[query::…]` on the sync's own
+properties, `stars.state=unread`), a board is a **hub** with two or more views under it, a familiar filter is a saved
+query, and a "when an item lands, tag it" step is a [rule note](#rule-notes-the-no-code-tier). Their syntax is the
+`ep0ch-outline` skill's "Views, boards and hubs" (`packages/door/skills/ep0ch-outline/SKILL.md`). Query the
+properties your sync writes; never a list of keys in code ([properties are open](../../../../AGENTS.md#properties-are-open)).
 
 ## Not yet
 
@@ -1030,5 +1680,5 @@ Use made-up data. The runtime is the same one the live service uses.
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
   until `r` on it (or it's worded differently).
 - **The publisher** shows data records (they are blocks) but not yet handler outputs; it will ask
-  `extensions.render` for `html`.
+  `extensions.render` for `html`. So `notes.render` doesn't draw a handler line's output either.
 - **Generic Resource providers.** `kind: "resource"` is Jira's path; others use `data`.

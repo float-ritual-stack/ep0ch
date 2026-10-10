@@ -13,7 +13,7 @@ import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import type { HostedOutlineList, OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { applyWrite, actorOf, mcpSetting, principalOf, type McpCaller, type WriteBoard } from "./mcp-writes";
 import { hostSocketOf } from "./discover";
-import { canonicalLocalMachineName } from "./machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { boardFor } from "./notes-cli";
 import { hostRequest, OUTLINE_NAME } from "./socket";
 

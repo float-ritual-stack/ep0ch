@@ -8,7 +8,7 @@ import { machineOutlines } from "../src/mcp-gateway";
 import { mcpRecord } from "../src/mcp";
 import type { McpOutlineAdmin } from "../src/mcp-outlines";
 import type { McpCaller } from "../src/mcp-writes";
-import { canonicalLocalMachineName } from "../src/machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { SocketBoard, hostRequest } from "../src/socket";
 import { outliner, ScratchHost } from "./scratch";
 

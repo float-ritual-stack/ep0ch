@@ -15,7 +15,7 @@
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { canonicalLocalMachineName } from "./machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";

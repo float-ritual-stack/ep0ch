@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Extensions from the docs alone: a call reference, a schedule once per host, a note's address and its rendering (PIE-767)
+
+- **New:** `"once": "host"` on a schedule runs it in one outline of the host instead of in every outline that serves
+  the extension; `ep0ch ext ls` and the door's extensions list say `once per host` and where it runs.
+- **New:** `notes.address` gives a note's `ep0ch://` URI, this machine's name and, when it's published, its web URLs
+  (`url`, `publicUrl`, `permalink`). `ep0ch publish serve --url <its tailnet URL>` (OUTLINER_PUBLISH_URL) tells the
+  service where the publisher is opened.
+- **New:** `notes.render` renders a note as its published page reads, as Markdown or HTML, through the publisher's own
+  renderer; a `[publish::never]` note is refused.
+- **Changed:** Readwise's hourly pull runs once per host (its claim on the board page is gone), `send` sends the note
+  as the publisher renders it, and a published note's link in Reader is its page.
+- **Docs:** the extension README's call reference is written from the types and checked by a test; new sections on
+  idempotent syncs and `requestId`, where state lives, editing an annotation, `effects` for outside writes, imported
+  text, two-outline tests, a showcase recipe and a worked sync.
+- PROTOCOL 132. On each machine: `ep0ch install --apply`. To give published notes web URLs on float-2, add
+  `Environment=OUTLINER_PUBLISH_URL=https://<float-2's tailnet name>/pub` to `outliner-publish.service` and restart it.
+- *Why it matters:* the next agent building an extension (the notifications hub) shouldn't have to read the source.
+
 ### A Readwise extension: send a note to Reader, pull highlights back (PIE-743)
 
 - **New:** `extensions/readwise`, an example extension. `ext.readwise.send` saves a note (and the notes under it) to
