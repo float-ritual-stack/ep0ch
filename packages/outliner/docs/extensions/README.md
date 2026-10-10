@@ -248,7 +248,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
 | `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }` |
-| `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
+| `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
 
@@ -357,8 +357,32 @@ Moon on 2026-10-26: Full Moon
   `ext.moon.sync` in the change feed. `activity.recent` with `extensions: "exclude"` leaves them out.
 - `fields` in the handler lists what the projection shows beside the title.
 - Jira is the full version: a Resource snapshot, comments as child blocks, a poll, drift views
-  ([extensions/jira](../../extensions/jira)). Its `kind: "resource"` path is Jira's alone for now;
-  a new provider uses `data`.
+  ([extensions/jira](../../extensions/jira)). That is the `kind: "resource"` path, and it is any extension's
+  ([A provider of Resources](#a-provider-of-resources)).
+
+### A provider of Resources
+
+A `kind: "resource"` handler makes its extension a **provider** of remote entities, as Jira is (schema 5): each key
+is a Resource the service keeps (its Source, snapshots and history, annotations on its text) as well as a block the
+extension owns. Use it over `data` when the entity has a home of its own on the web and should keep its history, a
+stored text to comment on, and a poll.
+
+```json
+"handlers": [{ "key": "kanboard", "kind": "resource", "effects": "read", "keyPattern": "^KB-[1-9][0-9]*$",
+  "record": true, "fields": ["lane", "owner"], "link": "cards/{key}", "staleAfter": "15m", "pollEvery": "12m" }]
+```
+
+- The provider is `ext:<extension id>` (Jira's is `ext:jira`): in Resources, Sources, revisions and authored
+  references (`{ "kind": "ext:kanboard", "key": "KB-7" }`). `extensions.list` lists each as `resourceProviders`
+  (`{ provider, key, label, keyPattern?, fields?, link? }`); clients read `key::` lines and `[key::KEY]` tokens with it.
+- Its keys are `<PROJECT>-…` in a Source's project: `config.json`'s `sources: [{ origin, project }]` makes the Sources
+  on first use. `keyPattern` (default `PROJECT-123`) is the grammar; a token that doesn't match is a warning on it.
+  Keys are upper-cased as written (`kb-7` is `KB-7`), as a project is: write the pattern for upper-case keys.
+- `fields`: the record fields a projection shows (default status, assignee, type, priority, labels). `link`: the
+  entity's page before its first fetch, relative to the Source's origin (`{key}` the key).
+- The process answers `resolve`, `read` and `changed` ([resource-process.md](resource-process.md)).
+- One resource handler per extension, and no `data` handler beside it: the provider's records are its sync's.
+- Its Resources are read-only from the outline (no provider command), like Jira's.
 
 **Worked example: "make me an extension that puts a book's details into a block".**
 
@@ -1697,7 +1721,10 @@ Both built with no core change, working around these. Wave 2 closed them:
     "bar": [],
     "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }],
     "lastRun": { "at": "…", "call": "ext.horoscope.horoscope", "ok": false, "error": "command exited with code 1: no sign given" }
+  }, {
+    "id": "jira", "handlers": [{ "key": "jira", "kind": "resource", "effects": "read", … }], …
   }],
+  "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{key}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
   "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
@@ -1837,4 +1864,5 @@ properties your sync writes; never a list of keys in code ([properties are open]
   until `r` on it (or it's worded differently).
 - **The publisher** shows data records (they are blocks) but not yet handler outputs; it will ask
   `extensions.render` for `html`. So `notes.render` doesn't draw a handler line's output either.
-- **Generic Resource providers.** `kind: "resource"` is Jira's path; others use `data`.
+- **Provider commands for extensions.** An extension's Resources are read-only from the outline: `comment.create` and
+  other provider commands are Linear's built-in client's only.

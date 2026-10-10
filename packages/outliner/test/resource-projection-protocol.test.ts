@@ -11,6 +11,10 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { readResourceProjections, type ResourceProjectionDataSource } from "../src/resource-projection";
 import type { RemoteEntityDocument, ResourceSource } from "../src/types";
+import { JIRA_PROVIDER, useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 // Fictional project and tickets. Nothing here contacts a provider.
 const cleanups: Array<() => Promise<void>> = [];
@@ -31,7 +35,7 @@ class TicketFixture implements RemoteEntityProviderClient {
   async observe(resource: RemoteEntityResource): Promise<RemoteEntityDocument> {
     this.observeCalls += 1;
     if (this.observeError) throw new Error(this.observeError);
-    if (resource.address.kind !== "jira") throw new Error("Tickets are Jira fixtures");
+    if (resource.address.kind !== "ext:jira") throw new Error("Tickets are Jira fixtures");
     const key = resource.address.key;
     const fetchedAt = "2026-09-20T10:00:00.000Z";
     const markdown = `# Rollout checklist\n\nDetails for ${key}.`;
@@ -41,7 +45,7 @@ class TicketFixture implements RemoteEntityProviderClient {
       markdown,
       externalUrl: `https://issues.example.test/browse/${key}`,
       sourceSnapshot: {
-        provider: "jira",
+        provider: "ext:jira",
         resourceId: resource.id,
         addressVersion: resource.addressVersion,
         entityId: resource.address.entityId,
@@ -50,7 +54,7 @@ class TicketFixture implements RemoteEntityProviderClient {
         revision: {
           resourceId: resource.id,
           addressVersion: resource.addressVersion,
-          revision: { kind: "jira", validator: { kind: "updated-at", value: "2026-09-19T08:30:00.000Z" } },
+          revision: { kind: "ext:jira", validator: { kind: "updated-at", value: "2026-09-19T08:30:00.000Z" } },
         },
         fetchedAt,
       },
@@ -74,7 +78,8 @@ async function start() {
   const provider = new TicketFixture();
   const store = new OutlinerStore(join(directory, "outliner.sqlite"), { remoteEntityClient: provider });
   const socket = join(directory, "outliner.sock");
-  const server = new OutlinerServer(store, socket);
+  // The fixture client serves Jira's tickets: the service reads `jira::` lines as Jira's extension declares them.
+  const server = new OutlinerServer(store, socket, undefined, undefined, { resourceProviders: [JIRA_PROVIDER] });
   await server.start();
   // These tests read what is stored; the one-step fetch on save has its own tests (extension-records.test.ts).
   server.extensionSync.stop();
@@ -86,12 +91,12 @@ async function start() {
   });
   const source = store.resources.createSource({
     name: "Tickets",
-    provider: "jira",
+    provider: "ext:jira",
     boundary: { origin: "https://issues.example.test", project: "ACME" },
   }) as ResourceSource;
   const register = (key: string) => store.resources.intern({
     sourceId: source.id,
-    address: { kind: "jira", entityId: `entity-${key}`, key },
+    address: { kind: "ext:jira", entityId: `entity-${key}`, key },
   }).resource.id;
   return { store, client, provider, source, register };
 }
@@ -265,7 +270,7 @@ function fakeSource(text: string, ancestors: { id: string; text: string }[], des
         createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-20T00:00:00.000Z", properties: [] })),
     }),
     resources: {
-      listSources: () => [{ id: "tickets", provider: "jira", name: "Tickets",
+      listSources: () => [{ id: "tickets", provider: "ext:jira", name: "Tickets",
         boundary: { origin: "https://issues.example.test", project: "ACME" }, policy: { deniedCapabilities: [] } }] as never,
       resolveAuthoredReference: (reference: { key: string }) => {
         source.lookups += 1;

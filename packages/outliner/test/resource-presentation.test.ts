@@ -9,6 +9,10 @@ import {
   type ResourcePresentationContext,
   type ResourceSource,
 } from "../src/resources";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 const webSource: ResourceSource = {
   id: "10000000-0000-4000-8000-000000000001",
@@ -229,9 +233,9 @@ test("negotiates Jira and Linear entities plus application deep links without fa
     id: "10000000-0000-4000-8000-000000000003",
     name: "Product Jira",
     version: 1,
-    provider: "jira",
+    provider: "ext:jira",
     boundary: {
-      kind: "jira",
+      kind: "ext:jira",
       origin: "https://jira.example.test",
       project: "PIE",
       credentialEnv: "JIRA_TOKEN",
@@ -246,8 +250,8 @@ test("negotiates Jira and Linear entities plus application deep links without fa
       sourceId: jiraSource.id,
       version: 1,
       addressVersion: 1,
-      provider: "jira",
-      address: { kind: "jira", entityId: "10042", key: "PIE-255" },
+      provider: "ext:jira",
+      address: { kind: "ext:jira", entityId: "10042", key: "PIE-255" },
       mediaType: "text/markdown",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -264,7 +268,7 @@ test("negotiates Jira and Linear entities plus application deep links without fa
       markdown: "# Remote entities\n\nRetained Jira body.",
       externalUrl: "https://jira.example.test/browse/OLD-1",
       sourceSnapshot: {
-        provider: "jira",
+        provider: "ext:jira",
         resourceId: "20000000-0000-4000-8000-000000000003",
         addressVersion: 1,
         entityId: "10042",
@@ -274,7 +278,7 @@ test("negotiates Jira and Linear entities plus application deep links without fa
           resourceId: "20000000-0000-4000-8000-000000000003",
           addressVersion: 1,
           revision: {
-            kind: "jira",
+            kind: "ext:jira",
             validator: { kind: "updated-at", value: "2026-01-01T00:00:00.000Z" },
           },
         },

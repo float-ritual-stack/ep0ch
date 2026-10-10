@@ -10,6 +10,7 @@ import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
+import { resourceProviderKeys } from "./resource-providers";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -126,7 +127,9 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
  * pi-herdr-outliner's `authoredResourceReferenceOccurrences` (src/resource-references.ts) reads as resources.
  * The service decides which tokens are.
  */
-const MAY_HAVE_RESOURCE_TOKEN = /\[(?:file|web|jira|app|raw-capture|before-rewrite)::/i;
+const MAY_HAVE_RESOURCE_TOKEN = /\[(?:file|web|app|raw-capture|before-rewrite)::/i;
+/** A bracketed token of a resource provider the service lists (`[jira::KEY]`). */
+const mayHaveProviderToken = (text: string) => resourceProviderKeys().some(key => text.toLowerCase().includes(`[${key}::`));
 const authoredBy = new WeakMap<object, Map<string, Cached<AuthoredLinksSnapshot>>>();
 /** A resource token in a note's text as the service found it: its exact text there, and the service's entry. */
 export interface ResourceToken { raw: string; link: AuthoredResourceLink }
@@ -137,7 +140,7 @@ export interface ResourceToken { raw: string; link: AuthoredResourceLink }
  * and for a note that has none. Asked again when the note changes.
  */
 export function resourceTokensOf(m: { id: string; text: string }, src: Source | null | undefined): ResourceToken[] {
-  if (!MAY_HAVE_RESOURCE_TOKEN.test(m.text) || !isOutlineNote(m as never)) return [];
+  if ((!MAY_HAVE_RESOURCE_TOKEN.test(m.text) && !mayHaveProviderToken(m.text)) || !isOutlineNote(m as never)) return [];
   const s = ask(authoredBy, src, m.id, b => b.authoredLinks(m.id), c => changedSince(c.at, [m.id]))?.value;
   if (s?.kind !== "ready") return [];
   return s.resources.entries.flatMap(link => {

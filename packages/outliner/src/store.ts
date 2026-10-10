@@ -20,7 +20,7 @@ import { dirname, resolve } from "node:path";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
-import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
+import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
@@ -807,6 +807,11 @@ function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pi
 }
 
 export class OutlinerStore {
+  /**
+   * This outline's resource providers (its extensions' `kind: "resource"` handlers), set by its service: its `key::`
+   * lines are read with them, never with another outline's. Unset: the process-wide table.
+   */
+  resourceProviders?: readonly ResourceDirectiveProvider[];
   private readonly releaseOwnership: () => void;
   readonly database: Database;
   readonly workspaceRoot: string;
@@ -2240,7 +2245,7 @@ export class OutlinerStore {
 
   /** Every ticket key with a page, as `ticketPage` would answer each one. */
   private ticketPagesFromCurrentRead(): Map<string, string> {
-    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
     const pages = new Map<string, string>();
@@ -2266,7 +2271,7 @@ export class OutlinerStore {
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(normalized)) return null;
-    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
     const page = this.database.query(`

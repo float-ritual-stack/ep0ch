@@ -13,6 +13,7 @@ import {
   type AuthoredResourceReference,
   type AuthoredResourceReferenceOccurrence,
   type AuthoredResourceReferenceLookup,
+  type ResourceDirectiveProvider,
 } from "./resource-references";
 import { blockDisplayTitle } from "./references";
 import {
@@ -20,6 +21,8 @@ import {
   resourceAddressLabel,
   type Resource,
   type ResourceProvider,
+  type ExtensionProvider,
+  isExtensionProvider,
   type ResourceSource,
 } from "./resources";
 import { linkTargetFacets } from "./backlink-facets";
@@ -151,6 +154,8 @@ export type AuthoredLinksSnapshot =
     };
 
 export interface AuthoredLinksDataSource {
+  /** This outline's resource providers (a store's); default the process-wide table. */
+  readonly resourceProviders?: readonly ResourceDirectiveProvider[];
   get(blockId: string): Block | null;
   resolvePageAddress(address: string): PageAddressResolution;
   workIdAllocatorStatus(): WorkIdAllocatorStatus;
@@ -185,18 +190,17 @@ const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const RESOURCE_DESTINATION_PREFIX = "pi-outliner://resource/";
 const INLINE_MARKDOWN_LINK_PATTERN = /(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)/g;
-const RESOURCE_PROVIDERS: Record<ResourceProvider, true> = {
+const RESOURCE_PROVIDERS: Record<Exclude<ResourceProvider, ExtensionProvider>, true> = {
   filesystem: true,
   web: true,
   github: true,
-  jira: true,
   linear: true,
   application: true,
   computed: true,
 };
 
 function isResourceProvider(value: string): value is ResourceProvider {
-  return value in RESOURCE_PROVIDERS;
+  return value in RESOURCE_PROVIDERS || isExtensionProvider(value);
 }
 
 export function normalizeAuthoredLinksOwnerId(value: unknown): string {
@@ -225,7 +229,7 @@ function diagnostic(message: string): string {
   return clip(message, AUTHORED_LINKS_MAX_DIAGNOSTIC_UNITS);
 }
 
-function resourceReferenceCandidates(text: string): ResourceReferenceCandidate[] {
+function resourceReferenceCandidates(text: string, providers?: readonly ResourceDirectiveProvider[]): ResourceReferenceCandidate[] {
   const protectedRanges = protectedCodeRanges(text);
   const candidates: ResourceReferenceCandidate[] = [];
   for (const match of text.matchAll(INLINE_MARKDOWN_LINK_PATTERN)) {
@@ -261,7 +265,7 @@ function resourceReferenceCandidates(text: string): ResourceReferenceCandidate[]
       ...range,
     });
   }
-  candidates.push(...authoredResourceReferenceOccurrences(text));
+  candidates.push(...authoredResourceReferenceOccurrences(text, providers));
   return candidates;
 }
 
@@ -535,7 +539,7 @@ export function readAuthoredLinks(
   const workIdPrefix = source.workIdAllocatorStatus().prefix;
   const candidates: AuthoredCandidate[] = [
     ...outlinerReferenceOccurrences(owner.text, workIdPrefix),
-    ...resourceReferenceCandidates(owner.text),
+    ...resourceReferenceCandidates(owner.text, source.resourceProviders),
   ].sort((left, right) => left.start - right.start || left.end - right.end);
   const candidateLimited = candidates.length > AUTHORED_LINKS_MAX_CANDIDATES;
   const scanned = candidates.slice(0, AUTHORED_LINKS_MAX_CANDIDATES);
@@ -701,9 +705,9 @@ function decodeAuthoredResourceReference(
       url: string(input.url, `${label} URL`, 4_096),
     };
   }
-  if (input.kind === "jira") {
+  if (isExtensionProvider(input.kind)) {
     return {
-      kind: "jira",
+      kind: input.kind,
       key: string(input.key, `${label} key`, 255),
     };
   }

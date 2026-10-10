@@ -20,13 +20,13 @@ const SOURCE_ID = "11111111-1111-4111-8111-111111111111";
 const RESOURCE_ID = "22222222-2222-4222-8222-222222222222";
 const CREATED_AT = "2026-09-17T10:00:00.000Z";
 
-function jiraSource(): Extract<ResourceSource, { provider: "jira" }> {
+function jiraSource(): Extract<ResourceSource, { provider: `ext:${string}` }> {
   return {
     id: SOURCE_ID,
     name: "Platform Jira",
-    provider: "jira",
+    provider: "ext:jira",
     boundary: {
-      kind: "jira",
+      kind: "ext:jira",
       origin: "https://jira.example.com",
       project: "PLAT",
       credentialEnv: "JIRA_TOKEN",
@@ -38,12 +38,12 @@ function jiraSource(): Extract<ResourceSource, { provider: "jira" }> {
   };
 }
 
-function jiraResource(key = "PLAT-7"): Extract<Resource, { provider: "jira" }> {
+function jiraResource(key = "PLAT-7"): Extract<Resource, { provider: `ext:${string}` }> {
   return {
     id: RESOURCE_ID,
     sourceId: SOURCE_ID,
-    provider: "jira",
-    address: { kind: "jira", entityId: "10001", key },
+    provider: "ext:jira",
+    address: { kind: "ext:jira", entityId: "10001", key },
     version: 1,
     addressVersion: 1,
     mediaType: null,
@@ -93,7 +93,7 @@ function jsonResponse(value: unknown): Response {
 test("Jira and Linear source boundaries normalize explicit credential references without secrets", () => {
   expect(normalizeResourceSourceInput({
     name: " Jira ",
-    provider: "jira",
+    provider: "ext:jira",
     boundary: {
       origin: "https://jira.example.com/",
       project: "plat",
@@ -101,7 +101,7 @@ test("Jira and Linear source boundaries normalize explicit credential references
     },
   })).toEqual({
     name: "Jira",
-    provider: "jira",
+    provider: "ext:jira",
     boundary: {
       origin: "https://jira.example.com",
       project: "PLAT",
@@ -131,12 +131,12 @@ test("Jira and Linear source boundaries normalize explicit credential references
 test("remote entity canonical identity ignores mutable Jira and Linear locators", () => {
   const jira = jiraSource();
   const jiraOld = normalizeResourceAddress(jira, {
-    kind: "jira",
+    kind: "ext:jira",
     entityId: "10001",
     key: "PLAT-7",
   });
   const jiraMoved = normalizeResourceAddress(jira, {
-    kind: "jira",
+    kind: "ext:jira",
     entityId: "10001",
     key: "PLAT-42",
   });
@@ -161,7 +161,7 @@ test("remote entity canonical identity ignores mutable Jira and Linear locators"
     resourceId: resource.id,
     addressVersion: resource.addressVersion,
     revision: {
-      kind: "jira",
+      kind: "ext:jira",
       validator: { kind: "updated-at", value: "2026-09-17T12:00:00+02:00" },
     },
   }, resource);
@@ -169,7 +169,7 @@ test("remote entity canonical identity ignores mutable Jira and Linear locators"
     resourceId: resource.id,
     addressVersion: resource.addressVersion,
     revision: {
-      kind: "jira",
+      kind: "ext:jira",
       validator: { kind: "updated-at", value: "2026-09-17T10:00:00.000Z" },
     },
   }, resource);
@@ -312,12 +312,12 @@ test("command ingress rejects unknown, excess, and oversized input before provid
   });
 
   expect(() => normalizeResourceProviderCommandInput({
-    provider: "jira",
+    provider: "ext:jira",
     command: "issue.delete",
     payload: { body: "No" },
   })).toThrow(ResourceCatalogError);
   expect(() => normalizeResourceProviderCommandInput({
-    provider: "jira",
+    provider: "ext:jira",
     command: "comment.create",
     payload: { body: "No", privileged: true },
   })).toThrow(ResourceCatalogError);
@@ -328,7 +328,7 @@ test("command ingress rejects unknown, excess, and oversized input before provid
   })).toThrow(ResourceCatalogError);
 
   const malformed = {
-    provider: "jira",
+    provider: "ext:jira",
     command: "comment.create",
     payload: { body: "Looks valid" },
     entityId: "different-issue",

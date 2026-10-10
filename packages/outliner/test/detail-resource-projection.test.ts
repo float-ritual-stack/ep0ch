@@ -8,12 +8,16 @@ import type { ResourceProjection } from "../src/resource-projection";
 import { sanitizeDynamicText } from "../src/terminal";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type { Block } from "../src/types";
+import { useJiraProvider } from "./resource-providers";
+
+// Jira's `jira::` lines, as a service with the Jira extension reads them.
+useJiraProvider();
 
 // Fictional tickets in project ACME.
 
 function ticket(overrides: Partial<ResourceProjection> & Pick<ResourceProjection, "anchor">): ResourceProjection {
   return {
-    provider: "jira", label: "Jira", propertyKey: "jira", options: { unknown: [] }, status: "ready",
+    provider: "ext:jira", label: "Jira", propertyKey: "jira", options: { unknown: [] }, status: "ready",
     key: "ACME-1", resourceId: "11111111-1111-4111-8111-111111111111", summary: "Rollout checklist",
     fields: [{ label: "Status", value: "In progress" }], fetchedAt: "2026-09-20T11:00:00.000Z",
     ...overrides,

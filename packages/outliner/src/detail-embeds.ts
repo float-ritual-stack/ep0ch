@@ -1,5 +1,5 @@
 import type { Decoration } from "./extension-rules";
-import { mayHaveResourceProjections } from "./resource-references";
+import { mayHaveResourceProjections, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { mayHaveHandlerLines } from "./extension-handlers";
 import {presentedSource, projectedBlockReference} from './document-source';
 import {atomicDocument, concatDocuments, observeDocument, sourceDocument, sliceDocument, withDocumentOccurrence,
@@ -588,8 +588,10 @@ const decoratingBy = new WeakMap<object, boolean>();
  */
 export async function learnDetailRules(requester: DetailEmbedRequester): Promise<boolean> {
   try {
-    const listed = await requester.request<{ rules?: readonly { decorate?: unknown }[] }>({ action: "extensions.list" } as RequestInput);
+    const listed = await requester.request<{ rules?: readonly { decorate?: unknown }[]; resourceProviders?: readonly ResourceProviderEntry[] }>({ action: "extensions.list" } as RequestInput);
     decoratingBy.set(requester, (listed.rules ?? []).some((rule) => !!rule.decorate));
+    // The outline's resource providers (`jira::` lines), so Detail reads and links their keys as the service does.
+    useResourceDirectiveProviders("detail", listed.resourceProviders ?? []);
   } catch { /* what was known stays */ }
   return decoratingBy.get(requester) ?? false;
 }

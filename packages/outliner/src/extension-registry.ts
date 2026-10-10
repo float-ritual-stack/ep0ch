@@ -1,4 +1,6 @@
 import type { ExtensionRunStatus } from "./resource-extensions";
+import type { ResourceProviderEntry } from "./resource-references";
+import { extensionProvider } from "./resources";
 import type { ScheduleListEntry } from "./extension-schedule";
 import type { ExtensionBarSource } from "@ep0ch/outline-core/protocol";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -155,6 +157,11 @@ export interface ExtensionsListResult {
   readonly generation: number;
   readonly roots: readonly (ExtensionRoot & { readonly exists: boolean })[];
   readonly extensions: readonly ExtensionEntry[];
+  /**
+   * Every extension provider of Resources (a `kind: "resource"` handler, Jira's first): its property key, label,
+   * key grammar and the fields a projection shows. Clients read `key::` lines with it (resource-references.ts).
+   */
+  readonly resourceProviders: readonly ResourceProviderEntry[];
   /** Every active tile kind, for the door's registry. */
   readonly tileKinds: readonly ExtensionTileKind[];
   /** Every serving extension's command-palette sources (PIE-656), for the door's power bar. */
@@ -165,6 +172,16 @@ export interface ExtensionsListResult {
   readonly targets: readonly string[];
   /** "Trusted code, not a sandbox": extensions run as the service user. */
   readonly trust: string;
+}
+
+/** The resource providers among these extensions: one per extension with a `kind: "resource"` handler. */
+export function resourceProviderEntries(extensions: readonly LoadedExtension[]): ResourceProviderEntry[] {
+  return extensions.flatMap((extension) => (extension.manifest.handlers ?? []).filter((handler) => handler.kind === "resource").map((handler) => ({
+    provider: extensionProvider(extension.id), key: handler.key, label: extension.name,
+    ...(handler.keyPattern ? { keyPattern: handler.keyPattern } : {}),
+    ...(handler.fields?.length ? { fields: handler.fields } : {}),
+    ...(handler.link ? { link: handler.link } : {}),
+  })));
 }
 
 /** An `@name` bound to the extension that answers it. */
@@ -481,6 +498,8 @@ export class ExtensionRegistry {
       generation: this.generation,
       roots: this.options.roots.map((root) => ({ ...root, exists: existsSync(root.path) })),
       extensions,
+      resourceProviders: resourceProviderEntries(this.serving().filter((extension) =>
+        (extension.manifest.handlers ?? []).some((handler) => handler.kind === "resource" && this.bound.get(handler.key)?.extension === extension))),
       tileKinds: extensions.flatMap((entry) => entry.tiles),
       barSources: extensions.flatMap((entry) => entry.bar),
       primitives: PRIMITIVE_TYPES,
