@@ -22,24 +22,27 @@ const KIND_TONES: Readonly<Record<string, RuleTone>> = { highlight: "warn", ques
 
 /** An annotation's own properties (open: whatever was written), each key with its values, the store's keys left out. */
 export function annotationProperties(properties: readonly { key: string; value: string }[]): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
+  // Open keys: `constructor` or `toString` is a property like any other, so no prototype to collide with.
+  const out: Record<string, string[]> = Object.create(null);
   for (const p of properties) {
     if (ANNOTATION_OWN_KEYS.has(p.key)) continue;
-    (out[p.key] ??= []).push(p.value);
+    if (Object.hasOwn(out, p.key)) out[p.key]!.push(p.value); else out[p.key] = [p.value];
   }
-  return out;
+  return { ...out };
 }
 
 /** The tone to draw an annotation in: its `color` when that names a theme tone, else its kind's, else `default`. */
 export function annotationTone(props: Readonly<Record<string, readonly string[]>>): RuleTone {
-  const color = props.color?.[0]?.trim().toLowerCase();
+  const color = Object.hasOwn(props, "color") ? props.color?.[0]?.trim().toLowerCase() : undefined;
   if (color && (RULE_TONES as readonly string[]).includes(color)) return color as RuleTone;
-  return KIND_TONES[props.kind?.[0]?.trim().toLowerCase() ?? ""] ?? "default";
+  const kind = Object.hasOwn(props, "kind") ? props.kind?.[0]?.trim().toLowerCase() ?? "" : "";
+  return Object.hasOwn(KIND_TONES, kind) ? KIND_TONES[kind]! : "default";
 }
 
 /** What an annotation is, in a word: its `kind`, else `highlight` with no body, else `comment`. */
 export function annotationKind(props: Readonly<Record<string, readonly string[]>>, body: string): string {
-  return props.kind?.[0]?.trim() || (body.trim() ? "comment" : "highlight");
+  const kind = Object.hasOwn(props, "kind") && Array.isArray(props.kind) ? props.kind[0]?.trim() : undefined;
+  return kind || (body.trim() ? "comment" : "highlight");
 }
 
 /**

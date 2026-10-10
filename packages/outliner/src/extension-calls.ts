@@ -798,16 +798,20 @@ export class ExtensionCalls {
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
     const annotations = parsed.writes.filter((write): write is Extract<ExtensionWrite, { op: "annotate" }> => write.op === "annotate");
     const others = parsed.writes.filter((write): write is BlockWrite => write.op !== "annotate");
+    // One kind of write per answer, so nothing is half-done: annotations on the passage, or block writes.
+    if (annotations.length && others.length) throw new Error(`${action.name} returned annotations and block writes together; an action on a passage returns one or the other (nothing was written)`);
+    // A Resource's text is stored content, never edited, and the note that opened it isn't the action's to write.
+    if (checked.resourceId && others.length) throw new Error(`${action.name} acts on a Resource's passage: it may only annotate it (nothing was written)`);
+    // The extension ran a while: the words are checked again before anything is written.
+    const now = this.checkPassage(checked.passage);
     const applied = others.length ? await this.apply(extension, action, host, others, request.requestedBy) : { written: [] as string[] };
     if (applied.proposalId) {
       const unwritten = annotations.length ? `; its ${annotations.length === 1 ? "annotation wasn't" : `${annotations.length} annotations weren't`} written` : "";
       return { extension: extension.id, action: action.id, message: `${applied.proposed}${unwritten}`, written: [], proposalId: applied.proposalId, passage: checked.passage };
     }
     const written = [...applied.written];
-    let passage = checked.passage;
+    let passage = now.passage;
     if (annotations.length) {
-      // After an update the words may have moved: the passage is checked again, found once with its context.
-      if (written.length) passage = this.checkPassage(passage).passage;
       const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
       const attribution = this.store.changes.attribution({ action: action.name, actor, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
       const quote = { quote: passage.quote, start: passage.start, prefix: passage.prefix, suffix: passage.suffix };

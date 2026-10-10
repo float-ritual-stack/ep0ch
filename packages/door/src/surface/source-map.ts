@@ -35,8 +35,12 @@ function visibility(span: string): { shown: boolean[]; tokens: { start: number; 
       if (bar >= 0) { hide(l.start, l.start + bar + 1); hide(l.end - 2, l.end); }
     }
   }
-  // Emphasis and code marks are drawn as style, not characters.
-  for (const m of span.matchAll(/\*\*|__|~~|`/g)) hide(m.index!, m.index! + m[0].length);
+  // Emphasis and code marks are drawn as style, not characters; a passage takes a styled run whole.
+  for (const m of span.matchAll(/(\*\*|__|~~)(?=\S)([^\n]*?\S)\1|`[^`\n]+`/g)) {
+    tokens.push({ start: m.index!, end: m.index! + m[0].length });
+    const mark = m[1] ?? "`";
+    hide(m.index!, m.index! + mark.length); hide(m.index! + m[0].length - mark.length, m.index! + m[0].length);
+  }
   // A fragment anchor at a line's end isn't drawn.
   let at = 0;
   for (const line of span.split("\n")) {

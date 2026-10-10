@@ -1313,7 +1313,8 @@ export class NoteSurface {
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
     const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => c.start !== null && hasCard(c));
-    const mcols = marginColumn(w, this.marginMode, cardThreads.length);
+    // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
+    const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
@@ -2916,7 +2917,7 @@ export class NoteSurface {
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
   private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false): { doc: Doc; controls: Control[] } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
-    const folding = fold && this.marginMode !== "off";
+    const folding = fold && this.marginMode !== "off" && !this.printed;
     if (!this.expanded.size && !folding) return { doc, controls: [] };
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
@@ -4436,10 +4437,13 @@ export class NoteSurface {
     const s = this.selection, rows = s && this.selRows();
     if (!s || !rows || d.top < 1) return;
     const n = [...s.text(rows)].length, copy = "[y copy]", source = "[Y source]";
-    // With the passage toolbar on the line, the count and [Y source] give it their room (Y still copies the source).
+    // The passage toolbar goes on the line too: when it all fits beside the count and [Y source] they stay; else they
+    // give it their room (Y still copies the source).
     const bar = this.msg && !this.msg.partial && s.text(rows).trim() ? this.passageChoices() : [];
-    const lead = bar.length ? "" : `── ${n} chars `;
-    const at = d.top - 1, wide = !bar.length && lead.length + copy.length + 1 + source.length <= w, fits = !!lead && lead.length + copy.length <= w;
+    const full = `── ${n} chars ${copy} ${source} │ `.length + width(toolbarRow(bar, this.passageMenu, w).text.replace(/\x1b\[[\d;]*m/g, ""));
+    const compact = bar.length > 0 && full > w;
+    const lead = compact ? "" : `── ${n} chars `;
+    const at = d.top - 1, wide = !compact && lead.length + copy.length + 1 + source.length <= w, fits = !!lead && lead.length + copy.length <= w;
     const from = fits ? lead.length : 0;
     if (copy.length > w) return;
     this.hits.push({ row: at, from, to: from + copy.length, copy: "visible" });
@@ -4602,9 +4606,19 @@ export class NoteSurface {
     const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
     const span = all.slice(lo, hi + 1).join("\n");
     const seen = s.text(rows);
+    // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
+    let r0 = s.start.row;
+    const lineOfRow = (r: number) => (r === 0 ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
+    while (r0 > d.top && lineOfRow(r0 - 1) === lo) r0--;
+    const before = s.start.col > (rows.margin?.(s.start.row) ?? 0) || r0 < s.start.row
+      ? new Selection({ row: r0, col: rows.margin?.(r0) ?? 0 }, { row: s.start.row, col: s.start.col - 1 }).text(rows) : "";
+    const nth = (t: string, inText: string) => { let n = 0; for (let i = inText.indexOf(t); i >= 0; i = inText.indexOf(t, i + 1)) n++; return n; };
     // A wrapped paragraph reads with a space where the reader broke it.
     for (const t of [seen, seen.replace(/\n/g, " ")]) {
-      const at = t.trim() ? span.indexOf(t) : -1;
+      if (!t.trim()) continue;
+      const k = nth(t, before.replace(/\n/g, " ") + t.slice(0, -1));
+      let at = -1;
+      for (let i = 0, j = span.indexOf(t); j >= 0; i++, j = span.indexOf(t, j + 1)) if (i === k) { at = j; break; }
       if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
     }
     // Drawn words with a link, emphasis or a list mark inside: read the source lines as they're drawn (source-map.ts).
@@ -4738,7 +4752,7 @@ export class NoteSurface {
   /** The columns a side margin wants beside the measured text: room for cards when the note has them, else none. */
   marginBeside(): number {
     const m = this.msg;
-    if (!m || this.marginMode === "off" || this.editing) return 0;
+    if (!m || this.marginMode === "off" || this.editing || this.printed) return 0;
     const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => c.start !== null && hasCard(c));
     return cards ? 36 : 0;
   }

@@ -260,7 +260,7 @@ describe("the note surface selects and copies, without a service", () => {
     expect(s.describe().selection).toBeNull();
   });
 
-  test("Y copies the source: exactly the words when they read the same, whole lines when the markup differs", () => {
+  test("Y copies the source: exactly the words, read as they're drawn (a styled run whole)", () => {
     const { s, h, copies, flashes } = setup();
     s.show(note("Plan\nSee **bold words** here.\nNext line."), h);
     s.render(60, 20, h);
@@ -268,8 +268,8 @@ describe("the note surface selects and copies, without a service", () => {
     const x = plain(lines[y]!).indexOf("See");
     s.press(x, y, h); s.drag(x + 7, y, h); s.release(x + 7, y, h);
     s.key(char("Y"), h);
-    expect(copies.at(-1)).toBe("See **bold words** here.");        // the drawn "See bold" isn't in the source: its line is
-    expect(flashes.at(-1)).toBe("copied 24 chars of source · whole line 2");
+    expect(copies.at(-1)).toBe("See **bold words**");              // the drawn "See bold" read as drawn: the bold run taken whole (ADR 0004 contract 5)
+    expect(flashes.at(-1)).toBe("copied 18 chars of source");
     s.key(char("y"), h);
     expect(copies.at(-1)).toBe("See bold");
     const n = plain(lines[y + 1]!).indexOf("Next");

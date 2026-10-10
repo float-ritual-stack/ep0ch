@@ -382,10 +382,11 @@ export class AnnotationRepository {
             // Read at an older revision: a passage that says what's around it (prefix, suffix) is checked as any passage
             // target is (outline-core passage.ts): found once with that context, it moves; else refused. One that
             // doesn't is refused as stale.
-            const context = request.passage && (request.passage.prefix !== undefined || request.passage.suffix !== undefined);
+            const context = request.passage && (!!request.passage.prefix || !!request.passage.suffix);
             if (block.revision !== request.expectedRevision && !context) throw new Error("Comment source revision is stale; read the current block before commenting");
             const stale = block.revision !== request.expectedRevision;
-            const passage = stale && request.passage ? { ...request.passage, start: undefined } : request.passage;
+            // At a newer revision the words must be there once with their context: no start, no nearest-of-several.
+            const passage = stale && request.passage ? { ...request.passage, start: undefined, near: undefined } : request.passage;
             let target: AnnotationTarget;
             try {
               target = blockCommentTarget(block, passage);
