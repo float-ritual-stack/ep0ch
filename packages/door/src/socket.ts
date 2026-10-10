@@ -72,9 +72,19 @@ export interface Comment {
   /** Where the quote sits in the note's current text (UTF-16 offsets), when the service could place it. */
   start: number | null; end: number | null;
   replies: { id: string; author: string; body: string; at: number }[];
+  /**
+   * Its own properties (ADR 0004 contract 6), open: `kind` (highlight, note, question…), `tags`, `color` (a theme
+   * tone). A highlight is a thread with no body.
+   */
+  props?: Record<string, string[]>;
 }
-/** A passage to comment on: exact source text of the note, and where it starts (UTF-16 offset). */
-export interface CommentPassage { quote: string; start: number }
+/**
+ * A passage to comment on: exact source text of the note, where it starts (UTF-16 offset), and the text around it
+ * (outline-core passage.ts), so a comment on a note that moved on since lands where the words are, once.
+ */
+export interface CommentPassage { quote: string; start: number; prefix?: string; suffix?: string }
+/** An annotation's own properties as written: open keys, a value or a list. */
+export type AnnotationProps = Record<string, string | string[]>;
 export interface CommentReceipt { id: string; deduplicated: boolean }
 /** One row of the whole-outline index: everything but the full text. `depth`: 0 for a top-level note. */
 export interface IndexBlock {
@@ -101,6 +111,7 @@ export interface Change {
 export type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { CalloutType } from "@ep0ch/outline-core/callouts";
+import type { Passage } from "@ep0ch/outline-core/passage";
 
 /**
  * What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. A patch
@@ -458,7 +469,7 @@ export class SocketBoard implements Board {
    * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
    * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
-  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string> } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
+  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
   }
 
@@ -908,6 +919,7 @@ export class SocketBoard implements Board {
         quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
         start: placed && at?.kind === "text-quote" ? offset(at.start) : null, end: placed && at?.kind === "text-quote" ? offset(at.end) : null,
         replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r) })),
+        props: t.properties && typeof t.properties === "object" ? Object.fromEntries(Object.entries(t.properties).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).map(String)])) : {},
       };
     }).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
   }
@@ -917,11 +929,11 @@ export class SocketBoard implements Board {
    * when the note is no longer at `expectedRevision` or the quote isn't where `start` says. `requestId`
    * must be the same on a retry of the same comment: the service then returns the saved one.
    */
-  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER): Promise<CommentReceipt> {
+  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
     const { source, ...who } = annotationAuthor(actor);
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
       requestId, ...who,
-      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, passage } }],
+      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, passage, ...(properties ? { properties } : {}) } }],
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }
@@ -932,7 +944,7 @@ export class SocketBoard implements Board {
    * is where the Resource's text begins in the note the passage was picked in (null: it isn't drawn as it is, so
    * the quote goes without an offset). Nothing is written to the Resource.
    */
-  async commentOnResource(requestId: string, resource: NonNullable<Msg["resource"]>, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER): Promise<CommentReceipt> {
+  async commentOnResource(requestId: string, resource: NonNullable<Msg["resource"]>, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
     const { source, ...who } = annotationAuthor(actor);
     const start = resource.sourceAt === null ? undefined : passage.start - resource.sourceAt;
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
@@ -941,6 +953,7 @@ export class SocketBoard implements Board {
         resourceId: resource.id, expectedRevision, body, source,
         passage: { quote: passage.quote, ...(start !== undefined && start >= 0 ? { start } : {}) },
         ...(resource.from ? { referenceBlockId: resource.from } : {}),
+        ...(properties ? { properties } : {}),
       } }],
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };

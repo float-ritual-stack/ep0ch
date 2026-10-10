@@ -955,3 +955,59 @@ test("the public listener binds loopback or one of this machine's own addresses,
     expect(() => checkPublicBind(bad, interfaces)).toThrow(/never every interface/);
   }
 });
+
+test("open highlights and margin notes are drawn read-only on the HTML page; resolved ones and the annotation rows are not", async () => {
+  const { store, get } = await setup();
+  const note = store.create("Greenhouse plan [publish::true]\n\nWater the tomatoes at dawn. Vent the **roof when** warm. Stake the beans.");
+  const comment = (operationId: string, quote: string, body: string, properties?: Record<string, string | string[]>) => ({
+    type: "block-comment" as const, operationId,
+    input: { blockId: note.id, expectedRevision: note.revision, body, source: "user" as const, passage: { quote }, ...(properties ? { properties } : {}) },
+  });
+  const [question, highlight, , resolved] = store.annotations.batch("greenhouse-marks", [
+    comment("q", "tomatoes at dawn", "Why dawn? <ask Wren>", { kind: "question" }),
+    comment("h", "Stake the beans", "", { tags: ["beans", "june"], color: "good" }),
+    comment("x", "the **roof", "Crosses the bold run"),
+    comment("r", "Water the", "Settled last week"),
+  ]).annotations;
+  store.annotations.batch("greenhouse-reply", [{ type: "reply", operationId: "a", input: { annotationId: question!.block.id, body: "Cooler leaves.", source: "agent" } }]);
+  store.annotations.setLifecycle({ annotationId: resolved!.block.id, lifecycle: "resolved" }, { author: "user", actorId: "test" });
+
+  const html = await (await get(`/p/${note.id}?view=html`)).text();
+  expect(html).toContain(`<mark class="ann ann-accent" data-kind="question">tomatoes at dawn</mark>`);
+  expect(html).toContain(`<mark class="ann ann-good" data-kind="highlight" data-tags="beans june">Stake the beans</mark>`);
+  // After the paragraph holding the passage: kind, the body as text, the reply count.
+  expect(html).toContain(`</p>\n<aside class="margin-note ann-accent"><span class="kind">question</span> <span class="body">Why dawn? &lt;ask Wren&gt;</span> <span class="replies">1 reply</span></aside>`);
+  // Across markup: no mark, its aside still follows the paragraph.
+  expect(html).not.toContain(`data-kind="comment"`);
+  expect(html).toContain(`<span class="body">Crosses the bold run</span>`);
+  expect(html).toContain("<strong>roof when</strong>");
+  // Resolved threads, the annotation rows and highlight bodies are not published; no sentinel leaks.
+  expect(html).not.toContain("Settled last week");
+  expect(html).not.toContain("Comment on");
+  expect(html).not.toContain("Highlight on");
+  expect(html.match(/<aside/g)).toHaveLength(2);
+  expect(html).not.toMatch(/[-]/);
+  expect(html).not.toContain("<script");
+  expect(html).toContain("mark.ann{");
+  expect(highlight!.body).toBe("");
+
+  // The raw Markdown carries the note alone: no marks, no annotation rows.
+  const raw = await (await get(`/p/${note.id}`)).text();
+  expect(raw).toBe("# Greenhouse plan\n\nWater the tomatoes at dawn. Vent the **roof when** warm. Stake the beans.\n");
+});
+
+test("an annotation marked [publish::false] or under a [publish::never] row is not drawn", async () => {
+  const { store, get } = await setup();
+  const note = store.create("Seed shed [publish::true]\n\nLabel the trays.");
+  const locked = store.create("Private bench [publish::never]\n\nThe spare key is under the pot.", note.id);
+  const [hidden] = store.annotations.batch("shed-marks", [
+    { type: "block-comment", operationId: "a", input: { blockId: note.id, expectedRevision: note.revision, body: "Mine only", source: "user", passage: { quote: "Label the trays" }, properties: { publish: "false" } } },
+    { type: "block-comment", operationId: "b", input: { blockId: locked.id, expectedRevision: locked.revision, body: "Move the key", source: "user", passage: { quote: "spare key" } } },
+  ]).annotations;
+  expect(hidden).toBeDefined();
+  const html = await (await get(`/p/${note.id}?view=html`)).text();
+  expect(html).not.toContain("<mark");
+  expect(html).not.toContain("Mine only");
+  expect(html).not.toContain("Move the key");
+  expect(html).not.toContain("spare key");
+});

@@ -19,7 +19,7 @@ import {
   decorateAttentionLines,
 } from "./attention-render";
 import { currentAttentionMark } from "./attention";
-import { annotationScopeLabel, annotationTargetText, buildDetailAnnotationView, detailAnnotationGroups } from "./detail-annotations";
+import { annotationScopeLabel, annotationTags, annotationTargetText, annotationThreadTitle, buildDetailAnnotationView, detailAnnotationGroups } from "./detail-annotations";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
@@ -364,7 +364,7 @@ export function buildDetailAnsiPreview(
       for (const thread of group.threads) {
         index += 1;
         threadRows.set(thread.block.id, sourceLines.length + annotationLines.length);
-        append(`${thread.block.id === state.selectedAnnotationId ? "▶" : " "} Comment ${index} · ${thread.lifecycle}`);
+        append(`${thread.block.id === state.selectedAnnotationId ? "▶" : " "} ${annotationThreadTitle(thread, index)} · ${thread.lifecycle}`);
         append(`C reply · D ${thread.lifecycle === "open" ? "resolve" : "reopen"}`);
         append(annotationScopeLabel(thread, state));
         append(`${group.placement} · ${thread.currentResolution.status}`);
@@ -372,7 +372,8 @@ export function buildDetailAnsiPreview(
           append("Original quote:");
           append(annotationTargetText(thread.originalTarget), "│ ");
         }
-        append(thread.body || "(No comment text)");
+        // A highlight (no body) reads as one, with its tags, not as an empty comment.
+        append(thread.body || `Highlight${annotationTags(thread).length ? ` · ${annotationTags(thread).map(tag => `#${tag}`).join(" ")}` : ""}`);
         for (const reply of thread.replies) {
           append(`${reply.source} reply:`);
           append(reply.body);

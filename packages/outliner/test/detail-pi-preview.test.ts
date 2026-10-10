@@ -1183,7 +1183,9 @@ describe("Pi Markdown detail preview", () => {
     const collapsedTarget = collapsed.find((line) => line.includes("target phrase"))!;
     expect(collapsedTarget.startsWith("+ ")).toBe(true);
     expect(collapsed.join("\n")).not.toContain("Comments ·");
-    expect(collapsed.join("\n")).not.toContain("Check this range.");
+    // Folded, a thread keeps only its margin card under the passage: kind, first line, replies.
+    expect(collapsed.join("\n")).toContain("┆ Comment · Check this range. · 1 reply");
+    expect(collapsed.join("\n")).not.toContain("agent: Verified.");
 
     layout.scrollView.updateLayout(12, 6, () => {});
     detail.previewRegions.focusedRegionId = region.id;
@@ -1331,6 +1333,41 @@ describe("Pi Markdown detail preview", () => {
       expect(panel).toContain(literal);
     }
     expect(panel).not.toContain("\\");
+  });
+
+  test("highlights and margin notes: each passage marked in its tone, a highlight reads as one, a note keeps a margin card", () => {
+    const raw = "Greenhouse plan\n\nWater the tomatoes at dawn and vent the roof by noon.\n\nSeed trays by the door";
+    const detail = state(raw, raw);
+    const at = (words: string) => textTarget(raw, raw.indexOf(words), raw.indexOf(words) + words.length);
+    const highlight = {...annotationThread("hl-vent", at("vent the roof"), ""), properties: {kind: ["highlight"], tags: ["airflow"]}};
+    const note = {...annotationThread("note-dawn", at("tomatoes at dawn"), "Why dawn? Ask Wren about the misting timer.\nSecond line"),
+      properties: {kind: ["question"]}};
+    note.replies = [{...annotationThread("reply-1", at("tomatoes at dawn"), "Cooler leaves."), parentAnnotationId: "note-dawn"}];
+    detail.annotationThreads = [note, highlight];
+    const layout = previewLayout(detail);
+    const folded = layout.render(72);
+    const plain = folded.map(stripTerminalSequences);
+    // Spans: each passage carries its tone's capped-dark background (amber for the highlight, violet for the question).
+    const passage = folded.find(line => stripTerminalSequences(line).includes("tomatoes at dawn"))!;
+    expect(passage).toContain("\x1b[48;2;57;46;24mvent the roof");
+    expect(passage).toContain("\x1b[48;2;40;33;57mtomatoes at dawn");
+    // Margin: one compact card under the passage for the note (kind, first line, replies); none for the highlight.
+    const card = plain.findIndex(line => line.includes("┆ Question · Why dawn? Ask Wren about the misting timer. · 1 reply"));
+    expect(card).toBe(plain.findIndex(line => line.includes("tomatoes at dawn")) + 1);
+    expect(plain.filter(line => line.includes("┆"))).toHaveLength(1);
+    expect(plain.join("\n")).not.toContain("Second line");
+    // Opened, each thread is titled by its kind, and the highlight reads as one with its tags, not an empty comment.
+    for (const region of detail.previewRegions.regions.filter(candidate => candidate.kind === "annotation")) {
+      togglePreviewRegionDisclosure(detail.previewRegions, region.id);
+    }
+    const opened = layout.render(72).map(stripTerminalSequences).join("\n");
+    expect(opened).toContain("╭ Question 1");
+    expect(opened).toContain("╭ Highlight 2 · #airflow");
+    expect(opened).toContain("Highlight · #airflow");
+    expect(opened).not.toContain("┆ Question");
+    // The selected thread's passage is drawn in the selection style over its tone.
+    detail.selectedAnnotationId = "hl-vent";
+    expect(layout.render(72).find(line => stripTerminalSequences(line).includes("vent the roof"))).toContain("\x1b[1;97;48;5;24mvent the roof");
   });
 
   test("keeps pane-capture annotations reachable without applying screen offsets to Markdown", () => {

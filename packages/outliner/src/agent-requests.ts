@@ -8,7 +8,8 @@ import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
-import type { Block, MutationProvenance } from "./types";
+import type { AnnotationRecord, Block, MutationProvenance } from "./types";
+import { resourceCommentSource } from "./resource-comments";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -499,6 +500,75 @@ export class AgentRequests {
         void this.run(blockId, requestKey, again).catch(() => {});
       }
     }
+  }
+
+  /**
+   * A comment written in a thread (ADR 0004 contract 6, marginalia's Ask): a person's comment on a passage, or a reply in
+   * its thread, whose body has an `@name` line for an agent that answers in threads (`threads: true`). The agent's
+   * `respond` gets the request, the passage (quote, offsets and context), the note or Resource text and the thread so
+   * far; its reply lands in the thread as the extension (`ext:<id>`), under `ext.<id>.agent.<name>`. It never edits:
+   * patches are refused here (an answer in a margin isn't an edit). Only a person's comment asks: an agent's (or an
+   * extension's) never sets one off, so agents can't loop. Runs in the background; returns at once.
+   */
+  threadWritten(records: readonly AnnotationRecord[], author: string | undefined): void {
+    if (this.stopped || author !== "user") return;
+    const names = this.registry.threadAgentNames();
+    if (!names.size) return;
+    for (const record of records) {
+      const line = requestLines(record.body, names)[0];
+      if (!line) continue;
+      void this.answerInThread(record, line).catch(() => {});
+    }
+  }
+
+  private async answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
+    const bound = this.registry.agent(line.agent);
+    if (!bound) return;
+    const { extension, agent } = bound;
+    const rootId = record.parentAnnotationId ?? record.block.id;
+    const root = this.store.getAnnotation(rootId);
+    const target = root.resolvedTarget ?? root.originalTarget;
+    const subject = target.representation.subject;
+    let note: { id: string; revision: number | string; text: string } | null = null;
+    if (subject.kind === "block") {
+      const block = this.store.get(subject.blockId);
+      if (block && !block.effectiveDeletedRootId) note = { id: block.id, revision: block.revision, text: block.text };
+    } else if (subject.kind === "resource") {
+      const source = resourceCommentSource(this.store.resources.describe(subject.resourceId, true));
+      if (source) note = { id: `resource:${subject.resourceId}`, revision: source.representation.contentHash ?? "", text: source.text };
+    }
+    const anchor = target.anchor;
+    const passage = (anchor.kind === "text-quote" || anchor.kind === "pdf-page-region") && anchor.exact
+      ? { subject: note?.id ?? "", quote: anchor.exact, start: anchor.start ?? null, end: anchor.end ?? null, prefix: anchor.prefix ?? "", suffix: anchor.suffix ?? "" }
+      : null;
+    const thread = [root, ...this.store.listAnnotationThreads({ subject: subject.kind === "resource" ? { kind: "resource", resourceId: subject.resourceId } : { kind: "block", blockId: (subject as { blockId: string }).blockId }, includeResolved: true })
+      .find((t) => t.block.id === rootId)?.replies ?? []]
+      .map((r) => ({ id: r.block.id, author: r.block.author === "agent" ? r.block.actorId ?? "agent" : "user", body: r.body }));
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
+    let reply: string;
+    try {
+      const result = await this.runtime.invokeLoaded(extension, "respond", {
+        agent: line.agent,
+        request: line.request,
+        mark: line.text,
+        ...(note ? { note: { ...note, text: note.text.slice(0, MAX_NOTE_TEXT) } } : {}),
+        ...(passage ? { passage } : {}),
+        thread,
+        properties: root.properties ?? {},
+        context: { now: new Date(this.now).toISOString() },
+      }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
+      const respond = validateRespond(result.value);
+      if (respond.patches.length) throw new Error("an answer in a thread can't edit the note: reply only");
+      reply = respond.reply?.trim() || respond.message?.trim() || "(no answer)";
+    } catch (error) {
+      reply = `@${line.agent} couldn't answer: ${message(error)}`;
+    }
+    if (this.stopped) return;
+    this.store.changes.run(
+      this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
+      () => this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent" }, "agent", { actorId: actor.actorId! }),
+    );
+    this.deps.changed(note?.id && !note.id.startsWith("resource:") ? note.id : rootId);
   }
 
   /**

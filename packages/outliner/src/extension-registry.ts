@@ -119,6 +119,8 @@ export interface ExtensionAgentEntry {
   readonly name: string;
   readonly description?: string;
   readonly effects: "read" | "spend";
+  /** It answers `@name` in comment threads, with the passage (a client's Ask offers it). */
+  readonly threads?: boolean;
 }
 
 export interface ExtensionEntry {
@@ -349,6 +351,11 @@ export class ExtensionRegistry {
     return new Set(this.boundAgents.keys());
   }
 
+  /** The bound agents that answer in comment threads (`threads: true`). */
+  threadAgentNames(): ReadonlySet<string> {
+    return new Set([...this.boundAgents].filter(([, bound]) => bound.agent.threads).map(([name]) => name));
+  }
+
   /** Every bound handler key. */
   handlerKeys(): ReadonlySet<string> {
     return new Set(this.bound.keys());
@@ -449,7 +456,7 @@ export class ExtensionRegistry {
         tiles: serving ? this.tilesOf(extension) : [],
         agents: serving ? (extension.manifest.agents ?? [])
           .filter((agent) => this.boundAgents.get(agent.name)?.extension === extension)
-          .map((agent) => ({ name: agent.name, ...(agent.description ? { description: agent.description } : {}), effects: agent.effects ?? "read" })) : [],
+          .map((agent) => ({ name: agent.name, ...(agent.description ? { description: agent.description } : {}), effects: agent.effects ?? "read", ...(agent.threads ? { threads: true } : {}) })) : [],
         bar: serving ? this.barOf(extension) : [],
       };
     });

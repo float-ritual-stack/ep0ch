@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
+import { annotationProperties, annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import type {
   AnnotationAnchor,
   AnnotationPassage,
@@ -626,11 +627,32 @@ export function normalizeAnnotationCreateInput(
 ): AnnotationCreateInput {
   if (!input || typeof input !== "object") throw new Error("Annotation create input must be an object");
   const record = input as Record<string, unknown>;
+  const properties = normalizeAnnotationProperties(record.properties);
+  // A highlight is an annotation with no body (ADR 0004, contract 6): only a passage can be highlighted.
+  const target = normalizeAnnotationTarget(record.target, allowLegacy);
+  const body = typeof record.body === "string" && !record.body.trim() && target.anchor.kind !== "whole-subject" ? "" : identity(record.body, "Annotation body");
   return {
-    target: normalizeAnnotationTarget(record.target, allowLegacy),
-    body: identity(record.body, "Annotation body"),
+    target,
+    body,
     source: source(record.source),
+    ...(properties ? { properties } : {}),
   };
+}
+
+/**
+ * An annotation's own properties as written (`kind`, `tags`, `color`, or any other: they're open), checked; undefined
+ * when there are none.
+ */
+export function normalizeAnnotationProperties(value: unknown): Readonly<Record<string, readonly string[]>> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Annotation properties map names to a value or a list of values");
+  const problem = annotationPropertyProblem(value as Record<string, string | string[]>);
+  if (problem) throw new Error(`Annotation properties: ${problem}`);
+  const out: Record<string, string[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, string | string[]>)) {
+    out[key] = (typeof raw === "string" ? [raw] : raw).map(v => key === "color" ? v.trim().toLowerCase() : v.trim());
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export function normalizeResolutionMethod(value: unknown): AnnotationResolutionMethod {
@@ -760,7 +782,10 @@ export function formatAnnotationBlock(
   const normalized = normalizeAnnotationCreateInput(input, options.allowLegacy ?? false);
   const parent = parentAnnotationId === undefined ? undefined : identity(parentAnnotationId, "Parent annotation ID");
   const quote = quoteForHeading(normalized.target).replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\s+/g, " ").trim();
-  const heading = `Comment on “${inertHeadingQuote(quote.length > 72 ? `${quote.slice(0, 71)}…` : quote)}”`;
+  // What it is, in its heading: a comment, or (by its `kind`, else no body) a highlight, a question, a definition…
+  const kind = normalized.properties?.kind?.[0] ?? (!parent && !normalized.body ? "highlight" : "comment");
+  const word = /^[a-z][a-z-]{0,23}$/i.test(kind) ? `${kind[0]!.toUpperCase()}${kind.slice(1).toLowerCase()}` : "Comment";
+  const heading = `${word} on “${inertHeadingQuote(quote.length > 72 ? `${quote.slice(0, 71)}…` : quote)}”`;
   const metadata = [
     `[type::${parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE}]`,
     `[annotation-source::${normalized.source}]`,
@@ -768,16 +793,21 @@ export function formatAnnotationBlock(
   ];
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
-  const text = [heading, metadata.join(" "), normalized.body].join("\n");
+  for (const [key, values] of Object.entries(normalized.properties ?? {})) for (const value of values) metadata.push(`[${key}::${value}]`);
+  const lines = (first: string) => (normalized.body ? [first, metadata.join(" "), normalized.body] : [first, metadata.join(" ")]).join("\n");
+  const text = lines(heading);
   // The metadata line must read back as written whatever the quote holds; if anything in the heading still hides it
   // (a literal or code form nobody foresaw), the comment lands under a plain heading rather than being refused.
   const type = getProperty(parseProperties(text), "type");
-  return type === (parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE) ? text : ["Comment", metadata.join(" "), normalized.body].join("\n");
+  return type === (parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE) ? text : lines(word);
 }
+
+/** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`. */
+export const ANNOTATION_HEADING = /^[A-Z][a-z-]{0,23} on “/;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);
-  let bodyStart = lines[0]?.startsWith("Comment on ") ? 1 : 0;
+  let bodyStart = ANNOTATION_HEADING.test(lines[0] ?? "") ? 1 : 0;
   while (bodyStart < lines.length) {
     const line = lines[bodyStart]!;
     if (line.trim() && stripProperties(line)) break;
@@ -793,6 +823,8 @@ export interface AnnotationBlockContent {
   readonly lifecycle: AnnotationLifecycle;
   readonly promotedBlockIds: readonly string[];
   readonly parentAnnotationId?: string;
+  /** Its own properties (`kind`, `tags`, `color`, any other), the store's keys left out. */
+  readonly properties: Readonly<Record<string, readonly string[]>>;
 }
 
 export function parseAnnotationBlockContent(block: Block): AnnotationBlockContent {
@@ -806,6 +838,7 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
     source: source(getProperty(block.properties, "annotation-source")),
     lifecycle,
     promotedBlockIds: block.properties.filter((property) => property.key === "promoted-block").map((property) => property.value),
+    properties: annotationProperties(block.properties),
   };
   const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
   return parentAnnotationId ? { ...content, parentAnnotationId } : content;
