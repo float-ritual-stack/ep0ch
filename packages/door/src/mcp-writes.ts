@@ -193,9 +193,9 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
       return { tool, revision: args.revision, input: { policy: "edit", ...pick(args, ["patches", "mark", "policy", "allowStructural"]) } };
     }
     case "outline_comment":
-      if (!nonEmpty(args.body)) return { error: "Give a non-empty comment." };
       if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
-      return { tool, input: pick(args, ["body", "quote", "whole", "start", "prefix", "suffix", "requestId", "from", "revision"]) };
+      if (!nonEmpty(args.body) && (args.whole === true || (args.body !== undefined && args.body !== ""))) return { error: "Give a non-empty comment (only a quote with no body is a highlight)." };
+      return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "properties"]) };
     case "outline_reply":
       if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply." };
       return { tool, input: pick(args, ["thread", "body", "requestId"]) };
@@ -403,14 +403,15 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     },
     {
       name: "outline_comment",
-      description: `Start a comment thread on a note: on an exact quote of its source text (add start, prefix or suffix when the quote repeats), or on the whole note. A requestId makes a retry return the same thread. A comment changes nothing but its thread, so propose access allows it. ` +
+      description: `Start a comment thread on a note: on an exact quote of its source text (add start, near, prefix or suffix when the quote repeats), or on the whole note. ${"With a quote and no body it's a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread."} A requestId makes a retry return the same thread. A comment changes nothing but its thread, so propose access allows it. ` +
         `ref may name a Resource instead (resource:<id>, or a [file::path] token): the quote is then exact text of the file as outline_read returned it, from names the note whose link opened it, and the file is never written. ${answer}`,
       inputSchema: addressed({
         body: { type: "string" }, quote: { type: "string", description: "Exact source text the comment is about" }, whole: { type: "boolean" },
-        start: { type: "integer", minimum: 0 }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
+        start: { type: "integer", minimum: 0 }, near: { type: "integer", minimum: 0, description: "When the quote repeats: the offset to be nearest" }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
         from: { type: "string", description: "A Resource comment: the note whose link opened it (kept as the thread's reference context)" },
         revision: { type: "integer", minimum: 1, description: "A Resource comment: the revision outline_read returned; the comment is refused if the file changed since" },
-      }, ["body"]),
+        properties: { type: "object", description: "The thread's own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key" },
+      }, []),
     },
     {
       name: "outline_reply",

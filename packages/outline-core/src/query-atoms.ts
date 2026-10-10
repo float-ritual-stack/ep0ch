@@ -1,4 +1,6 @@
-// The relation and text atoms of the query grammar: `#tag`, `links:`, `under:`, `title~` and `text~`. This file is the
+// The relation and text atoms of the query grammar: `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`,
+// `text~` and `call:`. A relation's target may be `this`, a role (ADR 0001): the block the question is asked for, which
+// the service binds (`blocks.query`'s `this`) and refuses a question without. This file is the
 // one place that says what an atom looks like and what a malformed one is told; the service's query parser
 // (outliner `block-query.ts`) calls it and evaluates the result (the reference index, the tree, the text). Every
 // atom combines with AND, OR, NOT and parentheses like `key=value` does. Pure: no I/O.
@@ -11,12 +13,22 @@ import { HASHTAG_VALUE_PATTERN } from "./property-grammar";
 export type QueryAtom =
   | { kind: "tag"; tag: string }
   | { kind: "links"; target: string }
+  | { kind: "linkedfrom"; target: string }
   | { kind: "under"; target: string }
+  | { kind: "parent"; target: string }
   | { kind: "title"; text: string }
   | { kind: "text"; text: string }
   | { kind: "call"; call: string };
 
 /** A malformed atom: the message names the atom and shows a working example. */
+/** The relation atoms: each names a target block (a page, a block id, a Work ID or `this`). */
+export type QueryRelationAtom = "links" | "linkedfrom" | "under" | "parent";
+const RELATIONS: readonly QueryRelationAtom[] = ["links", "linkedfrom", "under", "parent"];
+export const isQueryRelationAtom = (kind: string): kind is QueryRelationAtom => (RELATIONS as readonly string[]).includes(kind);
+
+/** The target `this` stands for the block a question is asked for (ADR 0004): a component's note, a tile's aim. */
+export const THIS_TARGET = "this";
+
 export class QueryAtomError extends Error {
   constructor(message: string) {
     super(message);
@@ -27,14 +39,17 @@ export class QueryAtomError extends Error {
 /** The atoms, for docs, `--help-query` and the skill: generated from here so nobody learns a stale grammar. */
 export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: string }[] = [
   { atom: "#tag", means: "blocks carrying the tag; #jazz also matches nested tags like jazz/hands", example: "#jazz" },
-  { atom: "links:<target>", means: "blocks whose text or properties link to the target (the backlink index)", example: "links:[[garden]]  links:((8f3a2c1d))  links:PIE-123" },
+  { atom: "links:<target>", means: "blocks whose text or properties link to the target (the backlink index)", example: "links:[[garden]]  links:((8f3a2c1d))  links:PIE-123  links:this" },
+  { atom: "linkedfrom:<target>", means: "blocks the target links to (its outlinks that are blocks): the counterpart of links:", example: "linkedfrom:[[garden]]  links:this NOT linkedfrom:this" },
   { atom: "under:<target>", means: "blocks in the target's subtree, the target itself included", example: "under:[[projects]]  under:((8f3a2c1d))" },
+  { atom: "parent:<target>", means: "the target's direct children (under: is the whole subtree)", example: "parent:[[projects]]  parent:this" },
+  { atom: "this", means: "as a target, the block the question is asked for: the note a component sits in, the note a tile is aimed at", example: "links:this  parent:this" },
   { atom: "title~text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
   { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
 ];
 
-const ATOM_HEAD = /^(?:#|(?:links|under|call):|(?:title|text)~)/i;
+const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
 export function isQueryAtomWord(word: string): boolean {
@@ -67,11 +82,17 @@ function unquote(raw: string, atom: string, example: string): string {
   throw new QueryAtomError(`${atom} has an unterminated quote; write it like ${example}`);
 }
 
-function targetOf(name: "links" | "under", raw: string): string {
-  const examples = name === "links"
-    ? "links:[[garden]], links:((8f3a2c1d)) or links:PIE-123"
-    : "under:[[projects]] or under:((8f3a2c1d))";
+const TARGET_EXAMPLES: Record<QueryRelationAtom, string> = {
+  links: "links:[[garden]], links:((8f3a2c1d)), links:PIE-123 or links:this",
+  linkedfrom: "linkedfrom:[[garden]], linkedfrom:((8f3a2c1d)) or linkedfrom:this",
+  under: "under:[[projects]], under:((8f3a2c1d)) or under:this",
+  parent: "parent:[[projects]], parent:((8f3a2c1d)) or parent:this",
+};
+
+function targetOf(name: QueryRelationAtom, raw: string): string {
+  const examples = TARGET_EXAMPLES[name];
   if (!raw) throw new QueryAtomError(`${name}: needs a target after the colon, like ${examples}`);
+  if (raw.toLowerCase() === THIS_TARGET) return THIS_TARGET;
   if (raw.startsWith("[[")) {
     if (!raw.endsWith("]]") || raw.length < 5) throw new QueryAtomError(`${name}:${raw} has an unclosed [[; write ${examples}`);
     const inner = raw.slice(2, -2);
@@ -87,7 +108,7 @@ function targetOf(name: "links" | "under", raw: string): string {
   }
   if (WORK_ID.test(raw) || BARE_ID.test(raw)) return raw;
   throw new QueryAtomError(
-    `${name}:${raw} is not a target: give a [[page]], a ((block id)) or a Work ID. Write ${examples}`,
+    `${name}:${raw} is not a target: give a [[page]], a ((block id)), a Work ID or this. Write ${examples}`,
   );
 }
 
@@ -107,13 +128,13 @@ export function parseQueryAtom(word: string): QueryAtom | null {
   }
   const colon = word.indexOf(":");
   if (colon > 0 && word[colon - 1] !== "~") {
-    const name = word.slice(0, colon).toLowerCase() as "links" | "under" | "call";
+    const name = word.slice(0, colon).toLowerCase();
     if (name === "call") {
       const id = word.slice(colon + 1);
       if (!CALL_PATTERN.test(id)) throw new QueryAtomError(`call:${id} is not a call id: write call:c-7f3a1c (letters, digits, . _ -; the id list_outlines tells a call)`);
       return { kind: "call", call: id };
     }
-    if (name === "links" || name === "under") return { kind: name, target: targetOf(name, word.slice(colon + 1)) };
+    if (isQueryRelationAtom(name)) return { kind: name, target: targetOf(name, word.slice(colon + 1)) } as QueryAtom;
   }
   const tilde = word.indexOf("~");
   const name = word.slice(0, tilde).toLowerCase() as "title" | "text";
@@ -129,8 +150,11 @@ export function parseQueryAtom(word: string): QueryAtom | null {
 export function showQueryAtom(atom: QueryAtom): string {
   switch (atom.kind) {
     case "tag": return `#${atom.tag}`;
-    case "links": return `links:${atom.target}`;
-    case "under": return `under:${atom.target}`;
+    case "links":
+    case "linkedfrom":
+    case "under":
+    case "parent":
+      return `${atom.kind}:${atom.target}`;
     case "call": return `call:${atom.call}`;
     case "title":
     case "text":

@@ -1824,8 +1824,8 @@ test("requires the current protocol, attributes agent creates and page follows, 
     expect(largeEnvelope.presentation.presented).toBe(largeEnvelope.blocks.length);
     expect(largeEnvelope.presentation.omitted).toBeGreaterThan(0);
     requests.length = 0;
-    await tools.get("outliner_query")!.execute("expression-query", { expression: "a OR b" } as never);
-    expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { expression: "a OR b" } });
+    await tools.get("outliner_query")!.execute("expression-query", { where: "a OR b" } as never);
+    expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { where: "a OR b" } });
     protocolVersion = PROTOCOL + 1;
     await expect(tools.get("outliner_query")!.execute("stale-extension-query", {})).rejects.toThrow(
       `Outliner protocol ${PROTOCOL + 1} is newer than this session's extension protocol ${PROTOCOL}. Run /reload, then retry.`,

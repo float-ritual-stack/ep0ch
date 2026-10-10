@@ -9,9 +9,10 @@ import type { Draft } from "./edit";
 import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
 import { editHint, renderEditor, writtenBy } from "./surface/editor";
 import type { Completer } from "./surface/completer";
-import { USER, type Actor, type Comment, type CommentPassage, type SocketBoard } from "./socket";
+import { USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
+import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
 import { ago, rule, wrap } from "./text";
 
 /** CP437-safe marks, so snapshots and real VGA-font terminals draw them. */
@@ -50,15 +51,18 @@ export class Passage {
    * `near` (an offset), or the first. Returns why not when the words aren't there, or match only blanks.
    */
   selectText(quote: string, near?: number): string | null {
-    if (!quote.trim()) return "the quote is empty";
-    const hits: number[] = [];
-    for (let i = this.text.indexOf(quote); i >= 0; i = this.text.indexOf(quote, i + 1)) hits.push(i);
-    if (!hits.length) return `"${ellipsize(quote, 40)}" isn't in the note's current text`;
-    const at = near === undefined ? hits[0]! : hits.reduce((a, b) => (Math.abs(b - near) < Math.abs(a - near) ? b : a));
-    this.from = at; this.to = at + quote.length;
+    // The one quote lookup (outline-core passage.ts): the first place, or the one nearest `near`.
+    const at = findPassage(this.text, quote, { near: near ?? 0 });
+    if (isMiss(at) && !quote.trim()) return at.why;
+    if (isMiss(at)) return at.count ? missMessage(at) : `"${ellipsize(quote, 40)}" isn't in the note's current text${at.nearest ? ` (nearest: "${ellipsize(at.nearest.text, 40)}")` : ""}`;
+    this.from = at.start; this.to = at.end;
     return null;
   }
-  get passage(): CommentPassage { return { quote: this.quote, start: this.from }; }
+  /** The passage as the service takes it: its words, where they start, and the text around them. */
+  get passage(): CommentPassage {
+    const p = passageAt(this.text, this.from, Math.max(this.to, this.from + 1), "", 0);
+    return { quote: this.quote, start: this.from, prefix: p.prefix, suffix: p.suffix };
+  }
   get firstLine() { return this.lineOf(this.from); }
   get lastLine() { return this.lineOf(Math.max(this.from, this.to - 1)); }
 
@@ -200,6 +204,11 @@ export class CommentSession {
    */
   inline = false;
   finished = false;
+  /**
+   * The properties the comment is written with (ADR 0004 contract 6): Ask's `kind: question`, a toolbar's kind. Null:
+   * a plain comment.
+   */
+  props: AnnotationProps | null = null;
   /** Who started it (the person's C or m, or an agent's passage.select, reply or threads): an agent's isn't the person's keys until they type in it. */
   startedBy: Actor = USER;
 
@@ -279,7 +288,7 @@ export class CommentSession {
     const p = this.passage;
     if (this.mode !== "select" || !p) return "no passage is being picked";
     if (!p.quote.trim()) return "nothing selected";
-    this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: p.passage };
+    this.target = { kind: "quote", blockId: this.msg.id, revision: this.msg.revision!, passage: p.passage, ...(this.props ? { props: this.props } : {}) };
     // A comment put aside on this note (esc twice, a closed screen) comes back under the new passage; an
     // agent's comment is its own, and the person's put-aside text stays put aside (DraftSession.open).
     if (!this.writing) this.writing = this.open(by);

@@ -62,6 +62,9 @@ export const SEED = {
   swap: "Seed swap thread",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  society: "Allotment society",
+  marginalia: "Greenhouse plan for the spring",
+  marginaliaNotebook: "Marginalia notebook",
   race: "Seed sowing guide",
 } as const;
 export type SeedName = keyof typeof SEED;
@@ -475,6 +478,34 @@ export const RECENT_FILES = (dir = SHOWCASE_ASSETS) => [
 ];
 export const RECENT_SESSION = "7c1e2f30-5a4b-4c3d-9e8f-0a1b2c3d4e5f";
 
+/** The file marginalia reads beside the plan (a made-up leaflet): a Resource, highlighted and asked about like a note. */
+export const MARGINALIA_FILE = (dir = SHOWCASE_ASSETS) => join(dir, "cold-frame-guide.md");
+
+/**
+ * Marginalia's plan note (ADR 0004 contracts 5 and 6, PIE-751, PIE-753): a made-up greenhouse plan with a glossary (what
+ * marginalia's Define reads), a fragment anchor (what Cite cites) and the leaflet it's read beside.
+ */
+export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
+  SEED.marginalia,
+  "",
+  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M changes how the margin reads.",
+  "",
+  "Water the tomatoes at dawn, before the glass warms. ^water",
+  "Keep the soil pH near 6.5 for the peppers; the chillies want it a touch lower.",
+  "Move the leeks to the cold frame in the second week of March, and harden them off for ten days.",
+  "Sow the basil only once the nights stay above ten degrees.",
+  "",
+  `Read beside it: [file::${file}]`,
+  "",
+  "## Glossary",
+  "- **soil pH**: how acid or sweet the soil is, from 0 to 14; 7 is neutral.",
+  "- cold frame — a low glass box that hardens seedlings off.",
+  "- harden off: get a seedling used to the weather a little more each day.",
+].join("\n");
+
+/** The notebook: a saved query over every annotation (properties are open: kind, tags, colour as written), in outline order, so each note's sit together. */
+export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
+
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
 const FINDING = [
   SEED.finding,
@@ -518,6 +549,60 @@ const RECIPE = [
   "",
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");
+
+/**
+ * The notes that mention the allotment society (PIE-745): each links to its page, carrying a crop and a season (two
+ * properties no code knows); the society page links back to the first `linkedBack`. The page's watched questions list
+ * the rest (`links:this NOT linkedfrom:this`) and group them by either property.
+ */
+export const SOCIETY_NOTES: { title: string; crop: string; season: string }[] = [
+  { title: "Committee minutes, January", crop: "none", season: "winter" },
+  { title: "Water butt rota agreed", crop: "none", season: "spring" },
+  { title: "Rhubarb crowns from the society shop", crop: "rhubarb", season: "winter" },
+  { title: "Seed potato order closes Friday", crop: "potatoes", season: "spring" },
+  { title: "Blight warning for the potato beds", crop: "potatoes", season: "summer" },
+  { title: "Earthing up the second earlies", crop: "potatoes", season: "summer" },
+  { title: "Bean poles from the coppice day", crop: "beans", season: "spring" },
+  { title: "Runner bean trench, plot 14b", crop: "beans", season: "spring" },
+  { title: "Broad bean blackfly tips", crop: "beans", season: "summer" },
+  { title: "Leek trench depth from the show judge", crop: "leeks", season: "summer" },
+  { title: "Leek rust on plot 9", crop: "leeks", season: "autumn" },
+  { title: "Onion sets in the bulk order", crop: "onions", season: "spring" },
+  { title: "Onion fly netting share", crop: "onions", season: "summer" },
+  { title: "Squash for the harvest show", crop: "squash", season: "autumn" },
+  { title: "Squash curing in the shed", crop: "squash", season: "autumn" },
+  { title: "Courgette glut swap table", crop: "squash", season: "summer" },
+  { title: "Brassica collars from the society", crop: "brassicas", season: "spring" },
+  { title: "Pigeon netting over the kale", crop: "brassicas", season: "winter" },
+  { title: "Sprouts for the Christmas stall", crop: "brassicas", season: "winter" },
+  { title: "Strawberry runners to give away", crop: "fruit", season: "summer" },
+  { title: "Fruit cage repair day", crop: "fruit", season: "autumn" },
+  { title: "Gooseberry sawfly on the old bushes", crop: "fruit", season: "spring" },
+  { title: "Compost bay inspection", crop: "none", season: "autumn" },
+  { title: "Manure delivery to the top gate", crop: "none", season: "winter" },
+  { title: "Garlic in before the first frost", crop: "garlic", season: "autumn" },
+  { title: "Shallots split for the show", crop: "onions", season: "autumn" },
+];
+/** How many of the society notes its page links back to (the first ones): the rest are what it hasn't. */
+export const SOCIETY_LINKED_BACK = 6;
+
+function societyText(linkedBack: readonly Msg[]): string {
+  const question = "links:this NOT linkedfrom:this";
+  return [
+    `${SEED.society} [page::${SEED.society}]`,
+    "",
+    `Everything that mentions the society links here. Linked back so far: ${linkedBack.map(m => `((${m.id}))`).join(" ")}`,
+    "",
+    "## Not linked back yet",
+    `::links{query="${question}" title="Not linked back"}`,
+    "::",
+    "",
+    "The same question, grouped by the service: by crop in tabs, by season as a rank. Link one back (or write a new note that mentions the society) and every list here changes on its own: the service says the answer changed.",
+    "",
+    ...fig("tabs", ["title: By crop", `query: "${question}"`, "group: crop", "columns: [title, season]", "sort: title", "direction: asc", "limit: 6"]),
+    ...fig("rank", ["title: By season", `query: "${question}"`, "group: season"]),
+  ].join("\n").trimEnd();
+}
 
 /** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
 const PLOT_JOBS_NOTE = [
@@ -913,6 +998,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
+  // The society page and the notes that mention it (PIE-745): its page first, so their [[links]] resolve; then its text
+  // once they're there, linking back to the first few.
+  notes.society = await make(notes.root.id, `${SEED.society} [page::${SEED.society}]`);
+  const mentions = await make(notes.root.id, "Society mentions\nNotes that mention the allotment society, one a note.");
+  const society: Msg[] = [];
+  for (const m of SOCIETY_NOTES) society.push(await make(mentions.id, `${m.title} [type::society-note] [crop::${m.crop}] [season::${m.season}]\nFrom the [[${SEED.society}]].`));
+  notes.society = await board.update(notes.society.id, societyText(society.slice(0, SOCIETY_LINKED_BACK)), notes.society.revision!);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);
@@ -994,6 +1086,19 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, RULE_EXAMPLES).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
+  }
+  // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
+  }
+  notes.marginalia = await make(notes.root.id, MARGINALIA_PLAN());
+  notes.marginaliaNotebook = await make(notes.root.id, MARGINALIA_NOTEBOOK);
+  {
+    const plan = notes.marginalia, q = (words: string) => ({ quote: words, start: plan.text.indexOf(words) });
+    await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
+    const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
+    await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
   }
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);

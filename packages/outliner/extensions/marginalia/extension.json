@@ -1,0 +1,25 @@
+{
+  "contract": 2,
+  "id": "marginalia",
+  "version": 1,
+  "name": "Marginalia",
+  "description": "Read with a pen: highlight a passage, look a word up, copy it with a citation, and ask @margin about it. Its answers land in the passage's margin thread.",
+  "run": ["bun", "marginalia.ts"],
+  "deadline": "2m",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "color": { "type": "string", "description": "the highlight's theme tone: default, good, warn, bad, dim or accent" },
+      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that answers @margin: the prompt on its stdin, the answer on its stdout (for example [\"claude\", \"-p\"]). Left out, @margin answers from the note itself, and says so" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    { "id": "highlight", "label": "Highlight", "key": "h", "on": "passage", "effects": "write", "description": "Highlight the passage: an annotation with no body, kind highlight, in a tone" },
+    { "id": "define", "label": "Define", "key": "d", "on": "passage", "effects": "write", "description": "Look the words up in the note (a glossary line: **term**: meaning, or term — meaning) and write the meaning in the margin" },
+    { "id": "cite", "label": "Cite", "key": "k", "on": "passage", "effects": "read", "description": "Copy the passage with a citation: the quote, then where it's from (((id^fragment)) when its line has one)" }
+  ],
+  "agents": [
+    { "name": "margin", "description": "Answers a question about a passage, in its margin thread: @margin what does this mean?", "effects": "spend", "deadline": "2m", "threads": true }
+  ]
+}

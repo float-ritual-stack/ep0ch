@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 const titles = (expression: string, extra: object = {}) =>
-  store.queryBlocks({ expression, limit: 100, ...extra }).blocks.map(block => block.text.split("\n")[0]!.replace(/\s*\[[\w.-]+::[^\]]*\]/g, ""));
+  store.queryBlocks({ where: expression, limit: 100, ...extra }).blocks.map(block => block.text.split("\n")[0]!.replace(/\s*\[[\w.-]+::[^\]]*\]/g, ""));
 
 /** A small fictional outline: two pages, a subtree, links, tags and a view. */
 function seed() {
@@ -112,7 +112,7 @@ describe("relation atoms in the query grammar", () => {
   test("an unresolvable target is a corrective error naming the atom", () => {
     seed();
     let error: unknown;
-    try { store.queryBlocks({ expression: "links:[[nowhere]]", limit: 5 }); } catch (e) { error = e; }
+    try { store.queryBlocks({ where: "links:[[nowhere]]", limit: 5 }); } catch (e) { error = e; }
     expect(error).toBeInstanceOf(BlockQueryError);
     expect(queryRequestProblem(error)).toEqual({ code: "query-invalid", message: expect.stringContaining("links:[[nowhere]] names no block") });
   });

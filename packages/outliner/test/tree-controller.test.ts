@@ -1376,7 +1376,7 @@ describe("createTreeController", () => {
       view: {
         query: {
           filters: [],
-          where: {
+          predicate: {
             kind: "or",
             operands: [
               { kind: "property", key: "status", value: "open" },

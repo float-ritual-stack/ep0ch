@@ -48,7 +48,7 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, LOGS, RECENT_FILES, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, MARGINALIA_FILE, RECENT_FILES, SEED, type SeedName } from "./seed";
 import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
@@ -428,7 +428,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, matchesOf), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
+    key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, questionRows), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
     aside: "the day's plan holds its outbox: `::links{query=\"type=letter mail=waiting\" preview=right}` lists the three waiting letters (the sent one isn't), the selected one drawn beside the list · [ ] onto a letter and the preview follows; your keys stay in the note · ⏎ opens it here, alt+⏎ in a new detail; a click selects, a double click opens · ⏎ on ⏎ in (or a click on it) goes in: j k move, / filters, esc comes out, any other key leaves and does what it does · a query the service can't read (`type!=letter`) shows its whole refusal in the frame: the query, what was read, the did-you-mean and an example · `act links.blocks`, `links.pick n=2` (an agent's answers and moves nothing of yours), `links.open n=2`",
     stage(n, show) {
       const r = new ReaderPane(true);
@@ -445,6 +445,11 @@ export const SECTIONS: Section[] = [
   {
     key: "live", need: "put live data in a note", part: "live figures: ::graph-* blocks that read views with views.read and blocks.query; the comparison kinds (quadrant, matrix, compare, flow, a meter's limit) and one width rule for every kind (tier: narrow, cozy, wide)", files: "src/live.ts, src/graphs.ts, src/figures/, src/views.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
+  },
+  {
+    key: "questions", need: "ask the outline a question that stays answered: what links to a note that it doesn't link back, grouped by any property", part: "watched questions (ADR 0004 contract 1, PIE-745): this, linkedfrom: and parent: in the views' grammar; the service evaluates where, group and sort and counts every match (blocks.query's groups, facets, hint), and tells the connection when a watched answer changed (queries.changed); ::links and live figures read through the board's watched reads, never a cache of their own", files: "src/watched.ts, src/live.ts, src/links.ts, outliner src/query-watches.ts, src/question-answer.ts, outline-core src/query-atoms.ts",
+    aside: "the society page asks one question three ways: `links:this NOT linkedfrom:this` (what mentions it that it doesn't link back) as a ::links list, as tabs grouped by crop and as a rank by season: properties no code knows, grouped by the service · link one back (or write a note that mentions the society) and all three change on their own: the service says the answer changed, the door asks nothing on paint · `group:` takes any property, or created:day|week|month",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · questions", panes: [r] }, show, [[r, n.society]]); },
   },
   {
     key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
@@ -465,6 +470,23 @@ export const SECTIONS: Section[] = [
           note.show(block, d);
           const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: plan.file } }, USER, block.id);
           res.show(opened.note, d);
+          d.redraw();
+        })().catch(() => {});
+      });
+    },
+  },
+  {
+    key: "marginalia", need: "read with a pen: highlight a passage, comment on it, ask about it, look a word up, copy it with a citation; keep the margin and a notebook of it all, on a note and on a file",
+    part: "the passage target (ADR 0004 contract 5: outline-core passage.ts, one find and check for every client; the reader's exact selection to source, src/surface/source-map.ts; passage.act and its toolbar on the selection's line, a then a key) and highlights and margin notes (contract 6: annotations with open properties, outline-core annotation-marks.ts; the reader's spans in a tone and margin cards, beside the text when wide, under the passage when narrow, src/surface/margin.ts); marginalia's kit is an extension folder (outliner extensions/marginalia: on: passage actions and an agent that answers in threads) plus a notebook note (a saved query)",
+    files: "outline-core/src/passage.ts, outline-core/src/annotation-marks.ts, src/surface/source-map.ts, src/surface/margin.ts, src/surface/note.ts (passageFor, passage.act, margin), src/extensions.ts (passage actions), outliner src/extension-calls.ts (actOnPassage), outliner src/agent-requests.ts (threadWritten), outliner extensions/marginalia",
+    aside: "left: a made-up greenhouse plan, one highlight and one answered question on it; right: the leaflet it's read beside (a file, as a Resource) and the notebook. Select words, then a h highlights, a d defines from the plan's glossary, a a asks @margin (its answer lands in the margin), a k copies with a citation; or click the chips on the selection's line, or act passage.act action=… quote=… · M: the margin's cards a row each, whole, or off",
+    stage(n, show) {
+      const plan = new ReaderPane(), file = new ReaderPane(), book = new ReaderPane();
+      return deskOf({ title: "showcase · marginalia", panes: [plan, file, book], names: ["plan", "leaflet", "notebook"],
+        layout: ([a, b, c]) => pair("row", 0.62, leaf(a!), pair("col", 0.55, leaf(b!), leaf(c!))) }, show, [[plan, n.marginalia], [book, n.marginaliaNotebook]], d => {
+        void (async () => {
+          const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: MARGINALIA_FILE() } }, USER, n.marginalia?.id);
+          file.show(opened.note, d);
           d.redraw();
         })().catch(() => {});
       });

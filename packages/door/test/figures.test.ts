@@ -1,6 +1,6 @@
 // The figure kinds from mdxcn.dev's ideas (src/figures/), their rows written in Markdown (outline-core's
 // figure-markdown.ts), a quote's byline, and `ep0ch export`'s ASCII twin. Pure renders: no outline.
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
 import { C, fg } from "../src/style";
 import { figureAscii, figureSource, reframeAscii, renderGraph } from "../src/graphs";
@@ -11,7 +11,7 @@ import { annotateMarkdown } from "../src/figures/annotate";
 import { parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { runNote, took } from "../scripts/backup-runs";
-import { invalidateLive, liveSettled, setLiveSource } from "../src/live";
+import { liveSettled, setLiveSource } from "../src/live";
 import { linksOf, listenLinks, setLinksSource } from "../src/links";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -160,12 +160,22 @@ describe("ep0ch export's ASCII twin", () => {
 });
 
 describe("a figure block's child bullets", () => {
-  // A stand-in outline: the note's children, and a query that never answers.
-  const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", props: {} }, { id: "k2", text: "**May: plant**", props: {} }, { id: "c", text: "a comment", props: { type: "annotation-comment" } }];
-  let asked = 0;
-  const fake = { children: async () => { asked++; return kids; }, request: () => new Promise(() => {}), toMsgs: (b: any) => b } as any;
+  // A stand-in outline: the note's children (the service leaves comments out: the question says so), and a query
+  // that never answers. A fresh one per test: its reads are kept per connection.
+  const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", props: {} }, { id: "k2", text: "**May: plant**", props: {} }];
+  let asked = 0, wheres: string[] = [];
+  const outline = () => ({
+    request: (_a: string, p: any) => {
+      if (!String(p.query?.where).startsWith("parent:this")) return new Promise(() => {});
+      asked++; wheres.push(p.query.where);
+      return Promise.resolve({ blocks: p.query.this === "note" ? kids : [] });
+    },
+    toMsgs: (b: any) => b,
+  } as any);
+  let fake = outline();
+  beforeEach(() => { fake = outline(); wheres = []; });
   test("its rows, their header chips and dashes gone, comments left out; the footer only when a child row drew", async () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     const src = figureSource(["---", "title: rows", "---"], "note", true);
     renderGraph("timeline", src, 60);
     await liveSettled();
@@ -174,28 +184,29 @@ describe("a figure block's child bullets", () => {
     expect(out.join("\n")).not.toContain(" - ");
     expect(out.join("\n")).not.toContain("a comment");
     expect(out.at(-1)).toContain("live · child notes");
+    expect(wheres[0]).toContain("NOT type=annotation");
     // The YAML gives the events: no child rows drawn, no footer, and the children aren't asked for.
-    const before = asked; invalidateLive();
+    const before = asked; setLiveSource(fake = outline(), () => {});
     const yaml = renderGraph("timeline", figureSource(["---", "title: rows", "events: [{ date: x, label: y }]", "---"], "note", true), 60).map(plain);
     expect(yaml.at(-1)).not.toContain("child notes");
     expect(asked).toBe(before);
   });
   test("child bullets this kind makes nothing of (a calendar's need a day) draw no footer", async () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     const src = figureSource(["---", "title: month", "year: 2026", "month: 3", "---"], "note", true);
     renderGraph("calendar", src, 60);
     await liveSettled();
     expect(renderGraph("calendar", src, 60).map(plain).at(-1)).not.toContain("child notes");
   });
   test("a figure block whose YAML gives its rows, never takes child bullets (nor asks for them)", () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     const before = asked;
     renderGraph("calendar", figureSource(["---", "marks: [{ day: 3, label: x }]", "---"], "note", true), 60);
     renderGraph("uptime", figureSource(["---", "days: [ok, down]", "---"], "note", true), 60);
     expect(asked).toBe(before);
   });
   test("only the note's figure block takes them: not one in a part drawn on its own (a callout, a fragment)", async () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     const env = { width: 60, cellW: 9, cellH: 18, graphics: false, maxImageRows: 4, unfold: true, note: "note" };
     const fig = "::graph-timeline\n---\ntitle: rows\n---\n::";
     renderDoc(fig, env); await liveSettled();
@@ -204,7 +215,7 @@ describe("a figure block's child bullets", () => {
     expect(renderDoc(`intro\n${fig}`, env).lines.map(plain).join("\n")).not.toContain("Apr  sow");
   });
   test("export finds the figure block as the reader does: under the title and its property lines", async () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     const text = "Beans\n[type::figures]\n\n::graph-timeline\n---\ntitle: rows\n---\n::";
     figuresAsAscii(text, "note"); await liveSettled();
     expect(figuresAsAscii(text, "note")).toContain("Apr  sow");
@@ -212,21 +223,22 @@ describe("a figure block's child bullets", () => {
   test("a ::links answer arriving tells listenLinks (drawNote's loop draws again), and an answer for an outline swapped out is dropped", async () => {
     let told = 0;
     const off = listenLinks(() => told++);
-    const links = { authoredLinks: async () => [], backlinks: async () => [] } as any;
+    const links = { request: async () => ({ kind: "ready" }) } as any;
     setLinksSource(links, () => {});
     linksOf("x"); await Bun.sleep(5);
     expect(told).toBeGreaterThan(0);
-    // Asked of one outline, answered after another took its place: not this outline's answer.
+    // Asked of one outline, answered after another took its place: not this outline's answer (each connection
+    // keeps its own reads).
     let answer!: (v: unknown) => void;
-    setLinksSource({ authoredLinks: () => new Promise(r => { answer = r; }), backlinks: () => new Promise(() => {}) } as any, () => {});
+    setLinksSource({ request: () => new Promise(r => { answer = r; }) } as any, () => {});
     linksOf("y");
     setLinksSource(links, () => {});
-    answer([{ stale: true }]); await Bun.sleep(5);
+    answer({ stale: true }); await Bun.sleep(5);
     expect(JSON.stringify(linksOf("y"))).not.toContain("stale");
     off(); setLinksSource(null, () => {});
   });
   test("liveSettled gives up after its deadline when the outline never answers", async () => {
-    setLiveSource(fake, () => {}); invalidateLive();
+    setLiveSource(fake, () => {});
     renderGraph("check", figureSource(["---", "query: \"type=never\"", "---"]), 60);
     const t = Date.now();
     await liveSettled(200);

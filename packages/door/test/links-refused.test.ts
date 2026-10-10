@@ -8,7 +8,8 @@ const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 afterEach(() => setLinksSource(null, () => {}));
 
 test("a refused query is named, wrapped whole and carries the fix", async () => {
-  setLinksSource({ queryNotes: () => Promise.reject(new Error(refusal)) } as any, () => {});
+  // The matches are a watched blocks.query (src/watched.ts): the service refuses it.
+  setLinksSource({ request: () => Promise.reject(new Error(refusal)) } as any, () => {});
   const spec = { kind: "links", of: null, filter: "", title: "Not letters", groups: null, query: "type!=letter", preview: "right" } as const;
   const draw = () => renderLinkBlock({ ...spec }, undefined, 40, frame).map(strip);
   draw();

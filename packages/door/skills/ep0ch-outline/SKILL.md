@@ -163,7 +163,7 @@ one.
 
 - A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
   `[sort::]`, `[limit::]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
-  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d` and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `under:[[page]]` (the subtree), `call:<id or handle>` (what one MCP call last wrote) and `title~text` / `text~text` (caseless substrings; quote spaces). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged. Its rows are the canonical
+  The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d` and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `linkedfrom:[[page]]` (what it links to), `under:[[page]]` (the subtree), `parent:[[page]]` (its children), `this` as any of their targets in a figure or a `::links` query (the note it sits in: `links:this NOT linkedfrom:this` is what mentions the note that it doesn't link back), `call:<id or handle>` (what one MCP call last wrote) and `title~text` / `text~text` (caseless substrings; quote spaces). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged; a `::graph-tabs` or `::graph-rank` `group:` takes any property, grouped and counted by the service. Its rows are the canonical
   blocks, not copies: to change what's in a view, change the blocks' properties.
 - A **board** is any block with two or more view children: the **hub**. Each view is a column (a lane), in
   order. Making someone a board is making a hub with views under it. The door's `K` then `g` picks it; its

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isQueryAtomWord, parseQueryAtom, QueryAtomError, showQueryAtom, tagMatches } from "../src/query-atoms";
+import { isQueryAtomWord, parseQueryAtom, QUERY_ATOM_HELP, QueryAtomError, showQueryAtom, tagMatches } from "../src/query-atoms";
 
 describe("query atoms", () => {
   test("each atom parses", () => {
@@ -44,5 +44,16 @@ describe("query atoms", () => {
     expect(showQueryAtom({ kind: "tag", tag: "jazz" })).toBe("#jazz");
     expect(tagMatches(["Jazz/Hands"], "jazz")).toBe(true);
     expect(tagMatches(["jazzy"], "jazz")).toBe(false);
+  });
+
+  test("linkedfrom: and parent: take the targets links: does, and this (ADR 0004)", () => {
+    expect(parseQueryAtom("linkedfrom:[[garden]]")).toEqual({ kind: "linkedfrom", target: "[[garden]]" });
+    expect(parseQueryAtom("parent:((8f3a2c1d))")).toEqual({ kind: "parent", target: "((8f3a2c1d))" });
+    expect(parseQueryAtom("links:this")).toEqual({ kind: "links", target: "this" });
+    expect(parseQueryAtom("PARENT:This")).toEqual({ kind: "parent", target: "this" });
+    expect(showQueryAtom({ kind: "linkedfrom", target: "this" })).toBe("linkedfrom:this");
+    expect(() => parseQueryAtom("parent:")).toThrow(/parent: needs a target.*parent:this/);
+    expect(() => parseQueryAtom("linkedfrom:garden")).toThrow(/not a target.*Work ID or this/);
+    expect(QUERY_ATOM_HELP.map(h => h.atom)).toEqual(expect.arrayContaining(["linkedfrom:<target>", "parent:<target>", "this"]));
   });
 });
