@@ -1,4 +1,4 @@
-# Readwise (send to Reader, pull highlights back)
+# Readwise (send to Reader, pull highlights and the Reader library back)
 
 A Readwise and Readwise Reader client, built only from what any extension has (PIE-743): an action on a note, a
 scheduled action, a connection to the outline, a `with-secrets` key. Nothing in the outline's code knows about
@@ -43,6 +43,32 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
   - A highlight whose words cross formatting in the note (bold, a link) is found in the rendered text Reader shows but
     not in the note's source, so it lands on the whole note with its quote, as above.
 
+- **`library`** (on the outline, every hour, once per host): your Reader library, not just its highlights. Reader's
+  document list (`/api/v3/list/`) since the last run becomes **a block per document** under the `reader` page of the
+  readwise board. Highlights and notes are documents too (they have a `parent_id`); they are skipped, because `pull`
+  brings the highlights.
+  - Matched by `reader.id`, so it is idempotent: a re-run writes nothing unless a field changed, and a document that
+    moves from later to archive is updated in place, never duplicated.
+  - The block's first line is the title; the properties are under [Reader documents](#reader-documents); the body is
+    the summary, then your note on the document.
+  - **Feed items stay out by default.** `locations` (default `["new", "later", "shortlist", "archive"]`) says which Reader
+    locations are mirrored; add `"feed"` to bring RSS items in. A large feed would otherwise swamp the board and the
+    backfill. Each location is listed on its own (`location=`), so a left-out one costs no requests.
+  - **Deleted is marked, not removed:** a document gets `[reader.deleted::true]` and stays, in two ways. Reader may say
+    so (`deleted`, `is_deleted` or `deleted_at` in its list entry). And a **full pass** (the first backfill, or one you
+    ask for by taking `[reader.synced::…]` off the Reader page) stamps each document it lists with `[reader.seen::<pass>]`;
+    when the pass has finished, a block it never listed is looked up in Reader by id, and marked deleted if Reader does
+    not have it. One that is still there, only outside `locations` (moved to feed, say), is left alone. Only a finished
+    full pass does this: an incremental run lists just what changed, and a partial or failed pass marks nothing.
+  - **One note with its highlights.** The export's book `external_id` is the Reader document's id when the source is
+    `reader`, so each of its highlights carries `[reader.doc::<id>]`, and the document's block holds a line
+    `Highlights: ((book|its highlights))` linking to its book on the board. Whichever arrives first, the next
+    `pull` or `library` adds the link.
+  - **The first run backfills.** Reader lists 100 documents a page and allows 20 requests a minute (a 429 waits for its
+    `Retry-After`), so about 7,000 documents take several runs: each stops after `minutes` (default 4) and leaves
+    `[reader.next-page::…]` on the page, and the next hourly run carries on. When it reaches the end it sets
+    `[reader.synced::…]`, and later runs ask only for `updatedAfter` that.
+
 ## Setup
 
 1. The token, once, in the `with-secrets` group `readwise` (from readwise.io/access_token):
@@ -82,6 +108,8 @@ new.
 | `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
+| `locations` | `["new", "later", "shortlist", "archive"]` | Which Reader locations the library mirrors; add `"feed"` for RSS items |
+| `readerPage` | `reader` | The page in the board outline the Reader library lands under |
 | `api` | `https://readwise.io` | Readwise's address; the test points it at a fake |
 
 ## Properties
@@ -106,12 +134,29 @@ Readwise's own.
 | `readwise.url`, `readwise.external-id`, `readwise.source-url` | highlight | `readwise_url`, `external_id`, the highlight's `url` |
 | `readwise.url`, `readwise.external-id`, `readwise.unique-url`, `readwise.cover`, `readwise.asin`, `readwise.summary` | book | the book's own (`summary` only when 160 characters or fewer) |
 
+A Reader highlight (a book whose `source` is `reader`) also carries `reader.doc`, the document's id.
+
 Why `tags` and `book-tags` are apart: `tags=moss` should mean a highlight you tagged moss, not every highlight in a
 book somebody tagged. The book's tags are `tags` on the book block itself and `book-tags` on each highlight. The
 document's note (`document_note`) stays in the book block's body.
 
 Dates are days, and the grammar compares a property for equality only (ranges are for `created` and `updated`, which
 are when the block was written, not when you highlighted), so "from 2024" is `highlighted-year=2024`.
+
+### Reader documents
+
+| Key | From |
+|---|---|
+| `reader.id`, `reader.url` | the document's `id` and its address in Reader |
+| `title`, `author`, `category`, `site` | `title`, `author`, `category` (article, pdf, epub, tweet, video, email, rss), `site_name` |
+| `url` | `source_url` |
+| `location` | `new`, `later`, `shortlist`, `archive` or `feed` |
+| `tags` | the document's tags, a token each |
+| `reading-progress` | `reading_progress` as 0 to 100 |
+| `saved`, `published` | `saved_at`, `published_date` as days |
+| `words` | `word_count` |
+| `reader.deleted` | `true` when Reader says it is deleted, or a full pass found it gone |
+| `reader.seen` | the full pass that last listed it (bookkeeping for the deletion sweep) |
 
 ## Finding them
 
@@ -135,10 +180,28 @@ Readwise highlights on my notes [type::virtual-branch] [query::type=annotation A
 Moss, from Readwise [type::virtual-branch] [query::readwise.highlight AND tags=moss]
 ```
 
+The Reader library, the same way (`reader.id` is what only a document has):
+
+```text
+The later queue:               reader.id AND location=later
+In progress:                   reader.id AND reading-progress AND NOT location=archive
+From one site:                 reader.id AND site="Pond Blog"
+With a tag:                    reader.id AND tags=moss
+Archived PDFs:                 reader.id AND location=archive AND category=pdf
+Grouped by where it sits:      where=reader.id  group=location
+Deleted in Reader:             reader.id AND reader.deleted=true
+```
+
+A saved view for the queue, in your own outline:
+
+```text
+Reading queue [type::virtual-branch] [query::reader.id AND location=later] [sort::saved]
+```
+
 ## Testing
 
 `test/readwise-extension.test.ts` runs it in a scratch outline host with two outlines, a `with-secrets` group in a
-temp folder and a fake Readwise on localhost, with made-up books, highlights and a tweet thread, in Readwise's export shape. It asks `blocks.query` the questions above. It never calls the real API.
+temp folder and a fake Readwise on localhost, with made-up books, highlights, a tweet thread and Reader documents (paginated, moved, deleted, with highlight documents among them), in Readwise's export and Reader's list shapes. It asks `blocks.query` the questions above. It never calls the real API.
 
 Self-contained on purpose (it imports nothing from the outline's code), so a copy works anywhere.
 See [the four kinds](../../docs/extensions/README.md#extensions-as-programs).
