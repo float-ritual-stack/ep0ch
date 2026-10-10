@@ -370,8 +370,11 @@ test("PDF retention evicts and purges unreachable binary and text payloads", asy
     writeFileSync(pdfPath, fixturePdf(1));
     const resource = store.resources.internFilesystem({ path: pdfPath }).resource;
     const first = await store.resources.open(resource.id, true);
+    // "Newest" is by capture time in milliseconds: on a fast machine revisions captured in one millisecond tie.
+    await Bun.sleep(5);
     writeFileSync(pdfPath, fixturePdf(22));
     const second = await store.resources.open(resource.id, true);
+    await Bun.sleep(5);
     writeFileSync(pdfPath, fixturePdf(333));
     const current = await store.resources.open(resource.id, true);
     if (!first.pdf || !second.pdf || !current.pdf) {
