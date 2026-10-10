@@ -131,3 +131,12 @@ test("a known catastrophic shape is refused fast, and a long line cannot make a 
   expect(ruleHits("a".repeat(5_000), { text: safe })).toEqual([]);
   expect(performance.now() - started).toBeLessThan(500);
 });
+
+describe("a text hit's characters (ADR 0004 contract 6: place span)", () => {
+  test("span is the hit's UTF-16 offsets in the whole text, what a span decoration marks", () => {
+    const text = "Shed jobs\nFix the latch TODO soon\n- TODO oil the hinge";
+    const hits = ruleHits(text, { text: /TODO/u });
+    expect(hits.map(h => h.span && text.slice(h.span.start, h.span.end))).toEqual(["TODO", "TODO"]);
+    expect(hits[0]!.span).toEqual({ start: text.indexOf("TODO"), end: text.indexOf("TODO") + 4 });
+  });
+});

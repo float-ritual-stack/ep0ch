@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Read with a pen: highlights, margin notes and passage actions (PIE-751, PIE-753)
+
+- **New:** select words in a reader and act on them. A toolbar appears on the selection's line: Comment, Ask, Explain
+  and each extension's passage action. Click a chip, or press `a` then its key. With marginalia (`outliner ext add
+  marginalia`): `a h` highlights, `a d` defines from the note's own glossary, `a k` copies the words with a citation
+  (`> the words` then `— ((note^fragment))`), `a a` asks `@margin` (its answer lands in the passage's margin thread).
+  It works on a file you opened as a Resource too; the file is never written.
+- **New:** highlights are drawn on their words in a dark tone, and comments as cards in the margin: beside the text
+  when the reader is wide (the measure keeps room for them), under the passage when it's narrow. `M` cycles the cards: a
+  row each, whole, off. Detail draws highlights and cards too, and published pages show them read-only (`<mark>` and a
+  margin aside).
+- **New:** annotations carry open properties: `kind`, `tags`, `color` (a theme tone, never a raw colour), or any key.
+  A highlight is an annotation with no body. Agents write them with `outline_comment` (`properties`, and no body for a
+  highlight); `outline_threads` returns them.
+- **New for extensions:** an action can act on a passage (`"on": "passage"`); the service checks the passage before it
+  runs (exact at its revision, found once with its context at a newer one, else refused with the nearest match). It
+  can `annotate` the passage and hand back `copy`. An agent with `"threads": true` answers `@name` in comment threads.
+  `outliner ext act <id> <action> --block <id> --quote "<words>"` runs one from a shell.
+- **Changed:** `Y` on a selection with a link or bold inside copies exactly those words' source (the whole link, the
+  whole bold run), not the whole line.
+- **Run:** PROTOCOL 129. Update the outline host and every door together (`ep0ch install --apply`).
+
 ### A refused key says why on the tile you're looking at; q leaves a desk holding only a group (PIE-727)
 
 - **Fixed:** on a desk whose only tile is a group (`tile.group`), `q` was refused ("the group is a tile") and `Esc` said
