@@ -939,8 +939,9 @@ export class Publisher {
       article = htmlViewLinks(drawMarginalia(renderMarkdownHtml(rendered.markdown), rendered.marks, true), rendered.index, base);
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
-    const counts = await this.childCounts(children.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id));
-    const rows = children.slice(0, MAX_LISTED_CHILDREN).map((child) => folderRow(child, index, base, counts.get(child.id)));
+    const listed = children.slice(0, MAX_LISTED_CHILDREN);
+    const [counts, titles] = await Promise.all([this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)), this.titles(listed.map((block) => block.id))]);
+    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id)));
     const more = children.length > MAX_LISTED_CHILDREN ? `<p class="dim">and ${children.length - MAX_LISTED_CHILDREN} more (open it in the door to see them all)</p>\n` : "";
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
@@ -994,6 +995,16 @@ export class Publisher {
       completeness: { kind: "complete" },
       fields: [...fields],
     };
+  }
+
+  /** Each note's title as the service gives it (its first line without property tokens, as Tree and the CLI label it). */
+  private async titles(ids: readonly string[]): Promise<Map<string, string>> {
+    const titles = new Map<string, string>();
+    for (let start = 0; start < ids.length; start += MAX_BLOCK_READ_IDS) {
+      const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: ids.slice(start, start + MAX_BLOCK_READ_IDS), fields: ["title"] });
+      for (const block of read.blocks) titles.set(block.id, block.title ?? "");
+    }
+    return titles;
   }
 
   /** How many notes each of `ids` holds (annotations aren't notes), a few reads at a time. */
@@ -1460,9 +1471,9 @@ const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 const MAX_LISTED_CHILDREN = 500;
 const MAX_COUNTED_CHILDREN = 200;
 
-/** A note's title as a tailnet page shows it: its first line, properties left out, a reference read as its label. */
-function noteTitle(firstLine: string): string {
-  return plainBody(stripPropertyTokens(firstLine)).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();
+/** A note's title (the service's) as a tailnet page shows it: a reference read as its label, a heading's marks left out. */
+function noteTitle(title: string): string {
+  return plainBody(title).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -1495,9 +1506,9 @@ function summaryLine(text: string): string {
 }
 
 /** One child in a folder: its title, a summary line, and what's inside, when it changed and its first properties. */
-function folderRow(child: Block, index: PublishedIndex, basePath: string, count: number | undefined): string {
+function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined): string {
   if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
-  const title = noteTitle(child.text.split("\n")[0] ?? "") || "untitled";
+  const title = noteTitle(serviceTitle) || "untitled";
   const summary = summaryLine(child.text);
   const properties = child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3)
     .map((property) => `${property.key}: ${property.value}`);

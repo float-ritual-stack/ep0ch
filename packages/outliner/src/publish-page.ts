@@ -11,8 +11,9 @@
 // listener takes these writes with no token, and the public listener has none of these routes. A write comes from the
 // page's own origin (`Origin` names the host the request was sent to) as JSON, on a passage or thread of the note the
 // page shows now. Writes are the person's (`author: user`, with no actor id, exactly as the door writes his: the
-// service takes provenance only on an agent's writes). A selection is mapped to its source by publish-passage.ts, found once or refused with why; a comment
-// whose words can't be placed still lands, on the page's own note with the words quoted, so what he wrote is never lost.
+// service takes provenance only on an agent's writes). A selection is mapped to its source by publish-passage.ts,
+// found once or refused with why; a comment whose words can't be placed still lands, on the page's own note with the
+// words quoted, so what he wrote is never lost.
 import { readFileSync } from "node:fs";
 import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
 import { parseActor } from "@ep0ch/outline-core/attribution";

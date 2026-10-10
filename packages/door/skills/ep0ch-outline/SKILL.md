@@ -211,6 +211,11 @@ subtree is shown. The public listener has no index, and an embed there of a note
 "not shared", but the note's own text and children are public. `publish list` shows the public URL in its
 PUBLIC column. Removing `public` takes the note off at once.
 
+**Linking a note for them to read on their phone.** On the tailnet every note is already a page, no `[publish::]`
+needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh/p/<id>`). It opens as a folder:
+the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;
+it lands as their own threads in the outline, so "go check the notes I left" means reading the note's threads.
+
 ## Shaping a note: a floor, not a ceiling
 
 Every note clears this floor:

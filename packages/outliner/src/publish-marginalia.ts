@@ -1,7 +1,7 @@
 // Highlights and margin notes on a published page (ADR 0004, contract 6): read-only, drawn from the note's open
 // annotations. A passage is a `<mark class="ann ann-<tone>">` around its exact words, and an annotation with a body
-// is an `<aside class="margin-note">` after the paragraph holding it. On a published page each carries its annotation's id (`data-ann`), so
-// the page's reader script (publish-reader.js, PIE-774) can hang its thread on it; the page draws them without it.
+// is an `<aside class="margin-note">` after the paragraph holding it. On a tailnet page each carries its annotation's
+// id (`data-ann`), so the page's reader script (publish-reader.js, PIE-774) can hang its thread on it.
 //
 // The marks ride through the Markdown renderer as private-use sentinels placed around each passage in the block's
 // published text, then become tags once the HTML is rendered. A passage whose words fall across markup (a link, a
