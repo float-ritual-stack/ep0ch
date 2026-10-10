@@ -178,10 +178,10 @@
     return false;
   }
 
-  /** Sends what a box holds; the box can't change while it's on its way, and keeps the text when it's refused. */
-  async function submit(input, button, why, body, saved) {
+  /** Sends what a box holds; the box can't change or be cancelled while it's on its way, and keeps the text when it's refused. */
+  async function submit(input, buttons, why, body, saved) {
     input.readOnly = true;
-    button.disabled = true;
+    for (const button of buttons) button.disabled = true;
     sending += 1;
     try {
       const answer = await send(body);
@@ -190,9 +190,10 @@
       why.textContent = `Not saved: ${error.message}. Your text is still here.`;
       why.hidden = false;
       input.readOnly = false;
-      button.disabled = false;
+      for (const button of buttons) button.disabled = false;
     } finally {
       sending -= 1;
+      doneWriting();
     }
   }
 
@@ -205,8 +206,9 @@
     editor = input;
     const why = el("p", { class: "why", hidden: "" });
     const close = () => { sheet.remove(); editor = null; doneWriting(); };
+    const cancel = el("button", { type: "button", class: "quiet", text: "Cancel", onclick: () => close() });
     const sendButton = el("button", { type: "button", text: action === "ask" ? "Ask" : "Send", onclick: () =>
-      submit(input, sendButton, why, { action, ...(words || { quote: "" }), body: input.value, requestId: id }, (answer) => {
+      submit(input, [sendButton, cancel], why, { action, ...(words || { quote: "" }), body: input.value, requestId: id }, (answer) => {
         if (words) letGo(words);
         say(answer.said || "saved");
         close();
@@ -214,7 +216,7 @@
     const sheet = el("div", { id: "mg-sheet", class: "mg-ui" },
       words ? el("p", { class: "q", text: `“${words.quote}”` }) : null,
       input, why,
-      el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Cancel", onclick: close }), sendButton));
+      el("div", { class: "mg-row" }, cancel, sendButton));
     document.body.append(sheet);
     input.focus();
   }
@@ -266,12 +268,13 @@
     const why = el("p", { class: "why", hidden: "" });
     const box = el("div", { class: "mg-reply" }, input, why);
     const done = () => { box.remove(); row.hidden = false; editor = null; doneWriting(); };
+    const cancel = el("button", { type: "button", class: "quiet", text: "Cancel", onclick: () => done() });
     const sendButton = el("button", { type: "button", text: "Send", onclick: () =>
-      submit(input, sendButton, why, { action: "reply", thread: thread.id, body: input.value, requestId: id }, (answer) => {
+      submit(input, [sendButton, cancel], why, { action: "reply", thread: thread.id, body: input.value, requestId: id }, (answer) => {
         say(answer.said || "replied");
         done();
       }) });
-    box.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Cancel", onclick: done }), sendButton));
+    box.append(el("div", { class: "mg-row" }, cancel, sendButton));
     row.hidden = true;
     node.append(box);
     input.focus();
