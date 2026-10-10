@@ -131,6 +131,8 @@ export interface Pane {
    * terminal or a whole screen fills its tile.
    */
   readonly measured?: boolean;
+  /** Columns its content keeps beside the measured text (a reader's margin cards): the measure grows by them. */
+  beside?(): number;
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
   title(): string;
@@ -245,6 +247,8 @@ export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   readonly surface = new NoteSurface();
+  /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
+  beside() { return this.surface.marginBeside(); }
   private held = false;
   /**
    * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is
@@ -385,7 +389,18 @@ export class ReaderPane implements Pane {
     return h;
   }
 
-  select(m: Msg | null, desk: DeskApi) { if (!this.holding) this.show(m, desk); }
+  /**
+   * The current note changed: a reader that follows shows it, unless it holds an edit or a comment (PIE-761): then it
+   * stays on its note, and the status line says so once for each note it didn't move to.
+   */
+  select(m: Msg | null, desk: DeskApi) {
+    if (this.holding) return;
+    if (this.show(m, desk) || !m || !this.msg || m.id === this.msg.id || !this.editing || this.heldAgainst === m.id) return;
+    this.heldAgainst = m.id;
+    desk.ctx.flash(`${this.detailLabel() ?? "the reader"} keeps ${sessionName(this)} on “${subject(this.msg).slice(0, 40)}” · “${subject(m).slice(0, 40)}” is the current note; it follows once that's sent or closed`, 8000);
+  }
+  /** The last current note it stayed off for its open session, said once. */
+  private heldAgainst: string | null = null;
   refresh(m: Msg) { this.surface.refresh(m); }
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }

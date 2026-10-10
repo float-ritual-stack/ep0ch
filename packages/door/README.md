@@ -242,7 +242,7 @@ the board's g m s), its elements and reading-ruler row (PIE-441) and its termina
 CP437; the key names and the terminal output are under every section) have no section yet, and its ids-not-names row
 (ADR 0001) is a rule for code, with nothing to show. The newest parts are in their rows' sections:
 a refused key said on the focused tile's frame, loud when pressed again (PIE-727), in `refusals`, the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the drawer in `drawer` (`^W a` puts its kettle in your drawer, another section keeps it, the same program; `alt+a` pulls the drawer up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, the component library (a page per component schema, the outline's own style among its values) in `library`, the power bar (`ctrl+k`: the stage's tiles as their tree, one folded to a spine, then what changed; a scope a prefix away) in `bar`, and the `^W` keys (a grouped keys box, `^W ?` opening the whole list on the bar to filter and press) in `wkeys`. It runs on an
+(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, reading with a pen (a passage highlighted, defined, cited and asked about, the answer in the margin; the same on a file; a notebook of it all, PIE-751, PIE-753) in `marginalia`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, the component library (a page per component schema, the outline's own style among its values) in `library`, the power bar (`ctrl+k`: the stage's tiles as their tree, one folded to a spine, then what changed; a scope a prefix away) in `bar`, and the `^W` keys (a grouped keys box, `^W ?` opening the whole list on the bar to filter and press) in `wkeys`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -503,7 +503,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (`tree.search`, the ranker Goto, `/` and `((` use, asked from no note and without Jev; at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path<TAB>uri`, and with `--tree` `id<TAB>title<TAB>path<TAB>depth<TAB>glyphs<TAB>about<TAB>uri` (about: work id, stage, type; the canonical `ep0ch://` URI always last, so a column added never shifts the others); television's `ep0ch` channel reads them |
-| `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`, and the atoms `#tag`, `links:[[page]]`, `under:[[page]]`, `title~text`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
+| `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`, and the atoms `#tag`, `links:[[page]]`, `linkedfrom:[[page]]`, `under:[[page]]`, `parent:[[page]]`, `title~text`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
 | `ep0ch export [<id>…] [find's flags] [--children] [--format md\|json] [--out <dir>\|-] [--split] [--resolve-links] [--manifest]` | notes out as files (PIE-534). Markdown: a file a note, `<title>-<id8>.md`; the header line's `[k::v]` chips (outline-core's `header-line.ts`) move into YAML front matter, values verbatim strings (a repeated key a list), after the note's id, parent, created, updated and author; the body is the rest verbatim, its first line the prose line 1 held; `--children` adds what's under it as nested lists, or files of their own with `--split`; `--resolve-links` makes `((id))` and `[[page]]` links to exported notes relative file links. JSON: block records, keys sorted. Deterministic, so a folder of them can live in git; `--manifest` writes `manifest.json` (the export time, the outline, the selection). Without `--out`, stdout |
 | `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
 | `ep0ch revisions <id> [<n> [--restore]] [--json]` | a note's revisions (PIE-621): the current one, then the earlier texts the outline keeps (the newest 100 a note had, from its first save on schema version 4), newest first, with when each was saved, by whom, its size and first line; with `<n>` that revision's whole text; `--restore` saves it as the note, a new revision recorded as you (so it can be gone back on too). For a paste that was already saved. In the door it's the tile menu's `an earlier revision` (`revision.restore`): the edit opens with that text in as one undo step, nothing written until `ctrl+s` |
@@ -543,7 +543,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
+| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`host.agent`, the picker its first pull offers), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## Remote MCP gateway (claude.ai)
@@ -1116,8 +1116,7 @@ in the tile, the program's own keys run the same actions. A layout saves its kin
 and it comes back after a restart. When its extension goes away while the door runs, the tile ends its
 program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
 on another host than this door says so instead of running.
-`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell), `EP0CH_DAILY_CWD` (the folder it starts in; unset, the
-rule in [The drawer](#the-drawer-pie-498)) and
+`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell; its folder follows the rule in [The drawer](#the-drawer-pie-498)) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the drawer's program and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 The agent has one home, the host layer (the drawer, below): the daily layout has no tile for it, and lets
 the drawer sit beside the desk (its policy's `host: beside`). A layout saved with the old agent tile (marked
@@ -1141,7 +1140,7 @@ the drawer; a terminal you made yourself stays yours.
 
 ### The daily agent in Herdr
 
-Choose an agent "in Herdr" in the drawer's picker (`alt+g`; `host.agent name=claude herdr=true`) and the drawer's
+Choose an agent "in Herdr" in the drawer's picker (`host.agent name=claude herdr=true`) and the drawer's
 own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
 agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
 
@@ -1225,11 +1224,11 @@ welcome. It's your tabs above every screen (the host layer's). Its first tab is 
 tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
 the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles in it), pulls it up.
 
-- **What its own tab runs: your choice, per outline.** `alt+g` (or `host.agent`) opens a picker of the agents
+- **What its own tab runs: your choice, per outline.** `host.agent` (the person's: a picker; offered on the drawer's first pull) opens a picker of the agents
   installed here (`claude`, `codex`, `pi`, `gemini`, `opencode`, `aider` and the rest of Herdr's agent kinds found
   on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
   session (`drawer-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
-  every outline). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
+  every outline; `in=<folder>` saves the folder it starts in with it). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
   `EP0CH_DAILY_AGENT` overrides it for one door. A new choice starts at the tab's next start: what runs now keeps
   running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's drawer agent, where the
   choice came from, and the command to change it.
@@ -1280,8 +1279,8 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   detached terminal is cleared, an attached one told everything. `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
   Done is the person's: an agent reading or acting on a tile never clears it. A shell without prompt marks (OSC 133)
   still loses a finished job's working: on Linux the door sees the shell take the terminal back.
-- **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
-  you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
+- **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in the folder chosen with the drawer's agent (`host.agent in=<folder>`) when
+  there is one; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why
   (`drawer  runs … in …`). Claude Code's `/resume` lists one folder's conversations, so the folder is yours or the
   outline's, never one made up.
@@ -1356,6 +1355,35 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.
+
+### Agent sessions (PIE-737)
+
+"Talk to an agent here" is one idea. An **agent session** is a program (claude, codex, pi, … plus its arguments), a
+folder and a persona. The door session owns it, as a terminal tile's program, so it keeps running when you detach.
+Where it's shown (your drawer, a tile on a screen, a Herdr pane its tile attaches) is not what it is: move it and
+it's the same process and the same conversation.
+
+- **Start one from any folder.** `ep0ch agent` in a folder starts that folder's session in the door on its outline
+  (a tab in the drawer, behind the one you're on), or says the one already running there. `--program codex`,
+  `--in <folder>`, `--persona <name>`, `--new` for a second beside it. In the door: `n` in the agent panel (the
+  program, then the folder). An agent: `act agent.start program=… in=…`.
+- **Or just run it.** `claude` (codex, pi, …) typed in a `^W o s` shell is a session from then on, found the way
+  Herdr finds its agents (the terminal's processes, by name), until it exits and leaves you the shell.
+- **Programs from the outline.** A note with `[agent-config::<name>]` and its `[program::<command>]`,
+  `[args::…]`, `[persona::<name>]` and `[folder::<folder>]` is a program the panel's `n` offers and
+  `agent.start program=<name>` starts, under that persona (`EP0CH_AGENT`, `OUTLINER_ACTOR`).
+- **Resume is by folder.** The same program in the same folder is the same session: starting it again attaches it.
+  A new one continues the program's last conversation in that folder when there is one (claude and pi
+  `--continue`, codex `resume --last`), whoever started it before.
+- **The agent panel.** `alt+g` on any screen opens it as a tab in your drawer: every session with its program,
+  folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
+  jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.
+  `act agents.list` reads the same rows (`peek` has them under `drawer.sessions`).
+- **Never stranded.** Every session starts inside your login shell: when the agent exits, its tile is that shell,
+  in the same folder. `alt+s` opens a plain shell in the drawer from anywhere.
+- `EP0CH_DAILY_CWD` is gone: the drawer's own agent starts in the folder chosen with it (`host.agent in=<folder>`),
+  else the project's or the outline's; any other folder gets its own session with `ep0ch agent` there. `ep0ch
+  doctor` says it when the variable is still set, with the command.
 
 ## The board
 
@@ -1564,7 +1592,7 @@ The board's new-card composer is the same control too.
 | `Ctrl+Z` | undo the newest change (PIE-621): typing a word at a time (a word and the space after it, or up to a pause), a paste in one step however big, an insert, `$EDITOR`'s text, a reload, an edit an agent patched in (below). Back to where the draft started, and past a save: open the note again unchanged and `Ctrl+Z` goes on back. A paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes` |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | redo what `Ctrl+Z` took back; any new change drops it. `Ctrl+Shift+Z` needs the Kitty keyboard protocol, `Ctrl+Y` works everywhere |
 | `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
-| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
+| `X`, while reading | dismiss it: the proposal goes to Trash, as an edit by you, and stops showing beside the note (an older one's embed line comes out of the note); or a click on `[dismiss]`. Like `A`, taken only on a proposal |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -1635,8 +1663,8 @@ The board's new-card composer is the same control too.
   is in), and not around your cursor. Your cursor, selection and view move with it, so nothing on screen
   jumps; the new text is lit for a moment with `@<agent> · just now`, and `Ctrl+Z` takes it back as one
   unit. Your save records it as yours, naming the agent. If the compare fails (you changed that passage),
-  nothing is changed: the proposal lands as a reply block, embedded under the `@request` line (`!((id))`),
-  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
+  nothing is changed: the proposal lands as a block beside the note, never in your draft or its text, drawn
+  under the `@request` line as an embed of it (PIE-725), and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
   screen the draft was in, lets go of its holds, and patches go to the saved note under a revision check; a
   door that is only slow to answer keeps its hold, and the patch becomes a proposal. When two doors hold
   drafts of the same note, a patch goes to neither.
@@ -2189,8 +2217,10 @@ Bodies render with `src/doc.ts`:
     the `[ ]` position, or a click on its `≡ cozy` footer control, steps through them (`figure.density`); the
     YAML value is only where it starts.
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
-    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
-    `blocks.query` `expression` (PIE-398). `done:` and `now:` are queries in the
+    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges, the atoms), sent to the
+    service as `blocks.query` `where` (PIE-398), with `this` the note the figure sits in (`links:this`). Both are
+    watched reads: the service says when the answer changed (`queries.changed`), and nothing is asked on paint. A
+    `rank` or `tabs` figure's `group:` is the service's grouping, every match counted (PIE-745). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
     properties only; there is no `author=` pseudo-key.
 - Long callout titles keep a short head on the border and flow the rest into the box (a nested one too). A
@@ -2452,7 +2482,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `revisions` | none: the note's revisions, the current one then the earlier texts the outline keeps, newest first (when saved, by whom, size, first line) | `ep0ch revisions <id>` |
 | `revision.restore` | `revision` (default: the one before what the edit holds; again goes further back): that revision's text into the edit as one undo step, written on `ctrl+s`. An agent's only in an edit it opened | the tile menu's `an earlier revision`; `ep0ch revisions <id> <n> --restore` from a shell |
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
-| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes its embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
+| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes an older proposal's embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
@@ -2579,7 +2609,8 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 `annotations.list`, `clients.list`, `activity.recent`, `references.resolve`, `pages.resolve`, plus
 `events.subscribe` as an `observer`, which puts the door in `clients.list` until it exits. When the service
 has them: `views.read`, `blocks.read`, `properties.preview` and `changes.since`, and `blocks.query`
-`expression` with `query.expression`. While a draft completes a reference: `pages.complete`, `files.complete`,
+`where`. Live figures and `::links` watch their reads (`watch`, `generation`; `queries.changed` on the request
+connection, `src/watched.ts`). While a draft completes a reference: `pages.complete`, `files.complete`,
 `blocks.query` `text` and `blocks.context` (an "Unsupported action" is remembered for the session).
 
 Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):

@@ -11,7 +11,7 @@
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
 import { inLoginShell, isAgentCmd, programName } from "./drawer-program";
 import { inResize } from "../resize";
-import { scrolled, wheelRows } from "../scroll";
+import { MOUSE_ALT, MOUSE_SHIFT, scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
 import { unlink } from "node:fs/promises";
 import { basename } from "node:path";
@@ -23,11 +23,12 @@ import { controlPath, controlPlace } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
-import { type Clip, Osc52Reader, TILE_COPY_RECENT_MS } from "../surface/selection";
+import { type Clip, cellsOf, Gesture, lineAt, Osc52Reader, paintRange, SELECT_BG, Selection, type SelectRows, TILE_COPY_RECENT_MS, wordAt } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
+import type { SessionMark } from "./agent-sessions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -148,6 +149,8 @@ export interface PtySpec {
   inShell?: boolean;
   /** What its title calls the program, when the first word of `cmd` isn't it (a picker sh runs: `tv ep0ch`). */
   shows?: string;
+  /** It was started as an agent session (PIE-737, src/desk/agent-sessions.ts): its program, persona and config, saved with it. */
+  session?: SessionMark;
 }
 
 export class PtyPane implements Pane {
@@ -170,7 +173,7 @@ export class PtyPane implements Pane {
    * Its program starts inside the person's login shell (inLoginShell), so its exit line is read: from what the tile
    * runs, so a program adopted after a session handover (never spawned here) is read the same.
    */
-  private get wrapped(): boolean { return this.run.inShell ?? isAgentCmd(this.run.cmd); }
+  private get wrapped(): boolean { return this.run.inShell ?? (isAgentCmd(this.run.cmd) || !!this.run.session); }
   /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
   programTitle = "";
   /**
@@ -218,6 +221,12 @@ export class PtyPane implements Pane {
   readonly kbd = new KbdModes();
   /** Lines scrolled back into what went by (0: the live screen). */
   private back = 0;
+  /** The door's own selection of the screen's text (PIE-419), by buffer row so scrolling back moves it with the text. */
+  private sel: Selection | null = null;
+  private gesture = new Gesture();
+  private selIn: string | null = null;
+  /** The button is down on a press the door's selection took; its drag and release are the selection's too. */
+  private picking: { row: number; col: number } | null = null;
   private redrawSoon: Timer | null = null;
   private desk: DeskApi | null = null;
   /**
@@ -234,7 +243,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
+  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.run.session ? { session: this.run.session } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; this.stopForegroundWatch(); dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }
@@ -249,7 +258,10 @@ export class PtyPane implements Pane {
     const what = this.file ? `${name} ${basename(this.file)}` : this.programTitle && this.programTitle !== name ? `${name} · ${this.programTitle}` : name;
     return this.exited !== null ? `${what} · exited ${this.exited}` : this.back ? `${what} · ${this.back} lines back` : what;
   }
-  hint(): string { return this.exited !== null ? "⏎ runs it again" : `click or ⏎ types here · ${ESCAPE_CHORD} back to the door`; }
+  hint(): string {
+    if (this.exited !== null) return "⏎ runs it again";
+    return `click or ⏎ types here · ${this.wantsMouse() ? "shift+drag (alt+drag) selects and copies" : "drag selects and copies"} · ${ESCAPE_CHORD} back to the door`;
+  }
 
   /** What the "waiting on you" list and the door's own report call it: its name on the desk, else its program. */
   /** Its child id in the door's own report: given at its first report, kept wherever the tile moves (newStatusKey). */
@@ -405,6 +417,9 @@ export class PtyPane implements Pane {
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
     for (const [k, v] of Object.entries(this.run.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
+    // A session's persona (PIE-737): what its writes and its `ep0ch act` are attributed to.
+    const persona = this.run.session?.persona;
+    if (persona) { env.EP0CH_AGENT = persona; env.OUTLINER_ACTOR = persona; }
     try {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
@@ -425,6 +440,12 @@ export class PtyPane implements Pane {
     }
     this.watch(this.proc);
   }
+
+  /**
+   * Start its program now, before it's first drawn (an agent session started behind the tab shown, PIE-737): at this
+   * size, which its first paint corrects. Nothing when it has started already.
+   */
+  startNow(cols = 100, rows = 30) { if (!this.term) this.start(Math.max(20, cols), Math.max(5, rows)); }
 
   /** It runs: kept with the live ones until it exits. */
   private watch(proc: PtyProc) {
@@ -457,9 +478,11 @@ export class PtyPane implements Pane {
    * program in a tile they haven't used lately (an agent's shell, `tile.type`) can't fill their clipboard; the toast
    * says it didn't, and to click in it and copy again.
    */
+  /** Named as its header names it (claude, sh), not by its layout name. */
+  private copyName(): string { return this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile"); }
   private copied(c: Clip) {
     // Named as its header names it (claude, sh), not by its layout name.
-    const from = this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile");
+    const from = this.copyName();
     const theirs = Date.now() - Math.max(this.personKeyAt, this.personClickAt) < TILE_COPY_RECENT_MS;
     this.desk?.ctx.copy?.(!theirs ? { away: true } : "text" in c ? c.text : c, from);
   }
@@ -515,9 +538,9 @@ export class PtyPane implements Pane {
    * Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for
    * them; a Kitty keyboard report reaches it as it asked (the protocol, or legacy bytes: Shift+Enter as ESC CR).
    */
-  inputRaw(s: string) { this.personKeyAt = Date.now(); this.sawIt(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  inputRaw(s: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
-  paste(text: string) { this.personKeyAt = Date.now(); this.sawIt(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
+  paste(text: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
   render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
@@ -531,6 +554,9 @@ export class PtyPane implements Pane {
       if (this.running) try { this.proc?.resize(w, h); } catch { /* exiting */ }
     }
     const t = this.term!, b = t.buffer.active;
+    // The program switched between its normal and alternate screen: rows in the one aren't text in the other.
+    if (this.selIn && this.selIn !== b.type) { this.sel = null; this.picking = null; }
+    this.selIn = b.type;
     const top = Math.max(0, b.baseY - this.back);
     const lines: string[] = [];
     const cell = b.getNullCell();
@@ -540,6 +566,7 @@ export class PtyPane implements Pane {
       const cy = !this.back && cursor && !hidden && this.exited === null && y === b.cursorY ? b.cursorX : -1;
       lines.push(line ? rowOf(line, cell, w, cy) : "");
     }
+    if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
     if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again${this.closesBy} · ctrl+] back to the door\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
@@ -578,6 +605,11 @@ export class PtyPane implements Pane {
     // Only the person's mouse comes here (an agent has none): a click in it is them using it, whatever the program asked.
     if (k.action === "down") { this.personClickAt = Date.now(); this.sawIt(); }
     const mode = this.term?.modes.mouseTrackingMode ?? "none";
+    // The door's own selection (PIE-419), as in a reader: a drag where the program hasn't asked for the mouse, and with
+    // shift (or alt, where the person's terminal keeps shift) held where it has, as a terminal's own selection is.
+    if ((this.picking && k.button === 0) || (k.action === "down" && k.button === 0 && (!this.wantsMouse() || ((k.mods ?? 0) & (MOUSE_SHIFT | MOUSE_ALT)) !== 0))) {
+      if (this.pick(k, x, y)) return true;
+    }
     if (this.wantsMouse()) {
       if (k.action === "drag" && mode !== "drag" && mode !== "any") return true;
       if (k.action === "up" && mode === "x10") return true;
@@ -593,6 +625,44 @@ export class PtyPane implements Pane {
     }
     return false;
   }
+
+  /** The screen's rows as text, by buffer row: what the selection is over (the cells as drawn, one per code point). */
+  private selectRows(): SelectRows | null {
+    const t = this.term;
+    if (!t) return null;
+    const b = t.buffer.active, cell = b.getNullCell(), w = this.cols;
+    return { count: b.length, cells: row => { const line = b.getLine(row); return line ? cellsOf(rowOf(line, cell, w, -1)) : []; } };
+  }
+
+  /** A press, drag or release of the door's selection. False: there is nothing to select over (the press is the tile's again). */
+  private pick(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {
+    const rows = this.selectRows(), b = this.term?.buffer.active;
+    if (!rows || !b) { this.picking = null; return false; }
+    const at = { row: Math.max(0, b.baseY - this.back) + Math.max(0, Math.min(this.rows - 1, y)), col: Math.max(0, Math.min(this.cols - 1, x)) };
+    if (k.action === "down") {
+      const n = this.gesture.press(x, y);
+      this.picking = at;
+      this.sel = n === 1 ? null : n === 2 ? wordAt(rows, at) : lineAt(rows, at.row);
+    } else if (this.picking && k.action === "drag") {
+      if (this.gesture.drag(x, y)) this.sel = new Selection(this.picking, at);
+    } else if (this.picking && k.action === "up") {
+      const r = this.gesture.release(x, y);
+      this.picking = null;
+      if (r.click) this.sel = null;
+      else if (r.copy) this.copySelection();
+    } else return false;
+    this.desk?.redraw();
+    return true;
+  }
+
+  /** The selected text as drawn, copied to the person's clipboard (select.copy; the release of a drag). Null: nothing but blanks. */
+  copySelection(): string | null {
+    const rows = this.selectRows(), text = this.sel && rows ? this.sel.text(rows) : "";
+    if (!text.trim()) return null;
+    this.desk?.ctx.copy?.(text, this.copyName());
+    return text;
+  }
+  get hasSelection() { return !!this.sel; }
 
   /** The emulator's cursor (0-based column and row in the tile), where the program left it. */
   cursor(): { x: number; y: number } | null { const b = this.term?.buffer.active; return b ? { x: b.cursorX, y: b.cursorY } : null; }

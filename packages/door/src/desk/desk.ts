@@ -735,7 +735,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.idOf(target) !== undefined) throw new ActionRefused(`${path} is on this screen: link to its name`);
     const k = kindOf(target);
     if (!k?.accepts?.notes) throw new ActionRefused(`${path} doesn't take notes: a link opens notes in it`);
-    if (this.layout.links.has(id)) this.apply({ op: "link", tile: id }, actor);
+    this.apply({ op: "link", tile: id }, actor);
     const kept = this.pathTo(target);
     this.ext.set(id, { pane: target, ...(kept?.includes("@") ? { path: kept } : {}), role: role ?? defaultLinkRole(kindOf(this.panes.get(id)) ?? {}, kindOf(target) ?? {}), found: true });
     return target;
@@ -1064,7 +1064,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The person's open that nothing here shows (the outline's ⏎ with no reader following the current note): said, with
     // how to give it somewhere to land, never a silent change of the current note.
     const shownBy = (p: Pane) => p !== opts.from && kindOf(p)?.shows?.(p)?.id === m?.id && this.shownNow(p);
-    if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(shownBy)) {
+    // (A following reader that stayed on its note for an open edit or comment said so itself, PIE-761.)
+    const stayed = (p: Pane) => p instanceof ReaderPane && p.follows && !p.holding && p.editing;
+    if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(p => shownBy(p) || stayed(p))) {
       this.ctx.flash(`no tile shows ${headOf(subject(m), 24)} · alt+l, then a click on a reader, sends ${this.nameOfPane(opts.from)}'s opens there`);
     }
     this.redraw();
@@ -2368,7 +2370,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const stale = placed.flatMap(([id, r0]) => {
       const r = this.boxOf(id, r0), last = this.views.get(id);
       const p = this.panes.get(id), look = p && this.looks.get(p);
-      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured);
+      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
       return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
@@ -2481,7 +2483,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : "";
     canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
-    const inner = contentRect(framed, look, !!pane.measured);
+    const inner = contentRect(framed, look, !!pane.measured, pane.beside?.() ?? 0);
     this.contents.set(id, inner);
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
@@ -3846,6 +3848,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // Linking to a tile here, or taking the link away, ends a link across an edge.
     const across = this.ext.get(src.id);
+    if (across && !to) this.apply({ op: "link", tile: src.id }, actor);
     if (across && role && !to) { across.role = role; this.save(); this.redraw(); return { tile: src.name, link: (across.pane ? this.pathTo(across.pane) : across.path) ?? null, role }; }
     if (across && !to) { this.ext.delete(src.id); this.save(); this.redraw(); return { tile: src.name, link: null }; }
     const r = this.apply({ op: "link", tile: src.id, ...(to ? { to: this.tile(to).id } : {}), ...(role ? { role } : {}) }, actor);
@@ -5668,12 +5671,13 @@ function mapTree(n: LNode, f: (id: number) => number): LNode {
  * Where a tile's content goes inside its frame (`framed`) by its look (PIE-673): its padding (never so much that less
  * than 8 columns or 3 rows are left), and, for a note's text (`measured`), at most `measure` columns, centred.
  */
-export function contentRect(framed: Rect, look: Look | undefined, measured: boolean): Rect {
+export function contentRect(framed: Rect, look: Look | undefined, measured: boolean, beside = 0): Rect {
   if (!look) return framed;
   const v = look.values;
   const px = Math.max(0, Math.min(v["pad.x"], Math.floor((framed.cols - 8) / 2))), py = Math.max(0, Math.min(v["pad.y"], Math.floor((framed.rows - 3) / 2)));
   let col = framed.col + px, cols = framed.cols - 2 * px;
-  const m = v.measure;
+  // `beside`: columns the content keeps next to the measured text (a reader's margin column, ADR 0004 contract 6).
+  const m = v.measure > 0 ? v.measure + beside : 0;
   if (measured && m > 0 && cols > m) { col += Math.floor((cols - m) / 2); cols = m; }
   return { col, row: framed.row + py, cols, rows: framed.rows - 2 * py };
 }

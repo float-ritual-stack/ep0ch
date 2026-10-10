@@ -259,7 +259,7 @@ running in it puts them in the drawer (`shell went into your drawer · alt+a sho
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
-| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session) | `alt+g` (the person's picker), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Saved for the outline's session; it starts inside the person's login shell from the drawer's own tab's next start, never in place of one running (`agent.restart` does that); `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
+| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session), `in` (the folder it starts in, saved with it) | the person's picker (offered on the drawer's first pull; the power bar names it), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Saved for the outline's session; it starts inside the person's login shell from the drawer's own tab's next start, never in place of one running (`agent.restart` does that); `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
 | `host.shell` | | `alt+s` | a new shell (`$SHELL`, the drawer's folder) as a drawer tab: the person's is shown and takes their keys; an agent's opens behind the tab shown |
 | `host.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
 | `host.size` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
@@ -307,6 +307,13 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
 | `status.list` | | the status bar's count, the waiting-on-you tab | read-only: every blocked, failed and unseen done record across the screen's terminals and the drawer's, most urgent first, each with `n`, `tile`, `name` and since when |
+| `agents.list` | | the agent panel (`alt+g`) | read-only: every agent session the door holds (PIE-737): `id` (`<program>:<folder>`), `program`, `folder`, `persona`, `config`, `how` (started, found running in a terminal tile, the drawer's own), `state` (working, waiting, idle, done, failed) and where it's `shown` (your drawer, a screen and tile). `peek` gives the same under `drawer.sessions` |
+| `agents.open` | | `alt+g` | the agent panel as a tab in the drawer: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown |
+| `agent.start` | `program` (an agent config in the outline, `[agent-config::<name>]`, or an agent installed here), `in` (the folder), `persona`, `args`, `fresh` | `n` in the panel; `ep0ch agent [--program] [--in] [--persona] [--new]` from any folder | starts a session as a tab in the drawer, continuing the program's last conversation in that folder, or attaches the one of that program running in that folder. An agent's (and `ep0ch agent`'s) starts it behind the tab shown and never moves the person's keys; attaching moves nothing of theirs. Said on screen |
+| `agents.new` | `program`, `in` | `n` in the panel | the person's picks the program, then the folder; an agent's is `agent.start` |
+| `agents.go` | `session` (id, `program:folder`, a tile, or n from 1) | ⏎ or a click on a row | the person's only: going takes their keys |
+| `agents.drawer` | `session` | `a` on a row | pulls it into the drawer from the screen it's on: the same process; an agent's adds it behind the tab shown. Said on screen |
+| `agents.dock` | `session` | `d` on a row | docks it on the screen shown, from the drawer or another screen: the same process. Refused while it has the person's keys. Said on screen |
 | `host.waiting` | | `alt+w`, a click on the status bar's `◆1 ✓2 on you` | the waiting-on-you list as a tab in the drawer: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown |
 | `changes.open` | | `alt+o`, a click on the status bar's `+N new` | the what-changed list as a tab in the drawer: the person's pulls the drawer up, goes to it and marks what it holds seen; an agent's opens it behind the tab shown and marks nothing |
 | `changes.list` | | the status bar's `+N new`, the what-changed tab | read-only: each note others changed since the person looked (id, title, who, kind, when, seen), newest first; never marks anything seen |
@@ -643,11 +650,13 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   lit for a moment (`@tidy · just now`) and is one step of the draft's one history (`draft.undo`, ctrl+z; `draft.redo`, ctrl+y). The draft's writers
   gain the agent, so the person's save names it. `peek` shows it: `editing.held`, `editing.cursor`,
   `editing.patches`, `editing.lit`.
-- **A failed compare changes nothing.** The service keeps the proposal as a reply block under the note,
-  attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
+- **A failed compare changes nothing.** The service keeps the proposal as a block beside the note (a child of it),
+  attributed to the agent, never in the note's text or the draft (PIE-725); the reader draws it under the mark, or
+  after the note's last line (`draft.proposals.list`). The same open patch sent again by the same agent returns
+  that proposal (`deduped: true`), not a second one;
   `proposal.apply` (`A`, `[apply]`) applies it anyway, as an ordinary edit by whoever runs it;
-  `proposal.dismiss` (`X`, `[dismiss]`) asks the service (`draft.proposal.dismiss`) to take its embed line out of
-  the note (or the draft of it being written), mark it dismissed and put it in Trash. A proposal whose passage was
+  `proposal.dismiss` (`X`, `[dismiss]`) asks the service (`draft.proposal.dismiss`) to mark it dismissed and put it
+  in Trash (and to take an older proposal's embed line out of the note, or the draft of it being written). A proposal whose passage was
   already gone, or reached the mark, when it was proposed carries `[proposal-applies::no]`: it offers only
   `[dismiss]`, and `A` says why. The person's apply is forced (placed by its passage wherever it is now, still
   above the mark; a changed passage is refused, never guessed); an agent's is held to the same compare as a patch, under the policy its
@@ -760,7 +769,9 @@ action run is traced (`traceActions`). A key or click that changed the screen (i
 under them, `describe()`, the screen stack, the drawer being up, entered or resized, or the video mode)
 without running an action whose `keys` names it fails, as does a hint that
 names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
-with no action is checked once more on a fresh screen before it fails. `PARITY_ONLY=<screen,…>`,
+with no action is checked once more on a fresh screen before it fails. The second keys of a state an action
+opened are probed once in a file: the shell's (a picker, a new note, the drawer) on the first screen that opens it,
+a screen's own on the first scenario of that screen; a prefix no action opened, on every scenario. `PARITY_ONLY=<screen,…>`,
 `PARITY_DEPTH=1` and `PARITY_LOG=<file>` narrow it while working on one screen.
 
 What the probe doesn't reach: a terminal tile's own keys (they're its program's), the logon and logoff, the

@@ -5,6 +5,7 @@ import {
   effectiveWorkspaces,
   failureReasonOf,
   mentionsModeOf,
+  namedWorkspaceOf,
   sessionWorkspaceOf,
   workspaceEnvOf,
   workspacesOf,
@@ -95,5 +96,15 @@ describe('mention-message', () => {
     expect(workspaceEnvOf({ root: '/work/garden' })).toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/garden' })
     expect(workspaceEnvOf({ root: '/work/jam/notes', outline: 'jam-shelf', pinned: true }))
       .toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/jam/notes', EP0CH_WS: 'jam-shelf', EP0CH_MACHINE: '' })
+  })
+
+  test('a session names its outline: a call, then EP0CH_WS with its machine, else nothing; the folder is only where runs start (PIE-756)', async () => {
+    expect(namedWorkspaceOf('/tmp', { outline: 'gurgle' }, 'garden', 'far')).toEqual({ root: '/tmp', outline: 'gurgle', pinned: true, via: 'call' })
+    expect(namedWorkspaceOf('/tmp', null, 'garden', 'far')).toEqual({ root: '/tmp', outline: 'garden', machine: 'far', pinned: true, via: 'env' })
+    expect(namedWorkspaceOf('/tmp', null, ' garden ', '')).toEqual({ root: '/tmp', outline: 'garden', pinned: true, via: 'env' })
+    expect(namedWorkspaceOf('/tmp', null, undefined, 'far')).toBeNull()
+    expect(() => namedWorkspaceOf('/tmp', null, 'Not A Name', undefined)).toThrow('isn\'t an outline name')
+    expect(() => namedWorkspaceOf('/tmp', null, 'garden', 'a b')).toThrow('isn\'t an ssh config name')
+    expect(workspaceEnvOf(namedWorkspaceOf('/tmp', null, 'garden', 'far')!)).toEqual({ OUTLINER_WORKSPACE_ROOT: '/tmp', EP0CH_WS: 'garden', EP0CH_MACHINE: 'far' })
   })
 })

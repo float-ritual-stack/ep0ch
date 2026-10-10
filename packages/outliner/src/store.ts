@@ -23,7 +23,8 @@ import { blockAnnotationRepresentation } from "./annotation-representations";
 import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
-import { backlinkSourceIds, resolveBacklinkRelation } from "./backlinks";
+import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
+import { questionFacets, questionGroups, questionHint, questionKeys } from "./question-answer";
 import { linkTargetFacets } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
@@ -46,6 +47,7 @@ import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placeme
 import {
   BlockQueryError,
   compileQueryExpression,
+  bindThis,
   normalizeBlockSearchQuery,
   type QueryRelations,
   parseSearchExpression,
@@ -106,6 +108,7 @@ import type {
   BlockEditActivity,
   BlockEditActivityPage,
   BlockSearchQuery,
+  NormalizedBlockSearchQuery,
   BlockReadCollection,
   ProjectedBlock,
   ProjectedBlockCollection,
@@ -2900,8 +2903,19 @@ export class OutlinerStore {
    */
   private queryRelations(graph: LoadedGraph): QueryRelations {
     const sources = new Map<string, ReadonlySet<string>>();
+    const targets = new Map<string, ReadonlySet<string>>();
     const calls = new Map<string, ReadonlySet<string>>();
     return {
+      linkTargets: (blockId) => {
+        let found = targets.get(blockId);
+        if (!found) {
+          const source = graph.byId.get(blockId);
+          found = source ? linkTargetIds(this.backlinkContextFromCurrentRead(), source) : new Set<string>();
+          targets.set(blockId, found);
+        }
+        return found;
+      },
+      parentOf: (blockId) => graph.byId.get(blockId)?.parentId,
       resolve: (atom, target) => {
         try {
           return this.resolveBlockRef(target).id;
@@ -3523,33 +3537,56 @@ export class OutlinerStore {
   }
 
   /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
-  private queryNormalizedBlocksFromCurrentRead(query: BlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
+  private queryNormalizedBlocksFromCurrentRead(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
     if (query.subtreeRootId) this.require(query.subtreeRootId);
     const deletedMode = query.includeDeleted ?? "active";
-    if (query.rankViewId && deletedMode === "active" && !query.where && !options.overGraph) {
+    // Groups and facets count every match, so they read them all.
+    const counted = !!(query.group || query.facets);
+    if (query.rankViewId && deletedMode === "active" && !query.predicate && !counted && !options.overGraph) {
       return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
     }
     const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
     const graph = this.loadGraph();
     const blocks = this.traverseLoadedGraph(graph, {
       filters: query.filters,
-      where: query.where,
+      where: query.predicate,
       propertyScope: query.propertyScope,
       subtreeRootId: query.subtreeRootId,
       text: query.text,
-      stopAfterMatches: query.sort || ranked ? undefined : query.limit + 1,
+      stopAfterMatches: query.sort || ranked || counted ? undefined : query.limit + 1,
       deletedMode,
     });
     if (query.sort) sortQueriedBlocks(blocks, query.sort, scopedValue(graph, query.propertyScope));
     // Same order as ranked SQL: manual ranks first, then canonical preorder.
     if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
-    if (blocks.length <= query.limit) {
-      return { blocks, completeness: { kind: "complete" } };
-    }
-    return {
-      blocks: blocks.slice(0, query.limit),
-      completeness: { kind: "truncated", limit: query.limit },
+    const rows = blocks.length <= query.limit ? blocks : blocks.slice(0, query.limit);
+    // Every match was read when nothing stopped the walk early: then the count is exact.
+    const everyMatch = !!(query.sort || ranked || counted);
+    const answer: VisibleBlockCollection = {
+      blocks: rows,
+      completeness: blocks.length <= query.limit ? { kind: "complete" }
+        : { kind: "truncated", limit: query.limit, ...(everyMatch ? { matched: blocks.length } : {}) },
     };
+    if (counted || questionKeys(query).length) {
+      const scope = query.propertyScope ?? "block";
+      const records = (block: Block) => (graph.propertyRecordsByBlock.get(block.id) ?? []).filter(record => scope === "all" || record.scope === scope);
+      const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key).map(record => record.value);
+      if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
+      if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key));
+      const hint = questionHint(query, this.knownPropertyKeys(graph));
+      if (hint) answer.hint = hint;
+    }
+    return answer;
+  }
+
+  /** Every property key some active block carries, in any scope: what a "no notes have <key>" hint checks against. */
+  private knownPropertyKeys(graph: LoadedGraph): Set<string> {
+    const keys = new Set<string>();
+    for (const [id, records] of graph.propertyRecordsByBlock) {
+      if (graph.byId.get(id)?.effectiveDeletedRootId) continue;
+      for (const record of records) keys.add(record.key);
+    }
+    return keys;
   }
 
   /**
@@ -3653,15 +3690,17 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown } = {}): { blockIds: string[] } {
-    const { text, subtreeRootId } = narrow;
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}): { blockIds: string[] } {
+    const { text, subtreeRootId, this: thisId } = narrow;
+    if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
     if (subtreeRootId !== undefined && (typeof subtreeRootId !== "string" || !subtreeRootId)) throw new Error("Query match subtreeRootId must be a block ID");
     const narrowed = !!(typeof text === "string" && text.trim()) || subtreeRootId !== undefined;
     if (expression !== undefined && typeof expression !== "string") throw new Error("Query match needs a query expression");
     if (!(typeof expression === "string" && expression.trim()) && !narrowed) throw new Error("Query match needs a query expression");
     if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
-    const { filters, where } = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
+    const parsed = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
+    const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined);
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
     const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
     const terms = typeof text === "string" ? searchTextTerms(text) : [];
@@ -3784,7 +3823,7 @@ export class OutlinerStore {
       }
       const matched = this.traverseLoadedGraph(graph, {
         filters: query?.filters,
-        where: query?.where,
+        where: query?.predicate,
         propertyScope: query?.propertyScope,
         subtreeRootId: query?.subtreeRootId,
         text: query?.text,
@@ -4019,7 +4058,7 @@ export class OutlinerStore {
   }
 
   private queryRankedBlocksFromCurrentRead(
-    query: BlockSearchQuery,
+    query: NormalizedBlockSearchQuery,
     rankViewId: string,
   ): VisibleBlockCollection {
     const { sql, parameters } = this.rankedMatchStatement(query, rankViewId);

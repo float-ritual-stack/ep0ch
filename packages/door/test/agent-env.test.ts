@@ -28,7 +28,7 @@ let out = "";
 /** This test's own control socket: tiles get it as EP0CH_CONTROL (never the person's door.sock). */
 let control: { path: string; close(): void } | null = null;
 const saved: Record<string, string | undefined> = {};
-const ENV = ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_HERDR_BIN", "EP0CH_DAILY_CWD", "EP0CH_NEST", "EP0CH_SOCKET", "CLAUDE_CONFIG_DIR", "EP0CH_LANDING"];
+const ENV = ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_HERDR_BIN", "EP0CH_DAILY_CWD", "EP0CH_NEST", "EP0CH_SOCKET", "CLAUDE_CONFIG_DIR", "EP0CH_LANDING", "EP0CH_WS", "EP0CH_MACHINE"];
 
 /** Each start of the stand-in, as it wrote it: its arguments and its EP0CH_ variables. */
 function starts(): { argv: string; env: Record<string, string> }[] {
@@ -62,7 +62,7 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "ep0ch-agentenv-"));
   for (const k of ENV) saved[k] = process.env[k];
   process.env.EP0CH_STATE = join(dir, "state");
-  delete process.env.EP0CH_NEST; delete process.env.EP0CH_SOCKET; delete process.env.EP0CH_DAILY_CWD;
+  delete process.env.EP0CH_NEST; delete process.env.EP0CH_SOCKET; delete process.env.EP0CH_DAILY_CWD; delete process.env.EP0CH_WS; delete process.env.EP0CH_MACHINE;
   out = join(dir, "starts");
   mkdirSync(join(dir, "bin"));
   standin = join(dir, "bin", "claude");
@@ -152,6 +152,23 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     const run = calls.find(c => c.startsWith("pane run"))!;
     for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);
     expect(run).toMatch(/exec env (-u \w+ )+\S+ -l -c 'exec \/bin\/sh -c '\\''claude; c=\$\?; /);
+  });
+
+  test("the door names its outline (EP0CH_WS, and EP0CH_MACHINE only on another machine) to a tile program, the drawer's agent and the Herdr launcher's pane (PIE-756)", async () => {
+    process.env.EP0CH_WS = "garden"; process.env.EP0CH_MACHINE = "far-box";
+    const t = await tile([standin], "claude", "t6");
+    expect(starts()[0]!.env).toMatchObject({ EP0CH_WS: "garden", EP0CH_MACHINE: "far-box" });
+    t.kill();
+    rmSync(out);
+    delete process.env.EP0CH_MACHINE;
+    const local = await tile([standin], "claude", "t7");
+    expect(starts()[0]!.env.EP0CH_WS).toBe("garden");
+    expect(starts()[0]!.env.EP0CH_MACHINE).toBeUndefined();
+    local.kill();
+    // The launcher's env is the tile's; its pane gets the same two.
+    const launcherEnv = tileEnv(process.env, "claude", join(dir, "door.sock"), DRAWER_TILE_ID, "drawer");
+    expect(launcherEnv.EP0CH_WS).toBe("garden");
+    expect(agentConfig(launcherEnv, () => null).env).toMatchObject({ EP0CH_WS: "garden" });
   });
 
   test("a terminal tile opened without a name (^W o s) tells its program the name the desk gave it", async () => {

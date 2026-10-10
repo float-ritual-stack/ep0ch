@@ -30,8 +30,9 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
   let shed = "", beds = "", view = "";
 
   /**
-   * A note embedding a note, a fragment and a view, and a proposal tidy's patch left in it: the person
-   * retitled the note after tidy read it, so the patch couldn't apply and was embedded as a proposal. With
+   * A note embedding a note, a fragment and a view, and a proposal tidy's patch left beside it: the person
+   * retitled the note after tidy read it, so the patch couldn't apply and became a proposal (PIE-725: drawn after the
+   * note's last line, where its embed line used to go, without a word of the note changed). With
    * `gone`, the person reworded the very sentence instead: the proposal can't be applied, only dismissed.
    */
   async function proposed(gone = false) {
@@ -44,7 +45,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
       blockId: id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
-    expect(r).toMatchObject({ outcome: "proposed", embedded: "saved", embeddedIn: id });
+    expect(r).toMatchObject({ outcome: "proposed", beside: id });
+    expect((await board.get(id))!.text).not.toContain(r.proposalId);
     return { id, proposal: r.proposalId as string };
   }
 
@@ -171,10 +173,11 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     await expect(s.act("proposal.dismiss", { id: proposal }, h, OTHER)).rejects.toThrow("an agent dismisses only its own");
     expect((await board.get(proposal))!.deleted).toBeFalsy();
     const r = await s.act("proposal.dismiss", { id: proposal }, h, TIDY);
-    expect(r).toMatchObject({ outcome: "dismissed", proposalId: proposal, embedRemoved: "saved" });
+    // Nothing to take out of the note: the proposal was beside it (PIE-725), and the note's last change is the person's.
+    expect(r).toMatchObject({ outcome: "dismissed", proposalId: proposal, embedRemoved: null });
     expect((await board.get(proposal))!.deleted).toBe(true);
     expect(flashes.at(-1)).toContain("an agent (tidy) · dismissed the proposal");
-    expect(await lastChange(id)).toMatchObject({ actor: { author: "agent", actorId: "tidy" } });
+    expect(await lastChange(id)).toMatchObject({ kind: "edit", actor: { author: "user" } });
     expect(await lastChange(proposal)).toMatchObject({ kind: "delete", actor: { author: "agent", actorId: "tidy" } });
   }, 30_000);
 

@@ -105,6 +105,17 @@ page links, components). It makes no promise of Markdown compatibility and devia
 Markdown is a render target (export, the publisher, MCP), not the source's definition. Say "Blockdown" for the
 source; the grammars are outline-core's ([glossary](packages/door/docs/UI-GRAMMAR.md#reading-and-editing-the-note-surface)).
 
+## Capture is more reliable than interpretation
+
+What a person writes always lands. Saving a note, a comment or a draft never depends on every reference, property
+or component in it being valid: the raw text is saved first, then references are resolved, and anything unresolved is
+marked inline as a warning (with a did-you-mean), never a refusal of the whole save. A refused action keeps the text
+in front of the person with why and what to do. The comment box, the note editor and every other place a person
+types share one editor (mouse select, delete, undo, paste, edit after save), not a second, weaker one.
+
+The test for it is the human workflow, not parser units: write a comment, select and delete a phrase with the mouse,
+insert a reference, make a syntax mistake, fix it (or don't), save, and nothing is lost.
+
 ## Properties are open
 
 The schema is fluid: a note's properties are whatever its author wrote (`[key::value]`), and new keys appear every day.
@@ -151,6 +162,8 @@ machine (PIE-545): there (`--machine`, `--remote`, a `.ep0ch`'s `machine`) it is
 the door's home base offers the choices (the one here, create it there, cancel). Only `--create`, `outline create`
 or the home base's "new outline on <machine>" makes one there. The rule is outline-core's `mayCreate`; `--here`
 names this machine over `EP0CH_MACHINE` and a `.ep0ch`'s machine.
+
+A session's outline is named (flag, `EP0CH_WS`, the folder it started in), never inferred from where its shell is now. The door passes `EP0CH_WS` (and `EP0CH_MACHINE` for another machine) to every program it starts; a session that loses its binding gets it back with `/outline <name>` or the mod's `outline_bind`.
 
 ## Schema and protocol: one version
 

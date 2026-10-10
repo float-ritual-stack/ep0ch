@@ -50,6 +50,8 @@ class FakeRequester implements DetailEmbedRequester {
   readonly calls: RequestInput[] = [];
   /** The protocol the stand-in service reports on ping. */
   protocolVersion = PROTOCOL;
+  /** The open proposals beside each note (`draft.proposals.list`), by note id. */
+  readonly beside = new Map<string, { revision: number; proposals: { id: string; afterLine: number; author: string; actorId?: string; applies: boolean }[] }>();
 
   constructor(
     private readonly blocks: Map<string, Block>,
@@ -62,6 +64,11 @@ class FakeRequester implements DetailEmbedRequester {
     this.calls.push(input);
     if (input.action === "ping") {
       return { status: "ready", protocolVersion: this.protocolVersion } as T;
+    }
+    if (input.action === "draft.proposals.list") {
+      const beside = this.beside.get(input.blockId);
+      if (!beside) throw new Error(`Unexpected action: ${input.action}`);
+      return { blockId: input.blockId, ...beside } as T;
     }
     if (input.action === "workspace.snapshot") {
       if (this.snapshotFailure) throw this.snapshotFailure;
@@ -595,4 +602,30 @@ test("fragment presentation retains canonical offsets after unindenting; missing
   const fallback=map.runs.find(run=>run.origin.kind==='reference')!.origin;
   expect(fallback.kind).toBe('reference');
   if(fallback.kind==='reference')expect(host.slice(fallback.token.start,fallback.token.end)).toBe('!((absent-block))');
+});
+
+test("a proposal beside the note is drawn as an embed of it after its mark line; the note's text is as authored (PIE-725)", async () => {
+  const payload = Buffer.from(JSON.stringify({ version: 1, edits: [] }), "utf8").toString("base64url");
+  const proposal = block("proposal-1", `1 proposed edit from @tidy: not applied, because the note changed [type::draft-proposal] [proposal-status::open]\n[draft-patch::${payload}]\nTo the plan.`,
+    [{ key: "type", value: "draft-proposal" }, { key: "proposal-status", value: "open" }]);
+  const host = block("host-plan", "Garden plan\n@tidy go\nlater lines");
+  const requester = new FakeRequester(new Map([host, proposal].map(item => [item.id, item])), new Map());
+  requester.beside.set(host.id, { revision: 1, proposals: [{ id: proposal.id, afterLine: 1, author: "agent", actorId: "tidy", applies: true }] });
+
+  const projection = await projectDetailRead(requester, host.text, { hostBlockId: host.id, hostRevision: 1 });
+
+  const lines = projection.text.split("\n");
+  expect(lines.slice(0, 3)).toEqual(["Garden plan", "@tidy go", "Embedded block: ((proposal-1))"]);
+  expect(lines.at(-1)).toBe("later lines");
+  // The hidden patch is machine data: never shown.
+  expect(projection.text).not.toContain("draft-patch::");
+  expect(projection.provenance!.text).toBe(projection.text);
+  const range = projection.embedRanges.find(item => item.source?.block.id === proposal.id)!;
+  expect(range).toMatchObject({ startLine: 2, inserted: { afterSourceLine: 1 } });
+  // An inserted region pairs with no embed token: the authored embeds are unchanged.
+  expect(projection.embeds).toEqual([]);
+
+  // Read at another revision than the note shown: nothing is drawn beside it (the next read brings it).
+  const stale = await projectDetailRead(requester, host.text, { hostBlockId: host.id, hostRevision: 2 });
+  expect(stale.text).toBe(host.text);
 });

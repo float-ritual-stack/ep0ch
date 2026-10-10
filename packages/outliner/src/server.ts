@@ -58,6 +58,7 @@ import {
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
 import { actionOf, loopWatched, noteWork, STALL_REPORT_MS, Turns } from "./loop-watch";
+import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
 import {
@@ -320,6 +321,8 @@ export class OutlinerServer {
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
   private readonly turns = new Turns();
+  /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
+  readonly watches: QueryWatches;
 
   constructor(
     readonly store: OutlinerStore,
@@ -332,6 +335,11 @@ export class OutlinerServer {
   ) {
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
+    this.watches = new QueryWatches({
+      answer: request => this.handle(request as unknown as OutlinerRequest),
+      sequence: () => this.store.sequence,
+      timed: ms => noteWork("queries.changed", ms),
+    });
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
@@ -497,6 +505,7 @@ export class OutlinerServer {
   async close(): Promise<void> {
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
+    this.watches.stop();
     this.extensionSync.stop();
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
@@ -607,6 +616,7 @@ export class OutlinerServer {
   }
 
   private removeSubscriber(socket: Socket): void {
+    this.watches.closed(socket);
     const removed = this.subscribers.get(socket);
     this.subscribers.delete(socket);
     if (removed?.clientId === this.captureOwner?.clientId) {
@@ -1582,7 +1592,12 @@ export class OutlinerServer {
   async handleAsync(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
+    connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    // A watched read is kept on the connection that asked (ADR 0004); without one (in-process) it is just answered.
+    if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
+      return this.watches.ask(connection, request as unknown as Parameters<QueryWatches["ask"]>[1]);
+    }
     if(request.action==="resources.describe"){
       try {
         // This built-in only reads an immutable Inbox before-image. It cannot
@@ -1696,8 +1711,10 @@ export class OutlinerServer {
           if (request.line !== undefined && (!Number.isSafeInteger(request.line) || request.line < 0)) throw new Error("line must be a line index");
           if (request.args !== undefined && (!request.args || typeof request.args !== "object" || Array.isArray(request.args) ||
             Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
+          if (request.passage !== undefined && (!request.passage || typeof request.passage !== "object" || Array.isArray(request.passage))) throw new Error("passage is { subject, revision, quote, start, end, prefix, suffix }");
           const requestedBy = declaredRequester(request, "extensions.act");
           result = await this.extensionCalls.act({
+            ...(request.passage !== undefined ? { passage: request.passage } : {}),
             extension: request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
             ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
@@ -1940,7 +1957,7 @@ export class OutlinerServer {
           break;
         }
         case "query.matches":
-          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId });
+          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId, this: request.this });
           break;
         case "blocks.authored-links":
           result = readAuthoredLinks(this.store, request.ownerBlockId);
@@ -2422,6 +2439,8 @@ export class OutlinerServer {
             request.author,
             request.provenance,
           );
+          // `@name` in a person's reply asks an agent that answers in threads (marginalia's Ask, ADR 0004 contract 6).
+          if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.batch":
           result = this.store.createAnnotationBatch(
@@ -2430,6 +2449,7 @@ export class OutlinerServer {
             request.author,
             request.provenance,
           );
+          if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.reconcile":
           result = this.store.reconcileAnnotationThreads(request.input);
@@ -2516,6 +2536,10 @@ export class OutlinerServer {
         }
         case "capture.draft.get":
           result = this.store.quickCaptureDraft();
+          break;
+        case "draft.proposals.list":
+          if (typeof request.blockId !== "string" || !request.blockId) throw Error("draft.proposals.list needs blockId");
+          result = this.draftPatches.proposalsBeside(request.blockId);
           break;
         case "draft.patch":
         case "draft.proposal.apply":
@@ -3218,6 +3242,8 @@ export class OutlinerServer {
   }
 
   private broadcast(event: OutlinerEvent): void {
+    // What a write tells subscribers may change a watched answer.
+    if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") this.watches.changed();
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
     const line = `${JSON.stringify(envelope)}\n`;
@@ -3344,7 +3370,7 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient, socket));
       // What ran before the handler first waited held the loop; the waits after it didn't.
       loopMs = performance.now() - started;
       response = await pending;

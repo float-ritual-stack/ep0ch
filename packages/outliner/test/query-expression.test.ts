@@ -106,8 +106,8 @@ describe("query grammar", () => {
   });
 
   test("request problems name the field only where the request's expression was parsed", () => {
-    const expressionError = (() => { try { normalizeBlockSearchQuery({ expression: "a OR", limit: 5 }); } catch (error) { return error; } })();
-    expect(queryRequestProblem(expressionError)).toEqual({ code: "query-syntax", field: "expression", position: 4, message: expect.stringContaining("at character 5") });
+    const expressionError = (() => { try { normalizeBlockSearchQuery({ where: "a OR", limit: 5 }); } catch (error) { return error; } })();
+    expect(queryRequestProblem(expressionError)).toEqual({ code: "query-syntax", field: "where", position: 4, message: expect.stringContaining("at character 5") });
     // Other parsers (a checklist view's [query::...], a saved definition) have no request field to index.
     const otherError = (() => { try { parsePropertyFilterExpression('status="open'); } catch (error) { return error; } })();
     expect(queryRequestProblem(otherError)).toEqual({ code: "query-syntax", message: expect.stringContaining("Unterminated quoted filter value") });
@@ -131,18 +131,26 @@ describe("query grammar", () => {
     expect(check("updated < -2w", "2026-09-12T00:00:00.000Z")).toBe(true);
   });
 
-  test("normalization parses expression text, validates structured where and ANDs both with filters", () => {
-    expect(normalizeBlockSearchQuery({ expression: "a OR b", where: { kind: "not", operand: p("C") }, filters: [{ key: "d" }], limit: 5 })).toEqual({
+  test("normalization parses where text, validates a structured predicate and ANDs both with filters", () => {
+    expect(normalizeBlockSearchQuery({ where: "a OR b", predicate: { kind: "not", operand: p("C") }, filters: [{ key: "d" }], limit: 5 })).toEqual({
       filters: [{ key: "d" }],
-      where: { kind: "and", operands: [{ kind: "or", operands: [p("a"), p("b")] }, { kind: "not", operand: p("c") }] },
+      predicate: { kind: "and", operands: [{ kind: "or", operands: [p("a"), p("b")] }, { kind: "not", operand: p("c") }] },
       limit: 5,
     });
-    expect(normalizeBlockSearchQuery({ expression: "deleted=true", limit: 5 })).toEqual({ includeDeleted: "roots", limit: 5 });
-    expect(normalizeBlockSearchQuery({ where: { kind: "or", operands: [p("a")] }, limit: 5 })).toEqual({ where: p("a"), limit: 5 });
-    expect(() => normalizeBlockSearchQuery({ where: { kind: "time", field: "updated", op: ">", value: "later" }, limit: 5 })).toThrow("Invalid time value");
-    expect(() => normalizeBlockSearchQuery({ where: { kind: "or", operands: [] }, limit: 5 })).toThrow("at least one operand");
-    expect(() => normalizeBlockSearchQuery({ where: p("deleted", "true"), limit: 5 })).toThrow("deleted=true");
-    expect(() => normalizeBlockSearchQuery({ expression: "a OR", limit: 5 })).toThrow(BlockQuerySyntaxError);
+    expect(normalizeBlockSearchQuery({ where: "deleted=true", limit: 5 })).toEqual({ includeDeleted: "roots", limit: 5 });
+    expect(normalizeBlockSearchQuery({ predicate: { kind: "or", operands: [p("a")] }, limit: 5 })).toEqual({ predicate: p("a"), limit: 5 });
+    expect(() => normalizeBlockSearchQuery({ predicate: { kind: "time", field: "updated", op: ">", value: "later" }, limit: 5 })).toThrow("Invalid time value");
+    expect(() => normalizeBlockSearchQuery({ predicate: { kind: "or", operands: [] }, limit: 5 })).toThrow("at least one operand");
+    expect(() => normalizeBlockSearchQuery({ predicate: p("deleted", "true"), limit: 5 })).toThrow("deleted=true");
+    expect(() => normalizeBlockSearchQuery({ where: "a OR", limit: 5 })).toThrow(BlockQuerySyntaxError);
+    // A question: limit 200 when unsaid, a sort as words, a group and facets.
+    expect(normalizeBlockSearchQuery({ where: "a", sort: "work-stage desc", group: "Work-Stage", facets: ["Type"] }))
+      .toEqual({ filters: [{ key: "a" }], sort: { field: "work-stage", direction: "desc" }, group: "work-stage", facets: ["type"], limit: 200 });
+    expect(normalizeBlockSearchQuery({ sort: "title" })).toEqual({ sort: { field: "title", direction: "asc" }, limit: 200 });
+    expect(normalizeBlockSearchQuery({ sort: "property:title desc" }).sort).toEqual({ field: "property:title", direction: "desc" });
+    expect(normalizeBlockSearchQuery({ group: "created:week" }).group).toBe("created:week");
+    expect(() => normalizeBlockSearchQuery({ group: "two words" })).toThrow("group is a property name");
+    expect(() => normalizeBlockSearchQuery({ expression: "a" } as never)).toThrow("expression is now where");
   });
 });
 
@@ -154,8 +162,8 @@ describe("query expressions through the service", () => {
     await server.start();
     const client = new OutlinerClient(join(root, "service.sock"));
     const create = (text: string) => client.request<Block>({ action: "create", text });
-    const query = (expression: string, extra: object = {}) =>
-      client.request<VisibleBlockCollection>({ action: "blocks.query", query: { expression, limit: 50, ...extra } });
+    const query = (where: string, extra: object = {}) =>
+      client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, limit: 50, ...extra } });
     const names = (collection: { blocks: Block[] }) => collection.blocks.map(block => block.text.split(" [")[0]);
     try {
       const review = await create("Review card [type::task] [work-stage::review] [priority::high]");
@@ -179,15 +187,15 @@ describe("query expressions through the service", () => {
         .toEqual(["Review card", "Queued card"]);
       // Sorting and limits apply to the expression's full match set.
       const sorted = await query("type=task NOT work-stage=queued", { sort: { field: "updated", direction: "desc" }, limit: 2 });
-      expect([names(sorted), sorted.completeness]).toEqual([["Review card", "Done card"], { kind: "truncated", limit: 2 }]);
+      expect([names(sorted), sorted.completeness]).toEqual([["Review card", "Done card"], { kind: "truncated", limit: 2, matched: 3 }]);
       // Broader scopes report match context for positive clauses only.
       const scoped = await query("type=task (priority=high OR status=open)", { propertyScope: "all" });
       expect(scoped.blocks.map(block => block.propertyMatches?.map(match => match.key))).toEqual([["type", "priority"], ["type", "status"]]);
 
       const failure = await query("type=task OR").catch(error => error);
       expect(failure).toBeInstanceOf(OutlinerRequestError);
-      expect(failure.problem).toEqual({ code: "query-syntax", field: "expression", position: 12, message: expect.stringContaining("at character 13") });
-      const invalid = await client.request<never>({ action: "blocks.query", query: { where: { kind: "time", field: "updated", op: ">", value: "soon" }, limit: 5 } })
+      expect(failure.problem).toEqual({ code: "query-syntax", field: "where", position: 12, message: expect.stringContaining("at character 13") });
+      const invalid = await client.request<never>({ action: "blocks.query", query: { predicate: { kind: "time", field: "updated", op: ">", value: "soon" }, limit: 5 } })
         .catch((error: OutlinerRequestError) => error);
       expect(invalid.problem).toEqual({ code: "query-invalid", message: expect.stringContaining("Invalid time value") });
 
@@ -259,5 +267,66 @@ describe("query expressions through the service", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("forgiving query spellings (PIE-729)", () => {
+  const prop = (key: string, value: string) => ({ kind: "property" as const, key, value });
+  const same = (a: string, b: string) => expect(parseQueryExpression(a)).toEqual(parseQueryExpression(b));
+
+  test("[key::value] reads as key=value, alone and in flat filters", () => {
+    expect(parseSearchExpression("[type::thread]")).toEqual({ filters: [{ key: "type", value: "thread" }] });
+    expect(parseSearchExpression("[type::thread] [status::open]")).toEqual({ filters: [{ key: "type", value: "thread" }, { key: "status", value: "open" }] });
+    expect(parseQueryExpression("[type::thread]")).toEqual(prop("type", "thread"));
+  });
+
+  test("a bracketed value keeps its spaces and quotes", () => {
+    expect(parseQueryExpression("[status::in progress]")).toEqual(prop("status", "in progress"));
+    expect(parseQueryExpression('[status::"in progress"]')).toEqual(prop("status", "in progress"));
+  });
+
+  test("whitespace around = and :: is allowed", () => {
+    for (const spelling of ["type = thread", "type= thread", "type =thread", "type  ::  thread", "type :: thread"]) {
+      expect(parseSearchExpression(spelling)).toEqual({ filters: [{ key: "type", value: "thread" }] });
+    }
+    expect(parseQueryExpression('status = "in progress"')).toEqual(prop("status", "in progress"));
+  });
+
+  test("they combine with AND, OR, NOT, parentheses and quoted values", () => {
+    same("[type::thread] and (status = open or [status::blocked])", "type=thread and (status=open or status=blocked)");
+    same("([type::thread] or type = note) status = open", "(type=thread or type=note) status=open");
+    same("NOT [status::done] [type::thread]", "NOT status=done type=thread");
+    same('type = thread and status = "in progress"', 'type=thread and status="in progress"');
+    same("([status::in progress])", '(status="in progress")');
+    same("[type::thread] created >= 2024-01-01", "type=thread created>=2024-01-01");
+  });
+
+  test("a quoted value may hold brackets", () => {
+    expect(parseQueryExpression('[status::"a[b]c"] or x=y')).toMatchObject({ kind: "or", operands: [prop("status", "a[b]c"), prop("x", "y")] });
+  });
+
+  test("a keyword next to a separator is not swallowed as a value", () => {
+    expect(() => parseQueryExpression("type = and status=open")).toThrow(/value cannot be empty/);
+  });
+
+  test("queries that already parsed keep their meaning", () => {
+    expect(parseSearchExpression("k=a= next")).toEqual({ filters: [{ key: "k", value: "a=" }, { key: "next" }] });
+    expect(parseQueryExpression("status=open OR (type::thread AND NOT x=y)")).toEqual({
+      kind: "or", operands: [prop("status", "open"), { kind: "and", operands: [prop("type", "thread"), { kind: "not", operand: prop("x", "y") }] }],
+    });
+    expect(parseSearchExpression("status=\"in progress\" project::pi priority")).toEqual({
+      filters: [{ key: "status", value: "in progress" }, { key: "project", value: "pi" }, { key: "priority" }],
+    });
+  });
+
+  test("a refusal says what it read, a did-you-mean, then a working example", () => {
+    const refusal = (text: string) => { try { parseQueryExpression(text); } catch (e) { return (e as Error).message; } throw new Error("parsed"); };
+    const bang = refusal("type!=thread");
+    expect(bang).toMatch(/^Invalid property filter key: type! at character 1\. Did you mean NOT type=thread\?.*Example: type=thread and /);
+    expect(refusal("type:thread")).toContain("Did you mean type=thread?");
+    expect(refusal("= thread")).toMatch(/Invalid property filter key: \(empty\).*Example: /);
+    expect(refusal("type!=draft]")).toContain("Did you mean NOT type=draft]?");
+    expect(refusal("1bad=x")).not.toContain("Did you mean");
+    expect(refusal("1bad=x")).toContain("Example: ");
   });
 });

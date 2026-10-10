@@ -472,7 +472,7 @@ after the last).
 
 | Field | Meaning |
 |---|---|
-| `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above` |
+| `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
 | `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
 | `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` declarations and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
 | `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a template: `{title}`, `{text}`, `{level}`, `{$1}`, any property `{status}`), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
@@ -586,12 +586,27 @@ actions yet; `r` is its path today.
 ```
 
 - `on`: `block` (any block; the default), `handler:<key>` (a line of that handler: the request
-  names the block, and the line when there are several), `tile:<kind>` (needs no block), or `bar` (a
-  bar source's row runs it: no block, the row's `args`).
+  names the block, and the line when there are several), `tile:<kind>` (needs no block), `bar` (a
+  bar source's row runs it: no block, the row's `args`), or `passage` (below).
+- **`on: "passage"`** (ADR 0004 contract 5): it acts on an exact span of a block's or a Resource's text. The request
+  carries `passage: { subject, revision, quote, start, end, prefix, suffix }` (`subject` a block id or
+  `resource:<id>`; outline-core `passage.ts` builds one: `passageAt`, `findPassage`). The service checks it before
+  the action runs: at its revision the quote must be at `start`; at a newer one found exactly once with its prefix and
+  suffix (the action gets the moved offsets); anything else is refused with the nearest match. The action gets
+  `target: { passage, text, blockId?, revision?, resourceId? }` (`text`: the subject's text, to read around the
+  passage). A door's selection fills it (`passage.act`, its toolbar: a click, or `a` then the action's `key`), and so
+  do an agent's `quote=` with `near=` (`act ext.<id>.<action> block=… quote=…`) and `outliner ext act <id> <action>
+  --block <id> --quote "<words>" [--near N]`. An action on a block's passage may update the block (through
+  `draft.patch`, as below); a Resource's text is stored content, never edited, so on a Resource's passage it writes
+  only blocks.
+- `act` may also return `copy`: text for the person's clipboard (copy with a citation). A client copies it for the
+  person; an agent gets it back and the person's clipboard is untouched.
 - `effects`: `read` (the default) answers only; `write` may return writes.
 - `act` returns `{ message?, writes? }`. Writes are
   `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
-  at most 20. They must stay inside the block the action acts on; they apply together or not at
+  at most 20; an action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
+  the passage (ADR 0004 contract 6): no body is a highlight; `properties` are open (`kind`, `tags`, `color` as a theme
+  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They must stay inside the block the action acts on; they apply together or not at
   all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
   After an action on a `read` handler's line writes, that line runs again before the answer comes back.
 - **An update is an agent's edit.** It is revision-checked against the saved note, then applied
@@ -657,6 +672,13 @@ lands in the note while he goes on. That needs a door that says when he types in
 "agents": [{ "name": "tidy", "description": "Tidies the paragraph above", "effects": "read", "deadline": "30s" }]
 ```
 
+- **In a comment thread** (`"threads": true` on the agent, ADR 0004 contract 6): a person's comment on a passage, or a
+  reply in its thread, whose body has an `@name` line runs `respond` with `passage` (`subject`, `quote`, `start`,
+  `end`, `prefix`, `suffix`), `note` (its text: the block's, or the Resource's), `thread` (each comment so far) and
+  the thread's `properties`; its `reply` lands in the thread as `ext:<id>`. Patches are refused there (an answer in a
+  margin isn't an edit). Only a person's comment asks: an agent's or an extension's never does. A door's Ask (the
+  passage toolbar's `a a`) opens the comment on the selection with `@name ` written, `kind: question`.
+  Marginalia's `@margin` is the example (`extensions/marginalia`).
 - **Addressing.** A line that starts with `@name` (after an optional bullet), outside code, whose
   name an active extension answers. Any other `@word` is prose. Two extensions can't answer one
   name.
@@ -686,7 +708,7 @@ lands in the note while he goes on. That needs a door that says when he types in
     the change feed. A note held by a door gets the patch in its live draft. The spans are compared
     with the text as it is when the answer comes back (`draft.patch` with `current`), so typing
     elsewhere in the note is fine; if the person changed that passage meanwhile, the edit becomes a
-    proposal embedded under the line, to apply or dismiss. If the request line itself changed, the
+    proposal beside the note, drawn under the line, to apply or dismiss. If the request line itself changed, the
     answer is dropped: the new wording is a new request.
   - `reply`: markdown shown under the line (inert, like an output). The note's text is untouched.
   - `message`: what it did, in a few words (`tidied 2 lines above`).
@@ -823,7 +845,9 @@ Use made-up data. The runtime is the same one the live service uses.
   declares the query it reads, evaluated by the service). The primitives here are
   the target they move to.
 - **Actions in Detail.** The service lists them with keys and labels; the door binds them
-  (the door's PIE-512), Detail doesn't yet. Until then in Detail: `outliner ext act` and `extensions.act`.
+  (the door's PIE-512), Detail doesn't yet: its selection builds a passage through outline-core's
+  `findPassage` for a comment, but doesn't run a passage action. Until then in Detail: `outliner ext act --quote`
+  and `extensions.act`. Detail does draw highlights and margin notes (contract 6).
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
   until `r` on it (or it's worded differently).

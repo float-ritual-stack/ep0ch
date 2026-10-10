@@ -129,11 +129,13 @@ Never write to a real outline or touch the person's door. Their door may be on t
   through `scripts/agent-env <name> --test -- timeout 900 bun test test/<file>.test.ts`: queued for one of two
   test slots, capped, in the foreground. Never `--parallel`, never idle waiting for a background run's notification (poll your own run's output until it exits, or run it
   in the foreground): report the result you saw. Heavy suites only via `scripts/box-test`. Never `pkill` or kill a
-  process you didn't start: a pattern also matches other agents' runs. The door's `parity-screens` takes more than
-  ten minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
+  process you didn't start: a pattern also matches other agents' runs. Each door `parity-*` file takes about four
+  minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
   (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
   with `-t "home base, an outline missing"` instead.
-- **Tests:** `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
+- **Tests:** the root `CONTRIBUTING.md`, "What a test must earn": it fails when
+  something a person would notice breaks; a workflow with real input beats unit tests of the parts; no new file
+  for an action a file already drives; a count is not a result. `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
   their own outline host with `Scratch` or `ScratchHost` (`test/scratch.ts`, which finds `../outliner`): a
   scratch outlines folder, one outline `scratch` as the host's default. Fixtures
   are fictional: made-up notes, names and ids.

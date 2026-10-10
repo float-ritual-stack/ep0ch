@@ -181,11 +181,14 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     });
 
     test("a proposal points at its note: its diff and the target's id@revision, not the note again", async () => {
+      // The proposal sits beside the note without changing it (PIE-725): the person edits it once, so it moves on.
+      const was = (await board.get(notes.lamp!.id))!;
+      if (was.revision === notes.lamp!.revision) await board.update(was.id, `${was.text}\nOiled the hinges too.`, was.revision!);
       const lamp = (await call("outline_read", { ref: notes.lamp!.id })).json;
       const r = await call("outline_read", { ref: derived.proposal });
       expect(r.json.record).toMatchObject({ kind: "proposal", id: derived.proposal, status: "open", changes: 1,
         diff: [{ target: `${notes.lamp!.id}@${notes.lamp!.revision}`, observed: "waxed cloth", replacement: "microfibre cloth" }] });
-      // The diff names the revision it was proposed against; `now` says the note has moved on (the comments bumped it).
+      // The diff names the revision it was proposed against; `now` says the note has moved on.
       expect(lamp.revision).toBeGreaterThan(notes.lamp!.revision);
       expect(r.json.record.now).toEqual([`${notes.lamp!.id}@${lamp.revision}`]);
       expect(r.text).not.toContain("UNIQUE-TARGET-SENTENCE");

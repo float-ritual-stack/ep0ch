@@ -63,6 +63,10 @@ export const SEED = {
   swap: "Seed swap thread",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  society: "Allotment society",
+  marginalia: "Greenhouse plan for the spring",
+  marginaliaNotebook: "Marginalia notebook",
+  race: "Seed sowing guide",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -416,6 +420,24 @@ export const KEPT = {
  * shows. Under it, at seed time, a remote client's patch at `propose` (a proposal) and its comment, made through the
  * gateway's own write path (src/mcp-writes.ts).
  */
+/**
+ * The proposals section's guide (PIE-725): two agents patch its sowing line at one revision. @fern's lands; @moss's
+ * loses the race and becomes a proposal beside the guide, and @moss's retry of the same patch returns that proposal.
+ */
+export const RACE_LINE = "Sow the beans   in May, two to a pot.";
+export const RACE_AGENTS = { winner: "fern", loser: "moss" } as const;
+export const RACE_PATCH = { winner: { observed: "beans   in May", replacement: "beans in late May" }, loser: { observed: "beans   in May", replacement: "beans in May" } } as const;
+export const RACE = [
+  SEED.race,
+  "",
+  `Two agents tidied this guide at the same moment. @${RACE_AGENTS.winner}'s patch landed first. @${RACE_AGENTS.loser}'s, read at the same revision, changed the same words, so it became a proposal beside the guide, drawn after its last line with [apply] and [dismiss]. The guide's text and revision stayed as @${RACE_AGENTS.winner} left them, so the next writer doesn't lose too.`,
+  "",
+  `@${RACE_AGENTS.loser} then sent the same patch again. The service returned the open proposal (deduped), not a second copy.`,
+  "",
+  RACE_LINE,
+  "Water the seed trays from below.",
+].join("\n");
+
 /** The notes the what-changed section's scripted agent edits, with the line it writes (a round number follows). */
 export const LOGS = [["logBeans", "Staked and tied, round"], ["logCompost", "Turned the heap, round"], ["logShed", "Oiled the hinges, round"]] as const;
 
@@ -456,6 +478,34 @@ export const RECENT_FILES = (dir = SHOWCASE_ASSETS) => [
   { file: join(dir, "seed-list.txt"), shown: "seed-list.txt", touches: 1, at: "2026-03-11T09:31:00.000Z", added: 4, removed: 0 },
 ];
 export const RECENT_SESSION = "7c1e2f30-5a4b-4c3d-9e8f-0a1b2c3d4e5f";
+
+/** The file marginalia reads beside the plan (a made-up leaflet): a Resource, highlighted and asked about like a note. */
+export const MARGINALIA_FILE = (dir = SHOWCASE_ASSETS) => join(dir, "cold-frame-guide.md");
+
+/**
+ * Marginalia's plan note (ADR 0004 contracts 5 and 6, PIE-751, PIE-753): a made-up greenhouse plan with a glossary (what
+ * marginalia's Define reads), a fragment anchor (what Cite cites) and the leaflet it's read beside.
+ */
+export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
+  SEED.marginalia,
+  "",
+  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M changes how the margin reads.",
+  "",
+  "Water the tomatoes at dawn, before the glass warms. ^water",
+  "Keep the soil pH near 6.5 for the peppers; the chillies want it a touch lower.",
+  "Move the leeks to the cold frame in the second week of March, and harden them off for ten days.",
+  "Sow the basil only once the nights stay above ten degrees.",
+  "",
+  `Read beside it: [file::${file}]`,
+  "",
+  "## Glossary",
+  "- **soil pH**: how acid or sweet the soil is, from 0 to 14; 7 is neutral.",
+  "- cold frame — a low glass box that hardens seedlings off.",
+  "- harden off: get a seedling used to the weather a little more each day.",
+].join("\n");
+
+/** The notebook: a saved query over every annotation (properties are open: kind, tags, colour as written), in outline order, so each note's sit together. */
+export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
 const FINDING = [
@@ -500,6 +550,60 @@ const RECIPE = [
   "",
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");
+
+/**
+ * The notes that mention the allotment society (PIE-745): each links to its page, carrying a crop and a season (two
+ * properties no code knows); the society page links back to the first `linkedBack`. The page's watched questions list
+ * the rest (`links:this NOT linkedfrom:this`) and group them by either property.
+ */
+export const SOCIETY_NOTES: { title: string; crop: string; season: string }[] = [
+  { title: "Committee minutes, January", crop: "none", season: "winter" },
+  { title: "Water butt rota agreed", crop: "none", season: "spring" },
+  { title: "Rhubarb crowns from the society shop", crop: "rhubarb", season: "winter" },
+  { title: "Seed potato order closes Friday", crop: "potatoes", season: "spring" },
+  { title: "Blight warning for the potato beds", crop: "potatoes", season: "summer" },
+  { title: "Earthing up the second earlies", crop: "potatoes", season: "summer" },
+  { title: "Bean poles from the coppice day", crop: "beans", season: "spring" },
+  { title: "Runner bean trench, plot 14b", crop: "beans", season: "spring" },
+  { title: "Broad bean blackfly tips", crop: "beans", season: "summer" },
+  { title: "Leek trench depth from the show judge", crop: "leeks", season: "summer" },
+  { title: "Leek rust on plot 9", crop: "leeks", season: "autumn" },
+  { title: "Onion sets in the bulk order", crop: "onions", season: "spring" },
+  { title: "Onion fly netting share", crop: "onions", season: "summer" },
+  { title: "Squash for the harvest show", crop: "squash", season: "autumn" },
+  { title: "Squash curing in the shed", crop: "squash", season: "autumn" },
+  { title: "Courgette glut swap table", crop: "squash", season: "summer" },
+  { title: "Brassica collars from the society", crop: "brassicas", season: "spring" },
+  { title: "Pigeon netting over the kale", crop: "brassicas", season: "winter" },
+  { title: "Sprouts for the Christmas stall", crop: "brassicas", season: "winter" },
+  { title: "Strawberry runners to give away", crop: "fruit", season: "summer" },
+  { title: "Fruit cage repair day", crop: "fruit", season: "autumn" },
+  { title: "Gooseberry sawfly on the old bushes", crop: "fruit", season: "spring" },
+  { title: "Compost bay inspection", crop: "none", season: "autumn" },
+  { title: "Manure delivery to the top gate", crop: "none", season: "winter" },
+  { title: "Garlic in before the first frost", crop: "garlic", season: "autumn" },
+  { title: "Shallots split for the show", crop: "onions", season: "autumn" },
+];
+/** How many of the society notes its page links back to (the first ones): the rest are what it hasn't. */
+export const SOCIETY_LINKED_BACK = 6;
+
+function societyText(linkedBack: readonly Msg[]): string {
+  const question = "links:this NOT linkedfrom:this";
+  return [
+    `${SEED.society} [page::${SEED.society}]`,
+    "",
+    `Everything that mentions the society links here. Linked back so far: ${linkedBack.map(m => `((${m.id}))`).join(" ")}`,
+    "",
+    "## Not linked back yet",
+    `::links{query="${question}" title="Not linked back"}`,
+    "::",
+    "",
+    "The same question, grouped by the service: by crop in tabs, by season as a rank. Link one back (or write a new note that mentions the society) and every list here changes on its own: the service says the answer changed.",
+    "",
+    ...fig("tabs", ["title: By crop", `query: "${question}"`, "group: crop", "columns: [title, season]", "sort: title", "direction: asc", "limit: 6"]),
+    ...fig("rank", ["title: By season", `query: "${question}"`, "group: season"]),
+  ].join("\n").trimEnd();
+}
 
 /** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
 const PLOT_JOBS_NOTE = [
@@ -788,6 +892,8 @@ const RULES_NOTE = [
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
+  /** The proposals section's race (PIE-725): the loser's proposal, and whether its retry was returned as that one. */
+  race: { proposal: string; retry: { proposalId: string; deduped?: boolean } };
   lanes: Msg[];
   cards: Msg[];
   chores: Msg[];
@@ -798,6 +904,23 @@ export interface Seeded {
  * Write the showcase outline into an empty workspace. Refuses when one is already there (`findShowcase`),
  * so a half-finished run is never seeded on top of: reset the workspace instead.
  */
+/**
+ * The race (PIE-725): @fern and @moss read the guide at one revision and patch the same words. @fern's applies; @moss's
+ * becomes a proposal beside the guide; @moss's retry of the same patch returns that proposal (deduped).
+ */
+export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: Msg; race: Seeded["race"] }> {
+  const at = note.text.indexOf(RACE_PATCH.winner.observed);
+  const patch = (actorId: string, span: { observed: string; replacement: string }) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
+    blockId: note.id, revision: note.revision, mutation: { author: "agent", actorId },
+    patches: [{ ...span, range: { start: at, end: at + span.observed.length }, unit: "utf16" }],
+  });
+  await patch(RACE_AGENTS.winner, RACE_PATCH.winner);
+  const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);
+  const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
+}
+
 export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
@@ -864,6 +987,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     "",
     "[ ] steps onto a letter and the preview beside the list shows it; ⏎ on a letter opens it, ⏎ on the frame's ⏎ in goes into the list (j k, / to filter, esc out).",
     "",
+    "## A query it can't read",
+    '::links{query="type!=letter" title="Not letters"}',
+    "::",
+    "",
     "## On the plot",
     "- Water the beans before ten.",
     "- Lift the last of the onions.",
@@ -880,6 +1007,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
+  // The society page and the notes that mention it (PIE-745): its page first, so their [[links]] resolve; then its text
+  // once they're there, linking back to the first few.
+  notes.society = await make(notes.root.id, `${SEED.society} [page::${SEED.society}]`);
+  const mentions = await make(notes.root.id, "Society mentions\nNotes that mention the allotment society, one a note.");
+  const society: Msg[] = [];
+  for (const m of SOCIETY_NOTES) society.push(await make(mentions.id, `${m.title} [type::society-note] [crop::${m.crop}] [season::${m.season}]\nFrom the [[${SEED.society}]].`));
+  notes.society = await board.update(notes.society.id, societyText(society.slice(0, SOCIETY_LINKED_BACK)), notes.society.revision!);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);
@@ -914,6 +1048,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     resourceThread = (await board.commentOnResource("showcase-resource", note.resource!, note.revision!, "Netting goes on before the first leaves show, or the pigeons get there first.", { quote: quoted, start: note.text.indexOf(quoted) }, SEED_AGENT)).id;
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
+  const race = await seedRace(board, await make(notes.root.id, RACE));
+  notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
   const labels = await make(notes.root.id, LABELS_BEFORE);
@@ -962,6 +1098,19 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
   }
+  // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
+  }
+  notes.marginalia = await make(notes.root.id, MARGINALIA_PLAN());
+  notes.marginaliaNotebook = await make(notes.root.id, MARGINALIA_NOTEBOOK);
+  {
+    const plan = notes.marginalia, q = (words: string) => ({ quote: words, start: plan.text.indexOf(words) });
+    await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
+    const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
+    await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
+  }
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);
   await make(notes.rules.id, "Mend the water butt [status::todo]\nSetting its status to done stamps the day it was done (done-stamp); setting it back takes the stamp off.");
@@ -975,7 +1124,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];
-  return { notes, lanes, cards, chores, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
+  return { notes, lanes, cards, chores, race: race.race, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
 }
 
 /** The showcase's root on this outline, or null when the outline has none. */

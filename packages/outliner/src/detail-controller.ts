@@ -1,3 +1,4 @@
+import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { FragmentCandidateCollection, FragmentCandidateQuery } from "./fragment-search";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
 import type {DocumentSelection} from './document-frame';
@@ -975,8 +976,10 @@ export function renderedSelectionAnnotationTarget(
         : "canonical";
   const { snapshotText, passage, ...evidence } = capture;
   const observation: RenderedPassageObservation = { ...evidence, projection };
-  const match = passage ? -1 : snapshotText.indexOf(capture.quote);
-  const unique = match >= 0 && snapshotText.indexOf(capture.quote, match + 1) < 0;
+  // The one quote lookup (outline-core passage.ts, ADR 0004 contract 5): placed only when the words are there once.
+  const found = passage ? null : findPassage(snapshotText, capture.quote);
+  const match = found && !isMiss(found) ? found.start : -1;
+  const unique = match >= 0;
   const contentHash = annotationSourceHash(snapshotText);
   return {
     ...(passage ? {passage} : {}),
@@ -3063,6 +3066,10 @@ export function createDetailController(
       if (!isBufferMode() && state.refreshPending) await refreshPendingTarget();
     } catch (error) {
       state.status = written ? `Saved; display refresh failed · ${errorMessage(error)}` : errorMessage(error);
+      // A comment or reply that didn't land stays open with its text (PIE-761): said, with what to do next.
+      if (!written && state.mode === "comment" && (state.annotationDraft || state.annotationReplyDraft) && state.buffer.text.trim()) {
+        state.status = `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
+      }
       if (!written && state.mode === "edit" && state.context.selected && effects.recovery) {
         try {
           state.recovery=await effects.recovery.retain(recoveryInput());

@@ -169,7 +169,7 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
   expect(record.actorId).toBe("ext:moon");
 
   // Queryable like any block.
-  const found = await client.request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { expression: "moon.phase=\"Full Moon\"", limit: 10 } });
+  const found = await client.request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { where: "moon.phase=\"Full Moon\"", limit: 10 } });
   expect(found.blocks.map((match) => match.id)).toEqual([record.id]);
 
   // Owned: a person's edit is refused with a reason; their own notes go on the asking block.
@@ -190,7 +190,7 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
   const before = store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt;
   await Bun.sleep(10);
   await client.request({ action: "resources.projection.refresh", blockId: record.id });
-  expect(store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt > before || true).toBe(true);
+  expect(store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt > before).toBe(true);
   expect(store.get(record.id)!.effectiveDeletedRootId).toBeFalsy();
 
   // A second line for the same date shares the one record.

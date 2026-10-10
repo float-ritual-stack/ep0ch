@@ -1,3 +1,4 @@
+import { QUESTION_DEFAULT_LIMIT } from "@ep0ch/outline-core/protocol";
 import { createHash } from "node:crypto";
 import { createAnnotationAnchor } from "./annotations";
 import { normalizeBlockSearchQuery } from "./block-query";
@@ -479,7 +480,7 @@ export class WorkflowManager {
     let blocks: Array<Block & { depth?: number }>;
     let completeness: BlockCollectionCompleteness = { kind: "complete" };
     if (run.invocation.kind === "query") {
-      const query = { ...run.invocation.query, limit: Math.min(run.limits.fanOut, run.invocation.query.limit) };
+      const query = { ...run.invocation.query, limit: Math.min(run.limits.fanOut, run.invocation.query.limit ?? QUESTION_DEFAULT_LIMIT) };
       const result = this.store.queryBlocks(query);
       blocks = result.blocks;
       completeness = result.completeness;

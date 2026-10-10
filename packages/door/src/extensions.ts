@@ -18,6 +18,7 @@
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
 import type { Actor, SocketBoard } from "./socket";
+import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
@@ -44,7 +45,7 @@ export interface ExtensionAction {
   builtIn?: boolean;
 }
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
-export interface ExtensionAgent { name: string; description?: string; effects?: string }
+export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
@@ -87,7 +88,13 @@ export interface RuleEntry {
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
 export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[] }
-export interface ExtensionActResult { extension: string; action: string; message?: string; written: string[] }
+export interface ExtensionActResult {
+  extension: string; action: string; message?: string; written: string[];
+  /** Text for the clipboard (copy with a citation): the client copies it. */
+  copy?: string;
+  /** The passage it acted on, as the service checked it (moved when the text moved since it was read). */
+  passage?: Passage;
+}
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
 export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number): void; redraw(): void } }
@@ -174,7 +181,7 @@ export function handlerActions(extension: string, handler: string): ExtensionAct
  * still runs by a click on its control and by `act`). Navigation, `r` (run again), `y` (copy) and the rest of
  * the reader's own (README "Reading a note").
  */
-export const READER_OWN_KEYS = new Set("[]()fFuUryYvViICcmAXezjkhlqgGbO/?nN0123456789 ".split(""));
+export const READER_OWN_KEYS = new Set("[]()fFuUryYvViICcmMAXezjkhlqgGbO/?nN0123456789 ".split(""));
 
 /**
  * The action a key runs on a handler line: one the line has, bound to a single printable character that
@@ -192,7 +199,7 @@ export function handlerKeyAction(extension: string, handler: string, key: string
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string> }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   const say = asActor(ctx, actor);
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);
@@ -212,8 +219,22 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   }
 }
 
+/**
+ * The passage an agent names by its words (ADR 0004 contract 5): `quote` in the block's current text, the occurrence
+ * nearest `near` among repeats, as outline-core's one lookup finds it. Refused with why and the nearest match.
+ */
+export async function passageByQuote(board: Pick<SocketBoard, "get">, block: string, quote: string, near?: number): Promise<Passage> {
+  if (block.startsWith("resource:")) throw new ActionRefused("a Resource's passage is picked in a reader that shows it (its selection, or the reader's passage.act quote=): its text isn't a block's");
+  const m = await board.get(block);
+  if (!m || m.revision === undefined) throw new ActionRefused(`no block ${block} to quote (outline_find finds one)`);
+  const at = findPassage(m.text, quote, near === undefined ? {} : { near });
+  if (isMiss(at)) throw new ActionRefused(missMessage(at));
+  return passageAt(m.text, at.start, at.end, m.id, m.revision);
+}
+
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
+  if (a.on === "passage") return passageAction(e, a);
   const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar", outline = a.on === "outline";
   const k = keyOf(a.key);
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
@@ -234,6 +255,42 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(args ? { args } : {}) }, actor);
     },
   };
+}
+
+/**
+ * An action on a passage (`on: passage`), on every screen: `act ext.marginalia.define block=<id> quote="soil pH"`
+ * (near= among repeats). A reader's selection runs it too, through the reader's `passage.act` (and its toolbar's click
+ * and key), which builds the passage from exact source offsets; an agent names its words, never the person's selection.
+ */
+function passageAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs & { quote?: string; near?: number }, ExtOn> {
+  return {
+    summary: `${e.name ?? e.id}: ${a.description ?? a.label} (on a passage: block=<the note's id> quote=<its exact words>, near=<an offset> among repeats; in a reader, its selection through passage.act). The service checks the passage, then runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.`,
+    keys: "a then its key, or a click on its chip, while text is selected in a reader",
+    touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
+    args: {
+      block: { type: "string", optional: true, about: "the note the words are in" },
+      quote: { type: "string", optional: true, about: "the exact words, as stored" },
+      near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
+      line: { type: "number", optional: true, about: "unused on a passage" },
+      with: { type: "string", optional: true, about: "arguments, as JSON (names to text)" },
+    },
+    async run({ block, quote, near, with: w }, on, actor) {
+      if (!block || quote === undefined) throw new ActionRefused(`${a.name} acts on a passage: say block=<the note's id> quote=<its exact words> (near= among repeats), or select the words in a reader and use passage.act`);
+      const passage = await passageByQuote(on.ctx.board, block, quote, near);
+      const args = withArgs(w);
+      return runExtensionAction(on.ctx, a, e.id, { passage, ...(args ? { args } : {}) }, actor);
+    },
+  } as ActionDef<ExtArgs & { quote?: string; near?: number }, ExtOn>;
+}
+
+/** The extensions' actions on a passage, as listed: what a reader's passage toolbar offers. */
+export function passageActions(): { extension: ExtensionEntry; action: ExtensionAction }[] {
+  return (current?.extensions ?? []).filter(serving).flatMap(e => e.actions.filter(a => a.on === "passage").map(action => ({ extension: e, action })));
+}
+
+/** The agents that answer `@name` in a comment thread (`threads: true`): what a reader's Ask offers, first one first. */
+export function threadAgents(): ExtensionAgent[] {
+  return (current?.extensions ?? []).filter(serving).flatMap(e => (e.agents ?? []).filter(x => x.threads));
 }
 
 // ── a tile kind from the service ─────────────────────────────────────────────

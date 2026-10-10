@@ -19,6 +19,7 @@ import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
+import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
@@ -127,6 +128,7 @@ ${LIBRARY_USAGE}
                                    this folder's outline, else the only one running. open <id> is
                                    act open id=<id>; a URI names its outline and machine first; open file:<path>
                                    [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
+${AGENT_USAGE}
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one
@@ -195,10 +197,12 @@ if (args[0] === "library") { const { libraryCommand } = await import("./library/
 if (args[0] === "ext") {
   const at = args.indexOf("--ws");
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
-  const { runExtCommand } = await import("@ep0ch/outliner/extension-install");
-  process.exit(await runExtCommand(args.slice(1)));
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "ext", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
+if (args[0] === "agent") process.exit(await agentCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
   try {
@@ -285,6 +289,10 @@ if (how.mode === "attach") process.exit(await attachDoor(args));
 process.env.EP0CH_DAEMON = "0";
 const opened = await connectTarget(args);
 if ("error" in opened) { console.error(`ep0ch: ${opened.error}`); process.exit(1); }
+// The door's outline is named for everything it starts (tile programs, the drawer agent, the Herdr launcher):
+// `agentVars` carries these, so none of them guesses an outline from its shell's folder (PIE-756).
+process.env.EP0CH_WS = opened.place.outline;
+if (opened.place.machine) process.env.EP0CH_MACHINE = opened.place.machine; else delete process.env.EP0CH_MACHINE;
 
 const term = new Term();
 // Every way the door ends goes through one teardown (guardDoor): a signal (SIGINT, SIGQUIT, SIGTERM, SIGHUP) or a

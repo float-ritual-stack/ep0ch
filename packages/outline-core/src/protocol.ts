@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 126;
+export const PROTOCOL = 130;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -81,11 +81,77 @@ export interface BlockRevisions {
   revisions: BlockRevisionEntry[];
 }
 
+// ── Questions (ADR 0004 contract 1): the service evaluates, groups, sorts and counts; a client never does ──
+
+/**
+ * What `blocks.query` takes beyond its rows' narrowing (packages/outliner `BlockSearchQuery`): the question as every
+ * client writes it (a `::links` attribute, a `::graph-*` key, a tile's saved args, `outline_query`).
+ *
+ * - `where`: the views' grammar (outline-core's atoms, the outliner's `block-query.ts`).
+ * - `this`: the block `this` stands for in `where` (`links:this`). A `this` with none given is refused.
+ * - `group`: a property name, or `created:day|week|month` / `updated:day|week|month`.
+ * - `sort`: `"<property|created|updated|title>[ asc|desc]"`; `property:<name>` for a property so named. `work-stage`
+ *   sorts in the workboard's stage order.
+ * - `limit`: rows returned, 200 when left out, at most 1000. Groups and facets count every match.
+ * - `facets`: value counts for every key the matches carry (`true`), or these keys.
+ * - `watch` (beside `query` on the request): keep the question on this connection under that key (`QueriesChanged`).
+ */
+export interface QuestionFields {
+  where?: string;
+  this?: string;
+  group?: string;
+  sort?: string | { field: string; direction: "asc" | "desc" };
+  limit?: number;
+  facets?: true | string[];
+}
+
+/** The most rows a question returns (a handler's input, a figure). */
+export const QUESTION_MAX_LIMIT = 1000;
+/** Rows a question returns when it names no limit. */
+export const QUESTION_DEFAULT_LIMIT = 200;
+/** The most keys a facet answer lists, and the most values per key; `more` says how many values were left out. */
+export const QUESTION_FACET_CAP = 50;
+
+/**
+ * One group of an answer (`group=`): a value of the property (null: matches without it), how many matches have it
+ * (every match, not only the rows returned), and the ids of the returned rows in it, in the rows' order. A row whose
+ * property has several values is in each of their groups.
+ */
+export interface QuestionGroup { value: string | null; count: number; ids: string[] }
+
+/** A key's value counts over every match (`facets=`): `count` matches carry the key; `more` values were left out. */
+export interface QuestionFacet { key: string; count: number; values: { value: string; count: number }[]; more?: number }
+
+/** What a question adds to `blocks.query`'s answer. `generation` is the watch's (0 when it registers). */
+export interface QuestionAnswerFields {
+  generation?: number;
+  groups?: QuestionGroup[];
+  facets?: QuestionFacet[];
+  /** Said only when a key the question names is carried by no block in the outline: "no notes have <key>; nearest: …". */
+  hint?: string;
+}
+
+/**
+ * A watched read (ADR 0004): `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks` and
+ * `query.matches` take
+ * `watch: <key>` (kept on this connection; its answer is generation 0) and `generation` (answered from the newest
+ * answer kept, never evaluated again). After changes the service evaluates every watch at most every 250 ms and at
+ * least once a second under steady writes, and tells the connection which answers changed (a hash of the whole
+ * answer) with a `queries.changed` event: `{ domain: "queries", action: "queries.changed", changes }`. A watch dropped
+ * past the bounds (64 per connection, 512 per service, the oldest first) is announced with `dropped: true`; ask
+ * again to register it. A connection's watches end with it.
+ */
+export interface QueryChange { key: string; generation: number; dropped?: true }
+export const QUERIES_CHANGED = "queries.changed";
+export const WATCH_LIMITS = { perConnection: 64, perService: 512, settleMs: 250, maxWaitMs: 1000 } as const;
+/** The reads a client may watch. */
+export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches"] as const;
+
 /** A query the service refused, with where. */
 export interface OutlinerRequestProblem {
   code: "query-syntax" | "query-invalid";
   message: string;
-  /** Query field that failed, such as expression. */
+  /** Query field that failed, such as where. */
   field?: string;
   /** 0-based character position within that field's text. */
   position?: number;

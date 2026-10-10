@@ -422,7 +422,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const chosen = figures?.ui?.(key);
   const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
-  const live = resolveLive(kind, props);
+  const live = resolveLive(kind, props, src.note);
   if (live) {
     if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");

@@ -113,7 +113,7 @@ export type WhereFacts = {
 
 /** How the folder's outline was looked up: found, none named, opted out, or the lookup failed (why). */
 export type FolderFacts =
-  | { kind: 'bound'; workspace: { root: string; outline?: string; machine?: string; pinned?: true } }
+  | { kind: 'bound'; workspace: { root: string; outline?: string; machine?: string; pinned?: true; via?: 'env' | 'call' } }
   | { kind: 'unbound' }
   | { kind: 'opted-out'; root: string }
   | { kind: 'failed'; why: string }

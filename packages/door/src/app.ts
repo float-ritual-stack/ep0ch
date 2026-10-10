@@ -17,8 +17,6 @@ import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } fr
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
-import { invalidateLive } from "./live";
-import { invalidateLinks } from "./links";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { EXT_ACTIONS, loadExtensions } from "./extensions";
@@ -30,6 +28,7 @@ import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
 import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
+import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
@@ -94,6 +93,8 @@ export interface HostLayer {
   openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+  /** Every agent session this door holds (PIE-737): the agent panel's rows. */
+  sessions?(): AgentSession[];
 }
 
 /** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */
@@ -810,12 +811,13 @@ export class App implements Ctx {
     if (e.domain === "resource-catalog") { if (resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId)) this.redraw(); return; }
     if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") {
-      invalidateLive();
-      invalidateLinks();
+      // Live figures and inline ::links aren't asked again here: their reads are watched, and the service says
+      // when an answer changed (src/watched.ts).
       // A change record names its block: only the links, pages and embeds that show it are asked again.
       // A move or trash takes a subtree along, and an event without a record could be anything.
       const c = e.change;
-      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId] : null);
+      // A block made under a note changes what is drawn beside it (a proposal, PIE-725): the note is named too.
+      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId, ...(c.kind === "create" && c.parentId ? [c.parentId] : [])] : null);
       else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
       else outlineChanged(null, e.action === "reset");
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
@@ -844,7 +846,7 @@ export class App implements Ctx {
     // A comment or a proposal is a block of its own: said as what it does to the note it's under.
     const type = r?.properties.find(p => p.key === "type")?.values[0];
     if (r?.parent && (type === "annotation" || type === "draft-proposal")) { verb = type === "annotation" ? "commented on" : "proposed a change to"; r = await read(r.parent); }
-    // A proposal's embed line is an edit of the note right after it: the proposal is what's said, not "changed".
+    // An edit of the note right after a proposal of it (an older proposal's embed line): the proposal is what's said.
     const said = this.remoteSaid, now = this.now();
     if (verb === "changed" && said && said.id === r?.id && said.verb !== "changed" && now - said.at < 3000) return;
     this.remoteSaid = { id: r?.id, verb, at: now };

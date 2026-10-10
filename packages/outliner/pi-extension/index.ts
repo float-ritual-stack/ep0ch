@@ -3202,11 +3202,14 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     name: "outliner_query",
     label: "Outliner Query",
     description:
-      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes. `expression` accepts the query grammar with OR, NOT, parentheses and created/updated ranges (e.g. `work-stage=review OR work-stage=validate`, `NOT status=done`, `updated >= -7d`); it is ANDed with filters",
+      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes. `where` accepts the query grammar with OR, NOT, parentheses, created/updated ranges and the atoms (e.g. `work-stage=review OR work-stage=validate`, `NOT status=done`, `updated >= -7d`, `links:this NOT linkedfrom:this` with `this` a block id); it is ANDed with filters. `group` (a property name) answers groups with counts over every match; `facets: true` answers value counts",
     promptSnippet: "Query shared blocks by text or scoped property",
     parameters: Type.Object({
       text: Type.Optional(Type.String()),
-      expression: Type.Optional(Type.String()),
+      where: Type.Optional(Type.String()),
+      this: Type.Optional(Type.String()),
+      group: Type.Optional(Type.String()),
+      facets: Type.Optional(Type.Boolean()),
       filters: Type.Optional(
         Type.Array(
           Type.Object({
@@ -3228,10 +3231,11 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     }),
     async execute(_id, params) {
       await ensureService(false);
-      if (params.expression !== undefined) await client.requireCompatibleService();
+      if (params.where !== undefined) await client.requireCompatibleService();
+      const { facets, ...rest } = params;
       const collection = await client.request<VisibleBlockCollection>({
         action: "blocks.query",
-        query: { ...params, limit: params.limit ?? 100 },
+        query: { ...rest, ...(facets ? { facets: true as const } : {}), limit: params.limit ?? 100 },
       });
       return queryToolResult(collection);
     },

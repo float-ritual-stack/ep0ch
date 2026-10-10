@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
-import { getProperty, stripProperties } from "./properties";
+import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
+import { annotationProperties, annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import type {
-  AnnotationProperties,
   AnnotationAnchor,
   AnnotationPassage,
   AnnotationPassageResolution,
@@ -71,36 +71,6 @@ function optionalText(value: unknown, label: string): string | null {
 function source(value: unknown): AnnotationSource {
   if (value !== "user" && value !== "agent") throw new Error("Annotation source must be user or agent");
   return value;
-}
-
-/** Keys an annotation's own metadata uses; a properties bag can't set them. */
-const ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block"]);
-
-/**
- * An annotation's properties bag (PIE-754): lowercase keys, values one line of text without brackets, at most 16
- * keys and 32 values each. Undefined when there is none.
- */
-export function normalizeAnnotationProperties(value: unknown): AnnotationProperties | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Annotation properties must map names to text or lists of text");
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length > 16) throw new Error("Annotation properties: at most 16 keys");
-  const out: Record<string, string | string[]> = {};
-  const one = (key: string, item: unknown): string => {
-    if (typeof item !== "string" || !item.trim() || item.length > 200 || /[\[\]\r\n]/.test(item)) {
-      throw new Error(`Annotation property ${key}: each value is one line of text up to 200 characters, without [ or ]`);
-    }
-    return item.trim();
-  };
-  for (const [key, item] of entries) {
-    if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key)) throw new Error(`Annotation property ${key}: a key is a lowercase name`);
-    if (ANNOTATION_OWN_KEYS.has(key)) throw new Error(`Annotation property ${key} is the annotation's own; use another key`);
-    if (Array.isArray(item)) {
-      if (!item.length || item.length > 32) throw new Error(`Annotation property ${key}: a list holds 1 to 32 values`);
-      out[key] = item.map((entry) => one(key, entry));
-    } else out[key] = one(key, item);
-  }
-  return entries.length ? out : undefined;
 }
 
 export function annotationSourceHash(text: string): string {
@@ -658,12 +628,31 @@ export function normalizeAnnotationCreateInput(
   if (!input || typeof input !== "object") throw new Error("Annotation create input must be an object");
   const record = input as Record<string, unknown>;
   const properties = normalizeAnnotationProperties(record.properties);
+  // A highlight is an annotation with no body (ADR 0004, contract 6): only a passage can be highlighted.
+  const target = normalizeAnnotationTarget(record.target, allowLegacy);
+  const body = typeof record.body === "string" && !record.body.trim() && target.anchor.kind !== "whole-subject" ? "" : identity(record.body, "Annotation body");
   return {
-    target: normalizeAnnotationTarget(record.target, allowLegacy),
-    body: identity(record.body, "Annotation body"),
+    target,
+    body,
     source: source(record.source),
     ...(properties ? { properties } : {}),
   };
+}
+
+/**
+ * An annotation's own properties as written (`kind`, `tags`, `color`, or any other: they're open), checked; undefined
+ * when there are none.
+ */
+export function normalizeAnnotationProperties(value: unknown): Readonly<Record<string, readonly string[]>> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Annotation properties map names to a value or a list of values");
+  const problem = annotationPropertyProblem(value as Record<string, string | string[]>);
+  if (problem) throw new Error(`Annotation properties: ${problem}`);
+  const out: Record<string, string[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, string | string[]>)) {
+    out[key] = (typeof raw === "string" ? [raw] : raw).map(v => key === "color" ? v.trim().toLowerCase() : v.trim());
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export function normalizeResolutionMethod(value: unknown): AnnotationResolutionMethod {
@@ -746,6 +735,41 @@ function quoteForHeading(target: AnnotationTarget): string {
   return `${target.anchor.provider} comment ${target.anchor.commentId}`;
 }
 
+/**
+ * A heading quote with no unclosed code span. A code span runs to the next backtick run of the same length, across
+ * lines (outline-core's code-ranges), so a quote cut inside one (`` `columns: [title, tl…``) would open a span that
+ * swallows the metadata line below it, and the block would be saved without its `[type::annotation]` (PIE-761).
+ * Paired runs stay; an unpaired run is dropped.
+ */
+export function inertHeadingQuote(quote: string): string {
+  let out = "";
+  let cursor = 0;
+  while (cursor < quote.length) {
+    const opener = quote.indexOf("`", cursor);
+    if (opener < 0) return out + quote.slice(cursor);
+    let openerEnd = opener + 1;
+    while (quote[openerEnd] === "`") openerEnd += 1;
+    const length = openerEnd - opener;
+    let closing = -1;
+    for (let scan = openerEnd; scan < quote.length;) {
+      const next = quote.indexOf("`", scan);
+      if (next < 0) break;
+      let runEnd = next + 1;
+      while (quote[runEnd] === "`") runEnd += 1;
+      if (runEnd - next === length) { closing = next; break; }
+      scan = runEnd;
+    }
+    if (closing < 0) {
+      out += quote.slice(cursor, opener);
+      cursor = openerEnd;
+    } else {
+      out += quote.slice(cursor, closing + length);
+      cursor = closing + length;
+    }
+  }
+  return out;
+}
+
 export function formatAnnotationBlock(
   input: AnnotationCreateInput,
   parentAnnotationId?: string,
@@ -758,7 +782,10 @@ export function formatAnnotationBlock(
   const normalized = normalizeAnnotationCreateInput(input, options.allowLegacy ?? false);
   const parent = parentAnnotationId === undefined ? undefined : identity(parentAnnotationId, "Parent annotation ID");
   const quote = quoteForHeading(normalized.target).replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\s+/g, " ").trim();
-  const heading = `Comment on “${quote.length > 72 ? `${quote.slice(0, 71)}…` : quote}”`;
+  // What it is, in its heading: a comment, or (by its `kind`, else no body) a highlight, a question, a definition…
+  const kind = normalized.properties?.kind?.[0] ?? (!parent && !normalized.body ? "highlight" : "comment");
+  const word = /^[a-z][a-z-]{0,23}$/i.test(kind) ? `${kind[0]!.toUpperCase()}${kind.slice(1).toLowerCase()}` : "Comment";
+  const heading = `${word} on “${inertHeadingQuote(quote.length > 72 ? `${quote.slice(0, 71)}…` : quote)}”`;
   const metadata = [
     `[type::${parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE}]`,
     `[annotation-source::${normalized.source}]`,
@@ -766,15 +793,21 @@ export function formatAnnotationBlock(
   ];
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
-  for (const [key, value] of Object.entries(normalized.properties ?? {})) {
-    for (const item of typeof value === "string" ? [value] : value) metadata.push(`[${key}::${item}]`);
-  }
-  return [heading, metadata.join(" "), normalized.body].join("\n");
+  for (const [key, values] of Object.entries(normalized.properties ?? {})) for (const value of values) metadata.push(`[${key}::${value}]`);
+  const lines = (first: string) => (normalized.body ? [first, metadata.join(" "), normalized.body] : [first, metadata.join(" ")]).join("\n");
+  const text = lines(heading);
+  // The metadata line must read back as written whatever the quote holds; if anything in the heading still hides it
+  // (a literal or code form nobody foresaw), the comment lands under a plain heading rather than being refused.
+  const type = getProperty(parseProperties(text), "type");
+  return type === (parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE) ? text : lines(word);
 }
+
+/** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone (the plain heading when the quote can't be one). */
+export const ANNOTATION_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);
-  let bodyStart = lines[0]?.startsWith("Comment on ") ? 1 : 0;
+  let bodyStart = ANNOTATION_HEADING.test(lines[0] ?? "") ? 1 : 0;
   while (bodyStart < lines.length) {
     const line = lines[bodyStart]!;
     if (line.trim() && stripProperties(line)) break;
@@ -790,21 +823,8 @@ export interface AnnotationBlockContent {
   readonly lifecycle: AnnotationLifecycle;
   readonly promotedBlockIds: readonly string[];
   readonly parentAnnotationId?: string;
-  /** Its properties bag: the metadata line's tokens besides its own (PIE-754). */
-  readonly properties?: AnnotationProperties;
-}
-
-/** The bag on an annotation block's metadata line (the first line that starts with `[type::`), its own keys left out. */
-export function annotationLineProperties(text: string): AnnotationProperties | undefined {
-  const line = text.split(/\r?\n/).find((candidate) => candidate.startsWith("[type::"));
-  if (!line) return undefined;
-  const out: Record<string, string[]> = {};
-  for (const match of line.matchAll(/\[([a-z][a-z0-9._-]{0,63})::([^\]\n]*)\]/g)) {
-    if (ANNOTATION_OWN_KEYS.has(match[1]!)) continue;
-    (out[match[1]!] ??= []).push(match[2]!);
-  }
-  const keys = Object.keys(out);
-  return keys.length ? Object.fromEntries(keys.map((key) => [key, out[key]!.length === 1 ? out[key]![0]! : out[key]!])) : undefined;
+  /** Its own properties (`kind`, `tags`, `color`, any other), the store's keys left out. */
+  readonly properties: Readonly<Record<string, readonly string[]>>;
 }
 
 export function parseAnnotationBlockContent(block: Block): AnnotationBlockContent {
@@ -818,7 +838,7 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
     source: source(getProperty(block.properties, "annotation-source")),
     lifecycle,
     promotedBlockIds: block.properties.filter((property) => property.key === "promoted-block").map((property) => property.value),
-    ...(annotationLineProperties(block.text) ? { properties: annotationLineProperties(block.text)! } : {}),
+    properties: annotationProperties(block.properties),
   };
   const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
   return parentAnnotationId ? { ...content, parentAnnotationId } : content;

@@ -158,8 +158,9 @@ test("checklist tools preserve item evidence, caller provenance and explicit who
   const fixture = new OutlinerClient(join(root, "service.sock"));
   const originalRequest = OutlinerClient.prototype.request;
   // Retarget the installed adapter's transport; requests still cross a real service.
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, timeout?: number): Promise<T> {
-    return originalRequest.call(fixture, input, timeout) as Promise<T>;
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, _timeout?: number): Promise<T> {
+    // The extension pings with a 300 ms budget; a loaded machine can miss it, so the fixture is given no limit.
+    return originalRequest.call(fixture, input, undefined) as Promise<T>;
   });
   type Tool = {name: string; parameters: TSchema; prepareArguments?(args: unknown): unknown; execute(id: string, params: unknown, signal: undefined,
     update: undefined, context: ExtensionContext): Promise<{details: unknown}>};
@@ -1823,8 +1824,8 @@ test("requires the current protocol, attributes agent creates and page follows, 
     expect(largeEnvelope.presentation.presented).toBe(largeEnvelope.blocks.length);
     expect(largeEnvelope.presentation.omitted).toBeGreaterThan(0);
     requests.length = 0;
-    await tools.get("outliner_query")!.execute("expression-query", { expression: "a OR b" } as never);
-    expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { expression: "a OR b" } });
+    await tools.get("outliner_query")!.execute("expression-query", { where: "a OR b" } as never);
+    expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { where: "a OR b" } });
     protocolVersion = PROTOCOL + 1;
     await expect(tools.get("outliner_query")!.execute("stale-extension-query", {})).rejects.toThrow(
       `Outliner protocol ${PROTOCOL + 1} is newer than this session's extension protocol ${PROTOCOL}. Run /reload, then retry.`,

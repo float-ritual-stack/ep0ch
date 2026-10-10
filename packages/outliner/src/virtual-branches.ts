@@ -672,7 +672,7 @@ export function virtualBranchMembershipQuery(
 ): BlockSearchQuery {
   return {
     filters: config.filters,
-    ...(config.where ? { where: config.where } : {}),
+    ...(config.where ? { predicate: config.where } : {}),
     ...(config.sort ? { sort: config.sort } : { rankViewId: viewId }),
     limit,
   };
@@ -1051,7 +1051,7 @@ export async function planVirtualChild<T extends ProjectionBlock>(
     // also covers a new child that sorts before the parent's current match root.
     const now = new Date().toISOString();
     return matchesFilters(child.properties, query.filters ?? []) &&
-      (!query.where || compileQueryExpression(query.where)({ id: child.id, text: (child as { text?: string }).text, createdAt: now, updatedAt: now }, child.properties))
+      (!query.predicate || compileQueryExpression(query.predicate)({ id: child.id, text: (child as { text?: string }).text, createdAt: now, updatedAt: now }, child.properties))
       ? { ...result, blocks: [child, ...result.blocks] }
       : result;
   }, ranks, { ...presentation, collapsedOccurrenceRowIds: collapsed, expandedOccurrenceRowIds: expanded });

@@ -1,11 +1,14 @@
 import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
-import { QueryAtomError, isQueryAtomWord, parseQueryAtom, tagMatches } from "@ep0ch/outline-core/query-atoms";
+import { QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
+import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
+import { ROADMAP_WORK_STAGES } from "./types";
 import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
   Block,
   BlockProperty,
   BlockQuerySort,
   BlockSearchQuery,
+  NormalizedBlockSearchQuery,
   PropertyFilter,
   PropertyQueryScope,
   PropertyRecord,
@@ -14,7 +17,7 @@ import type {
   QueryExpression,
 } from "./types";
 
-export const MAX_BLOCK_QUERY_LIMIT = 1000;
+export const MAX_BLOCK_QUERY_LIMIT = QUESTION_MAX_LIMIT;
 const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s");
 
 const BOOLEAN_OPERATORS = new Set(["and", "not", "or"]);
@@ -40,8 +43,9 @@ export class BlockQuerySyntaxError extends Error {
   constructor(
     message: string,
     readonly index: number,
+    hint?: string,
   ) {
-    super(`${message} at character ${index + 1}`);
+    super(`${message} at character ${index + 1}${hint ? `. ${hint}` : ""}`);
     this.name = "BlockQuerySyntaxError";
   }
 }
@@ -54,8 +58,29 @@ export interface FilterCompletionTarget {
   key?: string;
 }
 
-function syntaxError(message: string, index: number): never {
-  throw new BlockQuerySyntaxError(message, index);
+function syntaxError(message: string, index: number, hint?: string): never {
+  throw new BlockQuerySyntaxError(message, index, hint);
+}
+
+const QUERY_EXAMPLE = "Example: type=thread and (status=open or status=blocked)";
+const CLAUSE_GUESS = new RegExp(`^\\s*(${PROPERTY_KEY_SOURCE})\\s*(!=|==|::|:|=)\\s*(.+?)\\s*$`, "s");
+
+/**
+ * What a clause that would not parse most likely meant, then a working example: the teaching half of a
+ * refusal. `[type::thread]` and `type = thread` read now; what is left is `type!=thread` (NOT type=thread),
+ * a lone colon and the like.
+ */
+function clauseHint(clause: string): string {
+  const text = clause.trim();
+  const guess = CLAUSE_GUESS.exec(/^\[[^\[].*\]$/s.test(text) ? text.slice(1, -1) : text);
+  let didYouMean = "";
+  if (guess) {
+    const value = /\s/.test(guess[3]!) && !guess[3]!.startsWith('"') ? `"${guess[3]!.replace(/[\\"]/g, "\\$&")}"` : guess[3]!;
+    didYouMean = guess[2] === "!="
+      ? `Did you mean NOT ${guess[1]}=${value}? There is no != ; put NOT before the clause. `
+      : `Did you mean ${guess[1]}=${value}? `;
+  }
+  return `${didYouMean}${QUERY_EXAMPLE}`;
 }
 
 function separatorIn(clause: string): { index: number; length: number } | null {
@@ -142,16 +167,18 @@ export function parsePropertyFilterClause(
     syntaxError(
       `Invalid property filter key: ${rawKey || "(empty)"}`,
       clauseOffset,
+      clauseHint(clause),
     );
   }
   if (BOOLEAN_OPERATORS.has(key)) {
-    syntaxError(`Boolean operator ${rawKey} is not supported`, clauseOffset);
+    syntaxError(`Boolean operator ${rawKey} is not supported`, clauseOffset, QUERY_EXAMPLE);
   }
   if (!separator) {
     if (/\s/.test(clause))
       syntaxError(
         "Property presence filter cannot contain whitespace",
         clauseOffset,
+        `Put = between a key and its value: key=value. ${QUERY_EXAMPLE}`,
       );
     return { key };
   }
@@ -211,8 +238,13 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
       quoteStart = index;
       continue;
     }
-    // `links:[[a page]]` and `under:[[a page]]` keep a page name's spaces.
-    if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|under):$/i.test(input.slice(start, index))) {
+    // `[type::thread]`, a Blockdown property token, is one clause and keeps the spaces in its value.
+    if (character === "[" && input[index + 1] !== "[" && /^\(*$/.test(input.slice(start, index))) {
+      const close = closingBracket(input, index);
+      if (close >= 0 && PROPERTY_TOKEN_START.test(input.slice(index + 1, close))) { index = close; continue; }
+    }
+    // `links:[[a page]]` and the other relations' `[[a page]]` keep a page name's spaces.
+    if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|linkedfrom|under|parent):$/i.test(input.slice(start, index))) {
       const close = input.indexOf("]]", index + 2);
       if (close >= 0 && !input.slice(index, close).includes("\n")) { index = close + 1; continue; }
     }
@@ -227,7 +259,65 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
   if (quoteStart >= 0)
     syntaxError("Unterminated quoted filter value", quoteStart);
   if (start >= 0) tokens.push({ text: input.slice(start), start });
-  return tokens;
+  return foldClauseTokens(tokens);
+}
+
+const PROPERTY_TOKEN_START = new RegExp(`^\\s*(?:${PROPERTY_KEY_SOURCE})::`);
+const PROPERTY_TOKEN = new RegExp(`^(\\(*)\\[\\s*(${PROPERTY_KEY_SOURCE})::(.*?)\\s*\\]((?:\\))*)$`, "s");
+const BARE_KEY = new RegExp(`^\\(*(?:${PROPERTY_KEY_SOURCE})$`);
+const KEY_THEN_SEPARATOR = new RegExp(`^\\(*(?:${PROPERTY_KEY_SOURCE})(?:=|::)$`);
+const isKeyword = (text: string) => /^(?:and|or|not)$/i.test(text);
+
+/** The index of the `]` closing the `[` at `open` (nested brackets balance), or -1 on this line. */
+function closingBracket(input: string, open: number): number {
+  let depth = 0, quoted = false;
+  for (let index = open; index < input.length; index += 1) {
+    const character = input[index];
+    if (character === "\n") return -1;
+    if (quoted) {
+      if (character === "\\") index += 1;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "[") depth += 1;
+    else if (character === "]" && (depth -= 1) === 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * Words into clauses. `[key::value]` reads as `key=value`, and whitespace around `=` or `::` is allowed
+ * (`type = thread`, `type= thread`, `type =thread`). Neither form parsed before (a key can't hold `[`, and a
+ * word beginning with `=` had no key), so no query that parsed changes meaning; `k=a=` and the like keep their
+ * value because only a word that ends in the separator, or begins with it, takes its neighbour.
+ */
+function foldClauseTokens(tokens: FilterToken[]): FilterToken[] {
+  const out: FilterToken[] = [];
+  for (let at = 0; at < tokens.length; at += 1) {
+    let token = { ...tokens[at]! };
+    const token$ = PROPERTY_TOKEN.exec(token.text);
+    if (token$) {
+      const value = token$[3]!;
+      const quoted = /\s/.test(value) && !value.startsWith('"') ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
+      token = { ...token, text: `${token$[1]}${token$[2]}=${quoted}${token$[4]}` };
+    }
+    const previous = out[out.length - 1];
+    const lead = /^(?:=|::)(.*)$/s.exec(token.text);
+    if (previous && lead && BARE_KEY.test(previous.text) && !isKeyword(previous.text)) {
+      previous.text += token.text;
+      const next = tokens[at + 1];
+      if (!lead[1] && next && !isKeyword(next.text)) { previous.text += next.text; at += 1; }
+      continue;
+    }
+    const next = tokens[at + 1];
+    if (KEY_THEN_SEPARATOR.test(token.text) && next && !isKeyword(next.text) && !/^\)*$/.test(next.text)) {
+      token.text += next.text;
+      at += 1;
+    }
+    out.push(token);
+  }
+  return out;
 }
 
 export function parsePropertyFilterExpression(input: string): PropertyFilter[] {
@@ -583,13 +673,15 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
     }
     case "tag":
     case "links":
+    case "linkedfrom":
     case "under":
+    case "parent":
     case "title":
     case "text":
     case "call": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
       const word = expression.kind === "tag" ? `#${String(expression.tag)}`
-        : expression.kind === "links" || expression.kind === "under" ? `${expression.kind}:${String(expression.target)}`
+        : expression.kind === "links" || expression.kind === "linkedfrom" || expression.kind === "under" || expression.kind === "parent" ? `${expression.kind}:${String(expression.target)}`
         : expression.kind === "call" ? `call:${String(expression.call)}`
         : `${expression.kind}~"${String(expression.text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
       try {
@@ -618,14 +710,18 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
 
 /**
  * What the relation atoms read, from the service: a target named the way a person types it resolved to a block id (it
- * throws a corrective error when none is), the ids of the blocks linking to it (the backlink index), and whether a block
- * sits in a subtree. Without it `links:` and `under:` hold for nothing, and `title~`, `text~` and `#tag` still answer from
- * the block itself.
+ * throws a corrective error when none is), the ids of the blocks linking to it (the backlink index) and of the blocks it
+ * links to (the same occurrences, read from its side), whether a block sits in a subtree and a block's parent. Without
+ * it the relation atoms hold for nothing, and `title~`, `text~` and `#tag` still answer from the block itself.
  */
 export interface QueryRelations {
-  resolve(atom: "links" | "under", target: string): string;
+  resolve(atom: QueryRelationAtom, target: string): string;
   linkSources(blockId: string): ReadonlySet<string>;
+  /** The active blocks `blockId` links to (`linkedfrom:`): the backlink relation's occurrences, so `links:` and it agree. */
+  linkTargets?(blockId: string): ReadonlySet<string>;
   within(blockId: string, rootId: string): boolean;
+  /** A block's parent id (`parent:`); null at the top. */
+  parentOf?(blockId: string): string | null | undefined;
   /** The ids of the blocks whose latest change (else their creation) came from a call with this id (PIE-685). */
   callBlocks?(call: string): ReadonlySet<string>;
 }
@@ -665,10 +761,20 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       const sources = relations.linkSources(relations.resolve(expression.kind, expression.target));
       return subject => subject.id !== undefined && sources.has(subject.id);
     }
+    case "linkedfrom": {
+      if (!relations?.linkTargets) return () => false;
+      const targets = relations.linkTargets(relations.resolve(expression.kind, expression.target));
+      return subject => subject.id !== undefined && targets.has(subject.id);
+    }
     case "under": {
       if (!relations) return () => false;
       const root = relations.resolve(expression.kind, expression.target);
       return subject => subject.id !== undefined && relations.within(subject.id, root);
+    }
+    case "parent": {
+      if (!relations?.parentOf) return () => false;
+      const parent = relations.resolve(expression.kind, expression.target);
+      return subject => subject.id !== undefined && relations.parentOf!(subject.id) === parent;
     }
     case "call": {
       const written = relations?.callBlocks?.(expression.call);
@@ -727,7 +833,9 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
     case "time":
     case "tag":
     case "links":
+    case "linkedfrom":
     case "under":
+    case "parent":
     case "title":
     case "text":
     case "call":
@@ -741,16 +849,102 @@ function titleOf(text: string): string {
   return firstLineWithoutPropertyTokens(text)?.trim() ?? "";
 }
 
+/** Why a question that says `this` can't be answered without one (ADR 0004). */
+export const THIS_MISSING = "this is the note the query sits in; this query has none (pass this=<block id>)";
+
+/**
+ * `expression` with every `this` target bound to block `thisId` (`links:this` → `links:((id))`). With no `thisId`, a
+ * `this` is refused with what to pass.
+ */
+export function bindThis(expression: QueryExpression, thisId: string | undefined): QueryExpression {
+  switch (expression.kind) {
+    case "links":
+    case "linkedfrom":
+    case "under":
+    case "parent":
+      if (expression.target !== THIS_TARGET) return expression;
+      if (!thisId) throw new BlockQueryError(THIS_MISSING);
+      return { ...expression, target: `((${thisId}))` };
+    case "not":
+      return { kind: "not", operand: bindThis(expression.operand, thisId) };
+    case "and":
+    case "or":
+      return { kind: expression.kind, operands: expression.operands.map(operand => bindThis(operand, thisId)) };
+    default:
+      return expression;
+  }
+}
+
+/** Every property key an expression names, under NOT and `child:` too: what a "no notes have <key>" hint checks. */
+export function expressionPropertyKeys(expression: QueryExpression | undefined): string[] {
+  if (!expression) return [];
+  switch (expression.kind) {
+    case "property": return [expression.key];
+    case "not": return expressionPropertyKeys(expression.operand);
+    case "and":
+    case "or": return expression.operands.flatMap(expressionPropertyKeys);
+    default: return [];
+  }
+}
+
+/** The date buckets a group can name: `created:day`, `updated:month`, … */
+const DATE_GROUP = /^(created|updated):(day|week|month)$/;
+
+/** A group as the service keeps it: a property key lowercased, or a date bucket. Throws why it can't be one. */
+export function normalizeGroupField(group: unknown): string {
+  if (typeof group !== "string" || !group.trim()) throw new BlockQueryError("group is a property name, or created:day|week|month or updated:day|week|month");
+  const trimmed = group.trim().toLowerCase();
+  if (DATE_GROUP.test(trimmed)) return trimmed;
+  const key = trimmed.startsWith(SORT_PROPERTY) ? trimmed.slice(SORT_PROPERTY.length).trim() : trimmed;
+  if (!isPropertyKey(key)) {
+    throw new BlockQueryError(`group is a property name (a letter, then letters, digits, _ . or -), or created:day|week|month or updated:day|week|month, not ${group}`);
+  }
+  return key;
+}
+
+/** The date bucket a group names, or null for a property. */
+export function dateGroupOf(group: string): { field: "createdAt" | "updatedAt"; unit: "day" | "week" | "month" } | null {
+  const match = DATE_GROUP.exec(group);
+  if (!match) return null;
+  return { field: match[1] === "created" ? "createdAt" : "updatedAt", unit: match[2] as "day" | "week" | "month" };
+}
+
+/** `"<field>[ asc|desc]"` (asc unless said) or `{ field, direction }`, checked and normalized. */
+function normalizeSort(sort: unknown): BlockQuerySort {
+  let field: unknown, direction: unknown;
+  if (typeof sort === "string") {
+    const words = sort.trim().split(/\s+/);
+    if (!words[0] || words.length > 2) throw new Error(`Sort is "<property|created|updated|title>[ asc|desc]", not ${sort}`);
+    field = words[0];
+    direction = words[1] ?? "asc";
+  } else if (sort && typeof sort === "object" && !Array.isArray(sort)) {
+    ({ field, direction } = sort as { field?: unknown; direction?: unknown });
+  } else {
+    throw new Error("Block search sort must be an object or \"<field>[ asc|desc]\"");
+  }
+  const normalized = normalizeSortField(field);
+  if (normalized === null) throw new Error(sortFieldProblem(field));
+  const dir = typeof direction === "string" ? direction.trim().toLowerCase() : direction;
+  if (dir !== "asc" && dir !== "desc") {
+    throw new Error(`Sort direction is asc or desc, not ${String(direction)}: asc puts the smallest first`);
+  }
+  return { field: normalized, direction: dir };
+}
+
 export function normalizeBlockSearchQuery(
   query: BlockSearchQuery,
-): BlockSearchQuery {
+): NormalizedBlockSearchQuery {
   if (!query || typeof query !== "object")
     throw new Error("Block search query is required");
+  if ("expression" in query) {
+    throw new Error("blocks.query's expression is now where: send { where: \"type=task\" }; a structured predicate is predicate");
+  }
+  const limit = query.limit ?? QUESTION_DEFAULT_LIMIT;
   if (
-    typeof query.limit !== "number" ||
-    !Number.isInteger(query.limit) ||
-    query.limit < 1 ||
-    query.limit > MAX_BLOCK_QUERY_LIMIT
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_BLOCK_QUERY_LIMIT
   ) {
     throw new Error(
       `Block search limit must be an integer from 1 through ${MAX_BLOCK_QUERY_LIMIT}`,
@@ -777,41 +971,39 @@ export function normalizeBlockSearchQuery(
     ["text", query.text],
     ["subtreeRootId", query.subtreeRootId],
     ["rankViewId", query.rankViewId],
+    ["this", query.this],
   ] as const) {
     if (value !== undefined && typeof value !== "string") {
       throw new Error(`Block search ${field} must be a string`);
     }
   }
 
-  if (query.expression !== undefined && typeof query.expression !== "string") {
-    throw new Error("Block search expression must be a string");
+  if (query.where !== undefined && typeof query.where !== "string") {
+    throw new Error("Block search where must be query text, like \"type=task NOT links:this\"; a structured predicate is predicate");
   }
+  const thisId = query.this?.trim() || undefined;
   const parts: QueryExpression[] = [];
   // Plain clause lists keep their filter meaning, including deleted=true.
   let parsedExpression: ReturnType<typeof parseSearchExpression> | null = null;
   try {
-    parsedExpression = query.expression?.trim() ? parseSearchExpression(query.expression) : null;
+    parsedExpression = query.where?.trim() ? parseSearchExpression(query.where) : null;
   } catch (error) {
-    if (error instanceof BlockQuerySyntaxError) error.field = "expression";
+    if (error instanceof BlockQuerySyntaxError) error.field = "where";
     throw error;
   }
-  if (parsedExpression?.where) parts.push(parsedExpression.where);
-  if (query.where !== undefined) parts.push(normalizeQueryExpression(query.where));
-  const where = parts.length === 0 ? undefined
+  if (parsedExpression?.where) parts.push(bindThis(parsedExpression.where, thisId));
+  if (query.predicate !== undefined) parts.push(bindThis(normalizeQueryExpression(query.predicate), thisId));
+  const predicate = parts.length === 0 ? undefined
     : parts.length === 1 ? parts[0]! : { kind: "and" as const, operands: parts };
 
-  let sort: BlockSearchQuery["sort"];
-  if (query.sort !== undefined) {
-    if (!query.sort || typeof query.sort !== "object" || Array.isArray(query.sort)) {
-      throw new Error("Block search sort must be an object");
-    }
-    const field = normalizeSortField(query.sort.field);
-    if (field === null) throw new Error(sortFieldProblem(query.sort.field));
-    const direction = typeof query.sort.direction === "string" ? query.sort.direction.trim().toLowerCase() : query.sort.direction;
-    if (direction !== "asc" && direction !== "desc") {
-      throw new Error(`Sort direction is asc or desc, not ${String(query.sort.direction)}: asc puts the smallest first`);
-    }
-    sort = { field, direction };
+  const sort = query.sort === undefined ? undefined : normalizeSort(query.sort);
+  const group = query.group === undefined ? undefined : normalizeGroupField(query.group);
+  let facets: true | string[] | undefined;
+  if (query.facets !== undefined) {
+    if (query.facets === true) facets = true;
+    else if (Array.isArray(query.facets) && query.facets.every(key => typeof key === "string" && isPropertyKey(key.trim().toLowerCase()))) {
+      facets = [...new Set(query.facets.map(key => key.trim().toLowerCase()))];
+    } else throw new BlockQueryError("facets is true (every key the matches carry) or a list of property names");
   }
 
   const filters: PropertyFilter[] = [];
@@ -848,28 +1040,34 @@ export function normalizeBlockSearchQuery(
 
   return {
     ...(filters.length > 0 ? { filters } : {}),
-    ...(where ? { where } : {}),
+    ...(predicate ? { predicate } : {}),
     ...(text ? { text } : {}),
     ...(subtreeRootId ? { subtreeRootId } : {}),
     ...(rankViewId ? { rankViewId } : {}),
     ...(propertyScope ? { propertyScope } : {}),
     ...(includeDeleted ? { includeDeleted } : {}),
     ...(sort ? { sort } : {}),
-    limit: query.limit,
+    ...(group ? { group } : {}),
+    ...(facets ? { facets } : {}),
+    limit,
   };
 }
 
 const SORT_PROPERTY = "property:";
 
+/** The sort fields that aren't properties: `property:<name>` names a property so called. */
+const SORT_BUILTINS = new Set(["created", "updated", "title"]);
+
 /**
- * A sort field as the service keeps it: `created`, `updated`, a property key lowercased, or `property:<key>` for a
- * property called created or updated (any other `property:<key>` is just the key). Null when it is none of them.
+ * A sort field as the service keeps it: `created`, `updated`, `title`, a property key lowercased, or `property:<key>`
+ * for a property called created, updated or title (any other `property:<key>` is just the key). Null when it is none
+ * of them.
  */
 export function normalizeSortField(field: unknown): string | null {
   if (typeof field !== "string") return null;
   const trimmed = field.trim().toLowerCase();
   const key = trimmed.startsWith(SORT_PROPERTY) ? trimmed.slice(SORT_PROPERTY.length).trim() : null;
-  if (key !== null) return isPropertyKey(key) ? (key === "created" || key === "updated" ? `${SORT_PROPERTY}${key}` : key) : null;
+  if (key !== null) return isPropertyKey(key) ? (SORT_BUILTINS.has(key) ? `${SORT_PROPERTY}${key}` : key) : null;
   return isPropertyKey(trimmed) ? trimmed : null;
 }
 
@@ -881,14 +1079,40 @@ export function sortFieldProblem(field: unknown): string {
   const words = [...rest.matchAll(/[A-Za-z][A-Za-z0-9_.-]*/g)].map(m => m[0]);
   const meant = words.length === 1 && !/\s/.test(rest.trim()) ? `${prefixed ? SORT_PROPERTY : ""}${words[0]!.toLowerCase()}` : undefined;
   return meant
-    ? `Sort by ${meant}, not ${String(field)}: a sort is created, updated or a property key`
-    : `Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not ${String(field)}`;
+    ? `Sort by ${meant}, not ${String(field)}: a sort is created, updated, title or a property key`
+    : `Sort is created, updated, title or a property key (a letter, then letters, digits, _ . or -), not ${String(field)}`;
 }
 
-/** The property key a sort field names, or null for a timestamp sort. */
+/** The property key a sort field names, or null for a timestamp or title sort. */
 export function sortPropertyKey(field: string): string | null {
-  if (field === "created" || field === "updated") return null;
+  if (SORT_BUILTINS.has(field)) return null;
   return field.startsWith(SORT_PROPERTY) ? field.slice(SORT_PROPERTY.length) : field;
+}
+
+/**
+ * A property's own value order, where a part owns the key's meaning: `work-stage` is the workboard's
+ * (ROADMAP_WORK_STAGES). Any other key orders as numbers, then text.
+ */
+const OWNED_ORDERS: ReadonlyMap<string, readonly string[]> = new Map([["work-stage", ROADMAP_WORK_STAGES]]);
+
+/**
+ * How `key`'s values compare, `direction` 1 (asc) or -1 (desc): values in its owned order first, in that order; then
+ * decimal numbers as numbers; then text without case. The classes keep their places in either direction; the direction
+ * orders within each. A value that is empty is the caller's to place (last).
+ */
+export function valueOrder(key: string | null, direction: 1 | -1 = 1): (left: string, right: string) => number {
+  const owned = key ? OWNED_ORDERS.get(key) : undefined;
+  const classed = (value: string): [number, number | string] => {
+    const at = owned ? owned.indexOf(value.trim().toLowerCase()) : -1;
+    if (at >= 0) return [0, at];
+    const v = sortValue(value) ?? "";
+    return typeof v === "number" ? [1, v] : [2, v];
+  };
+  return (left, right) => {
+    const [ca, a] = classed(left), [cb, b] = classed(right);
+    if (ca !== cb) return ca - cb;
+    return direction * (typeof a === "number" ? a - (b as number) : (a as string).localeCompare(b as string));
+  };
 }
 
 /**
@@ -897,13 +1121,18 @@ export function sortPropertyKey(field: string): string | null {
  * either direction; text without case; blocks without the property last in either direction; ties keep the order
  * they came in (outline order).
  */
-export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties">>(
+export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties"> & { text?: string }>(
   blocks: T[],
   sort: BlockQuerySort,
   valueOf: (block: T, key: string) => string | undefined = (block, key) => block.properties.find(p => p.key === key)?.value,
 ): void {
   const direction = sort.direction === "asc" ? 1 : -1;
   const key = sortPropertyKey(sort.field);
+  if (sort.field === "title") {
+    const titles = new Map(blocks.map(block => [block.id, titleOf(block.text ?? "").toLowerCase()]));
+    blocks.sort((left, right) => direction * titles.get(left.id)!.localeCompare(titles.get(right.id)!) || left.id.localeCompare(right.id));
+    return;
+  }
   if (key === null) {
     const field = sort.field === "created" ? "createdAt" : "updatedAt";
     blocks.sort((left, right) =>
@@ -913,12 +1142,12 @@ export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "up
     );
     return;
   }
-  const values = new Map(blocks.map(block => [block.id, sortValue(valueOf(block, key))]));
+  const values = new Map(blocks.map(block => [block.id, valueOf(block, key)?.trim() || null]));
+  const order = valueOrder(key, direction);
   blocks.sort((left, right) => {
     const a = values.get(left.id)!, b = values.get(right.id)!;
     if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
-    if (typeof a !== typeof b) return typeof a === "number" ? -1 : 1;
-    return direction * (typeof a === "number" ? a - (b as number) : (a as string).localeCompare(b as string));
+    return order(a, b);
   });
 }
 

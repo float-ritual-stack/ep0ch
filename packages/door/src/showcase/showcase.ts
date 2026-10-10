@@ -40,11 +40,15 @@ import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layou
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
+import { AgentsPane } from "../desk/agents-panel";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, LOGS, RECENT_FILES, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, MARGINALIA_FILE, RECENT_FILES, SEED, type SeedName } from "./seed";
 import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
@@ -117,6 +121,24 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
   return d;
 }
 
+/**
+ * The agent sessions section's stand-in agent (PIE-737): a made-up program that says where it runs and as whom, then
+ * answers each line with its turn. Its turns are its conversation: moved between the drawer and a tile, they go on.
+ */
+export const DEMO_AGENT = [
+  `echo "$1, a demo agent (made up for the showcase), in $PWD"`,
+  `echo "type a line and ⏎: it answers with its turn. Move it (a or d in the agent panel) and the turns go on: the same process"`,
+  `n=0; while IFS= read -r l; do n=$((n+1)); echo "$1 · turn $n: $l"; done`,
+].join("\n");
+/** The two made-up folders the section's sessions run in. */
+export function demoFolders(): { shed: string; bench: string } {
+  const root = joinPath(tmpdir(), "ep0ch-showcase-agents"), shed = joinPath(root, "garden-shed"), bench = joinPath(root, "potting-bench");
+  for (const f of [shed, bench]) mkdirSync(f, { recursive: true });
+  return { shed, bench };
+}
+/** The section's own actor: what pins fern to your drawer as the section opens, said like any agent's. */
+const SHOWCASE_AGENT: Actor = { kind: "agent", id: "showcase" };
+
 /** The scripted agent of the what-changed section: each log note one round on, as garden-agent. */
 const GARDENER: Actor = { kind: "agent", id: "garden-agent" };
 export async function gardenRound(board: Ctx["board"], n: Notes) {
@@ -184,8 +206,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts",
-    aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts)",
+    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts, src/reference-warnings.ts",
+    aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts) · what you write always lands (PIE-761): a ((reference left unclosed or naming nothing is sent as written and said after, with a did-you-mean (outline-core reference-warnings.ts); a refused send keeps the comment open with a copy on disk; and a reader with a comment open stays on its note whatever else opens",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
       // An edit put aside on the shed note a revision ago (fictional), so its ■ unsent line and controls are live here.
@@ -209,6 +231,14 @@ export const SECTIONS: Section[] = [
       };
       put(n.rota, KEPT.rota.draft, day); put(n.hedge, KEPT.hedge.draft, 2 * day); put(n.compost, KEPT.compost.draft, 5 * day);
       return deskOf({ title: "showcase · kept edits", panes: [a, b, c], names: ["rota", "hedge", "compost"], layout: ([x, y, z]) => pair("row", 0.34, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.rota], [b, n.hedge], [c, n.compost]]);
+    },
+  },
+  {
+    key: "proposals", need: "show what an agent proposed when its patch lost a race, beside the note it targets, and apply or dismiss it", part: "the proposal beside its note (PIE-725): a patch that doesn't apply is a proposal block under the note, never a line in its text, so the note's revision stays and the next writer doesn't lose too; the service lists the open ones with the line each follows (draft.proposals.list), the reader draws each as an embed of it there (proposalsBeside, the embed's [apply] [dismiss], A, X: proposal.apply, proposal.dismiss), and the same open patch from the same agent is returned again (deduped: true)", files: "outliner src/draft-patch-router.ts (propose, proposalsBeside), src/embeds.ts (proposalsBeside), src/surface/note.ts (besideRegions), outliner src/detail-embeds.ts",
+    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's is the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway or X dismisses it (an agent dismisses only its own) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts)",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · proposals", panes: [r], names: ["guide"] }, show, [[r, n.race]]);
     },
   },
   {
@@ -276,10 +306,10 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; $EDITOR on a draft runs in one (a reader's ctrl+e, a draft's ctrl+x ctrl+e); its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not)", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
-    aside: "the drawer (next section; src/drawer.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
+    key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; $EDITOR on a draft runs in one (a reader's ctrl+e, a draft's ctrl+x ctrl+e); its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not); drag across its text and the door selects and copies it itself (PIE-716), in the drawer too: shift+drag (alt+drag where your terminal keeps shift) when its program has the mouse", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
+    aside: "drag across the line in the shell: it's selected and copied when you let go (\"copied from sh\"), as in a reader; a program that has asked for the mouse (Claude Code's fullscreen, vim's mouse=a) keeps plain drags, and shift+drag or alt+drag selects for the door · `act terminal.copy tile=<tile>` copies the person's selection again (never an agent's) · the drawer (next section; src/drawer.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
-      const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
+      const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; echo 'drag across this line: Plant out the courgettes'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
@@ -297,6 +327,21 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "sessions", need: "talk to an agent here: start one in any folder, keep it running, show it in your drawer or a tile, see every one", part: "agent sessions (PIE-737, src/desk/agent-sessions.ts): a program (an agent config in the outline, [agent-config::<name>], or one installed), a folder and a persona, owned by the door session as a terminal tile's program; where it's shown (your drawer, a tile) isn't what it is, so moving it keeps the process and the conversation; agent.start (ep0ch agent from any folder, n in the panel) starts or attaches by folder and program, resuming the program's last conversation there; a claude typed in a ^W o s shell is one by itself (found as Herdr finds agents); the agent panel (a tile kind, agents.open, alt+g): agents.go, agents.drawer, agents.dock, agents.new, agents.list", files: "src/desk/agent-sessions.ts, src/desk/agents-panel.ts, src/drawer.ts (agent.start, agents.*), src/agent-cli.ts, src/desk/pty.ts (PtySpec.session)",
+    aside: "two made-up sessions of a demo agent, fern in garden-shed and moss in potting-bench: fern was pinned to your drawer as the section opened (alt+a shows it), moss is the tile on the left · the panel on the right lists both, with folder, persona, what each is doing and where it's shown · j k pick, ⏎ or a click jumps to one, a pulls it into your drawer, d docks it here, n starts a new one (the program, then the folder) · type to moss (click in it, a line, ⏎), then a on its row and type again in the drawer: the turns go on, the same process · alt+g opens the same panel on any screen · `ep0ch agent` in any folder starts (or attaches) that folder's session here; `act agents.list` reads the rows",
+    stage(_n, show) {
+      const { shed, bench } = demoFolders();
+      // temp: an exhibit no layout brings back (the drawer's saved tabs included), so a second showcase has two, not four.
+      const agent = (name: string, cwd: string) => new PtyPane({ cmd: ["sh", "-c", DEMO_AGENT, "demo-agent", name], cwd, label: name, shows: "demo-agent", temp: true, session: { program: "demo-agent", persona: name } });
+      const fern = agent("fern", shed), moss = agent("moss", bench), panel = new AgentsPane();
+      return deskOf({ title: "showcase · agent sessions", panes: [moss, fern, panel], names: ["moss", "fern", "agents"], layout: ([a, b, c]) => pair("row", 0.55, leaf(a!), pair("col", 0.4, leaf(b!), leaf(c!))) }, show, [], d => {
+        // fern goes to your drawer (the section's own agent's move: behind the tab shown, nobody's keys moved).
+        const host = d.ctx?.hostLayer;
+        if (host && d.pane("fern")) { try { fern.startNow(80, 20); host.put(d, "fern", SHOWCASE_AGENT); } catch { /* already moved, or the drawer won't take it */ } }
+      });
     },
   },
   {
@@ -383,8 +428,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, matchesOf), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
-    aside: "the day's plan holds its outbox: `::links{query=\"type=letter mail=waiting\" preview=right}` lists the three waiting letters (the sent one isn't), the selected one drawn beside the list · [ ] onto a letter and the preview follows; your keys stay in the note · ⏎ opens it here, alt+⏎ in a new detail; a click selects, a double click opens · ⏎ on ⏎ in (or a click on it) goes in: j k move, / filters, esc comes out, any other key leaves and does what it does · `act links.blocks`, `links.pick n=2` (an agent's answers and moves nothing of yours), `links.open n=2`",
+    key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, questionRows), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
+    aside: "the day's plan holds its outbox: `::links{query=\"type=letter mail=waiting\" preview=right}` lists the three waiting letters (the sent one isn't), the selected one drawn beside the list · [ ] onto a letter and the preview follows; your keys stay in the note · ⏎ opens it here, alt+⏎ in a new detail; a click selects, a double click opens · ⏎ on ⏎ in (or a click on it) goes in: j k move, / filters, esc comes out, any other key leaves and does what it does · a query the service can't read (`type!=letter`) shows its whole refusal in the frame: the query, what was read, the did-you-mean and an example · `act links.blocks`, `links.pick n=2` (an agent's answers and moves nothing of yours), `links.open n=2`",
     stage(n, show) {
       const r = new ReaderPane(true);
       return deskOf({ title: "showcase · links block", panes: [r] }, show, [[r, n.dayPlan]]);
@@ -400,6 +445,11 @@ export const SECTIONS: Section[] = [
   {
     key: "live", need: "put live data in a note", part: "live figures: ::graph-* blocks that read views with views.read and blocks.query; the comparison kinds (quadrant, matrix, compare, flow, a meter's limit) and one width rule for every kind (tier: narrow, cozy, wide)", files: "src/live.ts, src/graphs.ts, src/figures/, src/views.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
+  },
+  {
+    key: "questions", need: "ask the outline a question that stays answered: what links to a note that it doesn't link back, grouped by any property", part: "watched questions (ADR 0004 contract 1, PIE-745): this, linkedfrom: and parent: in the views' grammar; the service evaluates where, group and sort and counts every match (blocks.query's groups, facets, hint), and tells the connection when a watched answer changed (queries.changed); ::links and live figures read through the board's watched reads, never a cache of their own", files: "src/watched.ts, src/live.ts, src/links.ts, outliner src/query-watches.ts, src/question-answer.ts, outline-core src/query-atoms.ts",
+    aside: "the society page asks one question three ways: `links:this NOT linkedfrom:this` (what mentions it that it doesn't link back) as a ::links list, as tabs grouped by crop and as a rank by season: properties no code knows, grouped by the service · link one back (or write a note that mentions the society) and all three change on their own: the service says the answer changed, the door asks nothing on paint · `group:` takes any property, or created:day|week|month",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · questions", panes: [r] }, show, [[r, n.society]]); },
   },
   {
     key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
@@ -420,6 +470,23 @@ export const SECTIONS: Section[] = [
           note.show(block, d);
           const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: plan.file } }, USER, block.id);
           res.show(opened.note, d);
+          d.redraw();
+        })().catch(() => {});
+      });
+    },
+  },
+  {
+    key: "marginalia", need: "read with a pen: highlight a passage, comment on it, ask about it, look a word up, copy it with a citation; keep the margin and a notebook of it all, on a note and on a file",
+    part: "the passage target (ADR 0004 contract 5: outline-core passage.ts, one find and check for every client; the reader's exact selection to source, src/surface/source-map.ts; passage.act and its toolbar on the selection's line, a then a key) and highlights and margin notes (contract 6: annotations with open properties, outline-core annotation-marks.ts; the reader's spans in a tone and margin cards, beside the text when wide, under the passage when narrow, src/surface/margin.ts); marginalia's kit is an extension folder (outliner extensions/marginalia: on: passage actions and an agent that answers in threads) plus a notebook note (a saved query)",
+    files: "outline-core/src/passage.ts, outline-core/src/annotation-marks.ts, src/surface/source-map.ts, src/surface/margin.ts, src/surface/note.ts (passageFor, passage.act, margin), src/extensions.ts (passage actions), outliner src/extension-calls.ts (actOnPassage), outliner src/agent-requests.ts (threadWritten), outliner extensions/marginalia",
+    aside: "left: a made-up greenhouse plan, one highlight and one answered question on it; right: the leaflet it's read beside (a file, as a Resource) and the notebook. Select words, then a h highlights, a d defines from the plan's glossary, a a asks @margin (its answer lands in the margin), a k copies with a citation; or click the chips on the selection's line, or act passage.act action=… quote=… · M: the margin's cards a row each, whole, or off",
+    stage(n, show) {
+      const plan = new ReaderPane(), file = new ReaderPane(), book = new ReaderPane();
+      return deskOf({ title: "showcase · marginalia", panes: [plan, file, book], names: ["plan", "leaflet", "notebook"],
+        layout: ([a, b, c]) => pair("row", 0.62, leaf(a!), pair("col", 0.55, leaf(b!), leaf(c!))) }, show, [[plan, n.marginalia], [book, n.marginaliaNotebook]], d => {
+        void (async () => {
+          const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: MARGINALIA_FILE() } }, USER, n.marginalia?.id);
+          file.show(opened.note, d);
           d.redraw();
         })().catch(() => {});
       });
