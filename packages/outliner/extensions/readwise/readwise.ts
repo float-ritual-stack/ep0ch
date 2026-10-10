@@ -115,13 +115,13 @@ const TOKEN = /\s?(?<!\\)\[[A-Za-z][\w.-]*::[^\]\n]*\]/g;
 const TONES: Record<string, string> = { yellow: "warn", orange: "warn", blue: "accent", purple: "accent", pink: "bad", green: "good" };
 
 /** Imported words stay words: a `[key::value]`, `[[page]]` or `((ref))` in a highlight is escaped, never a property or a link. */
-const inert = (text: string) => text.replace(/\[(?=\[|[A-Za-z][\w.-]*::)/g, "\\[").replace(/\(\(/g, "(\\(").replace(/\r/g, "");
+const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[").replace(/\[\[/g, "[\\[").replace(/\(\(/g, "(\\(");
 /** A property value: one line, no brackets. */
 const value = (text: string) => text.replace(/[\]\[\n\r]+/g, " ").replace(/\s+/g, " ").trim();
 const token = (key: string, v: string | number | null | undefined) => (v === null || v === undefined || String(v).trim() === "" ? "" : `[${key}::${value(String(v))}]`);
 const tokens = (parts: string[]) => parts.filter(Boolean).join(" ");
 const titleLine = (text: string) => value(text.split("\n")[0]!.replace(TOKEN, "")).slice(0, 120) || "(untitled)";
-const short = (text: string) => { const one = value(text); return one.length > 80 ? `${one.slice(0, 79)}…` : one; };
+const short = (text: string) => { const one = value(text).replace(/\(\(/g, "(\\("); return one.length > 80 ? `${one.slice(0, 79)}…` : one; };
 
 /** The `[key::value]` tokens on a block's first line. */
 function headerProps(text: string): Record<string, string> {
@@ -223,10 +223,12 @@ async function ontoNote(target: { outline: string; id: string }, highlights: Hig
     const had = known.get(id);
     tally.notes++;
     if (had) {
-      if (had.body.trim() !== note && had.body.trim() !== unanchoredBody(highlight)) {
+      // Only the note on it is kept in step (an unanchored one keeps its quote); its colour and tags are as first pulled.
+      const wanted = had.properties?.["readwise.anchored"]?.includes("no") ? unanchoredBody(highlight) : inert(note);
+      if (had.body.trim() !== wanted.trim()) {
         const current = await outline<Block>({ action: "get", blockId: had.block.id }, target.outline);
         const at = had.body ? current.text.lastIndexOf(had.body) : -1;
-        const text = at >= 0 ? current.text.slice(0, at) + inert(note) + current.text.slice(at + had.body.length) : `${current.text.trimEnd()}\n${inert(note)}`;
+        const text = at >= 0 ? current.text.slice(0, at) + wanted + current.text.slice(at + had.body.length) : `${current.text.trimEnd()}\n${wanted}`;
         await update(current, text, target.outline);
         tally.updated++;
       }
@@ -266,7 +268,7 @@ const unanchoredBody = (highlight: Highlight) => {
 
 function bookText(book: Book, gone?: string): string {
   const title = value(book.readable_title || book.title || "(untitled)");
-  const header = book.author ? `${title} — ${value(book.author)}` : title;
+  const header = (book.author ? `${title} — ${value(book.author)}` : title).replace(/\(\(/g, "(\\(");
   const props = tokens([
     token("readwise.book", book.user_book_id), token("readwise.category", book.category), token("readwise.source", book.source),
     token("readwise.author", book.author), token("readwise.url", book.source_url || book.unique_url),
@@ -338,6 +340,8 @@ async function pull(scheduled: boolean): Promise<void> {
   const props = headerProps(page.text);
   const me = `${HERE} ${new Date(STARTED).toISOString()}`;
   const claim = props["readwise.claim"];
+  // A claim from this outline is a run that ended without letting go (killed at its deadline): the host runs one pull
+  // per outline at a time, so it isn't running now.
   if (claim && !claim.startsWith(`${HERE} `) && STARTED - Date.parse(claim.split(" ")[1] ?? "") < CLAIM_STALE_MS) {
     answer({ message: `a pull from ${claim.split(" ")[0]} is running; this one waits for the next` });
     return;
@@ -369,7 +373,10 @@ async function pull(scheduled: boolean): Promise<void> {
       if (synced) query.set("updatedAfter", synced);
       if (cursor) query.set("pageCursor", cursor);
       const { body } = await readwise<{ results: Book[]; nextPageCursor?: string | null }>(`/api/v2/export/?${query}`);
+      let finished = true;
       for (const book of body.results ?? []) {
+        // Out of time mid-page: this page again next run (what's done is unchanged then, so it goes quickly).
+        if (Date.now() > UNTIL - 30_000) { finished = false; break; }
         const highlights = (book.highlights ?? []).filter((highlight) => !highlight.is_deleted && highlight.text?.trim());
         if (!highlights.length) continue;
         const target = noteOf(book.source_url) ?? noteOf(book.unique_url);
@@ -377,6 +384,7 @@ async function pull(scheduled: boolean): Promise<void> {
         if (mine && await ontoNote(target, highlights, tally)) continue;
         await ontoBoard(page, book, highlights, tally, mine ? `Sent from ${uriOf(target.outline, target.id)}, a note that isn't there now.` : undefined);
       }
+      if (!finished) break;
       cursor = body.nextPageCursor ?? null;
       if (!cursor) { complete = true; break; }
       if (Date.now() > UNTIL - 30_000) break;

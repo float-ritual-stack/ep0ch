@@ -196,7 +196,7 @@ test("pull: a highlight on a sent note becomes an annotation at its passage; oth
   const highlights = await children("readwise", books[0]!.id);
   expect(highlights.map((h) => h.text)).toEqual([
     "Moss keeps its own calendar. And never shares it.\n[readwise.highlight::201] [highlighted::2026-09-30] [tags::moss]\n\n> Moss keeps its own calendar.\n> And never shares it.",
-    "Stand still on purpose, see Herons and mood::calm.\n[readwise.highlight::202]\n\n> Stand still on purpose, see \\[[Herons]] and \\[mood::calm].\n\ntry this",
+    "Stand still on purpose, see Herons and mood::calm.\n[readwise.highlight::202]\n\n> Stand still on purpose, see [\\[Herons]] and \\[mood::calm].\n\ntry this",
   ]);
   expect(highlights.every((h) => h.actorId === "ext:readwise")).toBe(true);
   const props = await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "mood=calm", limit: 5 } });
@@ -212,9 +212,12 @@ test("pull: a highlight on a sent note becomes an annotation at its passage; oth
 
   // A changed note on a highlight updates what's there, on the note and on the board.
   fromNote.highlights[0]!.note = "Same heron, surely.";
+  fromNote.highlights[2]!.note = "still a stray";
   book.highlights[1]!.note = "tried it";
   const third = await act("garden", "pull");
-  expect(third.message).toBe("pulled: 0 new, 2 changed (3 on notes, 2 on the readwise board)");
+  expect(third.message).toBe("pulled: 0 new, 3 changed (3 on notes, 2 on the readwise board)");
+  const strayNow = (await threads("garden", note.id)).find((thread) => thread.properties?.["readwise.highlight"]?.[0] === "103")!;
+  expect(strayNow.body).toBe("> words that were never in the note\n\nstill a stray");
   const updated = (await threads("garden", note.id)).filter((thread) => thread.properties?.["readwise.highlight"]?.[0] === "101");
   expect(updated.map((thread) => thread.body)).toEqual(["Same heron, surely."]);
   expect((await children("readwise", books[0]!.id))[1]!.text).toEndWith("tried it");
