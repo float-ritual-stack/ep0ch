@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { unsentEntries } from "../src/unsent";
 import { keepUnsent, blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
-import { SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
+import { Refused, SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import type { Msg } from "../src/board";
@@ -477,6 +477,26 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect([late.open, late.draft.text, existsSync(late.draft.savedCopy!)]).toEqual([true, "And the tulips?", true]);
     late.dispose();
   }, 30_000);
+
+  test("a refused comment keeps its draft open with the text, copies it to disk and says why and what to do (PIE-761)", async () => {
+    const m: Msg = { id: "note-kitty", text: "A live table wraps only the title", revision: 3, props: {}, childIds: [] } as unknown as Msg;
+    const refusing = { comment: async () => { throw new Refused("Block is not an annotation: 1d76bf7d-9039-4265-8"); } };
+    const refusedWhy: string[] = [];
+    const s = DraftSession.open(commentTarget({
+      where: () => ({ kind: "quote", blockId: m.id, revision: 3, passage: { quote: "live table", start: 2 } }), note: m,
+      board: () => refusing as never, out: new Outgoing(), landed: async () => {}, refused: why => { refusedWhy.push(why); },
+    }), {});
+    const body = "also - a deep link by hand ((0d1e5ba9-8560 was a mess\n- I added a `^a10`";
+    s.replace(body, USER);
+    const r = await s.submit(USER);
+    expect(r).toMatchObject({ ok: false, why: expect.stringContaining("refused, not sent: Block is not an annotation") });
+    expect(refusedWhy[0]).toContain("your text is kept here and copied to");
+    expect(refusedWhy[0]).toContain("ctrl+s tries again, esc esc puts it aside (C and a passage bring it back)");
+    expect([s.open, s.draft.text, readFileSync(s.draft.savedCopy!, "utf8")]).toEqual([true, body, `${body}\n`]);
+    // esc esc then puts it aside where C brings it back.
+    expect(await s.leave()).toMatchObject({ left: "kept" });
+    expect(unsent("comment:note-kitty")?.text).toBe(body);
+  });
 
   test("a card or a child: created through its create path, recorded as who wrote it; refused, the text is kept and copied", async () => {
     const parent = await create("Allotment jobs");

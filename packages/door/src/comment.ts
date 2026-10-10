@@ -2,6 +2,7 @@
 // a thread, resolve or reopen one. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
+import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings";
 import { RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
@@ -150,7 +151,7 @@ export { Outgoing };
 // ── the session a reader holds while commenting ───────────────────────────────
 
 export interface CommentEnv {
-  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle">;
+  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle"> & Partial<ReferenceBoard>;
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
@@ -304,7 +305,7 @@ export class CommentSession {
       note: this.msg,
       board: () => this.env!.board,
       out: this.out,
-      landed: (r, t) => this.landed(r, t),
+      landed: (r, t, body) => this.landed(r, t, body),
       refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
       relocate: () => this.relocate(this.env!),
     }), { by });
@@ -335,7 +336,7 @@ export class CommentSession {
   }
 
   /** A send landed: back to the thread list, reloaded, on the thread it went to. */
-  private async landed(r: { id: string; deduplicated?: boolean }, t: Target): Promise<void> {
+  private async landed(r: { id: string; deduplicated?: boolean }, t: Target, body: string): Promise<void> {
     const env = this.env!;
     this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
     this.mode = "threads"; this.busy = "loading the thread...";
@@ -348,6 +349,12 @@ export class CommentSession {
     this.sel = Math.max(0, this.threads.findIndex(x => x.id === root)); this.view.reveal();
     // A comment on a checklist step gives the step a stable id, which changes the note.
     if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
+    // Sent first; then a reference in it that leads nowhere is said, with what it may have meant (PIE-761).
+    const b = env.board;
+    if (b.resolveReferences && b.searchBlocks && b.get) {
+      const w = await savedReferenceWarning(b as ReferenceBoard, body, this.msg.id);
+      if (w) { this.note = w; env.flash(w); env.redraw(); }
+    }
   }
 
   /** After a stale refusal: find the same quote in the note's current text, nearest where it was. */
