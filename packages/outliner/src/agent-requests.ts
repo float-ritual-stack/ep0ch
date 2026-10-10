@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
-import { cleanExtensionText, extensionActorId, inertBlockdown } from "./extension-records";
+import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ResourceProjection } from "./resource-projection";
@@ -453,7 +453,7 @@ export class AgentRequests {
         mark: line.text,
         note: { id: blockId, revision: draft.revision, text: draft.text.slice(0, MAX_NOTE_TEXT) },
         context: {
-          ancestors: context.ancestors.slice(-8).map((ancestor) => ({ id: ancestor.id, title: ancestor.text.split("\n", 1)[0] })),
+          ancestors: contextAncestors(context.ancestors),
           children: context.children.slice(0, 50).map((child) => ({ id: child.id, text: child.text.slice(0, 2_000) })),
           now: new Date(this.now).toISOString(),
         },

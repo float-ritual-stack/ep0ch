@@ -41,9 +41,10 @@ saver's write and is accepted.
 
 Defence in depth, not a sandbox: the service keeps what an extension returns free of terminal
 escapes and control characters (outputs, replies, messages, record text, manifest names, labels and
-descriptions, and what `outliner ext` prints), and scrubs a secret's exact value (and its base64)
-from every answer. That scrub matches exact strings only: an extension that re-encodes a secret
-(reversed, URL-encoded, split) gets it past the scrub. Trust the code you install.
+descriptions, and what `outliner ext` prints), and scrubs every secret a call was given from its answer, its writes
+and the stderr a failure shows: the value, its base64 and its URL encoding, with terminal escapes taken out first so a
+value split by one is found whole. Anything else (reversed, hashed, split by other text) gets past the scrub. Trust
+the code you install.
 
 ## Where extensions live
 
@@ -129,6 +130,8 @@ extensions/horoscope/
 | `run` | The program each call starts. Needed by handlers and actions; a tile-only extension can leave it out. |
 | `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m. A handler may set its own. |
 | `configSchema`, `secrets` | A JSON schema for `config.json`'s `config`, and the secrets it needs by name. |
+| `secretGroups` | `with-secrets` groups a call may ask for while it runs, by name, or `["*"]` for any ([chosen at run time](#secrets-chosen-at-run-time)). |
+| `env` | Host variables its process gets besides the base ones, by name (`["GH_CONFIG_DIR"]`), when the service has them. Never a secret: those are `secrets` and `secretGroups`. The service's own (`PATH`, `HOME`, `EP0CH_*`, …) are refused. |
 | `handlers[]` | The `key::` lines it serves (kinds 1–3). |
 | `actions[]` | What it can do: one action is a key, a click and an agent call alike. |
 | `tiles[]` | Tile kinds (kind 4). |
@@ -160,9 +163,17 @@ but serves nothing.
 
 One process per call. The service writes one JSON request to stdin and reads one JSON response
 from stdout, then the process exits (its whole process group is killed at the deadline). The
-environment is `PATH`, `LANG`, `OUTLINER_EXTENSION` (its id), its connection to the service (`EP0CH_SOCKET`,
-`EP0CH_WS`, `EP0CH_EXT_GRANT`: [Extensions as programs](#a-connection-to-the-service)) and the with-secrets keys its
-manifest names, nothing else of the host's; the working directory is the extension's folder.
+environment is `PATH`, `LANG`, the service user's `HOME` (a host CLI such as `gh` finds its login there),
+`WITH_SECRETS_DIR` when the service has one, `OUTLINER_EXTENSION` (its id), its connection to the service
+(`EP0CH_SOCKET`, `EP0CH_WS`, `EP0CH_EXT_GRANT`: [Extensions as programs](#a-connection-to-the-service)), the with-secrets
+keys its manifest names and the host variables its manifest's `env` names, nothing else of the host's; the working
+directory is the extension's folder.
+
+**A crash says why.** A process that exits non-zero (or is killed) fails the call with its exit code and the last
+lines it wrote to stderr, scrubbed of its secrets: `command exited with code 3: opening the sluice | failed: no such
+gate`. That is the refusal the asker sees (`ext act`, the door's message line), a line's `reason`, a schedule's
+`last.error`, and the extension's `lastRun` in [`extensions.list`](#extensionslist). Stderr is kept for nothing else;
+write what a person should read there, and never a secret.
 
 ```json
 { "contract": 2, "operation": "run", "input": { … }, "config": { … }, "credentials": { … } }
@@ -183,7 +194,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `run` | an output or component handler | `{ handler, argument, options, context }` | output: `{ markdown, title? }`; component: `{ data, view, targets?, title? }` |
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
-| `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
+| `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
 | `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }` |
 | `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
 
@@ -198,6 +209,12 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
   "now": "2026-10-01T09:00:00.000Z"
 }
 ```
+
+- `block.text` is the block's whole saved text (16 000 characters at most): its first line with its properties, and
+  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it.
+- `children` are the block's first 50 children, each its text (2 000 characters at most).
+- `ancestors` are every block above it, **the outline's top first and the block's parent last** (so the nearest is
+  `ancestors.at(-1)`), each its id and its first line (200 characters at most).
 
 ## Handler lines
 
@@ -625,7 +642,9 @@ actions yet; `r` is its path today.
   tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They may land anywhere in
   the outline (PIE-754; a record an extension keeps is its sync's alone, so an update to one is refused); they apply
   together or not at all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
-  After an action on a `read` handler's line writes, that line runs again before the answer comes back.
+  After an action on a `read` handler's line writes, that line runs again before the answer comes back: a returned
+  write anywhere, or a write its process makes [over its connection](#a-connection-to-the-service) to the acted-on
+  block or a child of it (moved in or out, too). Its answer's `written` lists both kinds.
 - **An update is an agent's edit.** It is revision-checked against the saved note, then applied
   through `draft.patch` with the `edit` policy, as an `@agent`'s edit is: only the changed lines are
   the patch, a door's live draft of the note gets it (not the saved note under the person's typing),
@@ -638,7 +657,10 @@ actions yet; `r` is its path today.
   can't ask agents).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
-  `author`/`provenance` as on `create` work too. The writes stay `ext:<id>`'s; each change in
+  `author`/`provenance` as on `create` work too. The action gets it as its input's `requestedBy`
+  (`{ "author": "user" }` or `{ "author": "agent", "actorId": "loki" }`; absent for a scheduled run, or a request
+  that named no one), so a step that is the person's alone checks `input.requestedBy?.author === "user"` and refuses
+  an agent, as runbook's apply steps do. The writes stay `ext:<id>`'s; each change in
   `changes.since` (and its live event) carries `requestedBy` with who asked. `outliner ext act` asks
   as the person, or as an agent with `--actor <id>`; a tile's program passes the person at its keys.
 - `keep` is built in for every output and component handler.
@@ -918,6 +940,8 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 | create | `create { parentId, text }` | a normal block: properties and all, as an agent's |
 | update | `update { blockId, expectedRevision, text }` | revision-checked, then a `draft.patch` under the `edit` policy: a door's live draft gets it, and while the person types in that passage it becomes a proposal (the answer is `draft.patch`'s: `{ outcome: "applied" \| "proposed", proposalId? }`); the guard refuses one that drops a `[page::…]` or a linked `^anchor` |
 | edit | `draft.patch { edits \| blockId, revision, patches }` | the same guard |
+| move | `move { blockId, parentId, position?, expectedRevision }` | revision-checked; refused on a block a person has a draft open in (or one under it) and on a record an extension keeps |
+| trash | `delete { blockId, expectedRevision, ifEmpty? }` | the same; to Trash, restorable |
 | comment, annotate | `annotations.batch` (a `block-comment` on a `passage`), `annotations.create`, `annotations.reply` | an annotation with `properties` (`kind`, `tags`, `color`, any key), its source an agent's |
 
 - **Only a call that may write writes**: an action with `effects: "write"` (or a handler with `effects: "write"`).
@@ -925,7 +949,7 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
 - **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
   it writes waits for a person's `r`.
-- Anything else (moving, deleting, settings, `extensions.act`) is refused with what it may do.
+- Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
 
@@ -1057,6 +1081,29 @@ The rest of the group never reaches it, no other extension gets it, it's never l
 returned (the answer is scrubbed). A group file others can read is refused (`run: chmod 600 …`); a missing key says
 `with-secrets --add readwise READWISE_TOKEN`. The service itself never runs under `with-secrets`.
 
+### Secrets chosen at run time
+
+When the note says which group a run needs (a runbook step's `--secrets=deploy-demo`), the manifest can't name it
+ahead. Declare which groups a call may ask for, by name or `"*"` for any:
+
+```json
+"secretGroups": ["*"]
+```
+
+and ask over the connection while the call runs:
+
+```ts
+const { values } = await outline<{ values: Record<string, string> }>({ action: "secrets.group", group: "deploy-demo" });
+const child = Bun.spawn(["sh", "-c", command], { env: { ...process.env, ...values } });
+```
+
+- The service reads the group as for a manifest secret (mode 0600, `WITH_SECRETS_DIR`, the Keychain on macOS), and
+  answers every key (or only `keys: [...]`). A group the manifest doesn't allow is refused, saying what to add.
+- From then on the values are the call's secrets: scrubbed from its answer, from everything it writes over its
+  connection and from the stderr a failure shows (plain, base64, URL-encoded, and split by terminal escapes). Write
+  a command's output into the outline as it is; the service takes the values out.
+- Only a process the service started for the extension can ask (the grant); a client can't.
+
 ### Collections
 
 A data handler's `read` may answer many records, keyed by the extension's own ids (a library of highlights):
@@ -1167,6 +1214,31 @@ A block's whole new text, checked against the revision you read. The service app
 
 Answers `Block \| DraftPatchResult`.
 
+#### `move`
+
+A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one under it), and on a record an extension keeps.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `parentId` | `string \| null` |  |
+| `position?` | `number` |  |
+| `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
+
+Answers `Block`.
+
+#### `delete`
+
+A block and the blocks under it to Trash (restorable), checked and refused as `move` is.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+| `ifEmpty?` | `boolean` |  |
+| `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
+
+Answers `Block`.
+
 #### `annotations.list`
 
 The comment threads on a block (or a Resource), each with its replies and its own properties.
@@ -1209,6 +1281,17 @@ What changed in the outline after `sequence` (a cursor you keep), oldest first: 
 | `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
 
 Answers `ChangeFeedPage`.
+
+#### `secrets.group`
+
+A `with-secrets` group's values, asked for by name while the call runs: one the manifest's `secretGroups` names (or any, with `*`). The values join the call's secrets: the service scrubs them from everything it writes, answers and prints to stderr. Use them (a command's environment); never write them anywhere.
+
+| Field | Type | |
+|---|---|---|
+| `group` | `string` | The group's name: `~/.config/secrets/<group>.env` (`WITH_SECRETS_DIR` moves the folder). |
+| `keys?` | `string[]` | Only these keys, each of which must be set (default: every key in the group). |
+
+Answers `{ group: string; values: Record<string, string>; }`.
 
 #### `notes.address`
 
@@ -1532,6 +1615,21 @@ Run 2 built the Readwise extension with no core change, reading the source for t
 | A worked "sync from an outside API" | [Worked example](#worked-example-sync-my-starred-items-from-an-outside-api-every-hour) |
 | The suggested `pgrep` check matched other agents' runs | [Running it on float-2](#testing-an-extension): `agent-env --test` waits for a slot itself |
 
+### Cold-start runs 3 and 4 (runbooks, the notifications hub)
+
+Both built with no core change, working around these. Wave 2 closed them:
+
+| Gap | Now |
+|---|---|
+| Who asked isn't in an action's input (runbook probed `changes.since` after a write) | [`requestedBy`](#actions) in the `act` input |
+| A connection write doesn't redraw the acted-on line | It does, for a write to the block or a child of it ([Actions](#actions)) |
+| Secrets only by manifest name, so a group the note chooses needed a `with-secrets` wrapper and the extension's own scrub | [Secrets chosen at run time](#secrets-chosen-at-run-time) |
+| No `HOME` or `WITH_SECRETS_DIR`, and no way to ask for a host variable | Both [by default](#the-wire); the manifest's `env` for more |
+| A crashing extension shows no reason | [Its last stderr lines](#the-wire), scrubbed, in the refusal and `lastRun` |
+| `context.ancestors`: capped at 8, order unstated | [Every ancestor, top first](#the-wire) |
+| What `context.block.text` holds | [The wire](#the-wire) |
+| The connection can't move or trash | [`move` and `delete`](#writes-anywhere-through-the-normal-paths) |
+
 ## `extensions.list`
 
 ```json
@@ -1545,7 +1643,8 @@ Run 2 built the Readwise extension with no core change, reading the source for t
     "actions": [{ "id": "keep", "name": "ext.horoscope.keep", "builtIn": true, … }],
     "tiles": [],
     "bar": [],
-    "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }]
+    "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }],
+    "lastRun": { "at": "…", "call": "ext.horoscope.horoscope", "ok": false, "error": "command exited with code 1: no sign given" }
   }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
@@ -1558,7 +1657,8 @@ Run 2 built the Readwise extension with no core change, reading the source for t
 ```
 
 `state` is `active`, `failed` (with `error`; it may still serve its last good version), `disabled`
-or `shadowed`. `extensions.list { reload: true }` reads the folders now instead of waiting for the
+or `shadowed`. `lastRun` is its last call of any kind since the service started: when, which, and why it failed (a
+crash's last stderr lines, scrubbed). `extensions.list { reload: true }` reads the folders now instead of waiting for the
 watcher.
 
 ## Testing an extension

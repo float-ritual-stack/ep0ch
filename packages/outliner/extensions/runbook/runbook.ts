@@ -8,20 +8,21 @@
 //   ```
 //
 // {{name}} is filled from the runbook note's own [name::value] properties. `--secrets` names with-secrets groups, never
-// a value: the command runs as `with-secrets <group> -- …` (wrap.ts), and the output is scrubbed of the group's values
-// before it is kept. Each run is a child block of the step (status, exit code, when, who, an output tail).
+// a value: the service reads each group when the step runs (`secrets.group`, allowed by the manifest's secretGroups),
+// the command gets the values in its environment (wrap.ts runs it), and the service scrubs them from everything this
+// extension writes or answers. Each run is a child block of the step (status, exit code, when, who, an output tail).
 // An apply step is the person's: an agent's request is recorded as refused. Every command and name here is made up.
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { outline } from "./outline";
 
 interface Prop { key: string; value: string }
 interface Block { id: string; text: string; revision: number; properties?: Prop[] }
 interface Context { block: { id: string; text: string; revision: number; properties?: Prop[] }; line?: { index: number; text: string }; children: { id: string; text: string }[]; ancestors: { id: string; title: string }[]; now: string }
-type Config = { secretsDir?: string; timeoutSeconds?: number };
+type Config = { timeoutSeconds?: number };
+type Asker = { author: string; actorId?: string };
 type Request =
   | { operation: "run"; input: { options: Record<string, string>; context: Context } }
-  | { operation: "act"; input: { action: "run-step" | "run-all"; args?: Record<string, string>; target?: { blockId: string; line?: number }; context: Context }; config: Config };
+  | { operation: "act"; input: { action: "run-step" | "run-all"; args?: Record<string, string>; target?: { blockId: string; line?: number }; context: Context; requestedBy?: Asker }; config: Config };
 
 const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 const fail = (message: string) => say({ message });
@@ -89,28 +90,10 @@ function recordText(title: string, outcome: Outcome): string {
   return `${head} ${props.map((prop) => `[${prop}]`).join(" ")}${outcome.excerpt ? `\n\`\`\`text\n${inertFence(outcome.excerpt)}\n\`\`\`` : ""}`;
 }
 
-/** Who asked, as the change feed recorded it for a block this extension just wrote (the act request doesn't say). */
-async function askedBy(blockId: string): Promise<string> {
-  type Page = { kind: string; sequence: number; changes?: { blockId?: string; requestedBy?: { author: string; actorId?: string } }[] };
-  // The feed's newest sequence is what a cursor from the future is told; our write is among the last few changes.
-  const now = (await outline<Page>({ action: "changes.since", sequence: 2 ** 40, limit: 1 })).sequence;
-  const page = await outline<Page>({ action: "changes.since", sequence: Math.max(0, now - 200), limit: 1000 });
-  const who = page.changes?.filter((candidate) => candidate.blockId === blockId).at(-1)?.requestedBy;
-  return !who ? "unknown" : who.author === "user" ? "person" : `agent:${who.actorId ?? "unnamed"}`;
-}
+/** Who asked, from the action's input: the person, an agent by its id, or no one (a scheduled run). */
+const askedBy = (asker: Asker | undefined) => !asker ? "unknown" : asker.author === "user" ? "person" : `agent:${asker.actorId ?? "unnamed"}`;
 
-async function groupNames(groups: string[], env: Record<string, string>): Promise<string[]> {
-  const listing = Bun.spawn(["with-secrets", "--list"], { env, stdout: "pipe", stderr: "ignore" });
-  const text = await new Response(listing.stdout).text();
-  const names: string[] = [];
-  for (const group of groups) {
-    const row = text.split("\n").find((line) => line.split(/\s+/)[0] === group);
-    if (row) names.push(...(/^\S+\s+(.*?)\((?:env|keys)\)\s*$/.exec(row)?.[1] ?? "").split(/\s+/).filter(Boolean));
-  }
-  return names;
-}
-
-/** [run.last::status] on the step's first line: queryable ("which steps failed"), and a changed revision makes its line draw again. */
+/** [run.last::status] on the step's first line: queryable ("which steps failed", `run.last=failed`). */
 async function mark(stepId: string, status: string) {
   const current = await outline<Block>({ action: "get", blockId: stepId });
   const [first = "", ...rest] = current.text.split("\n");
@@ -119,12 +102,12 @@ async function mark(stepId: string, status: string) {
 }
 
 interface StepResult { title: string; outcome: Outcome }
-async function runStep(step: Block, context: Context, args: Record<string, string>, config: Config): Promise<StepResult> {
+async function runStep(step: Block, context: Context, args: Record<string, string>, config: Config, by: string): Promise<StepResult> {
   const title = titleOf(step.text);
   const line = runLine(step.text);
   const at = new Date().toISOString();
   const refuse = async (why: string): Promise<StepResult> => {
-    const outcome: Outcome = { status: "refused", by: "unknown", at, excerpt: "", why };
+    const outcome: Outcome = { status: "refused", by, at, excerpt: "", why };
     await outline({ action: "create", parentId: step.id, text: recordText(title, outcome) });
     await mark(step.id, "refused");
     return { title, outcome };
@@ -139,25 +122,27 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   const { command, missing } = fill(template, { ...(root ? propsOf(root) : {}), ...args });
   if (missing.length) return refuse(`no value for ${missing.map((name) => `{{${name}}}`).join(", ")}: write [${missing[0]}::value] on the runbook note, or pass ${missing[0]}=value`);
 
-  // A started record first: the change feed then says who asked, which the request itself doesn't.
-  const started = await outline<Block>({ action: "create", parentId: step.id, text: `Running ${title} [run.status::running] [run.at::${at}]` });
-  const by = await askedBy(started.id);
-  const settle = async (outcome: Outcome): Promise<StepResult> => { await outline({ action: "update", blockId: started.id, expectedRevision: started.revision, text: recordText(title, outcome) }); await mark(step.id, outcome.status); return { title, outcome }; };
   if (line.mode === "apply") {
-    if (by !== "person") return settle({ status: "refused", by, at, excerpt: "", why: `apply steps are the person's to run${by === "unknown" ? " (who asked isn't known)" : ` (${by} asked)`}. The command: ${command}` });
+    if (by !== "person") return refuse(`apply steps are the person's to run${by === "unknown" ? " (who asked isn't known)" : ` (${by} asked)`}. The command: ${command}`);
     const word = line.confirm ?? "apply";
-    if (args.confirm !== word) return settle({ status: "refused", by, at, excerpt: "", why: `an apply step needs its confirmation: run it again with confirm=${word}. The command: ${command}` });
+    if (args.confirm !== word) return refuse(`an apply step needs its confirmation: run it again with confirm=${word}. The command: ${command}`);
   }
+  // A started record first, so a run that is cut off still shows it began.
+  const started = await outline<Block>({ action: "create", parentId: step.id, text: `Running ${title} [run.status::running] [run.at::${at}]` });
+  const settle = async (outcome: Outcome): Promise<StepResult> => { await outline({ action: "update", blockId: started.id, expectedRevision: started.revision, text: recordText(title, outcome) }); await mark(step.id, outcome.status); return { title, outcome }; };
 
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: homedir(), ...(config.secretsDir ? { WITH_SECRETS_DIR: config.secretsDir } : {}) };
+  // Each group by name, read by the service now; the service scrubs its values from all this run writes and answers.
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  for (const group of line.secrets) {
+    try {
+      Object.assign(env, (await outline<{ values: Record<string, string> }>({ action: "secrets.group", group })).values);
+    } catch (error) {
+      return settle({ status: "refused", by, at, excerpt: "", why: (error as Error).message });
+    }
+  }
   const timeout = String((config.timeoutSeconds ?? 120) * 1000);
-  const names = line.secrets.length ? await groupNames(line.secrets, env) : [];
-  const wrapper = join(import.meta.dir, "wrap.ts");
-  const argv = line.secrets.length
-    ? ["with-secrets", line.secrets.join(","), "--", process.execPath, wrapper, names.join(","), timeout, command]
-    : [process.execPath, wrapper, "", timeout, command];
   const began = Date.now();
-  const child = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "wrap.ts"), timeout, command], { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   const ms = Date.now() - began;
   let result: { exit: number; output: string };
@@ -196,7 +181,7 @@ if (request.operation === "run") {
   const { input, config } = request;
   if (input.action === "run-step") {
     const step = input.target?.blockId && input.target.blockId !== input.context.block.id ? await outline<Block>({ action: "get", blockId: input.target.blockId }) : (input.context.block as Block);
-    const result = await runStep(step, input.context, input.args ?? {}, config);
+    const result = await runStep(step, input.context, input.args ?? {}, config, askedBy(input.requestedBy));
     fail(`${result.title}: ${result.outcome.status}${result.outcome.exit !== undefined ? ` (exit ${result.outcome.exit})` : ""}${result.outcome.why ? `: ${result.outcome.why}` : ""}`);
   } else {
     const root = input.context.block;
@@ -212,7 +197,7 @@ if (request.operation === "run") {
       const began = Date.now(), budget = 280_000;   // the call's deadline is 5 m: settle before it, never leave a record "running"
       for (const { block: step, ancestors } of steps) {
         if (Date.now() - began + (config.timeoutSeconds ?? 120) * 1000 > budget) { stopped = `stopped before ${titleOf(step.text)}: not enough of this call's time left; run it again to continue`; break; }
-        const result = await runStep(step, { ...input.context, ancestors }, input.args ?? {}, config);
+        const result = await runStep(step, { ...input.context, ancestors }, input.args ?? {}, config, askedBy(input.requestedBy));
         done.push(`${result.title}: ${result.outcome.status}`);
         if (result.outcome.status !== "ok") { stopped = `stopped at ${result.title}: ${result.outcome.why ?? `exit ${result.outcome.exit}`}`; break; }
       }

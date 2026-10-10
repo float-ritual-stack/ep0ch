@@ -193,6 +193,8 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
       const once = schedule.once === "host" ? `, once per host${schedule.runsIn ? `, runs in ${schedule.runsIn}` : ""}` : "";
       lines.push(`  schedule ${schedule.entry} (${schedule.every ? `every ${schedule.every}` : `cron ${schedule.cron}`}${once}): next ${schedule.next}${schedule.running ? ", running now" : ""}${last}`);
     }
+    // Its last call, when it failed: why, in its own (scrubbed) words.
+    if (entry.lastRun && !entry.lastRun.ok) lines.push(`  last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`);
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
   lines.push(list.trust);

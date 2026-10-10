@@ -316,6 +316,16 @@ const ManifestV2 = Type.Object(
         description: Type.Optional(Type.String({ maxLength: 200 })),
       }, { additionalProperties: false }),
     ]), { maxProperties: 16 })),
+    /**
+     * The `with-secrets` groups a call may ask for while it runs (`secrets.group` over its connection), by name, or
+     * `"*"` for any: for a group the note chooses (a runbook step's). Their values are scrubbed from all it returns.
+     */
+    secretGroups: Type.Optional(Type.Array(Type.String({ pattern: `^(?:${SECRET_GROUP_PATTERN.slice(1, -1)}|\\*)$` }), { maxItems: 32 })),
+    /**
+     * Host variables its process gets besides PATH, LANG, HOME and WITH_SECRETS_DIR, by name, when the service has
+     * them (`XDG_CONFIG_HOME`, `SSH_AUTH_SOCK`). Never a secret: those are `secrets` or `secretGroups`.
+     */
+    env: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }), { maxItems: 32 })),
     handlers: Type.Optional(Type.Array(Handler, { maxItems: 16 })),
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
@@ -348,6 +358,11 @@ export type ExtensionFolderConfig = Static<typeof FolderConfig>;
 const MAX_FILE_BYTES = 64 * 1024;
 export const MAX_DEADLINE_MS = 5 * 60_000;
 export const DEFAULT_DEADLINE_MS = 15_000;
+
+/** Variables the service sets for every call: a manifest's `env` can't name them. */
+export const RESERVED_EXTENSION_ENV: ReadonlySet<string> = new Set([
+  "PATH", "LANG", "HOME", "WITH_SECRETS_DIR", "OUTLINER_EXTENSION", "EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS",
+]);
 
 /** Property keys the core already gives a meaning; a handler can't take them. */
 export const RESERVED_HANDLER_KEYS: ReadonlySet<string> = new Set([
@@ -492,6 +507,9 @@ function checkManifest(manifest: ExtensionManifest): void {
   }
   const deadline = durationMs(manifest.deadline);
   if (deadline !== undefined && deadline > MAX_DEADLINE_MS) throw new ExtensionLoadError("extension.json: deadline is longer than 5m");
+  for (const [index, name] of (manifest.env ?? []).entries()) {
+    if (RESERVED_EXTENSION_ENV.has(name)) throw new ExtensionLoadError(`extension.json: env/${index} ${name} is set by the service for every call; leave it out`);
+  }
   const actionIds = new Set<string>();
   for (const [index, action] of (manifest.actions ?? []).entries()) {
     if (actionIds.has(action.id)) throw new ExtensionLoadError(`extension.json: actions/${index}/id ${action.id} is declared twice`);

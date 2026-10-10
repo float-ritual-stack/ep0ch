@@ -7,7 +7,7 @@ import { fixture, REAL } from "./sources";
 
 interface Block { id: string; text: string; revision: number }
 interface Config {
-  sources?: string[]; page?: string; outline?: string; days?: number; home?: string; fixtures?: Record<string, string>;
+  sources?: string[]; page?: string; outline?: string; days?: number; fixtures?: Record<string, string>;
 }
 const answer = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 
@@ -68,7 +68,7 @@ for (const name of names) {
   const started = new Date(Date.parse(now) - 60_000).toISOString(); // a minute of overlap: a write is idempotent
   try {
     const since = readCursor(page.text, name) ?? new Date(Date.parse(now) - (config.days ?? 14) * 86_400_000).toISOString();
-    const fetched: Notification[] = await sourceFor(name).fetch({ since, days: config.days ?? 14, home: config.home });
+    const fetched: Notification[] = await sourceFor(name).fetch({ since, days: config.days ?? 14 });
     for (const n of fetched) {
       const key = keyOf(n);
       const found = await o<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `${KEY}="${key.replace(/"/g, "")}"`, subtreeRootId: page.id, limit: 1 } });

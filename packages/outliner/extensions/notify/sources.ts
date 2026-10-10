@@ -2,7 +2,6 @@
 // GitHub is real (the `gh` CLI, read-only). Gmail, Jira and Slack read a made-up JSON file named in config `fixtures`
 // until a real one is plugged in (README: "Plugging in a real source").
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Notification, Source } from "./notification";
 
@@ -29,19 +28,18 @@ export function fromGithub(thread: GithubThread): Notification {
   };
 }
 
-async function gh(args: string[], home?: string): Promise<string> {
-  // A call's environment is PATH and LANG: gh finds its login under HOME, so give it the service user's (or config `home`).
-  const env = { ...(process.env as Record<string, string>), HOME: home ?? process.env.HOME ?? homedir() };
-  const run = Bun.spawn(["gh", ...args], { env, stdout: "pipe", stderr: "pipe" });
+async function gh(args: string[]): Promise<string> {
+  // gh finds its login under HOME (or GH_CONFIG_DIR, XDG_CONFIG_HOME: the manifest's env), which a call has.
+  const run = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
   if (code !== 0) throw new Error(`gh ${args[0]} failed (${code}): ${err.trim().split("\n")[0] ?? ""}`.replace(/(gh[pousr]_|github_pat_)\w+/g, "[token]"));
   return out;
 }
 
 export const github: Source = {
-  async fetch({ since, home }) {
+  async fetch({ since }) {
     // all=true so a thread read on github.com is seen as read; since keeps it to what changed.
-    const out = await gh(["api", "--paginate", "--slurp", `notifications?all=true&per_page=100&since=${encodeURIComponent(since)}`], home);
+    const out = await gh(["api", "--paginate", "--slurp", `notifications?all=true&per_page=100&since=${encodeURIComponent(since)}`]);
     return (JSON.parse(out) as GithubThread[][]).flat().map(fromGithub);
   },
 };

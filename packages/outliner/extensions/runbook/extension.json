@@ -9,6 +9,9 @@
     "runbook.ts"
   ],
   "deadline": "5m",
+  "secretGroups": [
+    "*"
+  ],
   "handlers": [
     {
       "key": "run",
@@ -51,11 +54,6 @@
   "configSchema": {
     "type": "object",
     "properties": {
-      "secretsDir": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Where with-secrets groups live (default ~/.config/secrets); a test points it at a scratch folder"
-      },
       "timeoutSeconds": {
         "type": "integer",
         "minimum": 1,

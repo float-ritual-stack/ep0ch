@@ -18,9 +18,12 @@ Deploy the demo widget [type::runbook] [env::scratch]
 ```
 
 - `{{name}}` is filled from the runbook note's own `[name::value]` properties (or `name=value` when you run it).
-- `--secrets=<group>[,<group>]` names `with-secrets` groups. The step runs as `with-secrets <group> -- …`; the values
-  reach only the command, and the output is scrubbed of them (and their base64 and URL-encoded forms) before it is kept.
-- `--mode=apply` steps are the person's: an agent's request is recorded as refused. They also need
+- `--secrets=<group>[,<group>]` names `with-secrets` groups. When the step runs, the extension asks the service for each
+  group by name (`secrets.group`; the manifest's `"secretGroups": ["*"]` allows any) and runs the command with the
+  values in its environment. The service scrubs them (and their base64 and URL-encoded forms, and a value split by
+  terminal escapes) from everything the extension writes and answers.
+- `--mode=apply` steps are the person's: an agent's request is recorded as refused. Who asked is the action's
+  `requestedBy`. They also need
   `confirm=<word>` (`--confirm=<word>` on the line; default `apply`).
 - A run is a child of the step: `[run.status::ok|failed|refused]`, `[run.exit::N]`, `[run.at::…]`, `[run.by::person|agent:<id>]`,
   and the last 15 lines of output. The step carries `[run.last::<status>]`, so `run.last=failed` finds the steps that failed.
@@ -29,5 +32,5 @@ Actions: `ext.runbook.run-step` (on a `run::` line; `outliner ext act runbook ru
 and `ext.runbook.run-all` (on the runbook note: steps in order, stopping at the first that fails or is refused, with a
 summary child on the note). In the door: `act ext.runbook.run-all block=<id>`.
 
-`config.json`: `{ "config": { "secretsDir": "…", "timeoutSeconds": 120 } }`. `secretsDir` is where `with-secrets`
-groups live (default `~/.config/secrets`); a test points it at a scratch folder.
+`config.json`: `{ "config": { "timeoutSeconds": 120 } }`. Groups are read where `with-secrets` reads them
+(`~/.config/secrets`, or the service's `WITH_SECRETS_DIR`).
