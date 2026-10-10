@@ -28,7 +28,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Fixed:** `@margin`'s Claude session had its outline tools off when the host handed it `EP0CH_SOCKET` with
   `EP0CH_WS`; the mod now takes that pair (a host on this machine and the outline on it) and still refuses a forward to
   another machine.
-- Protocol 138. Schema stays 5: the read marks table joins version 5 before it ships (0005's migration creates it, and
+- Protocol 139. Schema stays 5: the read marks table joins version 5 before it ships (0005's migration creates it, and
   adds it to a version-5 scratch file that lacks it).
 
 ### Any extension can provide Resources, as Jira does

@@ -993,23 +993,24 @@ export class Publisher {
    */
   private async serveReplies(index: PublishedIndex): Promise<Response> {
     const base = this.basePath;
-    const fields = ["text", "parent", "properties", "author", "timestamps"];
+    const fields = ["text", "parent", "properties", "author", "timestamps"] as const;
     const [all, unread] = await Promise.all([
-      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: RECENT_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields }),
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: RECENT_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields: [...fields] }),
       this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: UNREAD_REPLIES_QUERY, limit: MAX_BLOCK_READ_IDS }, fields: ["parent"] }),
     ]);
     const fresh = new Set(unread.blocks.map((block) => block.id));
     // A reply's tree parent is its thread's comment; the comment's is the note it's on.
     const roots = [...new Set(all.blocks.map((block) => block.parentId).filter((id): id is string => !!id))];
-    const rootRead = roots.length ? await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: roots, fields: ["text", "parent"] }) : { blocks: [], unavailable: [] };
-    const rootOf = new Map(rootRead.blocks.map((block) => [block.id, block]));
-    const notes = [...new Set(rootRead.blocks.map((block) => block.parentId).filter((id): id is string => !!id))];
-    const [locked, titles, noteRead] = await Promise.all([
+    const read = async (ids: string[], wanted: ("text" | "parent" | "properties")[]) =>
+      ids.length ? (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids, fields: wanted })).blocks : [];
+    const rootOf = new Map((await read(roots, ["text", "parent"])).map((block) => [block.id, block]));
+    const notes = [...new Set([...rootOf.values()].map((block) => block.parentId).filter((id): id is string => !!id))];
+    const [locked, titles, noteBlocks] = await Promise.all([
       this.lockedIds([...notes, ...all.blocks.map((block) => block.id)]),
       this.titles(notes),
-      notes.length ? this.client.request<BlockReadCollection>({ action: "blocks.read", ids: notes, fields: ["properties"] }) : Promise.resolve({ blocks: [], unavailable: [] } as BlockReadCollection),
+      read(notes, ["properties"]),
     ]);
-    const noteOf = new Map(noteRead.blocks.map((block) => [block.id, block]));
+    const noteOf = new Map(noteBlocks.map((block) => [block.id, block]));
     const rows: string[] = [];
     let unreadCount = 0;
     for (const reply of all.blocks) {

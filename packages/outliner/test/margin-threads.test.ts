@@ -156,7 +156,7 @@ test("Recent replies: replies on the reader's threads, not their own; unread unt
   expect(await ids(RECENT_REPLIES_QUERY)).not.toContain(self);
   expect((await ids(UNREAD_REPLIES_QUERY)).sort()).toEqual([onMine, onTheirs].sort());
   // Opening a thread reads it (by its id or a reply's).
-  expect(await client.request({ action: "annotations.read", annotationId: onMine })).toEqual({ thread: mine, marked: 3 });
+  expect(await client.request<{ thread: string; marked: number }>({ action: "annotations.read", annotationId: onMine })).toEqual({ thread: mine, marked: 3 });
   expect(await ids(UNREAD_REPLIES_QUERY)).toEqual([onTheirs]);
   // A new reply is unread again; an agent's own read marks are its own.
   const later = await agentReply("a3", mine, "And shade the south pane.");
