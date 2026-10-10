@@ -19,6 +19,7 @@ import { hyperKeysOf, hyperOn } from "../hyper";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
+import { extensionList } from "../extensions";
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
 export function tilesOf(s: Screen | undefined): Desk | null { return s instanceof Desk ? s : s?.tilesHere?.() ?? null; }
@@ -288,7 +289,56 @@ const SCREENS: BarSource = {
   },
 };
 
+interface ExtRow { kind: "hub" | "page" | "install" | "remove"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string }
+
+/**
+ * The outline's extensions (the service's `extensions.list`, as the extension binding last read it): the Extensions hub,
+ * each installed extension's page (its README, what it adds, its demo notes), the repo's extensions not installed (⏎
+ * installs one, `extensions.install`), and, once a name is typed, removing one (`extensions.uninstall`), keeping its demo
+ * notes or not. `&` is the door's: an extension's bar source can't take it.
+ */
+const EXTENSIONS: BarSource = {
+  id: "extensions", title: "extensions", prefix: "&", by: "door",
+  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
+  main: { empty: false, typed: true, most: 4 },
+  rows(q, host) {
+    const l = extensionList();
+    if (!l) return [];
+    const rows: BarRow[] = [];
+    if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: "the hub: what's installed and what you can add", group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
+    const installed = l.extensions.filter(e => e.state !== "shadowed");
+    for (const e of installed) {
+      const page = l.pages?.[e.id];
+      rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [`${e.id}${e.version !== undefined ? ` v${e.version}` : ""}`, e.state === "active" ? "" : e.state, e.description ?? ""].filter(Boolean).join(" · "), group: "installed", ...(page ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(page ? { block: page } : {}), about: e.description } satisfies ExtRow });
+    }
+    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: [`${a.id} v${a.version}`, a.description ?? ""].filter(Boolean).join(" · "), group: "not installed", data: { kind: "install", id: a.id, about: a.description } satisfies ExtRow });
+    // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
+    if (q.trim()) for (const e of installed) {
+      const notes = l.demos?.[e.id] ?? 0, name = e.name ?? e.id;
+      if (!notes) { rows.push({ key: `remove:${e.id}:keep`, label: `remove ${name}`, detail: e.id, group: "remove", data: { kind: "remove", id: e.id, demo: "keep" } satisfies ExtRow }); continue; }
+      for (const demo of ["keep", "remove"] as const) rows.push({ key: `remove:${e.id}:${demo}`, label: `remove ${name}${demo === "keep" ? `, keep its ${notes} demo ${notes === 1 ? "note" : "notes"}` : ` and its ${notes} demo ${notes === 1 ? "note" : "notes"}`}`, detail: e.id, group: "remove", data: { kind: "remove", id: e.id, demo, notes } satisfies ExtRow });
+    }
+    const typed = !!q.trim();
+    const hits = filtered(rows, q, r => [r.label, r.detail ?? ""]);
+    return typed ? hits.map(({ group: _g, ...r }) => r) : hits;
+  },
+  preview(row) {
+    const d = row.data as ExtRow;
+    if (d.block) return { note: d.block };
+    if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
+    if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
+    return { lines: [row.label, "", row.refused ?? ""] };
+  },
+  pick(row, host, how) {
+    const d = row.data as ExtRow;
+    if (row.refused) throw new ActionRefused(row.refused);
+    if (d.block) return openNote(d.block, host, how);
+    const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
+    return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
+  },
+};
+
 /** The door's own sources, in the order the bar's tabs show them. */
-export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS] as const;
+export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS, EXTENSIONS] as const;
 for (const s of BUILT_IN_SOURCES) registerBarSource(s);
 

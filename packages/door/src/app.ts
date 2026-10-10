@@ -19,7 +19,7 @@ import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, loadExtensions } from "./extensions";
+import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -947,6 +947,7 @@ export class App implements Ctx {
     // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
     { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
+    { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
   ]);

@@ -68,17 +68,41 @@ const inertLineStart = (line: string) => line
 
 /**
  * Text from an extension's folder (a README, a description) as Blockdown that stays words: outside code fences a
- * `[key::value]` is escaped and a line start that would be a handler line or an `@name` request is broken with a
- * zero-width joiner. Fences are left as written (they are literal already). No terminal escapes.
+ * `[key::value]` becomes a code span (a backslash when it holds a backtick: outline-core's escape) and a line start
+ * that would be a handler line or an `@name` request is broken with a zero-width joiner. Fences are left as written
+ * (they are literal already). No terminal escapes.
  */
 export function inertDocument(text: string): string {
   const lines = cleanExtensionText(text, true).split("\n");
   const fenced = codeFenceLines(lines);
-  return lines.map((line, index) => fenced[index]! >= 0 ? line : inertLineStart(replacePropertyTokens(line, (token) => `\\${token.raw}`))).join("\n");
+  const quiet = (raw: string) => (raw.includes("`") ? `\\${raw}` : `\`${raw}\``);
+  return lines.map((line, index) => fenced[index]! >= 0 ? line : inertLineStart(replacePropertyTokens(line, (token) => quiet(token.raw)))).join("\n");
 }
 
 /** One line of an extension's words (a name, a description) for a list: inert, no line breaks. */
 const words = (text: string | undefined) => inertDocument((text ?? "").replace(/\s+/g, " ").trim()).replace(/^@/, "@‍");
+
+/** A line that starts a block of its own (a heading, a list item, a quote, a table row, a fence, a comment), not a paragraph's next line. */
+const STARTS_BLOCK = /^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||`{3,}|~{3,}|<!--|$)/;
+
+/**
+ * A README's paragraphs as Blockdown reads them: Markdown wraps a paragraph's lines into one, Blockdown keeps each
+ * line break, so a README hard-wrapped at 120 columns would read ragged. A line that continues a paragraph or a list
+ * item (it starts no block of its own) joins the one before; fences, tables and headings stay as written.
+ */
+export function unwrapParagraphs(text: string): string {
+  const lines = text.split("\n");
+  const fenced = codeFenceLines(lines);
+  const out: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!, previous = out.length ? out[out.length - 1]! : "";
+    const joins = index > 0 && fenced[index]! < 0 && fenced[index - 1]! < 0 && !STARTS_BLOCK.test(line) &&
+      previous.trim() !== "" && !/^\s*(?:#{1,6}\s|\||<!--)/.test(previous) && !/ {2}$|\\$/.test(previous);
+    if (joins) out[out.length - 1] = `${previous.trimEnd()} ${line.trim()}`;
+    else out.push(line);
+  }
+  return out.join("\n");
+}
 
 /** The README's body: its first `# ` heading (the page's title says the name) and the blank lines after it go. */
 function readmeBody(readme: string): string {
@@ -87,7 +111,7 @@ function readmeBody(readme: string): string {
   while (start < lines.length && !lines[start]!.trim()) start++;
   if (/^#\s/.test(lines[start] ?? "")) start++;
   while (start < lines.length && !lines[start]!.trim()) start++;
-  return inertDocument(lines.slice(start).join("\n").trimEnd());
+  return inertDocument(unwrapParagraphs(lines.slice(start).join("\n").trimEnd()));
 }
 
 /** The changelog's newest entry: from its first `## ` heading to the next (a CHANGELOG.md with one section per version). */
@@ -96,7 +120,7 @@ function changelogHead(changelog: string): string {
   const first = lines.findIndex((line) => /^##\s/.test(line));
   if (first < 0) return inertDocument(lines.filter((line) => !/^#\s/.test(line)).join("\n").trim()).slice(0, 2_000);
   const next = lines.findIndex((line, index) => index > first && /^##\s/.test(line));
-  return inertDocument(lines.slice(first, next < 0 ? undefined : next).join("\n").trim().replace(/^##\s/, "### "));
+  return inertDocument(unwrapParagraphs(lines.slice(first, next < 0 ? undefined : next).join("\n").trim().replace(/^##\s/, "### ")));
 }
 
 function readText(path: string, limit = 64 * 1024): string | undefined {
@@ -382,6 +406,11 @@ export class ExtensionPages {
     delete state.demos[id];
     this.write(state);
     return { trashed, kept };
+  }
+
+  /** Each extension with demo notes still in the outline, and how many. */
+  demoCounts(): Record<string, number> {
+    return Object.fromEntries(Object.keys(this.read().demos).flatMap((id) => { const count = this.demoCount(id); return count ? [[id, count]] : []; }));
   }
 
   /** How many of an extension's demo notes are still in the outline. */

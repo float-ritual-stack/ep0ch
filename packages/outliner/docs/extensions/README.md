@@ -2,7 +2,9 @@
 
 An extension is a folder. Put one in a watched folder and the outline service loads it, with no
 restart. Delete the folder and everything it added goes away (its handlers, actions, tiles and kept
-line results); records it wrote stay, because they are data. The service runs the extension's
+line results); records it wrote stay, because they are data, and so do its demo notes unless you say to remove them.
+Every installed extension has a [page](#an-extensions-page-and-its-demo-notes) in the outline, under one Extensions
+hub: its README, what it adds, and its demo notes, live. The service runs the extension's
 code; clients (Detail, the door, the publisher, agents) only draw what the service returns.
 
 There are four kinds, and **rules** that say when a block gets one (PIE-600). One extension may provide
@@ -82,7 +84,8 @@ outliner ext ls                                   # every folder, its state, its
 outliner ext add horoscope                        # a built-in, into the user folder
 outliner ext add ./my-extension                   # any folder (checked first; a broken one is refused)
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/
-outliner ext remove horoscope                     # deletes the folder; the service drops it at once
+outliner ext remove horoscope                     # deletes the folder; the service drops it at once (its demo notes stay)
+outliner ext remove notify --demo remove          # and its demo notes, the ones you didn't change, to Trash
 outliner ext act fancy-horror ward --block <id>   # runs an action, attributed to the extension
 ```
 
@@ -95,7 +98,9 @@ extensions/horoscope/
   extension.json   the manifest (contract 2)
   horoscope.ts     code; `bun` in run means the service's own Bun
   config.json      optional: this install's settings and secret references. Never a secret value.
-  README.md
+  README.md        drawn as the body of its page in the outline (below)
+  CHANGELOG.md     optional: one `## <version>` section per version; the newest is on its page
+  demo/            optional (manifest `demo`): notes written under its page when it's installed, once
 ```
 
 ### `extension.json` (contract 2)
@@ -137,8 +142,9 @@ extensions/horoscope/
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
-| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
+| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4; `&` is the door's own extensions scope, so a prefix is one of `! # $ * : ; = ^ \| ~`); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
+| `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
 
 ### `config.json`
 
@@ -158,6 +164,52 @@ A manifest's `secrets` may name the group itself (`"token": { "group": "readwise
 "description": "…" }`), so a fresh install needs no `config.json`. The values reach the program on stdin
 (`credentials`; a group key also as its own variable), and are scrubbed from what it returns. `"enabled": false` keeps the folder
 but serves nothing.
+
+## An extension's page and its demo notes
+
+Every installed extension has a page in the outline that explains and demonstrates it, under one **Extensions** hub
+(`Extensions [page::extensions]`, at the outline's root). The service writes them from the folders, never by hand
+(src/extension-pages.ts), whenever the registry reloads: an extension added, updated or removed, or its README,
+CHANGELOG or demo changed.
+
+- **The hub** lists what's installed (each a link to its page, its version and description), what was removed but left
+  notes behind, and what the repo's `extensions/` has that isn't installed, each with its description. `extensions.list`
+  says `hub`, `pages` (extension id to its page) and `available` (`{ id, name, version, description }`).
+- **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
+  the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
+  it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,
+  component schemas, secrets by group, settings), and the newest section of `CHANGELOG.md`. The README stays words: a
+  `key::` line or an `@name` in it is drawn, never run (a code fence is as you wrote it). The page's text is the
+  service's, written again when what it's made from changes: change the README, not the page.
+- **Demo notes** are the page's children: the notes in the manifest's `demo` folder, written once, as the extension
+  (`author: agent`, `actorId: ext:<id>`), with ids minted fresh. Write one to show the extension working: a board of
+  views over what it writes, a runbook with steps to run, a line its handler answers.
+
+```text
+extensions/notify/demo/
+  01-start-here.md              one note per file, its whole text (first line the title, properties and all)
+  02-read-state.md              Notifications by read state [page::notifications-state]
+  02-read-state/01-unread.md    a child of the note beside its folder; a leading 01- orders and isn't part of the name
+  02-read-state/02-read.md
+```
+
+- **Front matter** (optional): `id: unread` names a note for references in the demo (default its path, `read-state/unread`),
+  `parent: <id>` nests it under another instead of by folder. A reference in a demo note to a demo id (`((unread))`,
+  `((unread|Unread))`, `!((unread))`, `((unread^a1))`) is rewritten to the block it became.
+- **Once.** The service keeps, in the outline's metadata, which demo notes it wrote and at which revision. A reinstall
+  or an update writes none of them again (wherever you moved them, whatever you changed); a demo note added in a later
+  version is written by itself. A deleted one stays deleted.
+- **Uninstalling asks.** `extensions.uninstall` needs `demo: "keep"` (they stay under the page) or `"remove"` (to Trash:
+  each one nobody changed since it was written, with nothing but such notes under it; one you edited, or put a note
+  under, is kept and named). From a shell, `ep0ch ext remove <id>` keeps them and says so; `--demo remove` takes them
+  out, also after the folder is gone. The page stays while anything is under it, and goes with the last of it.
+- At most 64 notes, 32 KiB each. A demo's `@name` line asks its agent when it's written, like any note's.
+
+**Installing from the outline.** `extensions.install { extension: "<id>" }` copies one of the repo's extensions in
+(`ep0ch ext add <id>`: the user folder, or `where: "outline"` this outline's own) and answers once its page and demo
+notes are written: `{ id, lines, page, hub, state, error? }`. `extensions.uninstall { extension, demo }` removes one
+wherever it's installed. In the door they are the power bar's extensions scope (`ctrl+k` then `&`: ⏎ or a click on a
+row) and `act extensions.install id=<id>`, `act extensions.uninstall id=<id> demo=keep|remove`.
 
 ## The wire
 
@@ -1658,7 +1710,9 @@ Both built with no core change, working around these. Wave 2 closed them:
 
 `state` is `active`, `failed` (with `error`; it may still serve its last good version), `disabled`
 or `shadowed`. `lastRun` is its last call of any kind since the service started: when, which, and why it failed (a
-crash's last stderr lines, scrubbed). `extensions.list { reload: true }` reads the folders now instead of waiting for the
+crash's last stderr lines, scrubbed). `hub`, `pages`, `demos` (how many demo notes each has left) and `available` are
+the extensions' pages ([above](#an-extensions-page-and-its-demo-notes)); `pagesProblem` says why the last write of them
+failed, when it did. `extensions.list { reload: true }` reads the folders now instead of waiting for the
 watcher.
 
 ## Testing an extension

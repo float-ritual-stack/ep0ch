@@ -473,11 +473,11 @@ export class OutlinerServer {
     this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
   }
 
-  /** `extensions.list`'s page fields: the hub, each extension's page and the repo's extensions not installed here. */
-  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
+  /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
+  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
     const hub = this.extensionPages.hub();
     return {
-      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), available: this.extensionPages.availableNow(),
+      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
       ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
     };
   }

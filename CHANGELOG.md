@@ -10,6 +10,29 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every extension has a page in the outline, and ships its demo notes
+
+- **New:** an **Extensions** hub at the outline's root (`[[extensions]]`): what's installed, each a link to its page,
+  and what the repo's `extensions/` folder has that isn't, with its description. The outline service writes it from
+  the extensions' folders and again whenever one is added, updated or removed.
+- **New:** a page per installed extension under the hub: its README drawn as the note, its version, what it adds
+  (handlers, actions and their keys, schedules, tiles, rules, agents, power bar rows, secrets by group, settings) and
+  its newest CHANGELOG entry. A `key::` line or an `@name` in a README is drawn, never run.
+- **New:** an extension can ship notes. A `demo/` folder (`"demo": "demo"` in `extension.json`, one Blockdown file per
+  note, nested by folder or `parent:`) is written under its page when it's installed, once, as `ext:<id>`, with fresh
+  ids and its references rewritten. They're yours: a reinstall never writes them again; `ep0ch ext remove <id>` keeps
+  them, `--demo remove` moves the ones you didn't change to Trash.
+- **New:** install and remove from the door: `ctrl+k` then `&` lists the hub, each page, `install <name>` for each one
+  not installed, and (type a name) `remove <name>`, keeping its demo notes or not; agents `act extensions.install
+  id=<id>` and `act extensions.uninstall id=<id> demo=keep|remove`.
+- **Changed:** the notifications hub's boards and the runbook's demo runbook are their demo notes now (notify v2,
+  runbook v2): a pull no longer makes the boards.
+- **Changed:** `&` is the door's extensions scope: an extension's bar source can't take it as its prefix.
+- Kitchen sink: the `ext-pages` section shows the hub beside the notifications hub's page.
+- Protocol PROTOCOL_PLACEHOLDER (`extensions.install`, `extensions.uninstall`, `hub`, `pages` and `available` on
+  `extensions.list`): update the host and every client together, `ep0ch install --apply` on each machine. No schema
+  change. On the next start each outline the host serves gets its Extensions hub and a page per installed extension.
+
 ### Your outline in the browser on the tailnet: browse it like folders, read on the phone, mark it up (PIE-782, PIE-774, PIE-775)
 
 - **New:** on the tailnet every note is a page, no `[publish::]` needed: `https://float-2.<tailnet>.ts.net/pub/` (or

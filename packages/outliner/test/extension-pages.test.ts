@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { readDemo, rewriteDemoReferences } from "../src/extension-demo";
-import { inertDocument } from "../src/extension-pages";
+import { inertDocument, unwrapParagraphs } from "../src/extension-pages";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
@@ -63,8 +63,13 @@ test("the demo folder: one note per file, nested by folder or parent:, ids from 
 });
 
 test("a README drawn as a page stays words: no handler line, no @name request, no property, fences as written", () => {
-  expect(inertDocument("moon:: 2026-10-26\n@tidy tidy this\nA [mood::calm] day, `[kept::as code]`\n```text\nmoon:: 2026-10-26\n```"))
-    .toBe("moon:‍: 2026-10-26\n@‍tidy tidy this\nA \\[mood::calm] day, `[kept::as code]`\n```text\nmoon:: 2026-10-26\n```");
+  expect(inertDocument("moon:: 2026-10-26\n@tidy tidy this\nA [mood::calm] day, `[kept::as code]`, [odd::a`b]\n```text\nmoon:: 2026-10-26\n```"))
+    .toBe("moon:\u200d: 2026-10-26\n@\u200dtidy tidy this\nA `[mood::calm]` day, `[kept::as code]`, \\[odd::a`b]\n```text\nmoon:: 2026-10-26\n```");
+});
+
+test("a README hard-wrapped for Markdown reads as paragraphs: continuation lines join, blocks and fences stay", () => {
+  expect(unwrapParagraphs("A deterministic fetcher,\nwith no model.\n\n- **One note**, keyed\n  by its key.\n- Two\n\n| a | b |\n|---|---|\n```sh\nep0ch ext add\nnotify\n```\n## Install\nrun it"))
+    .toBe("A deterministic fetcher, with no model.\n\n- **One note**, keyed by its key.\n- Two\n\n| a | b |\n|---|---|\n```sh\nep0ch ext add\nnotify\n```\n## Install\nrun it");
 });
 
 test("installed extensions get a hub, a page each and their demo notes once, as the extension, with references rewritten", async () => {
@@ -79,6 +84,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
   expect(listed.available.map((entry) => entry.id)).not.toContain("notify");
   expect(hub.text).toMatch(/\*\*Moon\*\* `moon` v\d/);
+  expect(hub.text).toContain("gets `[done-at::<date>]`");
   // The page: README body (its # title is the page's), what it adds, the changelog's newest entry, the demo under it.
   const page = store.require(listed.pages.runbook!);
   expect(page.parentId).toBe(hub.id);
@@ -132,7 +138,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect((await list()).available.map((entry) => entry.id)).not.toContain("moon");
   await expect(client.request({ action: "extensions.install", extension: "no-such" })).rejects.toThrow(/No extension no-such in the repo's folder/);
   // Uninstalling needs the demo's fate said.
-  await expect(client.request({ action: "extensions.uninstall", extension: "notify" })).rejects.toThrow(/needs demo: keep/);
+  await expect(client.request({ action: "extensions.uninstall", extension: "notify" } as never)).rejects.toThrow(/needs demo: keep/);
   const kept = await client.request<{ removed: boolean; demo: { left: number }; lines: string[] }>({ action: "extensions.uninstall", extension: "notify", demo: "keep" });
   expect(kept).toMatchObject({ removed: true, demo: { left: 9 } });
   expect(kept.lines.at(-1)).toBe("kept its 9 demo notes under its page: ep0ch ext remove notify --demo remove moves them to Trash");

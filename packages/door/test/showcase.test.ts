@@ -18,6 +18,7 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
@@ -332,6 +333,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
+    // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
+    "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
     rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
     selection: ["Lentil soup", "Drag across these lines"],
@@ -2255,6 +2258,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("extension pages: the Extensions hub and the notifications hub's page with its demo boards, live; one installed and removed through act and the power bar's extensions scope", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    await until(() => screen().includes("## Installed") && screen().includes("Notifications hub") && screen().includes("A deterministic fetcher"), "the hub and notify's page", 10_000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0];
+    // The page's demo notes, written once as the extension; its boards are views over what the pull wrote.
+    const demo = await board.children(listed.pages!.notify!);
+    expect(demo.map(title)).toEqual(["Start here: your notifications on two boards", "Notifications by read state [page::notifications-state]", "Notifications by source [page::notifications-source]"]);
+    expect(String(demo[0]!.author)).toContain("ext:notify");
+    const [unread] = await board.children(demo[1]!.id);
+    expect((await board.readSavedView(unread!.id))?.blocks.length).toBeGreaterThan(0);
+    const [runbook] = await board.children(listed.pages!.runbook!);
+    expect(title(runbook!)).toBe("Ship the demo widget [type::runbook] [env::scratch]");
+    // The hub lists what's installed, and what the repo has that isn't; the bar's extensions scope offers it.
+    const hubText = (await board.get(listed.hub!))!.text;
+    expect(hubText).toContain(`((${listed.pages!.notify}|Notifications hub))`);
+    expect(listed.available!.map(a => a.id)).toContain("horoscope");
+    const rows = await app.act({ action: "bar.open", args: { scope: "&", query: "horoscope" }, as: "test-agent" }) as { rows: { label: string }[] };
+    expect(rows.rows.map(r => r.label)).toContain("install Horoscope");
+    // Installed by act: its page is written before the answer; removed again, the demo's fate said.
+    const done = await app.act({ action: "extensions.install", args: { id: "horoscope" }, as: "test-agent" }) as { page?: string };
+    expect(title((await board.get(done.page!))!)).toBe("Horoscope [ext.page::horoscope] [page::ext-horoscope]");
+    await until(() => !!extensionNamed("horoscope"), "the door bound horoscope", 5000);
+    await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
+    await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
+    expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");
@@ -2677,7 +2711,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const head = rows().findIndex(l => /┌─ \d+ reader /.test(l));
     expect(titleRow).toBeGreaterThan(head);
     expect(head).toBeGreaterThan(0);
-    const hx = rows()[head]!.indexOf(" reader ") + 2;
+    // The reader's own header, not a " reader " in the index's words on the same row.
+    const at = /┌─ \d+ reader /.exec(rows()[head]!)!;
+    const hx = at.index + at[0].indexOf(" reader ") + 2;
     press({ kind: "mouse", action: "down", button: 0, x: fx, y: titleRow });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head + 1 });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head });
