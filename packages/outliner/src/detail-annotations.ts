@@ -6,6 +6,10 @@ import type { DetailState } from "./detail-controller";
 import { renderMarkdownLine, sanitizeDynamicText } from "./terminal";
 import { blockReferenceDisplayText } from "./references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
+import type { RuleTone } from "@ep0ch/outline-core/rules";
+import type { CalloutTone } from "@ep0ch/outline-core/callouts";
+import { DETAIL_CALLOUT_TONES } from "./detail-callout-theme";
 import type { Block, AnnotationRecord, AnnotationTarget, AnnotationThread, BlockReferenceResolution, ResolvedBlockReferences } from "./types";
 
 /** The displayed evidence needed by both Detail and local Preview comment readers. */
@@ -19,6 +23,42 @@ export interface AnnotationReaderState extends Pick<DetailState,
     kind: "ready";
     document: {kind: "block"} | {kind: "resource"; description: import("./resources").ResourceDescription};
   };
+}
+
+/** What an annotation is, as a capitalised word (ADR 0004, contract 6): `Comment`, `Highlight`, `Question`… */
+export function annotationKindWord(thread: Pick<AnnotationRecord, "body" | "properties">): string {
+  const kind = annotationKind(thread.properties ?? {}, thread.body).replace(/\s+/g, " ");
+  return `${kind[0]!.toUpperCase()}${kind.slice(1)}`;
+}
+
+/** Its tags as written, each once. */
+export function annotationTags(thread: Pick<AnnotationRecord, "properties">): string[] {
+  return [...new Set((thread.properties?.tags ?? []).flatMap(value => value.split(",")).map(tag => tag.trim()).filter(Boolean))];
+}
+
+/** A thread's row title: its kind word and number, then its tags (`Highlight 2 · #soil #water`). */
+export function annotationThreadTitle(thread: Pick<AnnotationRecord, "body" | "properties">, number: number): string {
+  const tags = annotationTags(thread);
+  return `${annotationKindWord(thread)} ${number}${tags.length ? ` · ${tags.map(tag => `#${tag}`).join(" ")}` : ""}`;
+}
+
+/** The compact margin card under a passage: kind, the body's first line, and how many replies. Null for a highlight. */
+export function annotationMarginCard(thread: Pick<AnnotationThread, "body" | "properties" | "replies">): string | null {
+  const first = thread.body.split(/\r?\n/).find(line => line.trim())?.trim();
+  if (!first) return null;
+  const replies = thread.replies.length;
+  return `${annotationKindWord(thread)} · ${first}${replies ? ` · ${replies} ${replies === 1 ? "reply" : "replies"}` : ""}`;
+}
+
+// Each theme tone in Detail's capped-dark callout palette: a dark background, never a bright one.
+const TONE_PALETTE: Readonly<Record<RuleTone, CalloutTone>> = {
+  default: "neutral", dim: "neutral", good: "green", warn: "amber", bad: "coral", accent: "violet",
+};
+
+/** The SGR an annotation's passage is marked with: its tone's dark background (its `color`, else its kind's). */
+export function annotationMarkStyle(thread: Pick<AnnotationRecord, "properties">): string {
+  const hex = DETAIL_CALLOUT_TONES[TONE_PALETTE[annotationTone(thread.properties ?? {})]].background;
+  return `\x1b[48;2;${Number.parseInt(hex.slice(1, 3), 16)};${Number.parseInt(hex.slice(3, 5), 16)};${Number.parseInt(hex.slice(5, 7), 16)}m`;
 }
 
 /** A resolve that has not answered by then leaves comments with their linked block IDs. */
@@ -348,9 +388,11 @@ export function buildDetailAnnotationView(
     }
     output.push("─".repeat(width));
   }
-  output.push("\x1b[1mComment\x1b[0m");
   const comment = extractAnnotationBody(state.resolvedSelectedText);
-  for (const line of (comment || "(No comment text)").split(/\r?\n/)) {
+  output.push(`\x1b[1m${annotation ? annotationKindWord({ body: comment, properties: annotation.properties }) : "Comment"}\x1b[0m`);
+  const tags = annotation ? annotationTags(annotation) : [];
+  const empty = annotation && !comment.trim() ? `(Highlight${tags.length ? ` · ${tags.map(tag => `#${tag}`).join(" ")}` : ""})` : "(No comment text)";
+  for (const line of (comment || empty).split(/\r?\n/)) {
     output.push(renderMarkdownLine(fitDynamicText(line, width)));
   }
   if (thread) {

@@ -1639,8 +1639,10 @@ export class OutlinerServer {
           if (request.line !== undefined && (!Number.isSafeInteger(request.line) || request.line < 0)) throw new Error("line must be a line index");
           if (request.args !== undefined && (!request.args || typeof request.args !== "object" || Array.isArray(request.args) ||
             Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
+          if (request.passage !== undefined && (!request.passage || typeof request.passage !== "object" || Array.isArray(request.passage))) throw new Error("passage is { subject, revision, quote, start, end, prefix, suffix }");
           const requestedBy = declaredRequester(request, "extensions.act");
           result = await this.extensionCalls.act({
+            ...(request.passage !== undefined ? { passage: request.passage } : {}),
             extension: request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
             ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
@@ -2364,6 +2366,8 @@ export class OutlinerServer {
             request.author,
             request.provenance,
           );
+          // `@name` in a person's reply asks an agent that answers in threads (marginalia's Ask, ADR 0004 contract 6).
+          if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.batch":
           result = this.store.createAnnotationBatch(
@@ -2372,6 +2376,7 @@ export class OutlinerServer {
             request.author,
             request.provenance,
           );
+          if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.reconcile":
           result = this.store.reconcileAnnotationThreads(request.input);

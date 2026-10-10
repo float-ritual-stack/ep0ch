@@ -49,7 +49,9 @@ test('local Preview reveals canonical passage and general threads without openin
     reader.focus();
     const paint = (width:number) => documentPreviewLines(reader.state!.document, width).map(stripTerminalSequences).join('\n');
     expect(paint(64)).toContain('Note comments (1)');
-    expect(paint(64)).not.toContain('Passage feedback');
+    // Folded, the thread is a one-row margin card under its passage (ADR 0004 contract 6), not the thread itself.
+    expect(paint(64)).toContain('┆ Comment · Passage feedback');
+    expect(paint(64)).not.toContain('Reply');
     const gutter = documentPreviewLinks(reader.state!.document, 64).find(link => link.uri.includes('annotation-toggle') && !link.uri.includes('general'))!;
     expect(gutter).toBeDefined();
     const noDetail = async () => { throw Error('Comments must remain in Preview'); };

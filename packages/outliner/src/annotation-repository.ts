@@ -379,8 +379,23 @@ export class AnnotationRepository {
               throw new Error("Block comment requires a positive expectedRevision");
             }
             const block = this.blocks.requireActive(text(request.blockId, "Comment block ID"));
-            if (block.revision !== request.expectedRevision) throw new Error("Comment source revision is stale; read the current block before commenting");
-            raw = { target: blockCommentTarget(block, request.passage), body: request.body, source: request.source };
+            // Read at an older revision: a passage that says what's around it (prefix, suffix) is checked as any passage
+            // target is (outline-core passage.ts): found once with that context, it moves; else refused. One that
+            // doesn't is refused as stale.
+            const context = request.passage && (!!request.passage.prefix || !!request.passage.suffix);
+            if (block.revision !== request.expectedRevision && !context) throw new Error("Comment source revision is stale; read the current block before commenting");
+            const stale = block.revision !== request.expectedRevision;
+            // At a newer revision the words must be there once with their context: no start, no nearest-of-several.
+            const passage = stale && request.passage ? { ...request.passage, start: undefined, near: undefined } : request.passage;
+            let target: AnnotationTarget;
+            try {
+              target = blockCommentTarget(block, passage);
+            } catch (error) {
+              // Not found once with its context in the newer text: refused as stale, as one without context is.
+              if (stale) throw new Error(`Comment source revision is stale; read the current block before commenting (${error instanceof Error ? error.message : String(error)})`);
+              throw error;
+            }
+            raw = { target, body: request.body, source: request.source, ...(request.properties ? { properties: request.properties } : {}) };
           } else raw = operation.input;
           const input = normalizeAnnotationCreateInput(raw);
           this.requireSubject(input.target.representation.subject);
@@ -548,7 +563,7 @@ export class AnnotationRepository {
       if (contexts.length === 0) throw new Error("The reference note has no link to this Resource");
       referenceContext = contexts[0];
     }
-    return { target: { ...target, ...(referenceContext ? { referenceContext } : {}) }, body: request.body, source: request.source };
+    return { target: { ...target, ...(referenceContext ? { referenceContext } : {}) }, body: request.body, source: request.source, ...(request.properties ? { properties: request.properties } : {}) };
   }
 
   approve(input: AnnotationApproveResolutionInput): AnnotationRecord {
@@ -1041,7 +1056,7 @@ export class AnnotationRepository {
     const updated = this.blocks.update(
       annotationId,
       formatAnnotationBlock(
-        { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source },
+        { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source, ...(record.properties && Object.keys(record.properties).length ? { properties: record.properties } : {}) },
         undefined,
         { lifecycle: input.lifecycle, promotedBlockIds, allowLegacy: true },
       ),
@@ -1629,6 +1644,7 @@ export class AnnotationRepository {
       source: content.source,
       lifecycle: content.lifecycle,
       promotedBlockIds: content.promotedBlockIds,
+      properties: content.properties,
       ...(content.parentAnnotationId ? { parentAnnotationId: content.parentAnnotationId } : {}),
     };
   }

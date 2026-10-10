@@ -126,12 +126,12 @@ describe("C on a selection in a Resource, against the source", () => {
     expect(op.input.passage.start).toBe(RAW.indexOf("Rollout notes"));
   });
 
-  test("emphasis and a link: the selection that crosses the markup quotes the source line, markup and all", async () => {
+  test("emphasis and a link: the selection that crosses the markup quotes exactly those words' source, markup and all (ADR 0004 contract 5)", async () => {
     const { select, comment } = setup();
     select("cache", "on boot");
     const op = await comment();
-    expect(op.input.passage.quote).toContain("**cache** warms [on boot](https://example.test/boot)");
-    expect(op.input.passage.start).toBe(RAW.indexOf("The **cache**"));
+    expect(op.input.passage.quote).toBe("**cache** warms [on boot](https://example.test/boot)");
+    expect(op.input.passage.start).toBe(RAW.indexOf("**cache**"));
   });
 
   test("a list item and plain words inside one line", async () => {

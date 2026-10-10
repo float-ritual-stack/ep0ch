@@ -14,7 +14,8 @@ import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { spanBg } from "../src/surface/margin";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -314,6 +315,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
+    // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
+    marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
@@ -744,6 +747,91 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "edit", tile, as: "test-agent" })).rejects.toThrow();
     expect(S().focus).toBe("index");
   }, 30_000);
+
+  test("marginalia (PIE-751, PIE-753): an agent highlights, asks, defines and cites a passage of the plan and of the leaflet through act; the person by mouse (a chip on the selection's line) and keys (a then its key); the notebook lists them", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" })).toMatchObject({ key: "marginalia" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const leaflet = () => tiles().find(t => String(t.showing?.id ?? "").startsWith("resource:"));
+    await until(() => !!leaflet() && screen().includes("A cold frame is a bottomless box"), "the plan and the leaflet", 8000);
+    const plan = seeded.notes.marginalia;
+    const act = (tile: string, args: Record<string, unknown>) => app.act({ action: "passage.act", tile, args, as: "test-agent" }) as Promise<any>;
+    const threads = () => board.comments(plan.id);
+    const waitFor = async (ok: () => Promise<boolean>, what: string, ms = 5000) => {
+      const end = Date.now() + ms;
+      while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+    };
+    // The seeded highlight is drawn on its words in its tone (warn: the amber surface, capped dark); the answered question has a card.
+    const raw = () => sc.render(app).lines as string[];
+    await until(() => raw().some(l => l.includes(spanBg({ kind: ["highlight"], color: ["warn"] }))), "the seeded highlight drawn", 5000);
+    expect(tiles().find(t => t.name === "notebook")?.showing?.id).toBe(seeded.notes.marginaliaNotebook.id);
+    expect(screen()).toContain("question · ");
+    // Highlight: the kit's passage action, written as ext:marginalia at the agent's request.
+    const hl = await act("plan", { action: "ext.marginalia.highlight", quote: "soil pH near 6.5", color: "good" });
+    expect(hl.written).toHaveLength(1);
+    await waitFor(async () => (await threads()).length === 3, "the highlight listed", 5000);
+    // A repeated passage is refused with why; near= says which.
+    await expect(act("plan", { action: "ext.marginalia.define", quote: "cold frame" })).rejects.toThrow(/2 times/);
+    const define = await act("plan", { action: "ext.marginalia.define", quote: "soil pH", near: plan.text.lastIndexOf("soil pH") });
+    expect(define.written).toHaveLength(1);
+    // Cite: the quote and its line's fragment, returned to the agent; the person's clipboard untouched.
+    const before = written.length;
+    const cite = await act("plan", { action: "ext.marginalia.cite", quote: "Water the tomatoes at dawn" });
+    expect(cite).toMatchObject({ copy: `> Water the tomatoes at dawn\n> — ((${plan.id}^water))`, clipboard: false });
+    expect(written.slice(before).some(w => w.includes("\x1b]52;"))).toBe(false);
+    // An agent's Ask is a question on the passage, but an agent's @margin never sets the agent off (no loops): it waits for a person.
+    const asked = await act("plan", { action: "ask", quote: "Sow the basil", question: "why ten degrees?" });
+    await waitFor(async () => !!(await threads()).find(t => t.id === asked.thread), "the agent's question", 5000);
+    expect((await board.comments(plan.id)).find(t => t.id === asked.thread)).toMatchObject({ props: { kind: ["question"] }, replies: [] });
+    // The same on the leaflet: a Resource's passage, annotated in the outline, the file never written.
+    const file = readFileSync(MARGINALIA_FILE(), "utf8");
+    const onFile = await act(leaflet().name, { action: "ext.marginalia.highlight", quote: "Watch the thermometer, not the calendar." });
+    expect(onFile.passage.subject).toBe(leaflet().showing.id);
+    const resourceId = String(leaflet().showing.id).slice("resource:".length);
+    await waitFor(async () => (await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } })).some(t => t.properties?.kind?.[0] === "highlight"), "the leaflet's highlight", 5000);
+    expect(readFileSync(MARGINALIA_FILE(), "utf8")).toBe(file);
+    // The person: into the stage, a drag over words, a click on the toolbar's Highlight chip.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    const drag = (words: string) => {
+      const ls = screen().split("\n"), y = ls.findIndex(l => l.includes(words) && !l.includes("Select any words")), x = ls[y]!.indexOf(words);
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: x + 2, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: x + words.length - 1, y });
+      press({ kind: "mouse", action: "up", button: 0, x: x + words.length - 1, y });
+    };
+    drag("the chillies want it");
+    await until(() => screen().includes("[Highlight h]"), "the passage toolbar", 5000);
+    const ls = screen().split("\n"), ty = ls.findIndex(l => l.includes("[Highlight h]")), tx = ls[ty]!.indexOf("[Highlight h]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x: tx, y: ty }); press({ kind: "mouse", action: "up", button: 0, x: tx, y: ty });
+    await waitFor(async () => (await threads()).some(t => t.quote === "the chillies want it"), "the person's highlight", 5000);
+    // Keys: a selection, then a k copies it with a citation to the person's clipboard.
+    drag("Sow the basil only");
+    await until(() => screen().includes("[Cite k]"), "the toolbar again", 5000);
+    const mark = written.length;
+    press({ kind: "char", ch: "a" }); press({ kind: "char", ch: "k" });
+    await until(() => written.slice(mark).some(w => w.includes(osc52(`> Sow the basil only\n> — ((${plan.id}))`))), "the citation copied", 5000);
+    // Ask by keys: a selection, a a opens the comment on it with @margin written, the question typed, ctrl+s sends; the answer
+    // lands in its margin thread (from the note itself: no model in a test).
+    drag("nights stay above ten degrees");
+    await until(() => screen().includes("[Ask a]"), "the toolbar with Ask", 5000);
+    press({ kind: "char", ch: "a" }); press({ kind: "char", ch: "a" });
+    await until(() => screen().includes("ctrl+s send") && screen().includes("» comment"), "the question started with @margin, the person in it", 5000);
+    for (const c of "why ten?") press({ kind: "char", ch: c });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await waitFor(async () => (await board.comments(plan.id)).some(t => t.body.startsWith("@margin why ten?") && t.replies.some(r => r.author === "ext:marginalia")), "the margin's answer", 10_000);
+    // Sent, the comment session closes: the person is reading again.
+    await until(() => !screen().includes("ctrl+s send"), "the comment sent and closed", 5000);
+    // M: the margin's cards whole, then off (the highlights stay), then a row each again.
+    press({ kind: "char", ch: "M" });
+    await until(() => screen().includes("Why ten days, not a week?"), "the question's card whole", 5000);
+    press({ kind: "char", ch: "M" }); press({ kind: "char", ch: "M" });
+    // The notebook: a saved query over every annotation, the plan's among them.
+    const book = await board.readSavedView(seeded.notes.marginaliaNotebook.id);
+    expect(book?.blocks.filter(b => b.parentId === plan.id).length).toBeGreaterThanOrEqual(5);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;

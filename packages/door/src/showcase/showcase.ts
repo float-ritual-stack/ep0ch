@@ -48,7 +48,7 @@ import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { findShowcase, KEPT, loadShowcase, LOGS, RECENT_FILES, SEED, type SeedName } from "./seed";
+import { findShowcase, KEPT, loadShowcase, LOGS, MARGINALIA_FILE, RECENT_FILES, SEED, type SeedName } from "./seed";
 import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
@@ -465,6 +465,23 @@ export const SECTIONS: Section[] = [
           note.show(block, d);
           const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: plan.file } }, USER, block.id);
           res.show(opened.note, d);
+          d.redraw();
+        })().catch(() => {});
+      });
+    },
+  },
+  {
+    key: "marginalia", need: "read with a pen: highlight a passage, comment on it, ask about it, look a word up, copy it with a citation; keep the margin and a notebook of it all, on a note and on a file",
+    part: "the passage target (ADR 0004 contract 5: outline-core passage.ts, one find and check for every client; the reader's exact selection to source, src/surface/source-map.ts; passage.act and its toolbar on the selection's line, a then a key) and highlights and margin notes (contract 6: annotations with open properties, outline-core annotation-marks.ts; the reader's spans in a tone and margin cards, beside the text when wide, under the passage when narrow, src/surface/margin.ts); marginalia's kit is an extension folder (outliner extensions/marginalia: on: passage actions and an agent that answers in threads) plus a notebook note (a saved query)",
+    files: "outline-core/src/passage.ts, outline-core/src/annotation-marks.ts, src/surface/source-map.ts, src/surface/margin.ts, src/surface/note.ts (passageFor, passage.act, margin), src/extensions.ts (passage actions), outliner src/extension-calls.ts (actOnPassage), outliner src/agent-requests.ts (threadWritten), outliner extensions/marginalia",
+    aside: "left: a made-up greenhouse plan, one highlight and one answered question on it; right: the leaflet it's read beside (a file, as a Resource) and the notebook. Select words, then a h highlights, a d defines from the plan's glossary, a a asks @margin (its answer lands in the margin), a k copies with a citation; or click the chips on the selection's line, or act passage.act action=… quote=… · M: the margin's cards a row each, whole, or off",
+    stage(n, show) {
+      const plan = new ReaderPane(), file = new ReaderPane(), book = new ReaderPane();
+      return deskOf({ title: "showcase · marginalia", panes: [plan, file, book], names: ["plan", "leaflet", "notebook"],
+        layout: ([a, b, c]) => pair("row", 0.62, leaf(a!), pair("col", 0.55, leaf(b!), leaf(c!))) }, show, [[plan, n.marginalia], [book, n.marginaliaNotebook]], d => {
+        void (async () => {
+          const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: MARGINALIA_FILE() } }, USER, n.marginalia?.id);
+          file.show(opened.note, d);
           d.redraw();
         })().catch(() => {});
       });
