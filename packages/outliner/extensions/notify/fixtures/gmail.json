@@ -1,0 +1,21 @@
+[
+  {
+    "id": "msg-1001",
+    "kind": "Message",
+    "from": "Ann Example <ann@example.invalid>",
+    "title": "Pond survey: dates for the autumn count",
+    "url": "https://mail.example.invalid/u/0/#inbox/msg-1001",
+    "unread": true,
+    "received": "2026-10-09T08:15:00.000Z",
+    "snippet": "Could we do the third Saturday?"
+  },
+  {
+    "id": "msg-1002",
+    "kind": "Message",
+    "from": "Billing Bot <noreply@example.invalid>",
+    "title": "Your receipt for the kettle",
+    "url": "https://mail.example.invalid/u/0/#inbox/msg-1002",
+    "unread": false,
+    "received": "2026-10-08T19:02:00.000Z"
+  }
+]
