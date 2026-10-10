@@ -1,7 +1,7 @@
 // Readwise (PIE-743): a Readwise and Reader client built only on what any extension has.
 //
-// - `send` (on a block): the note, and the notes under it, rendered as its published page reads (`notes.render`) and
-//   saved to Reader as one document. Its URL in Reader is the note's link (its published permalink, or config `link`),
+//   saved to Reader as one document. Sending publishes the note ([publish::public], unlisted), and its public permalink is
+//   its URL in Reader (or config `link`), so a highlight made on it in Reader comes back knowing which note it belongs to.
 //   so a highlight made on it in Reader comes back knowing which note it belongs to.
 // - `pull` (on the outline, every hour): Readwise's export of every highlight changed since the last pull (Reader's
 //   highlights reach it too). A highlight on a document `send` made becomes an annotation on that note, at the
@@ -22,7 +22,7 @@
 import { outline } from "./outline";
 
 interface Block { id: string; text: string; revision: number }
-interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string; locations?: string[] }
+interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string; locations?: string[]; publish?: boolean }
 interface Request {
   operation: string;
   input: { action: string; target?: { blockId: string }; context: { now: string }; scheduled?: { at: string } };
@@ -113,16 +113,47 @@ async function readwise<T>(path: string, init: { method?: string; body?: unknown
 const uriOf = (name: string, id: string) => `ep0ch://${name}@${MACHINE}/b/${id}`;
 const fromTemplate = (template: string, name: string, id: string) => template.replaceAll("{outline}", name).replaceAll("{machine}", MACHINE).replaceAll("{id}", id);
 
+/** A note's URL in Reader, and what to tell the person about it when it isn't a web page. */
+interface Link { url: string; note?: string }
+
+const permalinkOf = (permalink: string, name: string) => `${permalink}?ep0ch=${encodeURIComponent(name)}@${encodeURIComponent(MACHINE)}`;
+
+/** The note's public permalink, when a publisher with a public address serves it as public. */
+async function publicPermalink(name: string, id: string): Promise<string | undefined> {
+  const { published } = await outline<Address>({ action: "notes.address", blockId: id }, name);
+  return published?.public && published.publicUrl ? published.permalink : undefined;
+}
+
 /**
- * A note's URL in Reader: config `link` when it's set; else, when the note is published, its permalink (the page by
- * its id) with `?ep0ch=<outline>@<machine>` so a pull knows the note's outline and machine; else the fallback template. Reader needs a unique web
- * URL per document, and the pull reads the note back out of it.
+ * A note's URL in Reader: config `link` when it's set; else, sending publishes the note (config `publish`, on unless
+ * `false`): `[publish::public]` is set on it, unlisted and by link, and its public permalink (the page by its id) with
+ * `?ep0ch=<outline>@<machine>` is the URL, so a pull knows the note's outline and machine. With `publish: false`, a
+ * note that is already published gets its permalink as before. Without a public web address (no publisher for the
+ * outline, or one with no public URL) it is the fallback template, and the answer says what would publish it. Reader
+ * needs a unique web URL per document, and the pull reads the note back out of it.
  */
-async function linkOf(name: string, id: string): Promise<string> {
-  if (config.link) return fromTemplate(config.link, name, id);
-  const address = await outline<Address>({ action: "notes.address", blockId: id }, name);
-  const permalink = address.published?.permalink;
-  return permalink ? `${permalink}?ep0ch=${encodeURIComponent(name)}@${encodeURIComponent(MACHINE)}` : fromTemplate(FALLBACK_LINK, name, id);
+async function linkOf(name: string, id: string): Promise<Link> {
+  if (config.link) return { url: fromTemplate(config.link, name, id) };
+  const fallback = fromTemplate(FALLBACK_LINK, name, id);
+  if (config.publish === false) {
+    const address = await outline<Address>({ action: "notes.address", blockId: id }, name);
+    const permalink = address.published?.permalink;
+    return { url: permalink ? permalinkOf(permalink, name) : fallback };
+  }
+  const before = await publicPermalink(name, id);
+  if (before) return { url: permalinkOf(before, name) };
+  // Not public yet: set it the way a person would, then ask where it is. When nothing serves the outline publicly the
+  // note goes back as it was, so a send never leaves a note waiting to be opened to the world by a publisher started later.
+  const block = await outline<Block>({ action: "get", blockId: id }, name);
+  const props = headerProps(block.text);
+  const asked = props.publish?.trim() ?? "";
+  const value = /^public(:|$)/i.test(asked) ? asked : /^(|true|yes|false|no|off|0)$/i.test(asked) ? "public" : `public:${asked}`;
+  await update(block, withHeaderProps(block.text, { publish: value }), name);
+  const after = await publicPermalink(name, id);
+  if (after) return { url: permalinkOf(after, name), note: "published it (unlisted, by link)" };
+  const current = await outline<Block>({ action: "get", blockId: id }, name);
+  if (current.text === withHeaderProps(block.text, { publish: value })) await update(current, block.text, name);
+  return { url: fallback, note: `no publisher serves "${name}" at a public address, so its Reader URL is the placeholder; start one: ep0ch publish serve --ws ${name} --port <free port> --public-port <free port> --public-url <https://where it is opened> (or set config publish to false to stop publishing on send)` };
 }
 
 /** The note a document's URL names: an ep0ch:// URI, a published permalink with `?ep0ch=<outline>@<machine>`, or the `link` template's shape. */
@@ -214,13 +245,15 @@ async function send(blockId: string): Promise<void> {
   const rendered = await outline<{ blockId: string; title: string; text: string }>({ action: "notes.render", blockId, format: "html" });
   const uri = uriOf(HERE, rendered.blockId);
   const body = `<p>From ep0ch: <a href="${escapeHtml(uri)}">${escapeHtml(uri)}</a></p>\n${rendered.text}`;
+  const link = await linkOf(HERE, rendered.blockId);
   const saved = await readwise<{ id?: string; url?: string }>("/api/v3/save/", { method: "POST", body: {
-    url: await linkOf(HERE, rendered.blockId), html: body, title: rendered.title, tags: config.tags ?? ["ep0ch"], should_clean_html: false, saved_using: "ep0ch",
+    url: link.url, html: body, title: rendered.title, tags: config.tags ?? ["ep0ch"], should_clean_html: false, saved_using: "ep0ch",
   } });
   const where = saved.body.url ? `: ${saved.body.url}` : "";
+  const published = link.note ? ` (${link.note})` : "";
   answer({ message: saved.status === 200
-    ? `already in Reader${where} (Reader keeps the first copy; delete it there to send again)`
-    : `saved "${short(rendered.title)}" to Reader${where}` });
+    ? `already in Reader${where} (Reader keeps the first copy; delete it there to send again)${published}`
+    : `saved "${short(rendered.title)}" to Reader${where}${published}` });
 }
 
 // ── Properties ───────────────────────────────────────────────────────────
