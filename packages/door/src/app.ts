@@ -30,6 +30,7 @@ import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
 import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
+import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
@@ -94,6 +95,8 @@ export interface HostLayer {
   openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+  /** Every agent session this door holds (PIE-737): the agent panel's rows. */
+  sessions?(): AgentSession[];
 }
 
 /** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */

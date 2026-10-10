@@ -295,6 +295,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
     status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],
+    // Two made-up agent sessions (PIE-737): moss docked here, fern pinned to the drawer, the panel listing both.
+    sessions: ["moss, a demo agent (made up for the showcase)", "demo-agent · moss", "demo-agent · fern"],
     changes: ["what changed", "garden-agent edited the three log notes"],
     // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
@@ -1399,6 +1401,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The drawer's own first tab comes out too: an ordinary terminal tile in this section, its program running on; a
     // new own tab takes its place in the drawer.
     const own = app.drawer.tile!;
+    // Its program starts as its tab is first drawn: shown now (another section, the agent sessions', may have left a tab in the drawer).
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
+    (app as any).paint();
     await until(() => own.running, "the drawer's own program runs");
     const ownPid = own.pid;
     (app as any).lastInput = 0;
@@ -1448,6 +1453,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(bar()).not.toContain("on you");
     press({ kind: "char", ch: "]", ctrl: true });
     press({ kind: "esc" });
+  }, 30_000);
+
+  test("the agent sessions section (PIE-737): fern in your drawer, moss docked here, the panel listing both; moving one keeps its process and its conversation", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "sessions" }, as: "test-agent" });
+    await until(() => marks.sessions!.every(m => screen().includes(m)), "the agent sessions section");
+    const rows = () => app.drawer.sessions().filter(s => s.program === "demo-agent");
+    const of = (who: string) => rows().find(s => s.persona === who)!;
+    await until(() => rows().length === 2, "both sessions", 8000);
+    expect(of("fern").shown).toMatchObject({ in: "drawer" });
+    expect(of("moss").shown).toMatchObject({ in: "screen", tile: "moss", here: true });
+    expect(of("moss").folder).toEndWith("potting-bench");
+    expect(of("fern").folder).toEndWith("garden-shed");
+    const listed = (await app.act({ action: "agents.list", args: {}, as: "test-agent" }) as any).sessions;
+    expect(listed.filter((r: any) => r.program === "demo-agent").map((r: any) => [r.persona, r.how])).toEqual([["fern", "started"], ["moss", "started"]]);
+    // A turn with moss, here.
+    const moss = of("moss").pane, pid = moss.pid;
+    await app.act({ action: "tile.type", tile: "moss", args: { text: "which bed for the leeks\\n" }, as: "test-agent" });
+    await until(() => moss.text().join("\n").includes("moss · turn 1: which bed for the leeks"), "turn 1", 8000);
+    // Into your drawer (a on its row): the same process, and the next turn is turn 2.
+    await app.act({ action: "agents.drawer", args: { session: of("moss").id }, as: "test-agent" });
+    expect(of("moss").shown).toMatchObject({ in: "drawer" });
+    expect(of("moss").pane.pid).toBe(pid);
+    await app.act({ action: "tile.type", tile: "moss", args: { text: "and the onions\\n" }, as: "test-agent" });
+    await until(() => moss.text().join("\n").includes("moss · turn 2: and the onions"), "turn 2, in the drawer", 8000);
+    // And back, docked here (d on its row).
+    await app.act({ action: "agents.dock", args: { session: of("moss").id }, as: "test-agent" });
+    expect(of("moss").shown).toMatchObject({ in: "screen", here: true });
+    expect(of("moss").pane.pid).toBe(pid);
+    // Jumping to one is the person's: an agent's is refused, nothing moved.
+    await expect(app.act({ action: "agents.go", args: { session: of("fern").id }, as: "test-agent" })).rejects.toThrow();
   }, 30_000);
 
   test("the what-changed section (PIE-647): a scripted agent changes three notes, the status bar counts 3, a click opens the list in the drawer, a row opens its note, and the count clears", async () => {

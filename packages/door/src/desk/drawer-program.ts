@@ -10,7 +10,7 @@
 //   in Herdr (it outlives the door) when Herdr is installed: `door-agent-herdr.ts --session <this session> --agent <agent…>`.
 // - Every agent starts inside the person's login shell (`inLoginShell`): when it exits, or crashes, the tile is a
 //   working shell in the same folder with the same environment, and says the agent exited. Nothing restarts it.
-// - The folder: EP0CH_DAILY_CWD when the person set one; else the folder of the nearest `.ep0ch` above where the door
+// - The folder: the one chosen with the agent (`host.agent in=<folder>`); else the folder of the nearest `.ep0ch` above where the door
 //   was started, when it names this outline (the project); else the outline's own folder (`<outlines>/<name>/`, an
 //   outline on this machine); else the folder the door was started from. Claude Code's /resume lists one folder's
 //   conversations, so the folder is the person's or the outline's, never one made up.
@@ -27,8 +27,8 @@ export const HERDR_LAUNCHER = resolve(import.meta.dir, "../../scripts/door-agent
 
 /** An agent the drawer can run: its name, its command, and whether it runs in Herdr. */
 export interface DrawerAgent { name: string; cmd: string[]; herdr?: boolean }
-/** What a choice is saved as (drawer-agent.json): the agent by name or command line, and where it runs. */
-export interface DrawerChoice { agent: string; herdr?: boolean }
+/** What a choice is saved as (drawer-agent.json): the agent by name or command line, where it runs, and in which folder. */
+export interface DrawerChoice { agent: string; herdr?: boolean; folder?: string }
 
 export interface DrawerProgram {
   cmd: string[];
@@ -119,7 +119,7 @@ export function herdrCmd(agent: readonly string[], session: string | null): stri
 export const sessionLabel = (p: { outline?: string | null; machine?: string | null }) => (p.outline ? `${p.outline}${p.machine ? `@${p.machine}` : ""}` : null);
 
 const readChoice = (file: string): DrawerChoice | null => {
-  try { const x = JSON.parse(readFileSync(file, "utf8")); return x && typeof x.agent === "string" && x.agent.trim() ? { agent: x.agent.trim(), ...(x.herdr === true ? { herdr: true } : {}) } : null; } catch { return null; }
+  try { const x = JSON.parse(readFileSync(file, "utf8")); return x && typeof x.agent === "string" && x.agent.trim() ? { agent: x.agent.trim(), ...(x.herdr === true ? { herdr: true } : {}), ...(typeof x.folder === "string" && x.folder.trim() ? { folder: x.folder.trim() } : {}) } : null; } catch { return null; }
 };
 /** The choice file of a session's folder (`dir`), or the person's default (the state dir). */
 export const choiceFile = (dir: string) => join(dir, "drawer-agent.json");
@@ -148,8 +148,8 @@ export function drawerProgram(o: { env?: Record<string, string | undefined>; out
   // After the script's path (`bun …/door-agent-herdr.ts`: bun's own arguments come before it).
   if (isLauncher(cmd) && session && !cmd.includes("--session")) { const at = cmd.findIndex(c => basename(c) === "door-agent-herdr.ts") + 1; cmd = [...cmd.slice(0, at), "--session", session, ...cmd.slice(at)]; }
   const folder = ((): { cwd: string; why: string } => {
-    const chosen = env.EP0CH_DAILY_CWD?.trim();
-    if (chosen) return { cwd: tilde(chosen, home), why: `EP0CH_DAILY_CWD (${chosen})` };
+    // Chosen with the agent (host.agent in=<folder>), for this session or as your default.
+    if (choice?.folder) return { cwd: tilde(choice.folder, home), why: `chosen with the agent (${choice.folder})` };
     if (o.outline) {
       try {
         const dot = nearestDotEp0ch(start, { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync });
