@@ -113,8 +113,8 @@ test("markers inside a fence are code, not a region", () => {
 
 test("inline code does not pair backticks across a region boundary", () => {
   const text = "Title\n<!-- literal -->\nopen ` here\n<!-- /literal -->\nclose ` [a::1]\n[b::2]";
-  // The trailing backtick outside is unmatched, so only the rest of its own line is code.
-  expect(tokens(text)).toEqual(["b=2:inline"]);
+  // The backtick outside is unmatched: an unclosed run is text (PIE-764), so it hides nothing.
+  expect(tokens(text)).toEqual(["a=1:inline", "b=2:inline"]);
 });
 
 test("a region on the subject line or in the preamble keeps its properties out", () => {

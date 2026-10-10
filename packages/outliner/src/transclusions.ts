@@ -5,6 +5,7 @@
 import { checklistItems } from "./checklist-items";
 import { codeLineSet, fragmentPresentationText, isFragmentId, resolveFragmentSlice, type FragmentKind } from "./fragments";
 import { embedPattern } from "@ep0ch/outline-core/link-syntax";
+import { codeHides, codeSpanRanges, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { blockDisplayTitle } from "./references";
 import type { Block, ChecklistItem } from "./types";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -25,7 +26,7 @@ export const TRANSCLUSION_MAX_BYTES = 512 * 1024;
 
 
 /**
- * The embeds a reader expands in `text`, in order. Fenced and indented code shows `!((…))` as written,
+ * The embeds a reader expands in `text`, in order. Fenced and indented code and code spans show `!((…))` as written,
  * so it never embeds. `text` is line for line with `note` from `firstLine` (a fragment's slice), and code
  * is judged in the note, where the slice is read.
  */
@@ -37,9 +38,18 @@ export function embedMatches(text: string, note = text, firstLine = 0, max = Inf
   const pattern = embedPattern();
   let line = 0;
   // Only as many as the caller can use: a note with thousands of embeds isn't scanned past them.
+  // A code span shows `!((…))` as written too (PIE-764): the spans of each line are its own.
+  const spans = new Map<number, SourceRange[]>();
+  const spansOf = (i: number) => {
+    let found = spans.get(i);
+    if (!found) spans.set(i, (found = codeSpanRanges(text.slice(starts[i]!, starts[i + 1] ?? text.length))));
+    return found;
+  };
   for (let m = pattern.exec(text); m && out.length < max; m = pattern.exec(text)) {
     while (line + 1 < starts.length && starts[line + 1]! <= m.index) line++;
-    if (!code.has(firstLine + line)) out.push(m);
+    if (code.has(firstLine + line)) continue;
+    const at = m.index - starts[line]!;
+    if (!codeHides({ start: at, end: at + m[0].length }, spansOf(line))) out.push(m);
   }
   return out;
 }

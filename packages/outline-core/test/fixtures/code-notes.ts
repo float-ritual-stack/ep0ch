@@ -52,3 +52,39 @@ export const LIST_FENCE_LINES = [2, 3, 4];
 
 /** The properties the service reads in it. */
 export const LIST_FENCE_PROPERTIES = [["can", "3"]];
+
+// ── code is opaque (PIE-764) ──────────────────────────────────────────────────────────────────────────────────
+
+/** The note a reference in a code span names, and one that names nothing: fictional ids. */
+export const QUOTED_TARGET_ID = "5f0c2a8e-4b1d-4e7a-9c3f-2d6e8b1a7c40";
+
+/**
+ * kitty's request (PIE-764), as written: prose that explains the link form inside backticks. Neither quoted form is a
+ * reference; the real one at the end is.
+ */
+export const KITTY_REQUEST_NOTE = [
+  "A reference written inside a code span is still parsed as a link, so an example like `((note^anchor|label))` shows up unresolved in the links tile [type::request] [thread::requests]",
+  "Seen on the meeting-review screen: the links list showed two entries reading \"at 08:17\", both from prose that explained the link form inside backticks (`((transcript^anchor|at 08:17))` and `((transcript-id^t0817|at 08:17))`).",
+  "",
+  "Why it matters: if a code span doesn't shield `((`, `[[` or `[key::value]`, every explanation of the syntax becomes a false link, a false property or a false warning.",
+  `The real one: ((${QUOTED_TARGET_ID}|meeting notes)).`,
+].join("\n");
+
+/** A fence holding every link form and a property: all text. */
+export const FENCED_LINKS_NOTE = [
+  "Link forms [type::guide]",
+  "```blockdown",
+  "[[x]] and ((transcript-id^t0817|at 08:17)) and !((transcript-id)) [status::fake]",
+  "```",
+  "After it, [[Garden]] is a page link.",
+].join("\n");
+
+/**
+ * An unclosed backtick before a property line. CommonMark: an unclosed run is text, and a span never crosses a line
+ * here, so the stray backtick hides nothing, neither the next line's properties nor its own line's.
+ */
+export const STRAY_BACKTICK_NOTE = [
+  "Quote cut mid-span: `columns: [title, tl… [type::annotation]",
+  "[anchor::passage] [status::open]",
+  "A later `code` span and [[Garden]].",
+].join("\n");

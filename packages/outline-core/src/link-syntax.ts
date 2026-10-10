@@ -1,9 +1,39 @@
 // The link grammar of a note: block references `((id))`, `((id^fragment|label))`, page links `[[address|label]]`,
 // embeds `!((id^fragment))`, Markdown links and the fragment anchor `^id` at a line's end. The service indexes and
 // resolves what these scans find; every client draws a link where they find one, so a link the service reads is the
-// link the reader shows, label and all. Pure: no I/O.
+// link the reader shows, label and all. Code is opaque (PIE-764): a link written in a code span or fenced code is text,
+// so every scan here leaves code out (`CodeScope`). Pure: no I/O.
 
 import { BLOCK_ID_PATTERN, referenceEnvelopeEnd } from "./addressable-resource";
+import { codeHides, codeSpanRanges, protectedCodeRanges, type SourceRange } from "./code-ranges";
+
+/**
+ * Where a scan finds code, whose links are text (PIE-764): `"note"` (the default), `text` is a whole note: its fences,
+ * indented code and code spans (`protectedCodeRanges`); `"inline"`, `text` is a line or a slice of one: only its code
+ * spans (a caller that drew its fences already); or ranges the caller computed over the whole note. `[]` is the raw
+ * grammar, for text that is never a note (a property value's own structure, a re-scan of resolved text).
+ */
+export type CodeScope = "note" | "inline" | readonly SourceRange[];
+
+/**
+ * Whether `text` can hold code at all: without a backtick, a tilde, an indented line or a component's `::` opening a
+ * line (its YAML is literal), it can't, so nothing's computed.
+ */
+const mayHoldCode = (text: string) => /[`~]|(?:^|\n)(?: {4}|[ ]{0,3}\t| {0,3}::)/.test(text);
+
+/** The code ranges of `text` under `scope`. */
+export function codeRangesOf(text: string, scope: CodeScope = "note"): readonly SourceRange[] {
+  if (typeof scope !== "string") return scope;
+  if (!mayHoldCode(text)) return [];
+  return scope === "inline" ? codeSpanRanges(text) : protectedCodeRanges(text);
+}
+
+/** `found` without what code hides. */
+function outsideCode<T extends SourceRange>(text: string, found: T[], scope: CodeScope | undefined): T[] {
+  if (!found.length) return found;
+  const code = codeRangesOf(text, scope);
+  return code.length ? found.filter(f => !codeHides(f, code)) : found;
+}
 
 /** A fragment id: what `^id` names in a note and `((id^fragment))` points at. */
 export const FRAGMENT_ID_SOURCE = String.raw`[A-Za-z0-9][A-Za-z0-9_-]{0,63}`;
@@ -53,8 +83,8 @@ function blockReferenceMatches(text: string): BlockReferenceOccurrence[] {
  * Every block reference in `text`, in order. A label runs to the `))` that balances its parentheses
  * (`((id|Rough edges (x)))` is labelled "Rough edges (x)"); a blank label (`((id| ))`) makes no reference.
  */
-export function blockReferenceOccurrences(text: string): BlockReferenceOccurrence[] {
-  return blockReferenceMatches(text).filter(match => match.label === undefined || match.label.trim());
+export function blockReferenceOccurrences(text: string, code?: CodeScope): BlockReferenceOccurrence[] {
+  return outsideCode(text, blockReferenceMatches(text).filter(match => match.label === undefined || match.label.trim()), code);
 }
 
 /**
@@ -72,8 +102,8 @@ export function referencedBlock(input: string): { blockId: string; fragment?: st
   return { blockId: ref.blockId, ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}) };
 }
 
-export function blockReferenceIds(text: string): string[] {
-  return blockReferenceOccurrences(text).map(reference => reference.blockId);
+export function blockReferenceIds(text: string, code?: CodeScope): string[] {
+  return blockReferenceOccurrences(text, code).map(reference => reference.blockId);
 }
 
 /** A `((…))` envelope: where it starts and the offset after its closing `))`. */
@@ -152,7 +182,7 @@ export function tryNormalizePageAddress(input: string): NormalizedPageAddress | 
  * Every page link in `text`, in order: `[[address]]` or `[[address|label]]`. A blank label (`[[Garden| ]]`) or an
  * address no page can have makes no link: it stays visible as text.
  */
-export function pageAddressReferences(text: string): PageAddressReference[] {
+export function pageAddressReferences(text: string, code?: CodeScope): PageAddressReference[] {
   const references: PageAddressReference[] = [];
   for (const match of text.matchAll(PAGE_ADDRESS_PATTERN)) {
     const authored = match[1]!;
@@ -164,7 +194,7 @@ export function pageAddressReferences(text: string): PageAddressReference[] {
     if (!address) continue;
     references.push({ ...address, ...(label ? { label } : {}), start: match.index, end: match.index + match[0].length });
   }
-  return references;
+  return outsideCode(text, references, code);
 }
 
 // ── Markdown links ───────────────────────────────────────────────────────────────────────────────────────────
@@ -204,11 +234,11 @@ const overlaps = (a: { start: number; end: number }, b: { start: number; end: nu
  * The links of `text` in reading order, none overlapping: Markdown links, block references (`embed`: an unlabelled
  * one written `!((…))`, whose `start` is its `!`) and page links. Where a Markdown link or image and a reference
  * overlap, the one that holds the other is the link (`[see ((id))](url)` is a web link, `((id|[docs](url)))` a
- * reference); a page link inside a `((…))` is the reference's label. Code is not excluded here: the caller knows its
- * own code ranges.
+ * reference); a page link inside a `((…))` is the reference's label. A link in code is text (`CodeScope`: a whole note
+ * by default; a caller scanning one line passes `"inline"`).
  */
-export function linkOccurrences(text: string): LinkOccurrence[] {
-  const refs = blockReferenceOccurrences(text);
+export function linkOccurrences(text: string, code?: CodeScope): LinkOccurrence[] {
+  const refs = blockReferenceOccurrences(text, []);
   const holds = (outer: { start: number; end: number }, inner: { start: number; end: number }) => outer.start <= inner.start && inner.end <= outer.end;
   const free = (m: { start: number; end: number }) => !refs.some(ref => holds(ref, m) && !holds(m, ref));
   // What Markdown claims (links and images, as the service protects them), less what a reference's label holds.
@@ -222,9 +252,9 @@ export function linkOccurrences(text: string): LinkOccurrence[] {
     out.push({ kind: "block", embed, ...ref, start: embed ? ref.start - 1 : ref.start });
   }
   const envelopes = blockReferenceEnvelopeRanges(text);
-  for (const page of pageAddressReferences(text)) {
+  for (const page of pageAddressReferences(text, [])) {
     if (markdown.some(range => overlaps(page, range)) || envelopes.some(range => overlaps(page, range))) continue;
     out.push({ kind: "page", ...page });
   }
-  return out.sort((a, b) => a.start - b.start);
+  return outsideCode(text, out, code).sort((a, b) => a.start - b.start);
 }

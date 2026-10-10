@@ -577,6 +577,33 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.note).toContain("[[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML");
   });
 
+  test("inside backticks or a fence no popup opens, by keys or the complete action; after a closed span it does (PIE-764)", async () => {
+    const e = await editing(ids.compost!);
+    const quiet = async () => { await new Promise(r => setTimeout(r, 60)); return e.pop(); };
+    // The span being typed: its closing backtick isn't there yet.
+    e.press(K("enter")); e.type("Write `((compost");
+    expect(await quiet()).toBeNull();
+    e.press(ctrl("`"));                                                   // asking outright offers nothing either
+    expect(await quiet()).toBeNull();
+    e.type("))` to link it, `[[se");
+    expect(await quiet()).toBeNull();
+    // A fence.
+    e.press(K("enter")); e.type("```"); e.press(K("enter")); e.type("[[se and ((comp");
+    expect(await quiet()).toBeNull();
+    e.press(K("enter")); e.type("```"); e.press(K("enter"));
+    // After a closed span the same typing opens it.
+    e.type("`code` and ((compost");
+    const p = await e.settled();
+    expect(p.items[0]).toMatchObject({ blockId: ids.compost, kind: "block" });
+    e.press(K("esc"));
+    // An agent asking about the same text gets the same answer.
+    await expect(e.s.act("complete", { text: "see `[[se" }, e.h, AGENT)).rejects.toThrow("nothing to complete");
+    // What was written lands as written.
+    e.press(ctrl("s"));
+    await until(() => e.s.draft === null, "the save");
+    expect((await board.get(ids.compost!))!.text).toEndWith("\nWrite `((compost))` to link it, `[[se\n```\n[[se and ((comp\n```\n`code` and ((compost");
+  });
+
   test("Tab and Ctrl+Space ask again after Esc; Ctrl+S saves with the popup open", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("[[seeds]] and [[se");

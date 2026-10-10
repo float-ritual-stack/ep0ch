@@ -119,7 +119,7 @@ export class ReferenceCompletionSession {
     return this.active()&&generation===this.generation&&!!s&&s.buffer===b&&s.text===b.text&&s.row===b.row&&s.column===b.column;
   }
   async refresh():Promise<void>{
-    const b=this.buffer(),target=completionTargetAtCursor(b.lines[b.row]??'',b.column);
+    const b=this.buffer(),target=completionTargetAtCursor(b.lines[b.row]??'',b.column,b.lines,b.row);
     if(!this.active()||!target){this.dismiss();return;}
     const generation=++this.generation,selected=this.state?.items[this.state.index]?.insertion??this.selectedInsertion;
     this.snapshot={text:b.text,row:b.row,column:b.column,buffer:b};

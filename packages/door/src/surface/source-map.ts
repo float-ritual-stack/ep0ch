@@ -17,7 +17,7 @@ function visibility(span: string): { shown: boolean[]; tokens: { start: number; 
   const shown = new Array<boolean>(span.length).fill(true);
   const hide = (a: number, b: number) => { for (let i = Math.max(0, a); i < Math.min(span.length, b); i++) shown[i] = false; };
   const tokens: { start: number; end: number }[] = [];
-  for (const l of linkOccurrences(span)) {
+  for (const l of linkOccurrences(span, "inline")) {
     tokens.push({ start: l.start, end: l.end });
     const raw = span.slice(l.start, l.end);
     if (l.kind === "markdown") {

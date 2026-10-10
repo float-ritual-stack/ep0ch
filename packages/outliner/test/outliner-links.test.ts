@@ -653,7 +653,7 @@ describe("outliner link rendering", () => {
     expect(linkerForRawReferences(invalid, () => target).link(invalid)).toBe(invalid);
   });
 
-  test("consumes protected references before linking later rendered rows", () => {
+  test("a reference in code is never resolved, so a later rendered row links to the real one (PIE-764)", () => {
     const firstId = "550e8400-e29b-41d4-a716-446655440001";
     const secondId = "550e8400-e29b-41d4-a716-446655440002";
     const first = block(firstId, "Shared title");
@@ -667,7 +667,9 @@ describe("outliner link rendering", () => {
       },
     );
 
-    expect(linker.link("`((Shared title))`")).toBe("`((Shared title))`");
+    // The code span keeps `((id))` as written: no title is put in it, and it links nowhere.
+    expect(resolveBlockReferencesWithStatus(`\`((${firstId}))\``, () => first).text).toBe(`\`((${firstId}))\``);
+    expect(linker.link(`\`((${firstId}))\``)).toBe(`\`((${firstId}))\``);
     expect(getOsc8LinkAtColumn(linker.link("((Shared title))"), 2)).toBe(
       outlinerLinkUri("block", secondId),
     );

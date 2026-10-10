@@ -170,19 +170,24 @@ test("treats an unclosed fence as literal through the end of the block", () => {
   ]);
 });
 
-test("ignores equal-length inline code spans, including spans crossing lines", () => {
+test("ignores equal-length inline code spans on one line; an unclosed run and a line break end nothing (PIE-764)", () => {
+  // A span is one line, and an unclosed run is text (CommonMark): a stray backtick never hides the next line's
+  // properties, nor its own line's.
   const text = [
     "`[fake::single]` [first::real]",
-    "``[fake::cross]",
-    "still literal`` [second::real]",
-    "`[fake::unmatched]",
-    "[third::real]",
+    "``[cross::real]",
+    "no span crosses a line`` [second::real]",
+    "`[unmatched::real]",
+    "[third::real] ``[fake::double]`` [fourth::real]",
   ].join("\n");
 
-  expect(parsePropertyRecords(text).map(({ key, ordinal, line }) => ({ key, ordinal, line }))).toEqual([
-    { key: "first", ordinal: 0, line: 0 },
-    { key: "second", ordinal: 1, line: 2 },
-    { key: "third", ordinal: 2, line: 4 },
+  expect(parsePropertyRecords(text).map(({ key, line }) => ({ key, line }))).toEqual([
+    { key: "first", line: 0 },
+    { key: "cross", line: 1 },
+    { key: "second", line: 2 },
+    { key: "unmatched", line: 3 },
+    { key: "third", line: 4 },
+    { key: "fourth", line: 4 },
   ]);
 });
 
