@@ -155,6 +155,7 @@ function notebookText(whiteboardId: string, kettleId: string, tapId: string): st
     "Code is opaque (PIE-764): `((transcript^t0817|at 08:17))`, `[[Compost heap]]`, `!((transcript))` and `[key::value]` in backticks are text, never a link, a property, a warning or a popup; so is a fence:",
     "```blockdown",
     "[[Compost heap]] and ((transcript^t0817|at 08:17))",
+    "!((transcript)) [status::example]",
     "```",
     "",
     "## A literal region",

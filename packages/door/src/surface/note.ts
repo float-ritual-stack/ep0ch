@@ -3103,7 +3103,7 @@ export class NoteSurface {
         return;
       }
       const lines = b.text.split("\n").length;
-      out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: this.bx, to: this.bx + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"} · ${lines} line${lines === 1 ? "" : "s"}`, block: n });
+      out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: this.bx, to: this.bx + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"}, ${lines} line${lines === 1 ? "" : "s"}`, block: n });
     });
     for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));

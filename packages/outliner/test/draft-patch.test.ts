@@ -598,13 +598,15 @@ describe("draft.patch over the protocol", () => {
     expect(store.require(note.id).text).toBe(note.text);
   });
 
-  test("the guard sees the whole note: an edit inside a token, or a backtick that swallows one, is refused", async () => {
+  test("the guard sees the whole note: an edit inside a token, or a backtick that closes a span over one, is refused", async () => {
     expect(draftPatchTextPolicy("see [[Seed list]] now", "see [[Weed list]] now")).toContain("[[Seed list]]");
-    expect(draftPatchTextPolicy("Plan and [kind::plan]", "Plan` and [kind::plan]")).toContain("[kind::plan]");
+    expect(draftPatchTextPolicy("Plan and [kind::plan] now", "Plan` and [kind::plan]` now")).toContain("[kind::plan]");
+    // An unclosed backtick is text (PIE-764): it hides nothing, so the token is still there.
+    expect(draftPatchTextPolicy("Plan and [kind::plan]", "Plan` and [kind::plan]")).toBeNull();
     expect(draftPatchTextPolicy("Two  beds ^beds", "Two beds ^beds")).toBeNull();
     const { store, client } = await service();
-    const saved = store.create("Beds\nsee [[Seed list]] and the anchor ^beds\nthen `code` [kind::plan]");
-    for (const [observed, replacement] of [["Seed", "Weed"], ["bed", "bad"], ["then", "then`"]] as const) {
+    const saved = store.create("Beds\nsee [[Seed list]] and the anchor ^beds\nthen `code` [kind::plan]` done");
+    for (const [observed, replacement] of [["Seed", "Weed"], ["bed", "bad"], ["`code`", "code`"]] as const) {
       const now = store.require(saved.id);
       const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: saved.id, revision: now.revision, patches: [spanOf(now.text, observed, replacement)], mutation: TIDY, policy: "prose" });
       expect(result.outcome).toBe("proposed");

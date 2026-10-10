@@ -73,7 +73,7 @@ describe("copying a block", () => {
     const els = s.describe().elements;
     expect(els?.count).toBeGreaterThan(0);
     s.key(char("]"), h);
-    expect(s.describe().elements?.current).toMatchObject({ kind: "block", label: "quote · 2 lines" });
+    expect(s.describe().elements?.current).toMatchObject({ kind: "block", label: "quote, 2 lines" });
     s.key(char("y"), h);
     expect(copies).toEqual(["Hi Sam, the hedge is cut.\nI left the clippings by the gate."]);
     expect(flashes.at(-1)).toBe("copied 2 lines");
