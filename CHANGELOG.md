@@ -10,6 +10,27 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Extensions are programs: a schedule, a connection to the outline, writes anywhere, secrets by group (PIE-754)
+
+- **New:** a handler or action may declare `schedule` (`every` or `cron`). The outline host runs it and records each
+  run; `ep0ch ext ls` shows each schedule's next run and what the last did, and `ep0ch ext run <ext> <entry>` runs one
+  now. A scheduled action acts on the outline (`on: "outline"`, no block).
+- **New:** every extension process gets `EP0CH_SOCKET`, `EP0CH_WS` and `EP0CH_EXT_GRANT`. Over that connection it reads,
+  creates, updates and annotates through the normal paths, in any outline the host serves, as `ext:<id>` with who asked
+  beside it. An update while you type in that passage becomes a proposal; no extension write sets an extension off.
+- **Changed:** an action's writes may land anywhere in the outline, not only inside the block it acts on.
+- **New:** a secret may name a `with-secrets` group and key (`{ "group": "readwise", "key": "READWISE_TOKEN" }`): only
+  that key reaches only that extension's process, never the host's environment.
+- **New:** a data handler may answer a collection (`records`, keyed by the extension's own ids), written idempotently
+  under its line's record.
+- **New:** an extension can name a Resource to open (`file:/path`, `web:https://…`, `resource:<id>`) in a bar row, a
+  table or card link, or an action's `open` answer; the door opens it as the links tile opens a Resource.
+- **New:** `ep0ch ext ls|add|remove|act|run`, the outliner's extension command through the one front door.
+- *Why it matters:* a real extension (a Readwise sync, a morning digest, notifications) no longer needs core changes;
+  an agent in another project can build one from the extensions README alone. The showcase's `extensions` section
+  shows almanac, a scheduled program that writes a dated note under a page.
+- **Changed (wire):** `PROTOCOL` 130. Update the outline host and every client together (`ep0ch install --apply`).
+
 ### Questions the service answers and keeps answered: this, linkedfrom:, parent:, groups and facets (PIE-745)
 
 - **New:** in any query (a view, a figure, `::links{query=…}`, `ep0ch find --query`, `outliner_query`): `linkedfrom:<target>`

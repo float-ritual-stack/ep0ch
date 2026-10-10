@@ -307,6 +307,8 @@ export interface ExtensionBarRow {
   readonly detail?: string;
   readonly preview?: string;
   readonly block?: string;
+  /** A Resource to open when picked (PIE-754): `file:/path`, `web:https://…` or `resource:<id>` (outline-core resource-ref.ts). */
+  readonly resource?: string;
   readonly action?: string;
   readonly args?: Readonly<Record<string, string>>;
   readonly copy?: string;

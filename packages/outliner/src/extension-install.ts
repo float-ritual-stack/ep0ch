@@ -320,7 +320,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (isMiss(at)) throw new Error(missMessage(at));
         passage = passageAt(block.text, at.start, at.end, block.id, block.revision);
       }
-      const result = await client.request<{ message?: string; written: string[]; copy?: string }>({
+      const result = await client.request<{ message?: string; written: string[]; copy?: string; open?: string }>({
         action: "extensions.act", extension, extensionAction: action,
         ...(passage ? { passage } : values.block ? { blockId: values.block } : {}),
         ...(values.line !== undefined ? { line: Number(values.line) } : {}),
@@ -333,6 +333,8 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (result.message) print(result.message);
         for (const id of result.written) print(`wrote ${id}`);
         if (result.copy !== undefined) console.log(result.copy);
+        // What it asks a client to open (a shell has none to open it in): said, for the person or agent to open.
+        if (result.open !== undefined) print(`open ${result.open}`);
       }
       return 0;
     }

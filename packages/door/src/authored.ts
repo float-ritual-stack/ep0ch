@@ -10,6 +10,7 @@ import { basename, dirname, extname } from "node:path";
 import type { Msg } from "./board";
 import { printable } from "./text";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 
 // ── the wire (pi-herdr-outliner src/authored-links.ts, src/resource-references.ts, src/resources.ts) ──
 
@@ -226,6 +227,17 @@ export function resourceTarget(link: AuthoredResourceLink): { resourceId: string
 export async function openResource<A>(board: { followAuthored(r: AuthoredResourceReference, actor?: A): Promise<{ id: string; created: boolean }>; describeResource(id: string, fetch?: boolean): Promise<ResourceDescription> }, to: { resourceId: string } | { reference: AuthoredResourceReference }, actor?: A, from?: string): Promise<{ note: Msg; registered: boolean }> {
   const followed = "resourceId" in to ? { id: to.resourceId, created: false } : await board.followAuthored(to.reference, actor);
   return { note: resourceNote(await board.describeResource(followed.id, true), from), registered: followed.created };
+}
+
+/**
+ * What an extension's Resource ref (PIE-754: `file:/path`, `web:https://…`, `resource:<id>`, outline-core's
+ * resource-ref.ts) opens, as `openResource` takes it; why not when it can't be used.
+ */
+export function resourceRefTarget(ref: string): { resourceId: string } | { reference: AuthoredResourceReference } | { refused: string } {
+  const r = parseResourceRef(ref);
+  if ("problem" in r) return { refused: r.problem };
+  if (r.kind === "resource") return { resourceId: r.resourceId };
+  return { reference: r.kind === "filesystem" ? { kind: "filesystem", path: r.path } : { kind: "web", url: r.url } };
 }
 
 // ── the rows' words ──────────────────────────────────────────────────────────────────────────────────

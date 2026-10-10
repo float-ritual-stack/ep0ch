@@ -1,4 +1,5 @@
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
+import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import {
   ComponentError,
   renderComponent,
@@ -126,6 +127,8 @@ export interface ExtensionActResult {
   readonly written: readonly string[];
   /** Text the action hands back for the person's clipboard (copy with a citation): the client copies it. */
   readonly copy?: string;
+  /** What the client opens where opens land (PIE-754): a block id, or a Resource ref (`file:`, `web:`, `resource:`). */
+  readonly open?: string;
   /** The passage it acted on, as the service checked it (moved, when the text moved since it was read). */
   readonly passage?: Passage;
   /**
@@ -256,8 +259,16 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown): { message?: string; writes: ExtensionWrite[]; copy?: string } {
-  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy? }");
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string } {
+  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open? }");
+  // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
+  if (value.open !== undefined) {
+    if (typeof value.open !== "string") throw new Error("open must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
+    if (isResourceRef(value.open)) {
+      const parsed = parseResourceRef(value.open);
+      if ("problem" in parsed) throw new Error(`open: ${parsed.problem}`);
+    } else if (!blockOk(value.open)) throw new Error(`open: ${value.open.slice(0, 60)} is no block here (a Resource is file:/path, web:https://… or resource:<id>)`);
+  }
   if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) throw new Error("message must be text up to 500 characters");
   if (value.copy !== undefined && (typeof value.copy !== "string" || value.copy.length > 8_000)) throw new Error("copy must be text up to 8000 characters");
   const writes = value.writes ?? [];
@@ -265,6 +276,7 @@ function validateAct(value: unknown): { message?: string; writes: ExtensionWrite
   return {
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
+    ...(typeof value.open === "string" ? { open: value.open } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
       if (write.op === "annotate") {
@@ -304,13 +316,19 @@ function validateBar(value: unknown, actionOk: (id: string) => boolean, blockOk:
     if (ids.has(id)) throw new Error(`rows[${index}].id ${id} is another row's too: each row's id is its own`);
     ids.add(id);
     const block = text(row, "block", index, 100), action = text(row, "action", index, 32), copy = text(row, "copy", index, 2000, true);
+    const resource = text(row, "resource", index, 4096);
     if (block !== undefined && !blockOk(block)) throw new Error(`rows[${index}].block ${block} is no block here`);
+    if (resource !== undefined) {
+      const parsed = parseResourceRef(resource);
+      if ("problem" in parsed) throw new Error(`rows[${index}].resource: ${parsed.problem}`);
+      if (block !== undefined) throw new Error(`rows[${index}] names a block and a resource: one thing opens when it's picked`);
+    }
     if (action !== undefined && !actionOk(action)) throw new Error(`rows[${index}].action ${action} isn't one of its actions on a bar row (on: bar, or on: block with a block)`);
     if (action !== undefined && row.args !== undefined && (!isObject(row.args) || Object.values(row.args).some((v) => typeof v !== "string"))) throw new Error(`rows[${index}].args must map names to text`);
-    if (block === undefined && action === undefined && copy === undefined) throw new Error(`rows[${index}] does nothing when picked: give it a block, an action or copy`);
+    if (block === undefined && resource === undefined && action === undefined && copy === undefined) throw new Error(`rows[${index}] does nothing when picked: give it a block, a resource, an action or copy`);
     const preview = text(row, "preview", index, MAX_BAR_PREVIEW, true), detail = text(row, "detail", index, 200);
     return {
-      id, label, ...(detail ? { detail } : {}), ...(preview ? { preview } : {}), ...(block ? { block } : {}), ...(action ? { action } : {}),
+      id, label, ...(detail ? { detail } : {}), ...(preview ? { preview } : {}), ...(block ? { block } : {}), ...(resource ? { resource } : {}), ...(action ? { action } : {}),
       ...(action && isObject(row.args) ? { args: Object.fromEntries(Object.entries(row.args as Record<string, string>).map(([k, v]) => [cleanExtensionText(k), cleanExtensionText(v)])) } : {}),
       ...(copy !== undefined ? { copy } : {}),
     };
@@ -820,9 +838,9 @@ export class ExtensionCalls {
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
     }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
-    let parsed: { message?: string; writes: ExtensionWrite[]; copy?: string };
+    let parsed: ReturnType<typeof validateAct>;
     try {
-      parsed = validateAct(answer.value);
+      parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
     } catch (error) {
       throw new Error(`${extension.name} returned an answer the service can't apply: ${message(error)}`);
     }
@@ -838,6 +856,7 @@ export class ExtensionCalls {
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
+      ...(parsed.open !== undefined ? { open: parsed.open } : {}),
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}) };
   }
 
@@ -895,9 +914,9 @@ export class ExtensionCalls {
         ...(checked.resourceId ? { resourceId: checked.resourceId } : {}) },
       ...(host ? { context: this.context(host, undefined) } : {}),
     }, this.deadline(extension), { label: action.name, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
-    let parsed: { message?: string; writes: ExtensionWrite[]; copy?: string };
+    let parsed: ReturnType<typeof validateAct>;
     try {
-      parsed = validateAct(answer.value);
+      parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
     } catch (error) {
       throw new Error(`${extension.name} returned an answer the service can't apply: ${message(error)}`);
     }
@@ -935,7 +954,7 @@ export class ExtensionCalls {
       this.options.changed?.(checked.block?.id ?? host?.id ?? passage.subject);
     } else if (written.length && host) this.options.changed?.(host.id);
     return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
-      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), passage };
+      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}), passage };
   }
 
   /**

@@ -1,6 +1,7 @@
 import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
+import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -32,7 +33,7 @@ export type Primitive =
   | { type: "badge"; label: string; tone?: Tone }
   | { type: "stat"; label: string; value: string | number; unit?: string; tone?: Tone }
   | { type: "bar"; label: string; value: number; max: number; tone?: Tone }
-  /** `links`: a block id per row (or null) that a client opens on Enter or a click. */
+  /** `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click. */
   | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[] }
   | { type: "checklist"; items: { label: string; done: boolean }[] }
   | { type: "sparkline"; label?: string; values: number[] }
@@ -73,6 +74,8 @@ const MAX_COLUMNS = 12;
 const MAX_VALUES = 200;
 const MAX_DATA_BYTES = 256 * 1024;
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** What a link in a view may name: a block, or a Resource (PIE-754) the client opens the way the links tile does. */
+const linkable = (link: string) => BLOCK_ID.test(link) || (isResourceRef(link) && !("problem" in parseResourceRef(link)));
 
 export const CONTENT_TYPES: Record<RenderTarget, string> = {
   terminal: "text/plain; charset=utf-8",
@@ -160,7 +163,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         if (!Array.isArray(node.links) || node.links.length !== rows.length) fail(`${path}.links`, "must have one entry per row");
         links = node.links.map((link, index) => {
           if (link === null) return null;
-          if (typeof link !== "string" || !BLOCK_ID.test(link)) fail(`${path}.links[${index}]`, "must be a block id or null");
+          if (typeof link !== "string" || !linkable(link)) fail(`${path}.links[${index}]`, "must be a block id, a Resource ref (file:/path, web:https://…, resource:<id>) or null");
           return link;
         });
       }
@@ -192,7 +195,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         only(raw, ["label", "tone"], `${path}.badge`);
         badge = { label: text(raw.label, `${path}.badge.label`)!, ...(tone(raw.tone, `${path}.badge.tone`) ? { tone: raw.tone as Tone } : {}) };
       }
-      if (node.link !== undefined && (typeof node.link !== "string" || !BLOCK_ID.test(node.link))) fail(`${path}.link`, "must be a block id");
+      if (node.link !== undefined && (typeof node.link !== "string" || !linkable(node.link))) fail(`${path}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
       return { type: "card", title: text(node.title, `${path}.title`)!,
         ...(node.subtitle !== undefined ? { subtitle: text(node.subtitle, `${path}.subtitle`)! } : {}),
         ...(badge ? { badge } : {}),

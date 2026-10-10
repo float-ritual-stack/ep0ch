@@ -1745,12 +1745,19 @@ component handlers by their `effects` (`read`, `spend`, `write`), keeps the
 results, answers them in the `resources.projection.read` slot beside provider
 lines, renders them (`extensions.render`: markdown, blockdown, html, json, csv,
 terminal) and runs `actions[]` (`extensions.act`, the same for a key, a click and
-an agent; writes kept inside the block and attributed `ext:<id>`, with who
+an agent; writes anywhere in the outline, attributed `ext:<id>`, with who
 asked recorded as `requestedBy`). An action's update goes through
 `DraftPatchRouter` with the `edit` policy, like an `@agent`'s patch, never a
 write path of its own: a door's live draft gets it, and one that can't apply
 becomes a proposal (then nothing else the action wrote is written). `ext:<id>` actor ids are reserved for the runtime: `server.ts` refuses
-a client request that names one. What an extension says (messages, names,
+a client request that names one, unless it carries the grant the runtime gave
+the extension's own process (`src/extension-grants.ts`, PIE-754): every process
+gets `EP0CH_SOCKET`, `EP0CH_WS` and `EP0CH_EXT_GRANT`, and a granted request
+reads, creates, updates (as a `draft.patch`) and annotates as `ext:<id>`.
+[`src/extension-schedule.ts`](../src/extension-schedule.ts) runs handlers and
+actions on a `schedule` (every N or a cron) and records each run beside the
+outline; [`src/extension-secrets.ts`](../src/extension-secrets.ts) reads one
+`with-secrets` group key for one extension's process. What an extension says (messages, names,
 errors) is cleaned of terminal escapes (`cleanExtensionText`) before a reader
 or a terminal sees it.
 [`src/extension-install.ts`](../src/extension-install.ts) is

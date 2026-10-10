@@ -17,6 +17,7 @@
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
+import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
@@ -92,12 +93,14 @@ export interface ExtensionActResult {
   extension: string; action: string; message?: string; written: string[];
   /** Text for the clipboard (copy with a citation): the client copies it. */
   copy?: string;
+  /** What to open once it answers (PIE-754): a block id, or a Resource ref (file:, web:, resource:). */
+  open?: string;
   /** The passage it acted on, as the service checked it (moved when the text moved since it was read). */
   passage?: Passage;
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
-export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number): void; redraw(): void } }
+export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown> }, actor: Actor): Promise<unknown> } } }
 export interface ExtArgs { block?: string; line?: number; with?: string }
 
 /** A bar row's `args` as `with=` carries them (JSON text of names to text), checked; refused with why. */
@@ -210,6 +213,9 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
     const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ext:${oneLine(extension)}` : ""}`;
     say.flash(said);
+    // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
+    if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
+      .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`));
     ctx.redraw();
     return { ...r, ...(message !== undefined ? { message } : {}), said };
   } catch (e) {
@@ -371,7 +377,7 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     },
     preview(row) {
       const r = row.data as ExtensionBarRow;
-      return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy).slice(0, 60)}`] : [])] };
+      return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy).slice(0, 60)}`] : r.resource ? ["", `⏎ opens ${oneLine(r.resource).slice(0, 80)}`] : [])] };
     },
     async pick(row, host, how) {
       const r = row.data as ExtensionBarRow;
@@ -383,6 +389,8 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
         return how.actor.kind === "agent" ? host.dispatch.act({ action: a.name, args }, how.actor) : host.dispatch.press(a.name, args);
       }
       if (r.block) return openNote(r.block, host, how);
+      // A Resource (PIE-754): opened where opens land, registered first if it must be (the desk's open resource=).
+      if (r.resource) return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args: { resource: r.resource } }, how.actor) : host.dispatch.press("open", { resource: r.resource });
       // A copy is the person's clipboard; an agent gets the text back.
       if (r.copy !== undefined) { if (how.actor.kind !== "agent") host.ctx.copy?.(r.copy); return { copied: r.copy }; }
       throw new ActionRefused("that row does nothing when picked");

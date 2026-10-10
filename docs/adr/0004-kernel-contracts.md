@@ -520,3 +520,23 @@ Each slice is one PR with a kitchen-sink section (`ep0ch --showcase`) and its te
 
 1–3 are PIE-731 and the base the rest use. 4–5 finish the figures. 6 is the bar and completion. 7 is PIE-735 B1 and
 B4; the rest of PIE-735 B and D waits in [Not yet](#not-yet-stays-a-convention-or-a-kit) for marginalia's kit.
+
+## Shipped
+
+Kept current with each slice's PR (the extensions README keeps the same table, with where each lives:
+[ADR 0004: what has shipped](../../packages/outliner/docs/extensions/README.md#adr-0004-what-has-shipped)).
+
+| # | Item | Contract | State |
+|---|---|---|---|
+| 1 | PIE-745 | 1 | shipped (#356) |
+| 2 | PIE-746 | 1, 2 | not yet |
+| 3 | PIE-747 | 3 | not yet |
+| 4 | PIE-748 | 1 | not yet |
+| 5 | PIE-749 | 1 | not yet |
+| 6 | PIE-750 | 4 | not yet: manifests stay contract 2 until it lands |
+| 7 | PIE-751 | 5 | shipped (#360) |
+| 8 | PIE-753 | 5, 7 | shipped (#360): annotation properties, the `annotate` write; span and margin drawing with it |
+
+Outside this ADR, PIE-754 (extensions as first-class programs: a schedule, a connection to the service, writes
+anywhere they're attributed, secrets by `with-secrets` group, collections, Resource refs) added only optional manifest
+fields (`schedule`, `on: "outline"`, a secret's `{ group, key }`), so contract 2 stands and slice 6 still moves it to 3.

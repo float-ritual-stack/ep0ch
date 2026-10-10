@@ -186,7 +186,7 @@ if (input.action === "wander") {
   // An annotation's own keys aren't a bag's.
   await expect(client.request({ action: "annotations.batch", requestId: "bad-bag", operations: [{ operationId: "a", type: "block-comment",
     input: { blockId: note.id, expectedRevision: store.get(note.id)!.revision, body: "x", source: "user", properties: { "annotation-status": "resolved" } } }] }))
-    .rejects.toThrow("is the annotation's own");
+    .rejects.toThrow("annotation-status is the annotation store's own");
   const said = (await client.request<{ message: string }>({ action: "extensions.act", extension: "margin", extensionAction: "wander", args: { note: note.id } })).message;
   expect(said).toContain("ext:margin can read, create, update, comment and annotate over its connection; delete isn't one of them");
   expect(store.get(note.id)!.effectiveDeletedRootId ?? null).toBeNull();
@@ -356,4 +356,30 @@ test("almanac: its scheduled action writes a dated note under the almanac page, 
   expect(again.message).toEndWith("is already there");
   expect(store.children(page.id)).toHaveLength(1);
   expect(existsSync(join(extensions, "almanac", "outline.ts"))).toBe(true);
+});
+
+// ── Opening a Resource (kitty's gaps) ────────────────────────────────────
+
+test("an extension names a Resource to open: a bar row's resource, a view's link, an action's open; a bad ref is refused with why", async () => {
+  const { client, install, create } = await setup();
+  const note = await create("Shelf");
+  await install("shelfie", {
+    actions: [{ id: "show", label: "Show", on: "outline" }, { id: "bad", label: "Bad", on: "outline" }, { id: "note", label: "Note", on: "outline" }],
+    bar: [{ id: "files", title: "files" }],
+  }, `${CALL}
+if (operation === "bar") say({ rows: input.query === "bad"
+  ? [{ id: "x", label: "x", resource: "file:relative.md" }]
+  : [{ id: "a", label: "a.md", resource: "file:/srv/made-up/a.md" }, { id: "b", label: "site", resource: "web:https://example.com/shelf" }] });
+else if (input.action === "show") say({ message: "here", open: "file:/srv/made-up/a.md" });
+else if (input.action === "note") say({ open: input.args.note });
+else say({ open: "not a thing" });`);
+  const rows = await client.request<{ rows: Array<{ resource?: string }> }>({ action: "extensions.bar", extension: "shelfie", source: "files", query: "" });
+  expect(rows.rows.map((row) => row.resource)).toEqual(["file:/srv/made-up/a.md", "web:https://example.com/shelf"]);
+  await expect(client.request({ action: "extensions.bar", extension: "shelfie", source: "files", query: "bad" })).rejects.toThrow("file: takes an absolute path");
+  expect(await client.request({ action: "extensions.act", extension: "shelfie", extensionAction: "show" })).toMatchObject({ message: "here", open: "file:/srv/made-up/a.md" });
+  expect(await client.request({ action: "extensions.act", extension: "shelfie", extensionAction: "note", args: { note: note.id } })).toMatchObject({ open: note.id });
+  await expect(client.request({ action: "extensions.act", extension: "shelfie", extensionAction: "bad" })).rejects.toThrow("open: not a thing is no block here");
+  const { validateComponent } = await import("../src/component-primitives");
+  expect(() => validateComponent({ data: {}, view: { type: "table", columns: ["File"], rows: [["a.md"], ["b"]], links: ["file:/srv/made-up/a.md", "resource:res-1"] } })).not.toThrow();
+  expect(() => validateComponent({ data: {}, view: { type: "card", title: "c", link: "web:ftp://nope" } })).toThrow("must be a block id or a Resource ref");
 });
