@@ -537,6 +537,7 @@ export class Publisher {
     this.marginalia = new PageMarginalia({
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full) => this.view(page, full),
+      locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,
       changed: (since, ms) => this.changed(since, ms),
       log: this.log,
@@ -1043,7 +1044,8 @@ export class Publisher {
 
   /** The reader script's tag on a tailnet page: where it is, where it reads and writes, and which note this is. */
   private readerTag(entry: PublishedEntry, full: boolean): ReaderTag {
-    return { src: readerScriptPath(this.basePath), api: `${this.basePath}${PAGE_ROUTE}`, page: entry.slug, blockId: entry.blockId, full };
+    // The reader names its note by id: an address (a slug, a page name) could later name another note.
+    return { src: readerScriptPath(this.basePath), api: `${this.basePath}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
   }
 
   /**
@@ -1483,8 +1485,10 @@ function noteTitle(title: string): string {
 function notePath(block: { id: string; properties?: readonly BlockProperty[] }, index: PublishedIndex): string {
   const published = index.entries.find((entry) => entry.blockId === block.id);
   if (published) return published.path;
-  const page = getProperty([...(block.properties ?? [])], "page");
-  return `/p/${page && tryNormalizePageAddress(page) ? encodeURIComponent(page.trim()) : block.id}`;
+  const page = getProperty([...(block.properties ?? [])], "page")?.trim();
+  // A page name a published slug already answers to would open that note instead: then the id.
+  const free = page && tryNormalizePageAddress(page) && !index.entries.some((entry) => entry.slug === page || entry.blockId === page);
+  return `/p/${free ? encodeURIComponent(page) : block.id}`;
 }
 
 /** A note that isn't published, as a tailnet page serves it (and links to it). */

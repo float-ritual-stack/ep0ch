@@ -28,8 +28,13 @@
   let threads = [];
   /** The words selected last: { quote, prefix, suffix }. */
   let selected = null;
-  /** While something is being written, the page isn't redrawn under it; what changed meanwhile is drawn after. */
-  let writing = false;
+  /**
+   * The one box being written in (a comment sheet or a reply), and writes on their way. While either is, the page isn't
+   * redrawn under the reader; what changed meanwhile (`behind`) is drawn after.
+   */
+  let editor = null;
+  let sending = 0;
+  const busy = () => editor !== null || sending > 0;
   let behind = false;
 
   const el = (tag, props = {}, ...kids) => {
@@ -100,11 +105,11 @@
   document.addEventListener("selectionchange", () => {
     clearTimeout(selectTimer);
     selectTimer = setTimeout(() => {
-      if (writing) return;
+      if (busy()) return;
       const now = readSelection();
       if (now) { selected = now; showBar(); }
       else {
-        if (!bar.hidden) setTimeout(() => { if (!readSelection() && !writing) hideBar(); }, 400);
+        if (!bar.hidden) setTimeout(() => { if (!readSelection() && !busy()) hideBar(); }, 400);
         if (behind) catchUp();
       }
     }, 150);
@@ -152,7 +157,7 @@
   }
 
   async function act(action, words) {
-    writing = true;
+    sending += 1;
     try {
       const answer = await send({ action, ...words, requestId: requestId() });
       letGo(words);
@@ -160,36 +165,56 @@
     } catch (error) {
       say(error.message);
     } finally {
+      sending -= 1;
       doneWriting();
+    }
+  }
+
+  /** One box at a time: a second one waits until the first is sent or cancelled, so no draft is dropped. */
+  function opening() {
+    if (!editor) return true;
+    say("finish or cancel what you're writing first");
+    editor.focus();
+    return false;
+  }
+
+  /** Sends what a box holds; the box can't change while it's on its way, and keeps the text when it's refused. */
+  async function submit(input, button, why, body, saved) {
+    input.readOnly = true;
+    button.disabled = true;
+    sending += 1;
+    try {
+      const answer = await send(body);
+      saved(answer);
+    } catch (error) {
+      why.textContent = `Not saved: ${error.message}. Your text is still here.`;
+      why.hidden = false;
+      input.readOnly = false;
+      button.disabled = false;
+    } finally {
+      sending -= 1;
     }
   }
 
   /** Comment or Ask: a sheet to write in. The text stays until the outline has it. */
   function compose(action, words) {
-    writing = true;
+    if (!opening()) return;
     hideBar();
     const id = requestId();
     const input = el("textarea", { class: "mg-in", placeholder: action === "ask" ? `Ask @${agent || "margin"} about this passage (or leave it blank: what does this mean?)` : words ? "Comment on this passage" : "Comment on this note" });
+    editor = input;
     const why = el("p", { class: "why", hidden: "" });
-    const close = () => { sheet.remove(); doneWriting(); };
-    const sendButton = el("button", { type: "button", text: action === "ask" ? "Ask" : "Send", onclick: async () => {
-      sendButton.disabled = true;
-      try {
-        const answer = await send({ action, ...(words || { quote: "" }), body: input.value, requestId: id });
+    const close = () => { sheet.remove(); editor = null; doneWriting(); };
+    const sendButton = el("button", { type: "button", text: action === "ask" ? "Ask" : "Send", onclick: () =>
+      submit(input, sendButton, why, { action, ...(words || { quote: "" }), body: input.value, requestId: id }, (answer) => {
         if (words) letGo(words);
         say(answer.said || "saved");
         close();
-      } catch (error) {
-        why.textContent = `Not saved: ${error.message}. Your text is still here.`;
-        why.hidden = false;
-        sendButton.disabled = false;
-      }
-    } });
+      }) });
     const sheet = el("div", { id: "mg-sheet", class: "mg-ui" },
       words ? el("p", { class: "q", text: `“${words.quote}”` }) : null,
       input, why,
       el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Cancel", onclick: close }), sendButton));
-    document.getElementById("mg-sheet")?.remove();
     document.body.append(sheet);
     input.focus();
   }
@@ -234,24 +259,18 @@
   }
 
   function replyIn(node, thread, row) {
-    writing = true;
+    if (!opening()) return;
     const id = requestId();
     const input = el("textarea", { class: "mg-in", placeholder: "Reply" });
+    editor = input;
     const why = el("p", { class: "why", hidden: "" });
     const box = el("div", { class: "mg-reply" }, input, why);
-    const done = () => { box.remove(); row.hidden = false; doneWriting(); };
-    const sendButton = el("button", { type: "button", text: "Send", onclick: async () => {
-      sendButton.disabled = true;
-      try {
-        const answer = await send({ action: "reply", thread: thread.id, body: input.value, requestId: id });
+    const done = () => { box.remove(); row.hidden = false; editor = null; doneWriting(); };
+    const sendButton = el("button", { type: "button", text: "Send", onclick: () =>
+      submit(input, sendButton, why, { action: "reply", thread: thread.id, body: input.value, requestId: id }, (answer) => {
         say(answer.said || "replied");
         done();
-      } catch (error) {
-        why.textContent = `Not saved: ${error.message}. Your reply is still here.`;
-        why.hidden = false;
-        sendButton.disabled = false;
-      }
-    } });
+      }) });
     box.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Cancel", onclick: done }), sendButton));
     row.hidden = true;
     node.append(box);
@@ -262,7 +281,7 @@
   const BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, table";
 
   function draw() {
-    if (writing) return;
+    if (busy()) return;
     const host = article();
     if (!host) return;
     // The page's own asides were for readers without the script: the cards replace them.
@@ -323,17 +342,19 @@
 
   // ---- Keeping up: the threads route waits for the next change.
 
-  /** The note fetched again (new marks, an edit). */
+  /** The note fetched again (new marks, an edit). Anything short of drawing it leaves the page `behind`, tried again next read. */
   async function refresh() {
+    behind = true;
     const response = await fetch(location.href, { headers: { accept: "text/html" }, cache: "no-store" });
     if (!response.ok) return;
     const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
     // The reader selected words (or began writing) while it was on its way: it waits for them.
-    if (writing || readSelection()) { behind = true; return; }
+    if (busy() || readSelection()) return;
     for (const part of ["article", "section.inside", "footer"]) {
       const now = main.querySelector(part), next = fresh.querySelector(`main ${part}`);
       if (now && next) now.replaceWith(document.adoptNode(next));
     }
+    behind = false;
   }
 
   let waking = null;
@@ -341,14 +362,12 @@
 
   /** Writing's over: draw what changed meanwhile, and read again at once. */
   function doneWriting() {
-    writing = false;
-    if (behind && !readSelection()) catchUp();
+    if (behind && !busy() && !readSelection()) catchUp();
     wake();
   }
 
   /** What changed while the reader had words selected or was writing, drawn now. */
   function catchUp() {
-    behind = false;
     refresh().catch(() => {}).finally(draw);
   }
 
@@ -366,10 +385,11 @@
     threads = data.threads || [];
     // A selection made before the toolbar knew its choices gets them now.
     if (first && readSelection()) { selected = readSelection(); showBar(); }
-    if (!first && !changed) return false;
+    if (changed) behind = true;
+    if (!first && !behind) return false;
     // Never under the reader's hands: while words are selected or something is being written, the page waits.
-    if (writing || readSelection()) { behind = true; return changed; }
-    if (changed) await refresh();
+    if (busy() || readSelection()) return changed;
+    if (behind) await refresh().catch(() => {});
     draw();
     return changed;
   }
@@ -386,7 +406,7 @@
         await Promise.race([sleep(Math.min(30000, 2000 * failures)), new Promise((resolve) => { waking = resolve; })]);
       }
       // Right after a write, read again at once; otherwise the long poll above was the wait.
-      if (writing) await new Promise((resolve) => { waking = resolve; });
+      if (busy()) await new Promise((resolve) => { waking = resolve; });
       waking = null;
     }
   })();

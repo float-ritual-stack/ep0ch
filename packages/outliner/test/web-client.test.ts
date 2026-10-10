@@ -22,7 +22,7 @@ let server: OutlinerServer;
 let client: OutlinerClient;
 let publisher: Publisher;
 const restore: Record<string, string | undefined> = {};
-let hub: Block, survey: Block, swap: Block, ledger: Block, letter: Block;
+let hub: Block, survey: Block, swap: Block, ledger: Block, letter: Block, twin: Block;
 
 beforeAll(async () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-web-")));
@@ -51,6 +51,9 @@ beforeAll(async () => {
   store.create("Marigold packets\nTwelve envelopes, labelled.", swap.id, "user");
   ledger = store.create("Private ledger [publish::never]\nWhat the plots cost.", hub.id, "user");
   letter = store.create("Open letter [publish::public]\nTo the allotment committee.", null, "user");
+  // A published slug and another note's page name that spell the same address.
+  store.create("Plot map [publish::plots]", null, "user");
+  twin = store.create("Plot rota [page::plots]", null, "user");
 
   publisher = new Publisher({ client, basePath: "/pub", publicUrl: "/share" });
   await publisher.start();
@@ -101,6 +104,9 @@ test("browse: the top level, into a note by its page name, into a child by its i
   expect(top).toMatch(/<h1>[^<]+<\/h1>/);
   // Every note is a page, published or not: the hub by its page name.
   expect(hrefs(top)).toContain("/pub/p/Field%20Notes");
+  // The published slug keeps its address; the note whose page name spells it is linked by id.
+  expect(hrefs(top)).toEqual(expect.arrayContaining(["/pub/p/plots", `/pub/p/${twin.id}`]));
+  expect(await page(`/pub/p/${twin.id}`)).toContain(`data-page="${twin.id}"`);
 
   const folder = await page("/pub/p/Field%20Notes");
   // The file: its own text. The folder: its children as links with a summary line, the grandchild only counted.

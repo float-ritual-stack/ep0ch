@@ -20,7 +20,7 @@ import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { plainBody } from "./publish-marginalia";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
-import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread } from "./types";
+import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, BlockProperty } from "./types";
 
 /** The script, read once: served at `<base>/_marginalia/reader.js`, the only script a rendered page may run. */
 export const READER_SCRIPT = readFileSync(new URL("./publish-reader.js", import.meta.url), "utf8");
@@ -74,6 +74,8 @@ export interface PageHost {
    * alone (a folder page), or with what's under it (`full`). Undefined when there's no such note or it's locked.
    */
   view(page: string, full: boolean): Promise<PageView | undefined>;
+  /** Whether a block's own properties lock it (`[publish::never]`). */
+  locks(properties: readonly BlockProperty[]): boolean;
   /** Goes up with every change to the outline. */
   generation(): number;
   /** Resolves when the generation passes `since`, or after `ms`. */
@@ -201,7 +203,9 @@ export class PageMarginalia {
           body: plainBody(thread.body),
           by: this.by(thread),
           at: thread.block.createdAt,
-          replies: thread.replies.map((reply) => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt })),
+          // A reply marked [publish::never] stays off the page, as a locked note does.
+          replies: thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
+            .map((reply) => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt })),
         };
       });
   }
