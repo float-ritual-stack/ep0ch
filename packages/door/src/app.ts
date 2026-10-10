@@ -208,6 +208,8 @@ export interface Ctx {
   events: number;          // outline changes seen since the menu last looked
   /** Times the outline connection came back (a `reconnected` or `reset`): a screen that wasn't on top then checks on its next render. */
   reconnects?: number;
+  /** The note in the reader the person is in, else the note the screen shows as its current one (the power bar's `near`). */
+  noteInFront?(): string | null;
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
   screens?(): readonly Screen[];
   /** Screens left with programs running in them, kept in the background until opened again (the desk's terminals). */
@@ -427,13 +429,16 @@ export class App implements Ctx {
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
+  /** The note in the reader the person is in, else the note the screen shows as its current one. */
+  noteInFront(): string | null {
+    try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; }
+  }
   /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
   barHost(): BarHost {
     const notes = new Map<string, Promise<Msg | null>>();
     return {
       ctx: this, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
-      // The note in the reader the person is in, else the note the screen shows as its current one.
-      near: () => { try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; } },
+      near: () => this.noteInFront(),
       note: id => { let p = notes.get(id); if (!p) notes.set(id, p = this.board.get(id).catch(() => null)); return p; },
     };
   }

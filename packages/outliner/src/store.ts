@@ -951,11 +951,16 @@ export class OutlinerStore {
   }
 
 
+  /**
+   * `place`: an id minted beforehand (an extension's write group names its new blocks before any is written, so its
+   * other writes can link to them) and a position among the parent's children (the end when left out).
+   */
   create(
     text: string,
     parentId: string | null = null,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
+    place: { id?: string; position?: number } = {},
   ): Block {
     return this.createAt(
       text,
@@ -963,6 +968,8 @@ export class OutlinerStore {
       author,
       provenance,
       this.createdTime(),
+      place.position,
+      place.id,
     );
   }
 
@@ -994,10 +1001,12 @@ export class OutlinerStore {
     provenance: BlockProvenance | undefined,
     createdAt: string,
     position?: number,
+    minted?: string,
   ): Block {
     if (parentId !== null) this.requireActive(parentId);
     const { actorId, sessionId, taskId } = normalizeCreatorProvenance(author, provenance);
-    const id = crypto.randomUUID();
+    if (minted !== undefined && this.get(minted)) throw new Error(`Block already exists: ${minted}`);
+    const id = minted ?? crypto.randomUUID();
 
     this.database.transaction(() => {
       this.validateRoadmapText(text);
@@ -2725,6 +2734,40 @@ export class OutlinerStore {
       this.bumpSequence({ kind: "move", blockId: id, previousParentId: block.parentId });
     })();
     return this.require(id);
+  }
+
+  /**
+   * A parent's children put in the order `ids` gives, in one step (an extension's sort): `ids` must be exactly its
+   * children not in the Trash, each once, so a child added or trashed since they were read is refused, not lost.
+   * Children in the Trash keep their places after them. Each child that moved is a `move` in the change feed.
+   */
+  reorderChildren(parentId: string | null, ids: readonly string[], mutation?: MutationProvenance): string[] {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    if (parentId !== null) this.requireActive(parentId);
+    return this.database.transaction(() => {
+      const all = this.childrenFromCurrentRead(parentId, true);
+      const live = all.filter((child) => !child.effectiveDeletedRootId);
+      const wanted = new Set(ids);
+      if (wanted.size !== ids.length) throw new Error("An order names a child twice");
+      const missing = live.filter((child) => !wanted.has(child.id));
+      const extra = ids.filter((id) => !live.some((child) => child.id === id));
+      if (missing.length || extra.length) {
+        throw new Error(`An order lists exactly the children there are now: ${[
+          missing.length ? `${missing.length} not listed (${missing.map((child) => child.id).join(", ")})` : "",
+          extra.length ? `${extra.length} not children here (${extra.join(", ")})` : "",
+        ].filter(Boolean).join("; ")}`);
+      }
+      const order = [...ids, ...all.filter((child) => child.effectiveDeletedRootId).map((child) => child.id)];
+      const moved = ids.filter((id, index) => live[index]!.id !== id);
+      const now = new Date().toISOString();
+      const updatePosition = this.database.query("UPDATE blocks SET position = ?, updated_at = ? WHERE id = ?");
+      order.forEach((id, index) => updatePosition.run(index, now, id));
+      for (const id of moved) {
+        if (provenance) this.recordActivity(id, provenance, "move", now);
+        this.bumpSequence({ kind: "move", blockId: id, previousParentId: parentId });
+      }
+      return moved;
+    })();
   }
 
   /**

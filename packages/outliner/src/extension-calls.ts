@@ -10,10 +10,10 @@ import {
   type RenderedComponent,
 } from "./component-primitives";
 import { handlerCalls, mayHaveHandlerLines, type HandlerCall } from "./extension-handlers";
-import { DEFAULT_DEADLINE_MS, durationMs, type LoadedExtension } from "./extension-manifest";
-import { requestLines } from "./agent-requests";
+import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionActionArg, type LoadedExtension } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import type { DraftGroupInput } from "./draft-patch-router";
+import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome } from "./extension-writes";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
@@ -72,6 +72,18 @@ export interface ExtensionCallsOptions {
    * harness) updates are refused rather than written around the guard.
    */
   readonly patch?: (input: DraftPatchInput) => Promise<DraftPatchResult>;
+  /** A write group that also makes, moves or orders blocks (the router's `patchGroup`), in one step or as one proposal. */
+  readonly patchGroup?: (input: DraftGroupInput) => Promise<DraftPatchResult>;
+  /** Whether a door holds a live draft of the block (an undo of an edit waits for it). */
+  readonly held?: (blockId: string) => boolean;
+}
+
+/** An action's declared argument as a client asks for it (`extensions.args`): its spec, the choices it has here, its value now. */
+export interface ExtensionArgChoice extends ExtensionActionArg {
+  /** What may be chosen: a choice's options, or a property's fixed options then the keys it finds (`from`). */
+  readonly choices?: readonly string[];
+  /** What it is when not given: the acted-on block's `defaultProperty`, else `default`. */
+  readonly value?: string;
 }
 
 export type CallReason = "save" | "open" | "refresh";
@@ -85,18 +97,8 @@ interface PassOptions {
   readonly line?: number;
 }
 
-/** What an action may return: writes anywhere in the outline, checked and attributed by the service. */
-export type ExtensionWrite =
-  | { readonly op: "create"; readonly parentId: string; readonly text: string }
-  | { readonly op: "update"; readonly blockId: string; readonly expectedRevision: number; readonly text: string }
-  /**
-   * An annotation on the passage the action acts on (`on: passage`): a comment with `body`, a highlight without, with
-   * its own properties (`kind`, `tags`, `color` as a theme tone, any other).
-   */
-  | { readonly op: "annotate"; readonly body: string; readonly properties?: Readonly<Record<string, string | readonly string[]>> };
-
-/** A write to a block (not an annotation). */
-type BlockWrite = Exclude<ExtensionWrite, { op: "annotate" }>;
+/** What an action may return (src/extension-writes.ts): writes anywhere in the outline, one group, checked and attributed. */
+export type { BlockWrite, ExtensionWrite };
 
 export interface ExtensionActRequest {
   readonly extension: string;
@@ -138,6 +140,10 @@ export interface ExtensionActResult {
    * a proposal (`draft.patch`'s), and nothing else the action returned was written.
    */
   readonly proposalId?: string;
+  /** Its writes landed as one step `extensions.undo` takes back whole (PIE-784): the step's id. */
+  readonly undo?: string;
+  /** Why what it wrote isn't one undo step here (a part went into a live draft, whose own ctrl+z undoes it). */
+  readonly undoNote?: string;
 }
 
 /** `extensions.bar`: a query for one of an extension's command-palette sources (PIE-656). */
@@ -171,10 +177,8 @@ const MAX_CONTEXT_TEXT = 16_000;
 const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
-const MAX_WRITES = 20;
 /** Records one collection answer may hold (each is a block the extension owns). */
 const MAX_COLLECTION = 500;
-const MAX_WRITE_TEXT = 64 * 1024;
 /** How much of a passage's subject text an action is sent with it. */
 const MAX_PASSAGE_TEXT = 64 * 1024;
 const RETRY_FAILED_MS = 60_000;
@@ -299,12 +303,7 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
         }
         return { op: "annotate", body, ...(write.properties !== undefined ? { properties: write.properties as Record<string, string | string[]> } : {}) };
       }
-      if (typeof write.text !== "string" || Buffer.byteLength(write.text) > MAX_WRITE_TEXT) throw new Error(`writes[${index}].text must be text up to 64 KiB`);
-      if (write.op === "create" && typeof write.parentId === "string" && write.parentId) return { op: "create", parentId: write.parentId, text: write.text };
-      if (write.op === "update" && typeof write.blockId === "string" && Number.isSafeInteger(write.expectedRevision)) {
-        return { op: "update", blockId: write.blockId, expectedRevision: write.expectedRevision as number, text: write.text };
-      }
-      throw new Error(`writes[${index}] must be { op: "create", parentId, text }, { op: "update", blockId, expectedRevision, text } or { op: "annotate", body?, properties? }`);
+      return parseBlockWrite(write, index);
     }),
   };
 }
@@ -375,7 +374,12 @@ export class ExtensionCalls {
     private readonly registry: ExtensionRegistry,
     private readonly runtime: ResourceExtensionRuntime,
     private readonly options: ExtensionCallsOptions = {},
-  ) {}
+  ) {
+    this.writes = new ExtensionWrites(store, { ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}) });
+  }
+
+  /** An action's writes as one group, and the undo steps of the groups that landed (src/extension-writes.ts). */
+  readonly writes: ExtensionWrites;
 
   private get now(): number {
     return (this.options.now ?? Date.now)();
@@ -918,10 +922,11 @@ export class ExtensionCalls {
     const call = block ? this.callFor(block, action, request.line) : undefined;
     if (action.builtIn) return this.keep(extension, action, block!, call!, request.requestedBy);
     const declared = extension.manifest.actions?.find((candidate) => candidate.id === action.id);
+    const args = this.resolveArgs(action, request.args, block);
     const wrote: NonNullable<ExtensionCallFor["wrote"]> = [];
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
-      ...(request.args ? { args: request.args } : {}),
+      ...(args ? { args } : {}),
       ...asker(request.requestedBy),
       ...(block ? { target: { blockId: block.id, revision: block.revision, ...(call ? { line: call.line, argument: call.argument, options: call.options } : {}) } } : {}),
       // No block (an outline action, a scheduled run): the call still knows when it is.
@@ -937,7 +942,7 @@ export class ExtensionCalls {
     }
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
     if (parsed.writes.some((write) => write.op === "annotate")) throw new Error(`${action.name} returned an annotation, but it acts on ${action.on ?? "a block"}: only an action on a passage annotates`);
-    const applied = parsed.writes.length ? await this.apply(extension, action, parsed.writes as BlockWrite[], request.requestedBy) : { written: [] };
+    const applied: GroupOutcome = parsed.writes.length ? await this.writes.apply(extension.id, action.name, parsed.writes as BlockWrite[], request.requestedBy, block?.id) : { written: [] };
     // What its process wrote over its connection counts as written too; a write to the acted-on block or a child of
     // it redraws the line as a returned write does.
     const written = [...new Set([...applied.written, ...wrote.flatMap((change) => change.blockId ? [change.blockId] : [])])];
@@ -952,7 +957,8 @@ export class ExtensionCalls {
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
-      ...(applied.proposalId ? { proposalId: applied.proposalId } : {}) };
+      ...(applied.proposalId ? { proposalId: applied.proposalId } : {}),
+      ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
   }
 
   /**
@@ -1000,10 +1006,11 @@ export class ExtensionCalls {
     const checked = this.checkPassage(request.passage);
     const host = checked.block ?? (request.blockId ? this.store.get(request.blockId) : null);
     if (request.blockId && !checked.block && (!host || host.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
+    const args = this.resolveArgs(action, request.args, checked.block ?? host);
     const wrote: NonNullable<ExtensionCallFor["wrote"]> = [];
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
-      ...(request.args ? { args: request.args } : {}),
+      ...(args ? { args } : {}),
       ...asker(request.requestedBy),
       // The subject's text, so an action can read around the passage (a glossary, the paragraph, a fragment anchor).
       target: { passage: checked.passage, text: this.passageSubject(checked.passage.subject).text.slice(0, MAX_PASSAGE_TEXT),
@@ -1026,7 +1033,7 @@ export class ExtensionCalls {
     if (checked.resourceId && others.length) throw new Error(`${action.name} acts on a Resource's passage: it may only annotate it (nothing was written)`);
     // The extension ran a while: the words are checked again before anything is written.
     const now = this.checkPassage(checked.passage);
-    const applied = others.length ? await this.apply(extension, action, others, request.requestedBy) : { written: [] as string[] };
+    const applied: GroupOutcome = others.length ? await this.writes.apply(extension.id, action.name, others, request.requestedBy, checked.block?.id ?? host?.id) : { written: [] };
     if (applied.proposalId) {
       const unwritten = annotations.length ? `; its ${annotations.length === 1 ? "annotation wasn't" : `${annotations.length} annotations weren't`} written` : "";
       return { extension: extension.id, action: action.id, message: `${applied.proposed}${unwritten}`, written: [], proposalId: applied.proposalId, passage: checked.passage };
@@ -1052,7 +1059,8 @@ export class ExtensionCalls {
     } else if (host && (applied.written.length || wrote.some((change) =>
       change.blockId === host.id || change.parentId === host.id || change.previousParentId === host.id))) this.options.changed?.(host.id);
     return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
-      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}), passage };
+      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}), passage,
+      ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
   }
 
   /**
@@ -1088,6 +1096,71 @@ export class ExtensionCalls {
     return { extension: extension.id, source: source.id, rows: rows.slice(0, limit) };
   }
 
+  /**
+   * An action's declared arguments (PIE-784) as a client asks for them (`extensions.args`): each with the choices it
+   * has on this block (a property's from the block, its children or the outline) and its value when not given.
+   */
+  argChoices(extensionId: string, actionId: string, blockId?: string): { extension: string; action: string; args: ExtensionArgChoice[] } {
+    const action = this.registry.action(extensionId, actionId);
+    if (!action) throw new Error(`No action ${actionId} in ${extensionId} here (outliner ext ls lists them)`);
+    const block = blockId ? this.store.get(blockId) : null;
+    if (blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${blockId}`);
+    return { extension: extensionId, action: action.id, args: (action.args ?? []).map((arg) => {
+      const choices = this.choicesFor(arg, block);
+      const value = this.defaultOf(arg, block);
+      return { ...arg, ...(choices.length ? { choices } : {}), ...(value !== undefined ? { value } : {}) };
+    }) };
+  }
+
+  /** What may be chosen for an argument: a choice's options; a property's fixed options, then the keys `from` has. */
+  private choicesFor(arg: ExtensionActionArg, block: Block | null): string[] {
+    if (arg.type !== "property") return [...(arg.options ?? [])];
+    const keys = new Set<string>(arg.options ?? []);
+    const from = arg.from ?? "outline";
+    // Every key the text has, in any scope: a list's items' properties are the block's line properties.
+    if (from === "block" && block) for (const property of parsePropertyRecords(block.text)) keys.add(property.key);
+    else if (from === "children" && block) for (const child of this.store.children(block.id)) for (const property of parsePropertyRecords(child.text)) keys.add(property.key);
+    else if (from === "outline") for (const item of this.store.propertyCatalog(undefined, "", 100, "all")) keys.add(item.key);
+    return [...keys];
+  }
+
+  /** An argument's value when it isn't given: the block's own `defaultProperty`, else its `default`. */
+  private defaultOf(arg: ExtensionActionArg, block: Block | null): string | undefined {
+    const own = arg.defaultProperty && block ? block.properties.find((property) => property.key === arg.defaultProperty)?.value?.trim() : undefined;
+    return own || arg.default;
+  }
+
+  /**
+   * The arguments an action is called with: each declared one checked, or filled in from its default (a required one
+   * missing is refused, with its choices); arguments it doesn't declare are passed on as they are.
+   */
+  private resolveArgs(action: ExtensionActionEntry, given: Readonly<Record<string, string>> | undefined, block: Block | null): Record<string, string> | undefined {
+    const out: Record<string, string> = { ...(given ?? {}) };
+    for (const arg of action.args ?? []) {
+      const value = (Object.hasOwn(out, arg.name) ? out[arg.name]!.trim() : "") || this.defaultOf(arg, block);
+      if (value === undefined) {
+        delete out[arg.name];
+        if (!arg.required) continue;
+        const choices = this.choicesFor(arg, block);
+        throw new Error(`${action.name} needs ${arg.name}=${arg.description ? ` (${arg.description})` : ""}${choices.length ? `: ${choices.slice(0, 12).join(", ")}${choices.length > 12 ? ", …" : ""}` : ""}`);
+      }
+      const problem = arg.type === "choice" && !arg.options!.includes(value) ? `one of ${arg.options!.join(", ")}`
+        : arg.type === "number" && !Number.isFinite(Number(value)) ? "a number"
+          : arg.type === "property" && !arg.options?.includes(value) && !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(value) ? "a property's name"
+            : value.length > 2_000 ? "text up to 2000 characters" : null;
+      if (problem) throw new Error(`${action.name}: ${arg.name}=${value.slice(0, 40)} isn't ${problem}`);
+      out[arg.name] = value;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+
+  /** Undo an action's write group whole (`extensions.undo`), as `by`; refused with nothing changed when it changed since. */
+  undo(id: string, by: MutationProvenance): ReturnType<ExtensionWrites["undo"]> {
+    const done = this.writes.undo(id, by);
+    for (const blockId of done.written) this.options.changed?.(blockId);
+    return done;
+  }
+
   private callFor(block: Block, action: ExtensionActionEntry, line: number | undefined): HandlerCall | undefined {
     if (!action.on?.startsWith("handler:")) return undefined;
     const key = action.on.slice(8);
@@ -1105,98 +1178,10 @@ export class ExtensionCalls {
     const markdown = call.kind === "component" ? renderComponent(result, "markdown").body : result.markdown ?? "";
     const heading = result.title ?? `${extension.name}${call.argument ? ` · ${call.argument}` : ""}`;
     const text = `${inertBlockdown(heading).split("\n", 1)[0]}\n\n${inertBlockdown(markdown)}`.trim();
-    const { written } = await this.apply(extension, action, [{ op: "create", parentId: block.id, text }], requestedBy);
-    return { extension: extension.id, action: action.id, message: `kept ${call.handlerKey}:: as a block`, written };
+    const { written, undo } = await this.writes.apply(extension.id, action.name, [{ op: "create", parentId: block.id, text }], requestedBy, block.id);
+    return { extension: extension.id, action: action.id, message: `kept ${call.handlerKey}:: as a block`, written, ...(undo ? { undo } : {}) };
   }
 
-  /**
-   * Commits an action's writes as the extension, with who asked beside it. Every write is checked first
-   * (a block that exists and isn't in the Trash or owned by an extension's record, no new `@name` request line, an
-   * update's revision still the saved one), so a refusal writes nothing. They may land anywhere in the outline
-   * (PIE-754): the limit is attribution, not place. Updates go through `draft.patch` with the `edit` policy, as an `@agent`'s edit does: a
-   * door's live draft gets them, and the guard refuses one that drops linked structure. A created block's
-   * text is inert BlockDown (a `key::` line or `[key::value]` in it stays words). Creates are written once
-   * the updates applied; when the updates became a proposal, nothing else is written.
-   */
-  private async apply(
-    extension: LoadedExtension, action: ExtensionActionEntry, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined,
-  ): Promise<{ written: string[]; proposalId?: string; proposed?: string }> {
-    const creates: { parentId: string; text: string }[] = [];
-    const updates = new Map<string, { revision: number; before: string; after: string }>();
-    for (const write of writes) {
-      const target = write.op === "create" ? write.parentId : write.blockId;
-      const current = this.store.get(target);
-      if (!current || current.effectiveDeletedRootId) throw new Error(`${action.name} wrote to ${target}, which is gone or in the Trash; nothing was written`);
-      // A record an extension keeps is that extension's sync's to write, not an action's.
-      if (write.op === "update" && this.store.extensionOwner(target)) throw new Error(`${action.name} tried to update ${target}, a record ${this.store.extensionOwner(target)!.extensionId} keeps; nothing was written`);
-      if (write.op === "create") {
-        const text = inertBlockdown(write.text);
-        if (requestLines(text, null).length) throw new Error(`${action.name} tried to write an @request line; extensions can't ask agents (nothing was written)`);
-        creates.push({ parentId: write.parentId, text });
-        continue;
-      }
-      if (updates.has(write.blockId)) throw new Error(`${action.name} updated ${write.blockId} twice; one update per block (nothing was written)`);
-      if (current.revision !== write.expectedRevision) {
-        throw new Error(`${action.name}: ${write.blockId} was saved since it was read (revision ${write.expectedRevision}, now ${current.revision}); nothing was written`);
-      }
-      const after = cleanExtensionText(write.text, true);
-      const had = new Set(requestLines(current.text, null).map((line) => line.requestKey));
-      if (requestLines(after, null).some((line) => !had.has(line.requestKey))) {
-        throw new Error(`${action.name} tried to write an @request line; extensions can't ask agents (nothing was written)`);
-      }
-      if (!current.text && after) throw new Error(`${action.name} updated an empty block; create a child instead (nothing was written)`);
-      updates.set(write.blockId, { revision: current.revision, before: current.text, after });
-    }
-    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
-    const attribution = this.store.changes.attribution({ action: action.name, actor, ...(requestedBy ? { requestedBy } : {}) });
-    const written: string[] = [];
-    const edits = [...updates].flatMap(([blockId, update]) => {
-      const span = wholeTextSpan(update.before, update.after);
-      return span ? [{ blockId, revision: update.revision, patches: [span] }] : [];
-    });
-    if (edits.length) {
-      if (!this.options.patch) throw new Error(`${action.name}'s update can't be checked here (no draft.patch); nothing was written`);
-      const outcome = await this.store.changes.run(attribution, () => this.options.patch!({ edits, mutation: actor, policy: "edit" }));
-      if (outcome.outcome !== "applied") {
-        // Said plainly: the caller sees the proposal, and that the blocks it would have made weren't.
-        const unwritten = creates.length ? `; its ${creates.length === 1 ? "new block wasn't" : `${creates.length} new blocks weren't`} written` : "";
-        return { written: [], proposalId: outcome.proposalId, proposed: `proposed instead: ${outcome.reason}${unwritten}` };
-      }
-      written.push(...outcome.edits.map((edit) => edit.blockId));
-    }
-    if (creates.length) {
-      this.store.changes.run(attribution, () => this.store.atomically(() => {
-        for (const create of creates) written.push(this.store.create(create.text, create.parentId, "agent", { actorId: actor.actorId! }).id);
-      }));
-    }
-    return { written };
-  }
 }
 
-/**
- * A whole-text update as one `draft.patch` span: the changed lines (whole lines, so the compare has words to
- * find), with their range as the hint. Null when nothing changed.
- */
-export function wholeTextSpan(before: string, after: string): DraftPatchSpan | null {
-  if (before === after) return null;
-  const shorter = Math.min(before.length, after.length);
-  let prefix = 0;
-  while (prefix < shorter && before[prefix] === after[prefix]) prefix += 1;
-  let suffix = 0;
-  while (suffix < shorter - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix += 1;
-  let start = before.lastIndexOf("\n", prefix - 1) + 1;
-  const tail = before.indexOf("\n", before.length - suffix);
-  let end = tail < 0 ? before.length : tail;
-  // An insertion at a blank line or an edge: widen to a neighbouring line, so there is text to compare.
-  while (start === end) {
-    if (start > 0) start = start >= 2 ? before.lastIndexOf("\n", start - 2) + 1 : 0;
-    else if (end < before.length) end = before.indexOf("\n", end + 1) < 0 ? before.length : before.indexOf("\n", end + 1);
-    else break;
-  }
-  if (start === end) return null;
-  return {
-    observed: before.slice(start, end),
-    replacement: after.slice(start, after.length - (before.length - end)),
-    range: { start, end },
-  };
-}
+export { wholeTextSpan } from "./extension-writes";
