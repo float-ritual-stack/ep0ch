@@ -119,3 +119,14 @@ test("the demo notes are written under the extension's page", async () => {
   const list = await client.request<{ extensions: { id: string; pages?: string }[]; pages?: Record<string, string> }>({ action: "extensions.list" });
   expect(list.pages?.structure).toBeTruthy();
 });
+
+test("a selection sorts whole items with their sub-items, code fences aren't lists, and a sub-item's property isn't its parent's", () => {
+  const text = "N\n- b\n  - child B\n- a\n  - child A";
+  const touched = sortListInText(text, sortSpec(undefined, undefined), 0, [3, 4]);
+  expect(touched.text).toBe("N\n- b\n  - child B\n- a\n  - child A");
+  expect(sortListInText(text, sortSpec(undefined, undefined), 0, [1, 4]).text).toBe("N\n- a\n  - child A\n- b\n  - child B");
+  const fenced = "N\n```\n- z\n- a\n```\n- y\n- x";
+  expect(sortListInText(fenced, sortSpec(undefined, undefined)).text).toBe("N\n```\n- z\n- a\n```\n- x\n- y");
+  const nested = "N\n- one\n  - [price::1]\n- two [price::5]";
+  expect(sortListInText(nested, sortSpec({ by: "price", order: "desc" }, undefined)).text).toBe("N\n- two [price::5]\n- one\n  - [price::1]");
+});

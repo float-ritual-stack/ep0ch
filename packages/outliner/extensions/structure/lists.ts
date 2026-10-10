@@ -22,6 +22,19 @@ export function titleOf(firstLine: string): string {
   return firstLine.replace(MARK, "").replace(/\[[A-Za-z][\w.-]*::[^\]]*\]/g, "").replace(/\s\^[A-Za-z0-9][\w-]*\s*$/, "").trim();
 }
 
+/** An item's own lines: its first, and those after it up to its first sub-item, outside code fences. */
+export function ownLines(item: Item): string[] {
+  const own = [item.lines[0]!];
+  let fenced = false;
+  for (const line of item.lines.slice(1)) {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    if (MARK.test(line)) break;
+    own.push(line);
+  }
+  return own;
+}
+
 /** The value of property `key` in lines of text: `[key::value]` anywhere, or a `key:: value` line. */
 export function propertyIn(lines: string[], key: string): string | undefined {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -49,17 +62,28 @@ export function compareKeys(a: string | undefined, b: string | undefined, order:
   return order === "desc" ? -c : c;
 }
 
+/** Which lines are in a code fence (the fence lines too). */
+function fencedLines(lines: string[]): boolean[] {
+  let fenced = false;
+  return lines.map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return true; }
+    return fenced;
+  });
+}
+
 /** Every top-level list run in `lines` (a run ends at a blank line or a line that isn't an item or under one). */
 export function listRuns(lines: string[]): Run[] {
   const runs: Run[] = [];
+  const code = fencedLines(lines);
   let i = 0;
   while (i < lines.length) {
-    if (!MARK.test(lines[i]!)) { i++; continue; }
+    if (code[i] || !MARK.test(lines[i]!)) { i++; continue; }
     const base = indentOf(lines[i]!);
     const items: Item[] = [];
     const start = i;
     while (i < lines.length && !blank(lines[i]!)) {
       const line = lines[i]!, m = MARK.exec(line);
+      if (code[i] && !(items.length && indentOf(line) > base)) break;
       if (m && indentOf(line) === base) items.push({ lines: [line], marker: m[2]! });
       else if (indentOf(line) > base && items.length) items[items.length - 1]!.lines.push(line);
       else break;
@@ -74,7 +98,7 @@ export function listRuns(lines: string[]): Run[] {
 export function sortItems(items: Item[], spec: SortSpec): Item[] {
   const keyed = items.map((item, index) => ({
     item, index,
-    key: spec.by === "title" ? titleOf(item.lines[0]!) : propertyIn(item.lines, spec.by),
+    key: spec.by === "title" ? titleOf(item.lines[0]!) : propertyIn(ownLines(item), spec.by),
   }));
   keyed.sort((x, y) => compareKeys(x.key, y.key, spec.order) || x.index - y.index);
   const sorted = keyed.map((k) => k.item);
@@ -87,24 +111,36 @@ export function sortItems(items: Item[], spec: SortSpec): Item[] {
 
 /** Why no item has the property: the nearest keys the items do have (properties are open). */
 export function noteMissingKey(items: Item[], key: string): string | null {
-  if (key === "title" || items.some((item) => propertyIn(item.lines, key) !== undefined)) return null;
+  if (key === "title" || items.some((item) => propertyIn(ownLines(item), key) !== undefined)) return null;
   const keys = new Set<string>();
   for (const item of items) for (const line of item.lines) for (const m of line.matchAll(/\[([A-Za-z][\w.-]*)::/g)) keys.add(m[1]!);
   return `no item has ${key}${keys.size ? `; the items have ${[...keys].sort().join(", ")}` : " (they have no properties)"}`;
 }
 
-/** Sort one run of `text`'s lines (`which` of them, 0 first), or only the lines from `lo` to `hi` when given. */
-export function sortListInText(text: string, spec: SortSpec, which = 0, within?: [number, number]): { text: string; count: number; note?: string } {
+/**
+ * Sort one list of `text` (`which`, 0 first), or, given `touch` (a line range), only the items of the list that range
+ * touches, each with all its sub-items even where they run past the range.
+ */
+export function sortListInText(text: string, spec: SortSpec, which = 0, touch?: [number, number]): { text: string; count: number } {
   const lines = text.split("\n");
-  const limit = within ?? [0, lines.length];
-  const runs = listRuns(lines.slice(limit[0], limit[1])).map((r) => ({ ...r, start: r.start + limit[0], end: r.end + limit[0] }));
-  const run = runs[which];
-  if (!run) throw new Error(runs.length ? `the text has ${runs.length} list${runs.length === 1 ? "" : "s"}; list ${which + 1} isn't one (with={"list":"1"})` : "no list here: a list is lines starting with -, * or 1.");
-  const note = noteMissingKey(run.items, spec.by);
+  const runs = listRuns(lines);
+  let run = runs[which];
+  if (touch) run = runs.find((r) => r.start < touch[1] && r.end > touch[0]);
+  if (!run) throw new Error(touch ? "the selection touches no list: a list is lines starting with -, * or 1." : runs.length ? `the text has ${runs.length} list${runs.length === 1 ? "" : "s"}; list ${which + 1} isn't one (with={"list":"1"})` : "no list here: a list is lines starting with -, * or 1.");
+  let first = 0, last = run.items.length;
+  if (touch) {
+    let at = run.start;
+    const spans = run.items.map((item) => { const s = at; at += item.lines.length; return [s, at] as const; });
+    const hit = spans.flatMap(([s, e], n) => (s < touch[1] && e > touch[0] ? [n] : []));
+    first = hit[0]!; last = hit[hit.length - 1]! + 1;
+  }
+  const chosen = run.items.slice(first, last);
+  const note = noteMissingKey(chosen, spec.by);
   if (note) throw new Error(note);
-  const sorted = sortItems(run.items, spec).flatMap((item) => item.lines);
-  lines.splice(run.start, run.end - run.start, ...sorted);
-  return { text: lines.join("\n"), count: run.items.length };
+  const before = run.items.slice(0, first).reduce((n, item) => n + item.lines.length, 0);
+  const span = chosen.reduce((n, item) => n + item.lines.length, 0);
+  lines.splice(run.start + before, span, ...sortItems(chosen, spec).flatMap((item) => item.lines));
+  return { text: lines.join("\n"), count: chosen.length };
 }
 
 /** The line range `[lo, hi)` a character span touches. */
