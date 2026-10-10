@@ -359,7 +359,13 @@ test("PDF retention evicts and purges unreachable binary and text payloads", asy
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-pdf-retention-"));
   const databasePath = join(directory, "outliner.sqlite");
   const pdfPath = join(directory, "history.pdf");
-  let store = new OutlinerStore(databasePath, { workspaceRoot: directory });
+  // A clock that moves on every read: three opens in one millisecond share a timestamp, and retention then
+  // orders them by random id, so "the newest" snapshot was not always the third.
+  let tick = Date.parse("2026-09-01T12:00:00.000Z");
+  let store = new OutlinerStore(databasePath, {
+    workspaceRoot: directory,
+    now: () => new Date((tick += 1_000)).toISOString(),
+  });
   try {
     writeFileSync(pdfPath, fixturePdf(1));
     const resource = store.resources.internFilesystem({ path: pdfPath }).resource;

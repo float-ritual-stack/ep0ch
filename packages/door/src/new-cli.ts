@@ -2,6 +2,8 @@
 // through the service call the door's `note.new` makes (`notes.create`, SocketBoard.newNote): where the outline's
 // placement rule puts it, the top of the Inbox, or under --near (refused when that note is gone, never quietly the
 // Inbox). Which outline is the one rule every client applies (`--ws`, `--machine`, EP0CH_WS, the folder's `.ep0ch`).
+import { savedReferenceWarnings } from "./reference-warnings";
+import { describeReferenceWarning } from "@ep0ch/outline-core/reference-warnings";
 import { parseArgs } from "node:util";
 import { subject } from "./board";
 import { boardFor, type Out } from "./notes-cli";
@@ -37,6 +39,8 @@ export async function newCommand(argsIn: string[], io: Out = { out: console.log,
     const title = subject(note);
     if (values.json) io.out(JSON.stringify({ id: note.id, title, parentId: placement.parentId, rule: placement.rule, said: placement.said }));
     else io.out(`made “${title}” ${placement.said}  ${note.id}`);
+    // Made as written; a reference that leads nowhere is said after, with what it may have meant (PIE-761).
+    for (const w of await savedReferenceWarnings(board, text, note.id)) io.err(`warning: ${describeReferenceWarning(w)}`);
     return 0;
   } catch (e) {
     const why = (e as Error).message;

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { TILE_ACTIONS } from "../src/desk/tile-actions";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -134,7 +135,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(tile("reader").picked).toBe(true);
     expect(get().focus).toBe("tree");                         // picking moves no focus
     // The pick shows on the frame and in the title.
-    expect(D().peek?.() ?? "").toBeDefined();
+    expect(render().lines.join("\n")).toContain("◆ picked");
     // An agent's picks are its own: it picks thread, and clearing its picks leaves the person's.
     expect(await act("tile.select", {}, "replies")).toMatchObject({ selected: ["replies"], by: `agent:${AS}` });
     expect(tile("replies")).toMatchObject({ pickedBy: [AS] });
@@ -247,6 +248,72 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(names()).not.toContain(one);
     expect(names()).toContain("activity");
   }, 30_000);
+
+  test("one picked tile is gathered even when another tile has focus", async () => {
+    await fresh();
+    await mine("tile.select", {}, "tree");
+    await mine("tile.focus", {}, "activity");
+    const rows = (await me("tile.menu", {}, "activity")).rows;
+    expect(rows.find((r: any) => r.action === "tile.group").label).toContain("1 picked tile");
+    chord("G");
+    const g = groupName()!;
+    expect(inner(g, "tree")).toBeDefined();
+    expect(tile("activity")).toBeDefined();
+    await spill(g);
+  }, 30_000);
+
+  test("locked screens refuse cross-group link creation, replacement, role changes and removal without changing saved links", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    await me("tile.open", { kind: "detail", name: "peer" }, `${g}/reader`);
+    await me("tile.link", {}, "tree");
+    for (const linked of [false, true]) {
+      if (linked) await me("tile.link", { to: `${g}/reader` }, "tree");
+      await me("layout.lock", { on: true });
+      const before = get();
+      try {
+        for (const run of [me, act]) {
+          for (const args of [{ to: `${g}/reader` }, { to: `${g}/peer` }, ...(linked ? [{ role: "target" }] : []), {}]) {
+            await expect(run("tile.link", args, "tree")).rejects.toThrow(/locked/);
+            expect(get()).toEqual(before);
+          }
+        }
+      } finally {
+        await me("layout.lock", { on: false });
+      }
+    }
+    expect(await me("tile.link", { role: "target" }, "tree")).toMatchObject({ role: "target" });
+    expect(await me("tile.link", {}, "tree")).toMatchObject({ link: null });
+    await spill(g);
+  }, 30_000);
+
+  test("a locked group refuses links to its outside and preserves their role and target", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    await me("tile.open", { kind: "detail", name: "outside" }, "tree");
+    await me("tile.link", { to: "../outside" }, `${g}/replies`);
+    await me("layout.lock", { on: true }, `${g}/replies`);
+    const before = get();
+    try {
+      for (const args of [{ to: "../outside" }, { role: "target" }, {}]) {
+        await expect(me("tile.link", args, `${g}/replies`)).rejects.toThrow(/locked/);
+        expect(get()).toEqual(before);
+      }
+    } finally {
+      await me("layout.lock", { on: false }, `${g}/replies`);
+    }
+    await spill(g);
+    await me("tile.close", {}, "outside");
+  }, 30_000);
+
+  test("group move confirmations name their destinations, including the last tile spilling out", () => {
+    const move = TILE_ACTIONS.def("layout.move")!.says!;
+    expect(move({ tile: "reader", into: "group" }, { into: "group" })).toBe("moved reader into group");
+    expect(move({ tile: "reader", out: true, from: "group" }, { out: true })).toBe("moved reader out of group");
+    expect(move({ tile: "reader", out: true }, { out: true })).toBe("moved reader out of its group");
+    expect(TILE_ACTIONS.def("tile.into")!.says!({ tile: "reader", out: true }, {})).toBe("moved reader out of its group");
+    expect(move({ tile: "reader" }, { to: "tree", where: "left" })).toBe("moved reader left of tree");
+  });
 
   test("links cross a group's edge: grouping, spilling and moving never break them; the tree outside opens into the reader inside, a preview across the edge keeps following, and they survive a restart", async () => {
     await fresh();

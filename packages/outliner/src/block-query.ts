@@ -40,8 +40,9 @@ export class BlockQuerySyntaxError extends Error {
   constructor(
     message: string,
     readonly index: number,
+    hint?: string,
   ) {
-    super(`${message} at character ${index + 1}`);
+    super(`${message} at character ${index + 1}${hint ? `. ${hint}` : ""}`);
     this.name = "BlockQuerySyntaxError";
   }
 }
@@ -54,8 +55,29 @@ export interface FilterCompletionTarget {
   key?: string;
 }
 
-function syntaxError(message: string, index: number): never {
-  throw new BlockQuerySyntaxError(message, index);
+function syntaxError(message: string, index: number, hint?: string): never {
+  throw new BlockQuerySyntaxError(message, index, hint);
+}
+
+const QUERY_EXAMPLE = "Example: type=thread and (status=open or status=blocked)";
+const CLAUSE_GUESS = new RegExp(`^\\s*(${PROPERTY_KEY_SOURCE})\\s*(!=|==|::|:|=)\\s*(.+?)\\s*$`, "s");
+
+/**
+ * What a clause that would not parse most likely meant, then a working example: the teaching half of a
+ * refusal. `[type::thread]` and `type = thread` read now; what is left is `type!=thread` (NOT type=thread),
+ * a lone colon and the like.
+ */
+function clauseHint(clause: string): string {
+  const text = clause.trim();
+  const guess = CLAUSE_GUESS.exec(/^\[[^\[].*\]$/s.test(text) ? text.slice(1, -1) : text);
+  let didYouMean = "";
+  if (guess) {
+    const value = /\s/.test(guess[3]!) && !guess[3]!.startsWith('"') ? `"${guess[3]!.replace(/[\\"]/g, "\\$&")}"` : guess[3]!;
+    didYouMean = guess[2] === "!="
+      ? `Did you mean NOT ${guess[1]}=${value}? There is no != ; put NOT before the clause. `
+      : `Did you mean ${guess[1]}=${value}? `;
+  }
+  return `${didYouMean}${QUERY_EXAMPLE}`;
 }
 
 function separatorIn(clause: string): { index: number; length: number } | null {
@@ -142,16 +164,18 @@ export function parsePropertyFilterClause(
     syntaxError(
       `Invalid property filter key: ${rawKey || "(empty)"}`,
       clauseOffset,
+      clauseHint(clause),
     );
   }
   if (BOOLEAN_OPERATORS.has(key)) {
-    syntaxError(`Boolean operator ${rawKey} is not supported`, clauseOffset);
+    syntaxError(`Boolean operator ${rawKey} is not supported`, clauseOffset, QUERY_EXAMPLE);
   }
   if (!separator) {
     if (/\s/.test(clause))
       syntaxError(
         "Property presence filter cannot contain whitespace",
         clauseOffset,
+        `Put = between a key and its value: key=value. ${QUERY_EXAMPLE}`,
       );
     return { key };
   }
@@ -211,6 +235,11 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
       quoteStart = index;
       continue;
     }
+    // `[type::thread]`, a Blockdown property token, is one clause and keeps the spaces in its value.
+    if (character === "[" && input[index + 1] !== "[" && /^\(*$/.test(input.slice(start, index))) {
+      const close = closingBracket(input, index);
+      if (close >= 0 && PROPERTY_TOKEN_START.test(input.slice(index + 1, close))) { index = close; continue; }
+    }
     // `links:[[a page]]` and `under:[[a page]]` keep a page name's spaces.
     if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|under):$/i.test(input.slice(start, index))) {
       const close = input.indexOf("]]", index + 2);
@@ -227,7 +256,65 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
   if (quoteStart >= 0)
     syntaxError("Unterminated quoted filter value", quoteStart);
   if (start >= 0) tokens.push({ text: input.slice(start), start });
-  return tokens;
+  return foldClauseTokens(tokens);
+}
+
+const PROPERTY_TOKEN_START = new RegExp(`^\\s*(?:${PROPERTY_KEY_SOURCE})::`);
+const PROPERTY_TOKEN = new RegExp(`^(\\(*)\\[\\s*(${PROPERTY_KEY_SOURCE})::(.*?)\\s*\\]((?:\\))*)$`, "s");
+const BARE_KEY = new RegExp(`^\\(*(?:${PROPERTY_KEY_SOURCE})$`);
+const KEY_THEN_SEPARATOR = new RegExp(`^\\(*(?:${PROPERTY_KEY_SOURCE})(?:=|::)$`);
+const isKeyword = (text: string) => /^(?:and|or|not)$/i.test(text);
+
+/** The index of the `]` closing the `[` at `open` (nested brackets balance), or -1 on this line. */
+function closingBracket(input: string, open: number): number {
+  let depth = 0, quoted = false;
+  for (let index = open; index < input.length; index += 1) {
+    const character = input[index];
+    if (character === "\n") return -1;
+    if (quoted) {
+      if (character === "\\") index += 1;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "[") depth += 1;
+    else if (character === "]" && (depth -= 1) === 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * Words into clauses. `[key::value]` reads as `key=value`, and whitespace around `=` or `::` is allowed
+ * (`type = thread`, `type= thread`, `type =thread`). Neither form parsed before (a key can't hold `[`, and a
+ * word beginning with `=` had no key), so no query that parsed changes meaning; `k=a=` and the like keep their
+ * value because only a word that ends in the separator, or begins with it, takes its neighbour.
+ */
+function foldClauseTokens(tokens: FilterToken[]): FilterToken[] {
+  const out: FilterToken[] = [];
+  for (let at = 0; at < tokens.length; at += 1) {
+    let token = { ...tokens[at]! };
+    const token$ = PROPERTY_TOKEN.exec(token.text);
+    if (token$) {
+      const value = token$[3]!;
+      const quoted = /\s/.test(value) && !value.startsWith('"') ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
+      token = { ...token, text: `${token$[1]}${token$[2]}=${quoted}${token$[4]}` };
+    }
+    const previous = out[out.length - 1];
+    const lead = /^(?:=|::)(.*)$/s.exec(token.text);
+    if (previous && lead && BARE_KEY.test(previous.text) && !isKeyword(previous.text)) {
+      previous.text += token.text;
+      const next = tokens[at + 1];
+      if (!lead[1] && next && !isKeyword(next.text)) { previous.text += next.text; at += 1; }
+      continue;
+    }
+    const next = tokens[at + 1];
+    if (KEY_THEN_SEPARATOR.test(token.text) && next && !isKeyword(next.text) && !/^\)*$/.test(next.text)) {
+      token.text += next.text;
+      at += 1;
+    }
+    out.push(token);
+  }
+  return out;
 }
 
 export function parsePropertyFilterExpression(input: string): PropertyFilter[] {
