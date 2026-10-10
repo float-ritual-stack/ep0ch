@@ -462,7 +462,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("the drawer's agent: listed for an agent, chosen by act (saved for this session), the picker by alt+g", async () => {
+  test("the drawer's agent: listed for an agent, chosen by act (saved for this session), the person's picker; alt+g is the agent panel (PIE-737)", async () => {
     const d = await door();
     try {
       const listed = await d.app.act({ action: "host.agent", args: {}, as: AS }) as any;
@@ -473,16 +473,19 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(JSON.parse(readFileSync(join(outlineState(), "drawer-agent.json"), "utf8"))).toEqual({ agent: "shell" });
       // EP0CH_DAILY_AGENT (cat, here) still overrides it, and the door says so.
       expect((d.app.describe() as any).drawer.runs.why.program).toContain("EP0CH_DAILY_AGENT");
-      // The person's alt+g: the picker, over the drawer.
+      // The person's host.agent: the picker, over the drawer.
       d.A.lastInput = 0;
-      d.key({ kind: "alt", ch: "g" });
+      await d.app.dispatch.act({ action: "host.agent", args: {} }, USER);
       expect(d.app.drawer.open).toBe(true);
       expect(d.paint().some(l => l.includes("the drawer's agent"))).toBe(true);
       d.key({ kind: "esc" });
+      // alt+g: the agent panel, a tab in the drawer.
+      d.key({ kind: "alt", ch: "g" });
+      await until(() => d.app.drawer.tabs().some(t => t.kind === "agents" && t.shown), "the agent panel");
     } finally { d.app.quit(); }
   });
 
-  test("typing in the drawer's terminal: alt+g's picker takes the keys from it (no byte goes past), alt+s opens a shell tab", async () => {
+  test("typing in the drawer's terminal: the agent picker takes the keys from it (no byte goes past), alt+g goes to the agent panel, alt+s opens a shell tab", async () => {
     const d = await door();
     try {
       d.A.lastInput = 0;
@@ -491,12 +494,19 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.paint();
       await until(() => !!d.app.drawer.made?.rawKeys(), "the person types in it");
       const raw = () => d.app.drawer.rawInput(d.A.drawerRun);
-      raw()!("\x1bg");
+      void d.app.dispatch.act({ action: "host.agent", args: {} }, USER);
       await until(() => d.paint().some(l => l.includes("the drawer's agent")), "the picker");
       expect(d.app.drawer.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
       expect(d.paint().some(l => l.includes("the picker has the keys"))).toBe(true);
       d.key({ kind: "esc" });
       expect(d.app.drawer.made!.rawInput()).not.toBeNull();        // back to cat
+      // alt+g, typed in cat: never cat's; the agent panel's tab, the keys with it.
+      raw()!("\x1bg");
+      await until(() => d.app.drawer.tabs().some(t => t.kind === "agents" && t.shown), "the agent panel");
+      expect(d.app.drawer.made!.rawInput()).toBeNull();
+      await d.app.drawer.made!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+      d.paint();
+      await until(() => !!d.app.drawer.made?.rawInput(), "back in cat");
       const tabs = d.app.drawer.tabs().length;
       raw()!("\x1bs");
       await until(() => d.app.drawer.tabs().length === tabs + 1, "a new shell tab");

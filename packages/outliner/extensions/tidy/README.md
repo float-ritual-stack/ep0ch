@@ -15,7 +15,7 @@ Morning plan
 - `@tidy all` tidies everything above the line (never the title).
 - The edit is an ordinary attributed edit (`author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in
   the change feed) applied through `draft.patch` with the `edit` policy. If you are typing in that
-  passage in the door, it becomes a proposal under the line instead (apply or dismiss it).
+  passage in the door, it becomes a proposal beside the note, drawn under the line, instead (apply or dismiss it).
 - Under the line, the note shows what it did (`tidied 2 lines above`). `r` on the line asks again.
 - A `@tidy` line written by an agent waits for `r`, so agents can't set each other off.
 

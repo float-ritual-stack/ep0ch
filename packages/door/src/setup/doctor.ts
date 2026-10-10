@@ -122,6 +122,9 @@ export function doctorChecks(f: Facts): Check[] {
   if (h.unit && change) add("outlines", "host unit", "behind", `${h.unit.path} is from before outlines by name (PIE-530) or another checkout`, change);
   // What the drawer's own tab runs in a door opened here (PIE-498), and why: the person's program and folder, or the rule's.
   if (f.drawer) add("ep0ch", "drawer", "info", `runs ${f.drawer.cmd.join(" ")} (${f.drawer.programWhy}) in ${f.drawer.cwd} (${f.drawer.folderWhy})`);
+  // EP0CH_DAILY_CWD is gone (PIE-737): a session's folder is where it's started, and the drawer's own is chosen with its agent.
+  if (f.drawer?.retiredCwd) add("ep0ch", "EP0CH_DAILY_CWD", "behind", `EP0CH_DAILY_CWD=${f.drawer.retiredCwd} is set, and no door reads it any more: the drawer's own agent starts in ${f.drawer.cwd}`,
+    `ep0ch act host.agent name=${f.drawer.cmd.some(c => c.endsWith("door-agent-herdr.ts")) ? "claude herdr=true" : (f.drawer.cmd[0]?.split("/").pop() ?? "claude")} in=${f.drawer.retiredCwd} (then drop EP0CH_DAILY_CWD from your shell's profile); for another folder, \`ep0ch agent\` there starts or attaches its own session`);
   // Each outline session's drawer agent, where the choice came from, its Herdr pane, and how to change it.
   for (const d of f.drawers ?? []) add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})${d.pane ? ` · Herdr pane ${d.pane}` : ""}`, `change it: ${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`);
   if (f.here) {

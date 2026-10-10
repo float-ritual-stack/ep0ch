@@ -724,7 +724,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
   const getRegistrations = async (): Promise<OutlinerClientRegistration[]> => {
     if (!herdrStatus) throw new Error("Outliner service is not ready");
     const paths = projectPaths();
-    return new OutlinerClient(paths.socket).request<OutlinerClientRegistration[]>({
+    return new OutlinerClient(paths.socket, undefined, OUTLINE_NAME).request<OutlinerClientRegistration[]>({
       action: "clients.list",
     });
   };
@@ -858,7 +858,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const requireOwned = (paneId: string): void => {
       if (!owned.has(paneId)) throw new Error(`Pane ${JSON.stringify(paneId)} is not owned by this scenario`);
     };
-    const client = new OutlinerClient(projectPaths().socket);
+    const client = new OutlinerClient(projectPaths().socket, undefined, OUTLINE_NAME);
     return {
       projectRoot,
       artifactDirectory,
@@ -1590,7 +1590,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
 
     await setPhase("verify-readiness");
     const paths = projectPaths();
-    const outliner = new OutlinerClient(paths.socket);
+    const outliner = new OutlinerClient(paths.socket, undefined, OUTLINE_NAME);
     await poll({
       label: "compatible Outliner service",
       timeoutMs: STARTUP_TIMEOUT_MS,

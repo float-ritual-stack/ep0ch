@@ -543,7 +543,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
+| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`host.agent`, the picker its first pull offers), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## Remote MCP gateway (claude.ai)
@@ -1116,8 +1116,7 @@ in the tile, the program's own keys run the same actions. A layout saves its kin
 and it comes back after a restart. When its extension goes away while the door runs, the tile ends its
 program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
 on another host than this door says so instead of running.
-`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell), `EP0CH_DAILY_CWD` (the folder it starts in; unset, the
-rule in [The drawer](#the-drawer-pie-498)) and
+`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell; its folder follows the rule in [The drawer](#the-drawer-pie-498)) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the drawer's program and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 The agent has one home, the host layer (the drawer, below): the daily layout has no tile for it, and lets
 the drawer sit beside the desk (its policy's `host: beside`). A layout saved with the old agent tile (marked
@@ -1141,7 +1140,7 @@ the drawer; a terminal you made yourself stays yours.
 
 ### The daily agent in Herdr
 
-Choose an agent "in Herdr" in the drawer's picker (`alt+g`; `host.agent name=claude herdr=true`) and the drawer's
+Choose an agent "in Herdr" in the drawer's picker (`host.agent name=claude herdr=true`) and the drawer's
 own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
 agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
 
@@ -1225,11 +1224,11 @@ welcome. It's your tabs above every screen (the host layer's). Its first tab is 
 tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
 the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles in it), pulls it up.
 
-- **What its own tab runs: your choice, per outline.** `alt+g` (or `host.agent`) opens a picker of the agents
+- **What its own tab runs: your choice, per outline.** `host.agent` (the person's: a picker; offered on the drawer's first pull) opens a picker of the agents
   installed here (`claude`, `codex`, `pi`, `gemini`, `opencode`, `aider` and the rest of Herdr's agent kinds found
   on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
   session (`drawer-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
-  every outline). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
+  every outline; `in=<folder>` saves the folder it starts in with it). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
   `EP0CH_DAILY_AGENT` overrides it for one door. A new choice starts at the tab's next start: what runs now keeps
   running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's drawer agent, where the
   choice came from, and the command to change it.
@@ -1280,8 +1279,8 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   detached terminal is cleared, an attached one told everything. `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
   Done is the person's: an agent reading or acting on a tile never clears it. A shell without prompt marks (OSC 133)
   still loses a finished job's working: on Linux the door sees the shell take the terminal back.
-- **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
-  you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
+- **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in the folder chosen with the drawer's agent (`host.agent in=<folder>`) when
+  there is one; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why
   (`drawer  runs … in …`). Claude Code's `/resume` lists one folder's conversations, so the folder is yours or the
   outline's, never one made up.
@@ -1356,6 +1355,35 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.
+
+### Agent sessions (PIE-737)
+
+"Talk to an agent here" is one idea. An **agent session** is a program (claude, codex, pi, … plus its arguments), a
+folder and a persona. The door session owns it, as a terminal tile's program, so it keeps running when you detach.
+Where it's shown (your drawer, a tile on a screen, a Herdr pane its tile attaches) is not what it is: move it and
+it's the same process and the same conversation.
+
+- **Start one from any folder.** `ep0ch agent` in a folder starts that folder's session in the door on its outline
+  (a tab in the drawer, behind the one you're on), or says the one already running there. `--program codex`,
+  `--in <folder>`, `--persona <name>`, `--new` for a second beside it. In the door: `n` in the agent panel (the
+  program, then the folder). An agent: `act agent.start program=… in=…`.
+- **Or just run it.** `claude` (codex, pi, …) typed in a `^W o s` shell is a session from then on, found the way
+  Herdr finds its agents (the terminal's processes, by name), until it exits and leaves you the shell.
+- **Programs from the outline.** A note with `[agent-config::<name>]` and its `[program::<command>]`,
+  `[args::…]`, `[persona::<name>]` and `[folder::<folder>]` is a program the panel's `n` offers and
+  `agent.start program=<name>` starts, under that persona (`EP0CH_AGENT`, `OUTLINER_ACTOR`).
+- **Resume is by folder.** The same program in the same folder is the same session: starting it again attaches it.
+  A new one continues the program's last conversation in that folder when there is one (claude and pi
+  `--continue`, codex `resume --last`), whoever started it before.
+- **The agent panel.** `alt+g` on any screen opens it as a tab in your drawer: every session with its program,
+  folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
+  jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.
+  `act agents.list` reads the same rows (`peek` has them under `drawer.sessions`).
+- **Never stranded.** Every session starts inside your login shell: when the agent exits, its tile is that shell,
+  in the same folder. `alt+s` opens a plain shell in the drawer from anywhere.
+- `EP0CH_DAILY_CWD` is gone: the drawer's own agent starts in the folder chosen with it (`host.agent in=<folder>`),
+  else the project's or the outline's; any other folder gets its own session with `ep0ch agent` there. `ep0ch
+  doctor` says it when the variable is still set, with the command.
 
 ## The board
 
@@ -1564,7 +1592,7 @@ The board's new-card composer is the same control too.
 | `Ctrl+Z` | undo the newest change (PIE-621): typing a word at a time (a word and the space after it, or up to a pause), a paste in one step however big, an insert, `$EDITOR`'s text, a reload, an edit an agent patched in (below). Back to where the draft started, and past a save: open the note again unchanged and `Ctrl+Z` goes on back. A paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes` |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | redo what `Ctrl+Z` took back; any new change drops it. `Ctrl+Shift+Z` needs the Kitty keyboard protocol, `Ctrl+Y` works everywhere |
 | `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
-| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
+| `X`, while reading | dismiss it: the proposal goes to Trash, as an edit by you, and stops showing beside the note (an older one's embed line comes out of the note); or a click on `[dismiss]`. Like `A`, taken only on a proposal |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -1635,8 +1663,8 @@ The board's new-card composer is the same control too.
   is in), and not around your cursor. Your cursor, selection and view move with it, so nothing on screen
   jumps; the new text is lit for a moment with `@<agent> · just now`, and `Ctrl+Z` takes it back as one
   unit. Your save records it as yours, naming the agent. If the compare fails (you changed that passage),
-  nothing is changed: the proposal lands as a reply block, embedded under the `@request` line (`!((id))`),
-  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
+  nothing is changed: the proposal lands as a block beside the note, never in your draft or its text, drawn
+  under the `@request` line as an embed of it (PIE-725), and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
   screen the draft was in, lets go of its holds, and patches go to the saved note under a revision check; a
   door that is only slow to answer keeps its hold, and the patch becomes a proposal. When two doors hold
   drafts of the same note, a patch goes to neither.
@@ -2454,7 +2482,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `revisions` | none: the note's revisions, the current one then the earlier texts the outline keeps, newest first (when saved, by whom, size, first line) | `ep0ch revisions <id>` |
 | `revision.restore` | `revision` (default: the one before what the edit holds; again goes further back): that revision's text into the edit as one undo step, written on `ctrl+s`. An agent's only in an edit it opened | the tile menu's `an earlier revision`; `ep0ch revisions <id> <n> --restore` from a shell |
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
-| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes its embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
+| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes an older proposal's embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

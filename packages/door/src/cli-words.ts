@@ -5,7 +5,7 @@
 
 /** Every first word main.ts runs as a command. */
 export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "mcp", "new", "export", "where", "session", "peek", "snap", "open",
-  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "revisions"] as const;
+  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "revisions", "agent"] as const;
 const KNOWN = new Set<string>(COMMANDS);
 
 /** Commands whose words are data (a search, an id, an action's arguments): `help` there is a word, not a request. */

@@ -187,7 +187,8 @@ export interface Facts {
   /** Which door a program started here reaches, and by which rule (door-resolve.ts, PIE-715): the same answer as `ep0ch where`. */
   door?: { rule: string; text: string };
   /** What a door opened here gives its drawer as its own tab (src/desk/drawer-program.ts): the program, the folder, and why. */
-  drawer?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string };
+  /** `retiredCwd`: EP0CH_DAILY_CWD is set, which no door reads since agent sessions (PIE-737): said, with what replaces it. */
+  drawer?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string; retiredCwd?: string };
   /** Each outline session's drawer: what its own tab runs, where the choice came from, and its own Herdr pane when it runs there. */
   drawers?: { session: string; cmd: string[]; programWhy: string; from: string; pane?: string }[];
   claude: {

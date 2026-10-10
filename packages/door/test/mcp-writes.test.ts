@@ -233,7 +233,14 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const stale = await tool("outline_patch", { uri, revision: 1, patches: [{ observed: "allotment", replacement: "community garden" }] });
     expect(stale.json.outcome).toBe("proposed");
     expect(stale.json.said).toContain("proposed, not applied");
-    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text).toContain("allotment next door");
+    const note = await textOf(here, "garden-notes", HERE, ids.seeds!);
+    expect(note.text).toContain("allotment next door");
+    expect(note.text).not.toContain(stale.json.detail.proposalId);
+    // The same patch again (a retry): the open proposal comes back, deduped, and nothing new is written (PIE-725).
+    const again = await tool("outline_patch", { uri, revision: 1, patches: [{ observed: "allotment", replacement: "community garden" }] });
+    expect(again.json).toMatchObject({ outcome: "proposed", deduped: true, detail: { proposalId: stale.json.detail.proposalId, deduped: true } });
+    expect(again.json.said).toContain("already proposed");
+    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).revision).toBe(note.revision);
   });
 
   test("full: outline_assign_id stamps the next work id as the note's page address, attributed; again it is unchanged; stale is refused", async () => {

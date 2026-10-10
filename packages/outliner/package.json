@@ -53,7 +53,8 @@
     "test:e2e:resource-occurrences": "bun run test/e2e/resource-occurrences.ts && bun run test/e2e/resource-occurrences.ts --ansi",
     "test:e2e:reference-annotations": "bun run test/e2e/reference-annotations.ts",
     "test:e2e:outline-chooser": "bun run test/e2e/outline-chooser.ts",
-    "test:e2e:embed-links": "bun run test/e2e/embed-links.ts"
+    "test:e2e:embed-links": "bun run test/e2e/embed-links.ts",
+    "test:e2e:proposals-beside": "bun run test/e2e/proposals-beside.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.84.2",

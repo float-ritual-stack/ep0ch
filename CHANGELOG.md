@@ -23,8 +23,45 @@ are its record. The outliner's entries from then are kept below, under
   under steady writes). *Why it matters:* the door stops polling and stops owning query meaning, so every terminal gets
   the same answers, and "what haven't I linked back" is one line. The showcase's `questions` section shows it.
 - **Changed (wire):** `blocks.query`'s `expression` is now `where`, and its structured form `predicate`. A rank or tabs
-  figure over a `view:` says to write `query:` instead (the service groups queries). `PROTOCOL` 128: update the outline
+  figure over a `view:` says to write `query:` instead (the service groups queries). `PROTOCOL` 129: update the outline
   host and every client together (`ep0ch install --apply`).
+
+### One kind of agent session: started from any folder, shown in the drawer or a tile, listed in one panel (PIE-737)
+
+- **Added:** `ep0ch agent` in any folder starts that folder's agent session in the door on its outline, or names the one
+  already running there (`--program codex`, `--in <folder>`, `--persona <name>`, `--new`). It opens as a tab in the drawer,
+  continuing the program's last conversation in that folder (claude and pi `--continue`, codex `resume --last`).
+- **Added:** the agent panel, `alt+g` on any screen: every session (started with `ep0ch agent` or its `n`, a claude typed in
+  a `^W o s` shell, the drawer's own), its folder, persona, what it's doing and where it's shown. `⏎` jumps to one, `a` pulls
+  it into your drawer, `d` docks it here: the same process, the conversation kept. Agents: `agent.start`, `agents.list`,
+  `agents.go`, `agents.drawer`, `agents.dock`.
+- **Added:** agent configs in the outline: a note with `[agent-config::<name>] [program::…] [args::…] [persona::…]
+  [folder::…]` is a program the panel offers, run under that persona.
+- **Changed:** `alt+g` opens the agent panel; choosing the drawer's own agent (`host.agent`) is the picker its first pull
+  offers, and the power bar's. `host.agent in=<folder>` saves the folder it starts in.
+- **Removed:** `EP0CH_DAILY_CWD`. *What to run:* `ep0ch doctor` says it when it's still set, with the command
+  (`ep0ch act host.agent name=… in=<that folder>`), then drop it from your shell's profile.
+- *Why it matters:* "talk to an agent here" was three things that looked alike and acted differently (a claude in a shell
+  tile, the daily agent, the drawer's); it is one now, wherever it was started.
+### A lost patch's proposal sits beside its note, and a retry returns the open one (PIE-725)
+
+- **Changed:** when an agent's patch loses its race (the note changed since it read it, a door holds a draft, or the
+  outline takes only proposals), the proposal is a block beside the note, never a line in its text. The note's text and
+  revision stay as the winner left them, so the next writer near there doesn't lose too. The door's reader and Detail
+  draw it where its embed line used to go: under the mark, else after the note's last line, with `[apply]`, `[dismiss]`,
+  `A` and `X` as before.
+- **New:** the same open patch sent again by the same agent (same note, passages, replacements and mark) returns that
+  proposal with `deduped: true`, through the CLI, the Claude mod and MCP, instead of another copy. *Why it matters:*
+  five agents racing on one guide left four copies of one fix for someone to clear by hand.
+- **New:** `draft.proposals.list` lists the open proposals beside a note, with the line each is drawn after. The
+  showcase's `proposals` section shows a race between two agents.
+- **Kept:** proposals made before this keep their `!((id))` line in their note and are drawn by it, never twice. Dismiss
+  still takes that line out. Nothing rewrites note texts; to list the notes that still carry one, run on each machine
+  (read-only):
+  `sqlite3 -readonly ~/outlines/<name>.sqlite "SELECT h.id, substr(h.text, 1, instr(h.text || char(10), char(10)) - 1), p.id FROM blocks p JOIN block_properties t ON t.block_id = p.id AND t.key = 'type' AND t.value = 'draft-proposal' JOIN blocks h ON h.id = p.parent_id WHERE instr(h.text, '!((' || p.id || '))') > 0 AND h.effective_deleted_root_id IS NULL;"`
+- **Run:** PROTOCOL 127 (`draft.proposals.list`, the proposal receipt's `beside` and `deduped`, the draft-holder `embed`
+  request gone). `ep0ch install --apply` on each machine (float-2 for pie, the MacBook for float-hub) restarts the host on
+  the new code; then restart the doors and Detail. No schema change.
 
 ### A refused key says why on the tile you're looking at; q leaves a desk holding only a group (PIE-727)
 
