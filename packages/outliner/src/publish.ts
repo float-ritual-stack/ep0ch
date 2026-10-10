@@ -282,7 +282,7 @@ const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
 const markdownRenderer: Marked = new Marked({
   gfm: true,
   // A callout (`> [!type] Title`) is a box; any other quote stays a quote.
-  extensions: [calloutExtension(() => activeCallouts, (markdown) => markdownRenderer.parse(markdown, { async: false }) as string)],
+  extensions: [calloutExtension(() => activeCallouts)],
   renderer: {
     html({ text }) {
       return escapeHtml(text);

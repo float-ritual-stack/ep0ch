@@ -1,4 +1,4 @@
-import type { TokenizerAndRendererExtension } from "marked";
+import type { Token, TokenizerAndRendererExtension } from "marked";
 import {
   BUILTIN_CALLOUT_REGISTRY,
   calloutBlocks,
@@ -28,19 +28,20 @@ const esc = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 const toneClass = (tone: CalloutTone) => `callout-${tone}`;
 
 /** A callout found in the source: its header as written, its body (the lines inside, one quote level off), and its source. */
-interface CalloutToken { type: "callout"; raw: string; header: CalloutHeader; body: string }
+interface CalloutToken { type: "callout"; raw: string; header: CalloutHeader; body: string; tokens: Token[] }
 
 /**
  * Marked's block extension for callouts. Where a callout starts and ends is outline-core's (`calloutBlocks`: it runs
  * over the lines quoted at least as deep as its header, and a callout inside it is quoted deeper), not CommonMark's
  * quote, which would fold a later `> [!type]` line into a nested quote's paragraph. Any other quote is marked's own.
  */
-export function calloutExtension(registry: () => CalloutRegistry, body: (markdown: string) => string): TokenizerAndRendererExtension {
+export function calloutExtension(registry: () => CalloutRegistry): TokenizerAndRendererExtension {
   return {
     name: "callout",
     level: "block",
     start: (src) => { const m = /(^|\n) {0,3}>/.exec(src); return m ? m.index + m[1]!.length : undefined; },
     tokenizer(src): CalloutToken | undefined {
+      const lexer = this.lexer;
       if (!/^ {0,3}>/.test(src)) return undefined;
       // The run of quoted lines the callout can be in, and no further.
       const all = src.split("\n");
@@ -51,18 +52,21 @@ export function calloutExtension(registry: () => CalloutRegistry, body: (markdow
       if (!first) return undefined;
       const { fold, title, type } = first;
       const end = first.end;
+      const body = lines.slice(1, end).map(line => stripQuotes(line, 1)).join("\n");
       return {
         type: "callout",
         raw: all.slice(0, end).join("\n") + (end < all.length ? "\n" : ""),
         header: { type, fold, title },
-        body: lines.slice(1, end).map(line => stripQuotes(line, 1)).join("\n"),
+        body,
+        // Lexed here, in the page's lexer, so the page's reference definitions (`[a]: url`) reach it.
+        tokens: lexer.blockTokens(body, []),
       };
     },
     renderer(token) {
-      const { header, body: source } = token as unknown as CalloutToken;
+      const { header, tokens } = token as unknown as CalloutToken;
       const type = registry().style(header.type);
       const title = header.title || type.title;
-      const inner = body(source);
+      const inner = this.parser.parse(tokens);
       const open = `class="callout ${toneClass(type.tone)}" data-callout="${esc(type.name)}"`;
       const heading = `<span class="callout-icon" aria-hidden="true">${esc(type.icon)}</span><span class="callout-title">${esc(title)}</span>`;
       const content = `<div class="callout-body">${inner}</div>`;

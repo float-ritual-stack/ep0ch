@@ -1035,7 +1035,9 @@ const CALLOUT_NOTE = [
   "> Brown sugar and stout.",
   "> [!ghost] Unwritten type",
   "> still a box",
-  "> A plain quote has no marker.",
+  "> A plain quote has no marker. See [the guide][guide].",
+  "",
+  "[guide]: https://example.com/guide",
 ].join("\n");
 
 test("callouts draw as boxes on tailnet and public pages, and the Markdown view keeps the source", async () => {
@@ -1056,6 +1058,8 @@ test("callouts draw as boxes on tailnet and public pages, and the Markdown view 
     expect(html).toContain('callout-green" data-callout="recipe"');
     expect(html).toContain('callout-neutral" data-callout="ghost"');
     expect(html).not.toContain("[!summary]");
+    // The page's link definitions reach a callout's body.
+    expect(html).toContain('<a href="https://example.com/guide">the guide</a>');
     expect(html).not.toContain("#fff");
   }
   const markdown = await (await get("/p/moth-log")).text();
