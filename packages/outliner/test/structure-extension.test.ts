@@ -56,9 +56,9 @@ async function onPassage(client: OutlinerClient, action: string, created: Block,
 
 test("the pure parts: sort a list by title and by a property, extract a list item", () => {
   const text = "Seeds\n- b [price::3.5]\n  - sub\n- a [price::12]\n- c\n\nafter";
-  expect(sortListInText(text, sortSpec(undefined, undefined)).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
-  expect(sortListInText(text, sortSpec({ by: "price", order: "desc" }, undefined)).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
-  expect(() => sortListInText(text, sortSpec({ by: "cost" }, undefined))).toThrow("the items have price");
+  expect(sortListInText(text, sortSpec(undefined)).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
+  expect(sortListInText(text, sortSpec({ by: "price", order: "desc" })).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
+  expect(() => sortListInText(text, sortSpec({ by: "cost" }))).toThrow("the items have price");
   const item = extractFrom("Plan\n- Order\n  - three\n  - four\n- Mend", 5, 29);
   expect(item.child).toBe("Order\n- three\n- four");
   expect(item.replace("abc12345")).toBe("Plan\n- !((abc12345))\n- Mend");
@@ -73,6 +73,10 @@ test("extract makes the passage a child and leaves a transclusion in its place, 
   expect(child!.text).toBe("Mend the north fence before the beans go in");
   expect(child!.actorId).toBe("ext:structure");
   expect((await get(note.id)).text).toBe(`Garden plan\n!((${child!.id})), said the wind.`);
+  // One step: undone, the note reads as it did and the child is in the Trash.
+  await client.request({ action: "extensions.undo", undo: (done as { undo?: string }).undo!, mutation: PERSON });
+  expect((await get(note.id)).text).toBe("Garden plan\nMend the north fence before the beans go in, said the wind.");
+  expect(await kids(note.id)).toEqual([]);
 });
 
 test("extract of a list item takes its children and keeps the bullet", async () => {
@@ -93,6 +97,10 @@ test("sort-list sorts by title, by an argument, and by the block's own sort-by",
   expect((await get(seeds.id)).text).toBe("Seeds\n- Pumpkin [price::12.25]\n- Tomato [price::3.50]\n- Basil [price::2]\n- Chive");
   const bad = await act("sort-list", seeds.id, { args: { by: "cost" }, mutation: LOKI });
   expect(bad.message).toContain("no item has cost; the items have price");
+  // The note says its own default: the service fills in by= and order= from [sort-by::] and [sort-order::].
+  const own = await create("Bulbs [sort-by::price] [sort-order::desc]\n- Tulip [price::4]\n- Crocus [price::9]");
+  await act("sort-list", own.id);
+  expect((await get(own.id)).text).toBe("Bulbs [sort-by::price] [sort-order::desc]\n- Crocus [price::9]\n- Tulip [price::4]");
 });
 
 test("sort-selection sorts only the selected list, and keeps a numbered list numbered", async () => {
@@ -122,11 +130,11 @@ test("the demo notes are written under the extension's page", async () => {
 
 test("a selection sorts whole items with their sub-items, code fences aren't lists, and a sub-item's property isn't its parent's", () => {
   const text = "N\n- b\n  - child B\n- a\n  - child A";
-  const touched = sortListInText(text, sortSpec(undefined, undefined), 0, [3, 4]);
+  const touched = sortListInText(text, sortSpec(undefined), 0, [3, 4]);
   expect(touched.text).toBe("N\n- b\n  - child B\n- a\n  - child A");
-  expect(sortListInText(text, sortSpec(undefined, undefined), 0, [1, 4]).text).toBe("N\n- a\n  - child A\n- b\n  - child B");
+  expect(sortListInText(text, sortSpec(undefined), 0, [1, 4]).text).toBe("N\n- a\n  - child A\n- b\n  - child B");
   const fenced = "N\n```\n- z\n- a\n```\n- y\n- x";
-  expect(sortListInText(fenced, sortSpec(undefined, undefined)).text).toBe("N\n```\n- z\n- a\n```\n- x\n- y");
+  expect(sortListInText(fenced, sortSpec(undefined)).text).toBe("N\n```\n- z\n- a\n```\n- x\n- y");
   const nested = "N\n- one\n  - [price::1]\n- two [price::5]";
-  expect(sortListInText(nested, sortSpec({ by: "price", order: "desc" }, undefined)).text).toBe("N\n- two [price::5]\n- one\n  - [price::1]");
+  expect(sortListInText(nested, sortSpec({ by: "price", order: "desc" })).text).toBe("N\n- two [price::5]\n- one\n  - [price::1]");
 });

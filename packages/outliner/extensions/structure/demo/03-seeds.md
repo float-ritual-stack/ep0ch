@@ -2,7 +2,7 @@
 id: seeds
 ---
 Seed list [sort-by::price] [sort-order::desc]
-Run `sort-list` here: it reads the sort-by and sort-order above, so the dearest seed comes first.
+Run `sort-list` here: the sort-by and sort-order above are what it offers first, so the dearest seed comes first.
 
 - Tomato [price::3.50]
 - Basil [price::2]

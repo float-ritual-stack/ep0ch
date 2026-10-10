@@ -271,7 +271,7 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "work-ids.status", "notes.render", "notes.address",
+  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address",
 ]);
 
 /** A publisher's address as it registers (PIE-767): each URL a full http(s) URL (`publisherUrl`), or refused. */
@@ -400,6 +400,8 @@ export class OutlinerServer {
       },
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
+      // An extension's write group held as a proposal, applied anyway: checked and written by its writes' owner.
+      groups: (group, by) => this.extensionCalls.writes.forProposal(group, by),
     });
     this.extensionSync = new ExtensionSyncs(store, {
       ...(options.extensionPollMs !== undefined ? { pollMs: options.extensionPollMs } : {}),
@@ -452,6 +454,9 @@ export class OutlinerServer {
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
+      // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
+      patchGroup: (input) => this.draftPatches.patchGroup(input),
+      held: (blockId) => this.draftPatches.isHeld(blockId),
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),
@@ -1825,10 +1830,19 @@ export class OutlinerServer {
       }
     }
     if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
-      request.action === "extensions.install" || request.action === "extensions.uninstall") {
+      request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args") {
       try {
         let result: unknown;
-        if (request.action === "extensions.install") {
+        if (request.action === "extensions.undo") {
+          // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
+          if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
+          result = this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+        } else if (request.action === "extensions.args") {
+          // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
+          if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
+          if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
+          result = this.extensionCalls.argChoices(request.extension, request.extensionAction, request.blockId);
+        } else if (request.action === "extensions.install") {
           if (typeof request.extension !== "string") throw new Error("extensions.install needs extension: a built-in's name (extensions.list's available)");
           if (request.where !== undefined && request.where !== "user" && request.where !== "outline") throw new Error("where is user (every outline this host serves) or outline (this one's own)");
           result = await this.installExtension(request.extension, request.where);
@@ -2327,6 +2341,8 @@ export class OutlinerServer {
         case "extensions.schedule.run":
         case "extensions.install":
         case "extensions.uninstall":
+        case "extensions.undo":
+        case "extensions.args":
         case "notes.address":
         case "notes.render":
         case "computed.execute":

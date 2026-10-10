@@ -57,6 +57,7 @@ import {
   type DraftPatchRoute,
   type DraftProposal,
   type DraftProposalStatus,
+  type DraftGroup,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
 import { requestLines } from "./agent-requests";
@@ -83,6 +84,22 @@ export interface DraftPatchRouterDeps {
   client: WorkToolsClient;
   /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
+  /**
+   * An extension's write group a proposal holds, applied anyway: its structural writes checked against the outline
+   * as it is now (`write` runs inside the transaction that writes the saved notes), and `done` told what landed.
+   */
+  groups?(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"]): void };
+}
+
+/** An extension's write group as the router takes it (src/extension-calls.ts builds it): its text edits and the rest. */
+export interface DraftGroupInput {
+  edits: DraftPatchEdit[];
+  mutation: MutationProvenance;
+  group: DraftGroup;
+  /** Blocks it moves or puts in order: a door's live draft of one makes the whole group a proposal, as of an edited one. */
+  touched: readonly string[];
+  /** Its blocks made, moved and ordered, inside the transaction that writes the saved notes. */
+  write(): void;
 }
 
 /** What applying or dismissing a proposal adds: `warning` when its status couldn't be written. */
@@ -103,10 +120,28 @@ interface RunOptions {
   allowStructural?: boolean;
   /** The proposal this run settles: the holding door is told, so it says what was done (PIE-510). */
   proposal?: DraftHolderProposal;
+  /** Writes that land with the saved notes, in their transaction (a write group's blocks made, moved and ordered). */
+  alongside?: () => void;
 }
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
 type Outcome = { ok: true; applied: DraftPatchApplied["edits"] } | { ok: false; reason: string; refused?: boolean };
+
+/** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
+class AlongsideFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** Runs a write group's own writes, its failure marked as theirs. */
+function alongside(write: (() => void) | undefined): void {
+  try {
+    write?.();
+  } catch (error) {
+    throw new AlongsideFailure(error);
+  }
+}
 
 /** A refusal by the `edit` policy: nothing was written, and the agent hears why. */
 export class DraftPatchRefusal extends Error {
@@ -226,6 +261,11 @@ export class DraftPatchRouter {
     return { hold: holds[0] ?? null, many: holds.length > 1 };
   }
 
+  /** Whether a door holds a live draft of the note now. */
+  isHeld(blockId: string): boolean {
+    return !!this.holderOf(blockId);
+  }
+
   /** A note's text as the draft a door holds has it now, or as saved. */
   async read(blockId: string): Promise<{ blockId: string; route: DraftPatchRoute; text: string; revision: number; holder?: string }> {
     const saved = this.deps.store.requireActive(blockId);
@@ -275,6 +315,27 @@ export class DraftPatchRouter {
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
     if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
     return this.propose(outcome.reason, edits, mutation, mark, sent);
+  }
+
+  /**
+   * An extension's write group (PIE-784): its text edits and its blocks made, moved and put in order, in one
+   * transaction, or none of it. A door holding a live draft of any block it edits, moves or reorders makes the whole
+   * group one proposal (beside the note it acted on), never half applied; so does an edit whose compare fails. The
+   * `edit` policy's guard refuses as it does a patch.
+   */
+  async patchGroup(input: DraftGroupInput): Promise<DraftPatchResult> {
+    const mutation = normalizeMutation(input.mutation);
+    const edits = input.edits.length ? normalizeDraftPatchEdits({ edits: input.edits }) : [];
+    const sent = { policy: "edit" as const };
+    const held = [...edits.map(edit => edit.blockId), ...input.touched].find(blockId => this.routeOf(blockId).hold);
+    if (held) {
+      const title = this.deps.store.get(held);
+      return this.propose(`${title ? `"${blockDisplayTitle(title)}"` : "a note it changes"} is open in a draft; the whole change waits for you`, edits, mutation, undefined, sent, input.group);
+    }
+    const outcome = await this.run(edits, { mutation, ...sent, alongside: input.write });
+    if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
+    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
+    return this.propose(outcome.reason, edits, mutation, undefined, sent, input.group);
   }
 
   /** Proposals being applied or dismissed right now: a second call for one is refused, not raced (PIE-510). */
@@ -344,6 +405,7 @@ export class DraftPatchRouter {
       if (!proposalShowsPatch(block.text, proposal)) {
         throw new Error("This proposal's text no longer shows the patch it holds; it isn't applied");
       }
+      if (proposal.group) return this.applyGroup(proposalId, proposal, who);
       const edits = normalizeDraftPatchEdits({ edits: proposal.edits });
       // "Apply anyway" is the person's choice. An agent's is held to the same compare as a patch, under the
       // patch's own policy (a proposal from before policies was prose), against the text as it is now (it
@@ -371,6 +433,31 @@ export class DraftPatchRouter {
       this.settled(proposalId, "applied", who);
       return { outcome: "applied", edits: outcome.applied, proposalId, ...(warning ? { warning } : {}) };
     });
+  }
+
+  /**
+   * A write group's proposal applied: its structural writes checked against the outline now and its edits placed as
+   * any proposal's are (the person's forced, an agent's compared), all in one step. The edits go where a patch goes, a
+   * door's live draft included, and are taken back there if the rest fails.
+   */
+  private async applyGroup(proposalId: string, proposal: DraftProposal, who: MutationProvenance): Promise<DraftPatchApplied & ProposalSettled> {
+    if (!this.deps.groups) throw new Error("Couldn't apply it: this service doesn't apply extension write groups");
+    let prepared: ReturnType<NonNullable<DraftPatchRouterDeps["groups"]>>;
+    try {
+      prepared = this.deps.groups(proposal.group!, who);
+    } catch (error) {
+      throw new Error(`Couldn't apply it: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const edits = proposal.edits.length ? normalizeDraftPatchEdits({ edits: proposal.edits }) : [];
+    const forced = who.author !== "agent";
+    const outcome = await this.run(edits, forced
+      ? { mutation: who, force: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write }
+      : { mutation: who, current: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write });
+    if (!outcome.ok) throw new Error(`Couldn't apply it: ${outcome.reason}${outcome.refused ? "; only the person applies that anyway" : ""}`);
+    prepared.done(outcome.applied);
+    const warning = this.writeStatus(proposalId, "applied", who);
+    this.settled(proposalId, "applied", who);
+    return { outcome: "applied", edits: outcome.applied, proposalId, ...(warning ? { warning } : {}) };
   }
 
   /**
@@ -534,7 +621,7 @@ export class DraftPatchRouter {
     }
     const saved = plan.filter(part => !part.hold);
     try {
-      const written = store.database.transaction(() => saved.map(({ edit }) => {
+      const written = store.database.transaction(() => (alongside(options.alongside), saved).map(({ edit }) => {
         const failure = this.checkSaved(edit, options);
         if (failure) throw new Error(failure);
         const block = store.requireActive(edit.blockId);
@@ -547,6 +634,8 @@ export class DraftPatchRouter {
       for (const { block, rebased } of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision, ...(rebased ? { rebasedFrom: rebased } : {}) });
     } catch (error) {
       await undo();
+      // What a write group makes, moves or orders failing is its refusal, never a proposal of it.
+      if (error instanceof AlongsideFailure) throw error.cause;
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
     }
     const order = new Map(edits.map((edit, index) => [edit.blockId, index]));
@@ -653,11 +742,11 @@ export class DraftPatchRouter {
    */
   private async propose(
     reason: string, edits: DraftPatchEdit[], mutation: MutationProvenance, mark: { text: string; blockId: string } | undefined,
-    sent: { policy: DraftPatchPolicyName; allowStructural?: boolean },
+    sent: { policy: DraftPatchPolicyName; allowStructural?: boolean }, group?: DraftGroup,
   ): Promise<DraftPatchProposed> {
     const { store } = this.deps;
-    const hostId = mark?.blockId ?? edits[0]!.blockId;
-    const dedupe = proposalKey(edits, mutation, mark);
+    const hostId = group?.hostId ?? mark?.blockId ?? edits[0]!.blockId;
+    const dedupe = proposalKey(edits, mutation, mark, group);
     const same = this.openProposalLike(hostId, dedupe);
     if (same) return { outcome: "proposed", reason, proposalId: same, beside: hostId, deduped: true };
     const kept: DraftPatchEdit[] = [];
@@ -685,6 +774,7 @@ export class DraftPatchRouter {
     const proposal: DraftProposal = {
       version: 1, edits: kept, reason, ...sent, dedupe,
       ...(mark ? { mark } : {}),
+      ...(group ? { group } : {}),
       actor: { author: mutation.author, ...(mutation.actorId ? { actorId: mutation.actorId } : {}) },
     };
     const names = (blockId: string) => {
@@ -751,13 +841,18 @@ function isDraftProposal(block: { properties: readonly { key: string; value: str
  * where it said they are (range, unit, context), so two patches of the same words at different places stay two.
  * Hashed: it rides in the proposal's payload.
  */
-function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; actorId?: string }, mark: { text: string; blockId: string } | undefined): string {
+function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; actorId?: string }, mark: { text: string; blockId: string } | undefined, group?: DraftGroup): string {
   const key = JSON.stringify([
     actor.author, actor.actorId ?? null,
     mark ? [mark.text.trim(), mark.blockId] : null,
     edits.map(edit => [edit.blockId, edit.patches.map(span => [span.observed, span.replacement, span.range?.start ?? null, span.range?.end ?? null, span.unit ?? null, span.before ?? null, span.after ?? null])]),
+    // A group's new blocks have fresh ids each run: it is the same group by what it writes, not by them.
+    ...(group ? [[group.action, group.hostId, group.writes]] : []),
   ]);
-  return createHash("sha256").update(key).digest("base64url");
+  // A group's new blocks have fresh ids each run: it is the same group by what it writes, so they're numbered here.
+  const minted = (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.id] : []);
+  const same = minted.reduce((text, id, index) => text.split(id).join(`#${index}`), key);
+  return createHash("sha256").update(same).digest("base64url");
 }
 
 export type { DraftHolderRequest };

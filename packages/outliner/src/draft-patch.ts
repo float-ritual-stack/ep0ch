@@ -347,11 +347,32 @@ export interface DraftProposal {
    */
   dedupe?: string;
   allowStructural?: boolean;
+  /** An extension's write group: its blocks made, moved and put in order, applied with `edits` as one step or not at all. */
+  group?: DraftGroup;
 }
 
-/** How many changes (spans) a proposal holds, across its notes. */
-export function proposalChanges(proposal: Pick<DraftProposal, "edits">): number {
-  return proposal.edits.reduce((count, edit) => count + edit.patches.length, 0);
+/**
+ * The structural part of an extension's write group (ext-writes.ts) held in a proposal: what it makes, moves and puts
+ * in order, its new blocks' ids minted already (so `edits` can link to them). Its text edits are the proposal's
+ * `edits`. Applied, all of it lands in one step with the edits, or none of it.
+ */
+export interface DraftGroup {
+  /** The extension (`ext:<id>` writes what it makes) and the action, `ext.<id>.<action>`. */
+  extension: string;
+  action: string;
+  /** The note the action acted on: the proposal sits under it. */
+  hostId: string;
+  writes: DraftGroupWrite[];
+}
+
+export type DraftGroupWrite =
+  | { op: "create"; id: string; parentId: string; text: string; position?: number }
+  | { op: "move"; blockId: string; parentId: string; position?: number; expectedRevision: number }
+  | { op: "order"; parentId: string; children: string[] };
+
+/** How many changes a proposal holds: its spans across its notes, and its group's writes. */
+export function proposalChanges(proposal: Pick<DraftProposal, "edits"> & { group?: DraftGroup }): number {
+  return proposal.edits.reduce((count, edit) => count + edit.patches.length, 0) + (proposal.group?.writes.length ?? 0);
 }
 
 /** A code fence that no run of backticks in `text` can close. */
@@ -411,7 +432,8 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
   if (payload.length > DRAFT_PROPOSAL_MAX_PAYLOAD) {
     throw new Error(`The patch is too large to keep as a proposal (${Math.ceil(payload.length / 1024)} KB of the ${DRAFT_PROPOSAL_MAX_PAYLOAD / 1024} KB a proposal holds); nothing was changed. Patch a smaller passage`);
   }
-  const targets = [...new Set(proposal.edits.map(edit => edit.blockId))].map(id => `((${id}|${labelOf(names(id))}))`).join(", ");
+  const targets = [...new Set([...proposal.edits.map(edit => edit.blockId), ...(proposal.group && !proposal.edits.length ? [proposal.group.hostId] : [])])]
+    .map(id => `((${id}|${labelOf(names(id))}))`).join(", ");
   const changes = proposalChanges(proposal);
   const many = changes > 1;
   const lines = [
@@ -427,7 +449,52 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
         ...shownSpan(span));
     }
   }
+  const made = new Map((proposal.group?.writes ?? []).flatMap(write => write.op === "create" ? [[write.id, write.text]] : []));
+  // A block there is now is named by a reference (its id, so "apply anyway" can tell the proposal still says it); a new one by its title.
+  const title = (id: string) => made.has(id) ? `the new "${labelOf(made.get(id)!.split("\n", 1)[0]!)}"` : `((${id}|${labelOf(names(id))}))`;
+  for (const write of proposal.group?.writes ?? []) {
+    change += 1;
+    lines.push("", ...shownGroupWrite(write, title, many ? `Change ${change} of ${changes}: ` : ""));
+  }
   return lines.join("\n");
+}
+
+/**
+ * Whether a proposal's text still shows one of its group's writes: a new block's text fenced, under a reference to its
+ * parent; a move's block and destination, an order's parent and each child in order, by reference on one line.
+ */
+function groupWriteShown(text: string, write: DraftGroupWrite, made: ReadonlySet<string>): boolean {
+  const named = (line: string, ids: readonly string[]) => {
+    let at = 0;
+    for (const id of ids) {
+      at = line.indexOf(`((${id}|`, at);
+      if (at < 0) return false;
+    }
+    return true;
+  };
+  if (write.op === "create") {
+    if (typeof write.text !== "string") return false;
+    const shown = shownGroupWrite(write, () => "").slice(1).join("\n");
+    // Somewhere, the line above it names its parent (a block there now), or a new one.
+    for (let at = text.indexOf(`\n${shown}`); at >= 0; at = text.indexOf(`\n${shown}`, at + 1)) {
+      const head = text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+      if (made.has(write.parentId) ? head.includes("the new \"") : head.includes(`a new block under ((${write.parentId}|`)) return true;
+    }
+    return false;
+  }
+  // The blocks there now, in the order shown (a new one is shown by its title).
+  const ids = (write.op === "move" ? [write.blockId, write.parentId] : [write.parentId, ...write.children]).filter(id => !made.has(id));
+  return text.split("\n").some(line => named(line, ids));
+}
+
+/** How a proposal shows one of its group's writes: a new block's text fenced, a move or an order in words. */
+function shownGroupWrite(write: DraftGroupWrite, title: (id: string) => string, lead = ""): string[] {
+  if (write.op === "create") {
+    const fence = fenceFor(write.text);
+    return [`${lead}a new block under ${title(write.parentId)}:`, fence, write.text, fence];
+  }
+  if (write.op === "move") return [`${lead}${title(write.blockId)} moves under ${title(write.parentId)}${write.position !== undefined ? `, at ${write.position + 1}` : ""}.`];
+  return [`${lead}the children of ${title(write.parentId)} in this order: ${write.children.map(title).join(", ")}.`];
 }
 
 /** How a proposal shows one span: the passage and what it becomes, each fenced. */
@@ -442,6 +509,8 @@ function shownSpan(span: DraftPatchSpan): string[] {
  * hidden payload that says something else.
  */
 export function proposalShowsPatch(text: string, proposal: DraftProposal): boolean {
+  const made = new Set((proposal.group?.writes ?? []).flatMap(write => write.op === "create" ? [write.id] : []));
+  if (!(proposal.group?.writes ?? []).every(write => groupWriteShown(text, write, made))) return false;
   return proposal.edits.every(edit => Array.isArray(edit.patches) && edit.patches.every(span =>
     typeof span?.observed === "string" && typeof span.replacement === "string" && text.includes(`\n${shownSpan(span).join("\n")}`)));
 }

@@ -2289,6 +2289,44 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0]!;
+    const demo = await board.children(listed.pages!.structure!);
+    const beds = demo.find(m => title(m).startsWith("Beds"))!, plan = demo.find(m => title(m) === "Garden plan")!;
+    const names = async () => (await board.children(beds.id)).map(m => title(m).split(" [")[0]);
+    expect(await names()).toEqual(["Herb bed", "Root bed", "Bean row"]);
+    // The person's run: the bar asks, lit on the note's own [sort-by::bed-size]; "tit" then ⏎ picks title, ⏎ takes asc.
+    // The bar is the App's, over the showcase: what it lists is read from it.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
+    void app.dispatch.press("ext.structure.sort-blocks", { block: beds.id });
+    await until(() => asked()[0] === "Sort the children · Sort by = bed-size", "the bar asks for by, the note's own lit", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    expect(asked()).toEqual(["bed-size", "title", "created"].map(c => `Sort the children · Sort by = ${c}`));
+    for (const c of "tit") ch(c);
+    press({ kind: "enter" });
+    await until(() => asked()[0]?.startsWith("Sort the children · Order") ?? false, "the bar asks for order", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && (await names()).join() !== "Bean row,Herb bed,Root bed"; i++) await Bun.sleep(100);
+    expect(await names()).toEqual(["Bean row", "Herb bed", "Root bed"]);
+    // An agent names what it wants and is never asked; the note's own default fills in what it leaves out.
+    await app.act({ action: "ext.structure.sort-blocks", args: { block: beds.id }, as: "test-agent" });
+    expect(await names()).toEqual(["Herb bed", "Bean row", "Root bed"]);
+    // Extract: the child and the note's edit are one group, and one undo puts both back.
+    const quote = "The north fence needs mending before the beans go in";
+    const done = await app.act({ action: "ext.structure.extract", args: { block: plan.id, quote }, as: "test-agent" }) as { undo?: string; written: string[] };
+    const [child] = await board.children(plan.id);
+    expect(child!.text).toBe(quote);
+    expect((await board.get(plan.id))!.text).toContain(`!((${child!.id}))`);
+    await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
+    expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");

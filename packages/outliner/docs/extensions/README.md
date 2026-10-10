@@ -726,22 +726,52 @@ actions yet; `r` is its path today.
   service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes
   the outline (a block, an annotation, a cursor on a page) is `write`. A handler that costs money or model time per
   run is `spend`. See [writes to an outside service](#writes-to-an-outside-service).
-- `act` returns `{ message?, writes? }`. Writes are
-  `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
-  at most 20; an action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
+- `act` returns `{ message?, writes? }`, and its writes are **one group** (PIE-784), at most 20:
+
+  | Write | Does |
+  |---|---|
+  | `{ "op": "create", "parentId", "text", "as"?, "position"? }` | makes a block (inert BlockDown, below); `as: "c1"` names it for the group's later writes |
+  | `{ "op": "update", "blockId", "expectedRevision", "text" }` | an agent's edit of the block (below) |
+  | `{ "op": "move", "blockId", "parentId", "position"?, "expectedRevision" }` | moves the block, revision-checked |
+  | `{ "op": "order", "parentId", "children": [ids] }` | the block's children in this order, in one step: exactly the children it has, or refused |
+
+  A later write names a block made earlier in the group by its `as`: as a `parentId`, `blockId` or one of an order's
+  `children`, and in text as `((c1))`, `!((c1))`, `((c1|label))` or `((c1^anchor))` (its id is minted before anything is
+  written). A name used before the write that makes it is refused. The whole group lands in one transaction or none of
+  it does: one write refused (a stale revision, a block gone, an order that doesn't match) writes nothing, said with
+  "nothing was written". Each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed, with
+  `requestedBy` beside it. They may land anywhere in the outline (PIE-754; a record an extension keeps is its sync's
+  alone, so an update or move of one is refused).
+
+  ```json
+  { "writes": [
+    { "op": "create", "parentId": "<note>", "text": "Mend the north fence", "as": "child" },
+    { "op": "update", "blockId": "<note>", "expectedRevision": 4, "text": "Garden plan\n!((child)), said the wind." }
+  ] }
+  ```
+
+  **One undo step.** A group that landed answers `undo: "<id>"`. `extensions.undo { undo, mutation }` takes it back whole
+  (its blocks to Trash, its edits, moves and orders put back, in one transaction, as whoever asks), refused with nothing
+  changed when anything it wrote changed since; the last 100 since the host started are kept, each undone once. The
+  door's reader runs it on `ctrl+z` for an action run there (`ext.undo`); a shell has `ep0ch ext undo <id>`. A group of
+  updates that went into a door's live draft answers `undoNote` instead: the draft's own `ctrl+z` undoes it.
+
+  An action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
   the passage (ADR 0004 contract 6): no body is a highlight; `properties` are open (`kind`, `tags`, `color` as a theme
-  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They may land anywhere in
-  the outline (PIE-754; a record an extension keeps is its sync's alone, so an update to one is refused); they apply
-  together or not at all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
+  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). An answer returns
+  annotations or block writes, not both.
   After an action on a `read` handler's line writes, that line runs again before the answer comes back: a returned
   write anywhere, or a write its process makes [over its connection](#a-connection-to-the-service) to the acted-on
   block or a child of it (moved in or out, too). Its answer's `written` lists both kinds.
 - **An update is an agent's edit.** It is revision-checked against the saved note, then applied
   through `draft.patch` with the `edit` policy, as an `@agent`'s edit is: only the changed lines are
-  the patch, a door's live draft of the note gets it (not the saved note under the person's typing),
-  and the guard refuses one that drops a `[page::…]` or a linked `^anchor` (nothing is written; the
-  error says what it would drop). When the person is typing in that passage it becomes a proposal
-  (`proposalId` in the answer) and the action's other writes aren't made; its `message` says so.
+  the patch, and the guard refuses one that drops a `[page::…]` or a linked `^anchor` (nothing is written; the
+  error says what it would drop). A group of updates alone goes where any patch goes: a door's live draft of the note
+  gets it (not the saved note under the person's typing), and when the person is typing in that passage it becomes a
+  proposal (`proposalId` in the answer). A group that also makes, moves or orders blocks is never half applied: while
+  a door holds a live draft of any block it edits, moves or reorders, the **whole group** waits as one proposal beside
+  the note it acted on (its new blocks' text shown in it), and applying that proposal writes all of it in one step.
+  Either way the answer's `message` says so and nothing else is written.
 - **A created block's text is inert BlockDown**: a `key::` line or `[key::value]` in it stays words,
   not a property, and terminal escapes go. (A block the extension's process creates over its
   [connection](#a-connection-to-the-service) is a normal write, properties and all, as an agent's is.) No write may add an `@name` request line (extensions
@@ -755,6 +785,30 @@ actions yet; `r` is its path today.
   `changes.since` (and its live event) carries `requestedBy` with who asked. `outliner ext act` asks
   as the person, or as an agent with `--actor <id>`; a tile's program passes the person at its keys.
 - `keep` is built in for every output and component handler.
+- **Declared arguments** (PIE-784): an action may say what it asks for, `args: [{ name, type, … }]`, at most 8:
+
+  | Field | Meaning |
+  |---|---|
+  | `name` | lowercase; not one the request already uses (`block`, `line`, `with`, `quote`, `near`, `tile`, `action`, `color`) |
+  | `type` | `text`, `number`, `choice` (one of `options`), or `property` (a property's name) |
+  | `options` | a choice's values; a property's fixed choices offered first (`title`, `created`) |
+  | `from` | a property's keys offered from `block` (every key in its text), `children` (theirs) or `outline` |
+  | `required`, `default` | a required one missing is refused, with its choices; `default` fills it in |
+  | `defaultProperty` | the acted-on block's own value of this property fills it in first (`[sort-by::price]`) |
+  | `label`, `description` | what a client's prompt says |
+
+  The service checks them (a choice among its options, a number a number), fills in the defaults, and passes the
+  action `args` with them; arguments it doesn't declare are passed on as they are. `extensions.args { extension,
+  extensionAction, blockId? }` answers each with its `choices` on that block and its `value` when not given: what a
+  client prompts with. The door asks for every declared choice or property (and any required one) the person didn't
+  give when they run the action by key, a click or the power bar, its default lit; `act` takes them as `name=value`;
+  the action list shows them; `ep0ch ext act … --arg name=value` and `ext ls` lists them.
+
+  ```json
+  { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [
+    { "name": "by", "type": "property", "options": ["title", "created"], "from": "children", "default": "title", "defaultProperty": "sort-by" },
+    { "name": "order", "type": "choice", "options": ["asc", "desc"], "default": "asc" } ] }
+  ```
 
 ```json
 { "action": "extensions.act", "extension": "fancy-horror", "extensionAction": "ward", "blockId": "…", "line": 1,

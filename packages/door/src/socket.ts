@@ -13,7 +13,7 @@ import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
-import type { ExtensionActResult, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
+import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -502,6 +502,19 @@ export class SocketBoard implements Board {
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
+  }
+
+  /**
+   * Take an action's write group back whole (`extensions.undo`, PIE-784), as `actor`: its blocks to the Trash, its
+   * edits, moves and orders put back in one step; refused with nothing changed when any of it changed since.
+   */
+  undoExtension(undo: string, actor: Actor = USER): Promise<{ undone: string; extension: string; action: string; written: string[] }> {
+    return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
+  }
+
+  /** What an action asks for (`extensions.args`, PIE-784): each declared argument with its choices on `blockId` and its value when not given. */
+  extensionArgs(extension: string, action: string, blockId?: string): Promise<{ args: ExtensionArgChoice[] }> {
+    return this.request("extensions.args", { extension, extensionAction: action, ...(blockId ? { blockId } : {}) });
   }
 
   /**

@@ -2284,6 +2284,17 @@ export type OutlinerRequestAction =
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
    */
   | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
+  /**
+   * An action's write group taken back whole (PIE-784): `undo` is the id its answer gave. Every block it made goes to
+   * the Trash, every edit, move and order is put back, in one step, as `mutation`; refused when any of it changed since.
+   * `{ undone, extension, action, written }`.
+   */
+  | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  /**
+   * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
+   * when not given: what a client prompts with. `{ extension, action, args: [{ name, type, …, choices?, value? }] }`.
+   */
+  | { id: string; action: "extensions.args"; extension: string; extensionAction: string; blockId?: string }
   /** Runs one of an extension's schedules now (PIE-754): `entry` is `action:<id>` or `handler:<key>`; recorded as any run. */
   | { id: string; action: "extensions.schedule.run"; extension: string; entry: string }
   /**

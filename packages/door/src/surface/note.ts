@@ -25,12 +25,12 @@ import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
-import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
+import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { alignComments, isOutlineNote, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
@@ -54,7 +54,7 @@ import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenB
 import { COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { askingFirst, passageActions, runExtensionAction, threadAgents } from "../extensions";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
@@ -2652,8 +2652,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       void this.runKey(last.name, {}, host, true);
       return true;
     }
@@ -4113,6 +4113,28 @@ export class NoteSurface {
   }
 
   /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
+  /** Undo (ctrl+z, `ext.undo`): the last extension action `actor` ran on this note, its write group whole (PIE-784). */
+  async undoExtension(host: SurfaceHost, actor: Actor) {
+    const m = this.requireNote();
+    const e = EXT_UNDO.last(partyOf(actor), m.id);
+    if (!e) throw new ActionRefused(actor.kind === "agent" ? "no extension action you ran on this note to undo" : "no extension action run on this note to undo");
+    const say = asActor(host.ctx, actor);
+    try {
+      const r = await host.ctx.board.undoExtension(e.undo, actor);
+      EXT_UNDO.drop(e);
+      outlineChanged(r.written);
+      say.flash(`undid ${e.label.toLowerCase()}`);
+      host.redraw();
+      return { undone: e.undo, action: r.action, written: r.written };
+    } catch (err) {
+      const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
+      // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.
+      if (/No extension change/.test(why)) EXT_UNDO.drop(e);
+      say.flash(why); host.redraw();
+      throw new ActionRefused(why);
+    }
+  }
+
   async undoCallout(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.calloutHistory, "callout", host, actor));
     return { block: r.block, line: r.edits[0]!.line + 1, header: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
@@ -5254,8 +5276,6 @@ const IMAGE_STALE: Stale = { flash: "that image's line changed since it was draw
 interface LineEdit { line: number; before: string; after: string }
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
 interface LineUndo { block: string; edits: LineEdit[]; by: string; context: string }
-/** Who a step change is for Undo: the person, or the agent by its id. */
-const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 
 /**
  * A step's status choice (PIE-472), `W` cells wide: Detail's choices in its order, each with its key, the
@@ -6291,14 +6311,20 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const named = /^ext\.([a-z][a-z0-9-]{0,31})\.([a-z][a-z0-9-]{0,31})$/.exec(action);
       const choice = passageActions().find(x => x.action.name === action);
       if (!named || !choice) throw new ActionRefused(`no passage action ${action}: it's comment, ask, explain${passageActions().length ? `, or ${passageActions().map(x => x.action.name).join(", ")}` : " (no extension here acts on a passage)"}`);
-      const r = await runExtensionAction(host.ctx, choice.action, choice.extension.id, { passage: p.target, ...(m.resource?.from ? { blockId: m.resource.from } : {}), ...(color ? { args: { color } } : {}) }, actor);
-      // Copy with a citation: the person's clipboard; an agent gets the text back, the person's clipboard untouched.
-      if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
-      if (r.written.length) await surface.loadComments(host);
-      if (actor.kind === "user") surface.selection = null;
-      surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
-      host.redraw();
-      return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target };
+      // What it declares and the person didn't say is asked for first, in the power bar (PIE-784); then it runs.
+      // Run, then what follows a run here (asked for its arguments first, the run comes when they're answered).
+      const run = async (args: Record<string, string>) => {
+        const r = await runExtensionAction(host.ctx, choice.action, choice.extension.id, { passage: p.target, ...(m.resource?.from ? { blockId: m.resource.from } : {}), ...(Object.keys(args).length ? { args } : {}) }, actor);
+        // Copy with a citation: the person's clipboard; an agent gets the text back, the person's clipboard untouched.
+        if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
+        if (r.written.length) await surface.loadComments(host);
+        if (actor.kind === "user") surface.selection = null;
+        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
+        host.redraw();
+        return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target, ...(r.undo ? { undo: r.undo } : {}) };
+      };
+      // What it declares and the person didn't say is asked for first, in the power bar (PIE-784).
+      return askingFirst(host.ctx as never, choice.extension, choice.action, p.target.subject.startsWith("resource:") ? m.resource?.from : p.target.subject, color ? { color } : {}, actor, run);
     },
   }),
   "passage.choices": def({
@@ -7028,6 +7054,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return surface.changeImage(ref, { dim: d === null ? null : String(d) }, d === null ? "dimmed as bright images are" : `dim ${d}`, host, actor);
       });
     },
+  }),
+  "ext.undo": def({
+    summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since",
+    keys: "ctrl+z (when an extension action was the last change made here)",
+    touches: "nothing", replay: "ask",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),
   }),
   "image.undo": def({
     summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
