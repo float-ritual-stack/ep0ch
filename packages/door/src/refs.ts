@@ -11,7 +11,7 @@ import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
-import { codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
+import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
@@ -268,7 +268,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     // A resource token the service names reads as itself without its brackets, and shows its Resource.
     for (const t of resources) for (let at = line.indexOf(t.raw); at >= 0; at = line.indexOf(t.raw, at + t.raw.length))
       spans.push({ start: at, end: at + t.raw.length, draw: () => mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }) });
-    for (const l of linkOccurrences(line)) {
+    for (const l of linkOccurrences(line, code)) {
       if (l.kind === "markdown") {
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
         spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
@@ -282,7 +282,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     }
     let out = "", at = 0;
     for (const s of spans.sort((a, b) => a.start - b.start)) {
-      if (s.start < at || code.some(c => c.start < s.end && s.start < c.end)) continue;
+      if (s.start < at || codeHides(s, code)) continue;
       out += line.slice(at, s.start) + s.draw();
       at = s.end;
     }

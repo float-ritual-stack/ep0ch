@@ -1,5 +1,5 @@
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
-import { literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
+import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, isWritablePropertyValue, propertyTokenMatches, propertyValueHolds, type RawPropertyToken } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
@@ -162,8 +162,12 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     while (literalIndex < literalRanges.length && literalRanges[literalIndex].end <= start) {
       literalIndex += 1;
     }
-    const literalRange = literalRanges[literalIndex];
-    const isLiteral = literalRange !== undefined && literalRange.start <= start;
+    // Literal ranges are merged and in order: only the ones from here to the token's end can hide it (the one rule,
+    // outline-core's codeHides: a span inside the value is the value's, one that holds the token or runs past it isn't).
+    let isLiteral = false;
+    for (let i = literalIndex; i < literalRanges.length && literalRanges[i].start < match.end && !isLiteral; i += 1) {
+      isLiteral = codeHides(match, [literalRanges[i]]);
+    }
     if (!isLiteral && !isEscapedAt(text, start)) matches.push({ match, start });
   }
 

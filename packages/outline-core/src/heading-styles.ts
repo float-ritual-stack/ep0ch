@@ -14,7 +14,6 @@
 // (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
-import { codeSpanRanges } from "./code-ranges";
 import { propertyTokensInLine, type PropertyTokenMatch } from "./property-grammar";
 
 export const BAND_PATTERNS = ["stack", "waffle", "uptime", "dots", "rule"] as const;
@@ -246,8 +245,7 @@ export function headingStylesFromBlocks(blocks: readonly HeadingStyleDeclaringBl
 
 /** A line's `[key::value]` tokens outside its code spans: a token in a code span is its text, as the service reads it. */
 export function liveTokensInLine(line: string): PropertyTokenMatch[] {
-  const code = codeSpanRanges(line);
-  return propertyTokensInLine(line).filter(t => !code.some(c => c.start < t.end && t.start < c.end));
+  return propertyTokensInLine(line);
 }
 
 /** `line` without `tokens` (some of its own), the text either side of each joined by one space. */

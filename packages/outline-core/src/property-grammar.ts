@@ -3,15 +3,16 @@
 // resolution use it, and the door imports it to find tokens while it paints. It lives in outline-core so
 // both sides import the same file: any change to what these patterns match bumps PROTOCOL (protocol.ts).
 //
-// This is the token grammar only. Whether a token counts as a property also depends on where it sits
-// (code spans, fences, literal regions, reference labels) and its scope, which `properties.preview`
-// answers for a whole text.
+// `propertyTokenMatches` is the token grammar only. Whether a token counts as a property also depends on where it
+// sits (code spans, fences, literal regions, reference labels) and its scope, which `properties.preview` answers for
+// a whole text; the line readers (`propertyTokensInLine` and what uses it) leave a line's code spans out themselves.
 //
 // A value is not "everything up to the first `]`": it runs to the property's own closing `]`, with the link grammar
 // balanced inside it (`[related::[[PC-967]], ((id|plan step 6))]`), and a list of values splits at commas outside links
 // (`splitPropertyValue`).
 
 import { blockReferenceOccurrences } from "./link-syntax";
+import { codeHides, codeSpanRanges } from "./code-ranges";
 
 /** A property key: a letter, then letters, digits, `_`, `.` or `-` (`plot.row`, `bed_2`; not `2nd-pass`). */
 export const PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
@@ -50,7 +51,8 @@ export function propertyValueEnd(text: string, from: number): number {
   if (first < 1) return -1; // no close, or an empty value (`[key::]` is text)
   // The common value holds no bracket and no reference: the first `]` is its end.
   if (!line.includes("[") && !line.includes("((")) return from + first;
-  const references = new Map(blockReferenceOccurrences(line).map(reference => [reference.start, reference.end]));
+  // The value's own structure: a reference here is grammar, wherever the token sits.
+  const references = new Map(blockReferenceOccurrences(line, []).map(reference => [reference.start, reference.end]));
   let depth = 1;
   for (let at = 0; at < line.length; at += 1) {
     const skip = references.get(at);
@@ -80,12 +82,13 @@ export function propertyTokenMatches(text: string): RawPropertyToken[] {
   return out;
 }
 
-/** `text` with each unescaped token replaced by what `replace` makes of it (return `token.raw` to keep it). */
+/** `text` with each token that is a property (unescaped, outside a code span) replaced by what `replace` makes of it. */
 export function replacePropertyTokens(text: string, replace: (token: RawPropertyToken) => string): string {
   let out = "";
   let cursor = 0;
+  const code = text.includes("`") ? codeSpanRanges(text) : [];
   for (const token of propertyTokenMatches(text)) {
-    out += text.slice(cursor, token.start) + (isEscapedAt(text, token.start) ? token.raw : replace(token));
+    out += text.slice(cursor, token.start) + (isEscapedAt(text, token.start) || codeHides(token, code) ? token.raw : replace(token));
     cursor = token.end;
   }
   return out + text.slice(cursor);
@@ -122,10 +125,15 @@ export interface PropertyTokenMatch {
   end: number;
 }
 
-/** The unescaped `[key::value]` tokens of one line of text, in order. */
+/**
+ * The `[key::value]` tokens of one line of text that are properties, in order: unescaped, and not in a code span
+ * (PIE-764: `` `[key::value]` `` quotes the syntax; `codeSpanRanges` is the rule). Fences are the caller's: a line
+ * alone can't say it is in one.
+ */
 export function propertyTokensInLine(line: string): PropertyTokenMatch[] {
+  const code = line.includes("`") ? codeSpanRanges(line) : [];
   return propertyTokenMatches(line)
-    .filter(token => !isEscapedAt(line, token.start))
+    .filter(token => !isEscapedAt(line, token.start) && !codeHides(token, code))
     .map(token => ({ key: token.key.toLowerCase(), value: token.value.trim(), raw: token.raw, start: token.start, end: token.end }));
 }
 
@@ -151,7 +159,7 @@ export function isPropertyTokenLine(line: string): boolean {
  * (`[[PC-967]], ((id|plan, step 6)), notes` is three). A value with no comma is one item.
  */
 export function splitPropertyValue(value: string): string[] {
-  const references = new Map(blockReferenceOccurrences(value).map(reference => [reference.start, reference.end]));
+  const references = new Map(blockReferenceOccurrences(value, []).map(reference => [reference.start, reference.end]));
   const items: string[] = [];
   let depth = 0;
   let from = 0;
@@ -176,7 +184,7 @@ export function splitPropertyValue(value: string): string[] {
 /** A value that is one link written whole: `[[page]]`, `[[page|label]]`, `((id))`, `((id|label))`, `!((id))`. */
 export function isLinkValue(value: string): boolean {
   const text = value.trim();
-  return /^\[\[[^\]\r\n]+\]\]$/.test(text) || (/^!?\(\(/.test(text) && blockReferenceOccurrences(text.replace(/^!/, "")).some(r => r.start === 0 && r.end === text.replace(/^!/, "").length));
+  return /^\[\[[^\]\r\n]+\]\]$/.test(text) || (/^!?\(\(/.test(text) && blockReferenceOccurrences(text.replace(/^!/, ""), []).some(r => r.start === 0 && r.end === text.replace(/^!/, "").length));
 }
 
 /**

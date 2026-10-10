@@ -25,7 +25,7 @@ const MAX_WRITTEN = 60;
 /** Every `((` outside code that the link grammar doesn't read as a reference (an embed's included), in order. */
 export function referenceSuspects(text: string): ReferenceSuspect[] {
   const code = protectedCodeRanges(text);
-  const refs = blockReferenceOccurrences(text);
+  const refs = blockReferenceOccurrences(text, code);
   const out: ReferenceSuspect[] = [];
   for (let start = text.indexOf("(("); start >= 0; start = text.indexOf("((", start + 2)) {
     const covering = refs.find(r => start >= r.start && start < r.end);
@@ -130,7 +130,7 @@ export async function referenceWarnings(text: string, lookups: ReferenceLookups)
   if (!text.includes("((")) return [];
   const out: ReferenceWarning[] = [];
   const code = protectedCodeRanges(text);
-  const refs = blockReferenceOccurrences(text).filter(r => !offsetInRanges(r.start, code));
+  const refs = blockReferenceOccurrences(text, code);
   const statuses = refs.length ? await quietly(() => lookups.resolve(refs.map(r => text.slice(r.start, r.end)).join("\n"))) : [];
   for (const [i, r] of refs.entries()) {
     const s = statuses?.[i];

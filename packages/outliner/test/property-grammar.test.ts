@@ -41,9 +41,9 @@ test("a line's tokens are exactly the ones the parser reads, outside code and li
   expect(isPropertyTokenLine("[2nd-pass::yes]")).toBe(false);
 });
 
-test("the module imports only outline-core's own link grammar: outline-core stays pure", () => {
+test("the module imports only outline-core's own link grammar and code rule: outline-core stays pure", () => {
   const source = readFileSync(join(import.meta.dir, "../../outline-core/src/property-grammar.ts"), "utf8");
-  for (const line of source.match(/^\s*import\s.*$/gm) ?? []) expect(line).toMatch(/from "\.\/link-syntax"/);
+  for (const line of source.match(/^\s*import\s.*$/gm) ?? []) expect(line).toMatch(/from "\.\/(?:link-syntax|code-ranges)"/);
   expect(source).not.toMatch(/\brequire\(/);
 });
 

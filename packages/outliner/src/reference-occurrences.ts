@@ -1,5 +1,5 @@
 import {Lexer, type Token} from "marked";
-import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
+import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
@@ -48,7 +48,12 @@ export function rangesOverlap(left: TextRange, right: TextRange): boolean {
 }
 
 export function protectedMarkdownRanges(text: string): TextRange[] {
-  const ranges = protectedCodeRanges(text);
+  return [...protectedCodeRanges(text), ...markdownLinkRanges(text)];
+}
+
+/** The Markdown links and images of `text` (where a reference or Work ID is the link's text, not a link of its own). */
+function markdownLinkRanges(text: string): TextRange[] {
+  const ranges: TextRange[] = [];
   for (const match of text.matchAll(/!?\[[^\]\n]*\]\([^)\n]*\)/g)) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
   }
@@ -122,14 +127,17 @@ export function outlinerReferenceOccurrences(
   }
 
   const protectedRanges = [
-    ...protectedMarkdownRanges(text),
+    ...markdownLinkRanges(text),
     ...propertyRecords.map((token) => ({ start: token.start, end: token.end })),
   ];
+  // Code is opaque (PIE-764): outline-core's one rule, which the link scans above already applied to their own.
+  const code = protectedCodeRanges(text);
   return candidates
     .filter((candidate) =>
       (candidate.kind === "block" ||
         !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
-      !protectedRanges.some((range) => rangesOverlap(candidate, range))
+      !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
+      !codeHides(candidate, code)
     )
     .sort((left, right) => left.start - right.start);
 }

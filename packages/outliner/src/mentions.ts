@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 import { blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
 import { pageAddressReferences } from '@ep0ch/outline-core/link-syntax';
+import { offsetInRanges, protectedCodeRanges } from '@ep0ch/outline-core/code-ranges';
 import {outlinerReferenceOccurrences} from './reference-occurrences';
 import {marked} from 'marked';
 import {parseOutlinerLinkUri} from './outliner-links';
@@ -32,8 +33,10 @@ export function extractMentionReferences(text:string,prefix?:string):Reference[]
    if(target.kind==='block'||target.kind==='page'||target.kind==='work')refs.push({kind:target.kind==='block'?'block':'address',value:target.value,start,end:start+token.raw.length});
   } catch { /* Malformed destinations are not navigable references. */ }
  });
+ // A bare id in code is the code's text, as a reference there is (PIE-764).
+ const code=protectedCodeRanges(text);
  for(const match of text.matchAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)){
-  if(!refs.some(r=>match.index>=r.start&&match.index<r.end))refs.push({bare:true,kind:'block',value:match[0].toLowerCase(),start:match.index,end:match.index+match[0].length});
+  if(!refs.some(r=>match.index>=r.start&&match.index<r.end)&&!offsetInRanges(match.index,code))refs.push({bare:true,kind:'block',value:match[0].toLowerCase(),start:match.index,end:match.index+match[0].length});
  }
  const seen=new Set<string>();
  return refs.sort((a,b)=>a.start-b.start).filter(r=>{const key=`${r.kind}:${r.value.toLowerCase()}`;if(seen.has(key))return false;seen.add(key);return true;});

@@ -125,6 +125,12 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(drawn.some(l => l.includes("A label can hold parentheses: the kettle (the dented one) needs a new lid."))).toBe(true);
     expect((await board.backlinks(seeded.notes.shed.id)).sources.map(b => b.blockId)).toContain(seeded.notes.notebook.id);
     expect((await board.resolvePage(SEED.shed)).status).toBe("resolved");
+    // Quoting the syntax (PIE-764): what backticks and a fence hold is drawn as written, and is no link or property.
+    expect(drawn.some(l => l.includes("((transcript^t0817|at 08:17))"))).toBe(true);
+    expect(await scope("key")).toEqual([]);
+    const links = await board.authoredLinks(seeded.notes.notebook.id);
+    if (links.kind !== "ready") throw new Error(links.kind);
+    expect(links.outlinks.entries.map(e => e.label).filter(l => ["at 08:17", "Compost heap", "transcript"].includes(l))).toEqual([]);
   });
 
   test("comment threads, open and resolved; children; every figure kind", async () => {
@@ -381,6 +387,22 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(stage).not.toContain("parallel version");
     expect(stage).not.toContain("BBS Reader");
   });
+
+  test("the note section quotes the syntax (PIE-764): the reader's links skip what backticks and a fence hold; an agent following one by number reaches only real ones", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "note" }, as: "test-agent" })).toMatchObject({ key: "note" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "note")).top; };
+    const reader = () => (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === seeded.notes.notebook.id);
+    await until(() => !!reader(), "the notebook in the reader", 5000);
+    const links = (stage().pane(reader().name) as any).describe().links as { n: number; block?: string; page?: string; label?: string }[];
+    expect(links.length).toBeGreaterThan(2);
+    expect(links.filter(l => l.label === "at 08:17" || l.page === "Compost heap" || l.block === "transcript")).toEqual([]);
+    expect(links.some(l => l.page === SEED.shed)).toBe(true);
+    // Past the last real link there is none: the quoted ones aren't counted.
+    await expect(app.act({ action: "link.follow", tile: reader().name, args: { n: links.length + 1 }, as: "test-agent" }))
+      .rejects.toThrow(`the note has ${links.length}`);
+    expect(S().focus).toBe("index");
+  }, 20_000);
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
     const spine = SECTIONS.findIndex(s => s.key === "spine");

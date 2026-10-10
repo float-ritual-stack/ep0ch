@@ -9,7 +9,7 @@ import { figureSource, frame, graphKind, reframeAscii, renderGraph, type Figures
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
-import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
@@ -244,7 +244,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   const src = body.split("\n");
   const block = noteStructure(src), images = mediaLines(src);
   // A line declaring a heading style draws as what it declares, never a heading (`# Plot style [heading-style::plot]`).
-  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !embedPattern().test(src[i]!) && !headingStyleDeclaration(src[i]!);
+  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !linkOccurrences(src[i]!, "inline").some(l => l.kind === "block" && l.embed) && !headingStyleDeclaration(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
@@ -681,8 +681,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const pieces: (string | { id: string; fragment?: string })[] = [];
       const code = codeSpanRanges(line);
       let at = 0;
-      for (const l of linkOccurrences(line)) {
-        if (l.kind !== "block" || !l.embed || code.some(c => c.start < l.end && l.start < c.end)) continue;
+      for (const l of linkOccurrences(line, code)) {
+        if (l.kind !== "block" || !l.embed) continue;
         pieces.push(line.slice(at, l.start), { id: l.blockId, fragment: l.fragmentId });
         at = l.end;
       }

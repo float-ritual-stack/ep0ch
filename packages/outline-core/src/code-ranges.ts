@@ -42,56 +42,12 @@ export function offsetInRanges(offset: number, ranges: readonly SourceRange[]): 
   return ranges.some(range => offset >= range.start && offset < range.end);
 }
 
-function findEqualBacktickRun(text: string, start: number, end: number, length: number): number {
-  let cursor = start;
-  while (cursor < end) {
-    const opener = text.indexOf("`", cursor);
-    if (opener < 0 || opener >= end) return -1;
-    let runEnd = opener + 1;
-    while (runEnd < end && text[runEnd] === "`") runEnd += 1;
-    if (runEnd - opener === length) return opener;
-    cursor = runEnd;
-  }
-  return -1;
-}
-
 /**
- * The property parser's code spans outside `blockRanges`: a run of backticks to the next run of the same length, or
- * to the end of its line when none closes it (an unclosed span still protects what follows on its line).
+ * Code spans outside `blockRanges` (fences and regions are block-level; a span never pairs across them). Spans are
+ * `codeSpanRanges`': one line each, and an unclosed backtick run is text.
  */
-function inlineLiteralRanges(text: string, lines: SourceLine[], blockRanges: SourceRange[]): SourceRange[] {
-  const ranges: SourceRange[] = [];
-  let lineIndex = 0;
-
-  function scanRegion(start: number, end: number): void {
-    let cursor = start;
-    while (cursor < end) {
-      const opener = text.indexOf("`", cursor);
-      if (opener < 0 || opener >= end) return;
-      while (lineIndex + 1 < lines.length && lines[lineIndex]!.end <= opener) lineIndex += 1;
-
-      let openerEnd = opener + 1;
-      while (openerEnd < end && text[openerEnd] === "`") openerEnd += 1;
-      const length = openerEnd - opener;
-      const closing = findEqualBacktickRun(text, openerEnd, end, length);
-      if (closing >= 0) {
-        const rangeEnd = closing + length;
-        ranges.push({ start: opener, end: rangeEnd });
-        cursor = rangeEnd;
-      } else {
-        ranges.push({ start: opener, end: lines[lineIndex]!.contentEnd });
-        cursor = lines[lineIndex]!.end;
-      }
-    }
-  }
-
-  let regionStart = 0;
-  for (const range of blockRanges) {
-    scanRegion(regionStart, range.start);
-    regionStart = range.end;
-  }
-  scanRegion(regionStart, text.length);
-  return ranges;
+function inlineLiteralRanges(text: string, blockRanges: SourceRange[]): SourceRange[] {
+  return codeSpanRanges(text).filter(span => !offsetInRanges(span.start, blockRanges));
 }
 
 // ── literal regions (PIE-422): `<!-- literal -->` … `<!-- /literal -->`, where properties are text ─────────────
@@ -220,6 +176,12 @@ export function structuralLiteralLines(lines: readonly string[]): { start: numbe
     // Front matter the component closes without a second `---`: literal to the block's end.
     if (open >= 0 && !closed) spans.push({ start: open, end: block.end });
   }
+  return [...spans, ...quotedFenceLines(lines)];
+}
+
+/** The fences inside a quote or callout, by line (first and last, inclusive): `structuralLiteralLines`' second half. */
+function quotedFenceLines(lines: readonly string[]): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
   let fence = null as { depth: number; code: CodeFence; start: number } | null;
   lines.forEach((raw, i) => {
     const line = raw.replace(/\r$/, ""), { depth, content } = quoteDepth(line);
@@ -262,7 +224,7 @@ export function scanPropertyLiteralRanges(text: string): SourceRange[] {
   const { regions } = literalRegionsFromLines(text, lines, fences);
   // Fences and regions are block-level; inline code never pairs across them.
   const blockRanges = mergeRanges([...fences, ...regions, ...structuralLiteralRanges(text, lines)]);
-  const inlineLiterals = inlineLiteralRanges(text, lines, blockRanges);
+  const inlineLiterals = inlineLiteralRanges(text, blockRanges);
   return mergeRanges([...blockRanges, ...inlineLiterals]);
 }
 
@@ -286,7 +248,79 @@ export function protectedCodeRanges(text: string): SourceRange[] {
   return ranges;
 }
 
-/** The code spans a link can't be in: a run of backticks to the next as many backticks on its line. */
+/**
+ * The code spans of `text`, the one inline code rule (PIE-764): a run of backticks opens a span that the next run of
+ * exactly as many backticks on the same line closes (CommonMark's rule for which run closes). Two decisions differ
+ * from CommonMark or settle what it leaves to the paragraph:
+ *
+ * - An unclosed run is text, as in CommonMark: it opens nothing, and the scan goes on after it. A stray backtick
+ *   never hides what follows it.
+ * - A span is one line. CommonMark lets one cross a line break inside a paragraph; a note's lines are its bullets and
+ *   metadata lines, so a span that crossed one would let a backtick on one line hide the properties and links of the
+ *   next (the annotation title bug of PIE-761: a cut quote's lone backtick swallowed its `[type::annotation]` line).
+ *
+ * Whatever a span holds is text: a `((reference))`, `[[page]]`, `!((embed))`, `[key::value]` or `#tag` in one is never
+ * a link, a property or a completion trigger.
+ */
 export function codeSpanRanges(text: string): SourceRange[] {
-  return [...text.matchAll(/(`+)[^\n]*?\1/g)].map(match => ({ start: match.index, end: match.index + match[0].length }));
+  const ranges: SourceRange[] = [];
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    const newline = text.indexOf("\n", lineStart);
+    const lineEnd = newline < 0 ? text.length : newline;
+    let at = text.indexOf("`", lineStart);
+    while (at >= 0 && at < lineEnd) {
+      let runEnd = at + 1;
+      while (runEnd < lineEnd && text[runEnd] === "`") runEnd += 1;
+      const length = runEnd - at;
+      // The closing run: the next run of exactly `length` backticks on this line.
+      let close = -1;
+      for (let c = text.indexOf("`", runEnd); c >= 0 && c < lineEnd;) {
+        let e = c + 1;
+        while (e < lineEnd && text[e] === "`") e += 1;
+        if (e - c === length) { close = c; break; }
+        c = text.indexOf("`", e);
+      }
+      if (close >= 0) {
+        ranges.push({ start: at, end: close + length });
+        at = text.indexOf("`", close + length);
+      } else {
+        // Unclosed: the run is text; a later, different run may still open a span.
+        at = text.indexOf("`", runEnd);
+      }
+    }
+    if (newline < 0) break;
+    lineStart = newline + 1;
+  }
+  return ranges;
+}
+
+/**
+ * Whether code hides `range` (a link, a property token): a code range overlaps it and isn't strictly inside it (a
+ * fence's line is the whole line, so a link that is all of one is hidden). A reference written in a code span, or one whose `))` a span runs past, is text; a reference whose label
+ * holds a code span (`((id|the `x` flag))`) is a reference.
+ */
+export function codeHides(range: SourceRange, code: readonly SourceRange[]): boolean {
+  return code.some(c => c.start < range.end && range.start < c.end && !(range.start < c.start && c.end < range.end));
+}
+
+/**
+ * Whether the cursor at `column` of line `row` is in code, for completion (PIE-764): in fenced or indented code, a
+ * fence inside a quote, or after a backtick run on its line that nothing before the cursor closes. The last is the
+ * span being typed: its closing backticks aren't written yet, so no popup opens inside it. (A saved note's stray
+ * backtick is text, `codeSpanRanges`; a person typing after one is writing code.)
+ */
+export function cursorInCode(lines: readonly string[], row: number, column: number): boolean {
+  const line = lines[row];
+  if (line === undefined) return false;
+  const { fences, indented } = codeBlocks(lines);
+  if (fences.some(f => f.start <= row && row <= f.end) || indented.includes(row)) return true;
+  if (quotedFenceLines(lines).some(s => s.start <= row && row <= s.end)) return true;
+  const before = line.slice(0, Math.max(0, Math.min(column, line.length)));
+  const spans = codeSpanRanges(before);
+  for (let at = before.indexOf("`"); at >= 0; at = before.indexOf("`", at + 1)) {
+    if (offsetInRanges(at, spans)) continue;
+    return true;
+  }
+  return false;
 }

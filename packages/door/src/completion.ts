@@ -4,7 +4,8 @@
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
-import { inCodeFence, propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
+import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
+import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
@@ -38,6 +39,8 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
  * or with the draft's `lines` and `row`, a key or value in a component block's YAML; else null.
  */
 export function completionTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
+  // Code is opaque (PIE-764): no popup in a fence, a code span, or one being typed (outline-core's cursorInCode).
+  if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
   const callout = calloutTypeAtCursor(line, column);
   if (callout) return { kind: "callout", ...callout };
   const yaml = lines && row !== undefined ? yamlAtCursor(lines, row, column) : null;
@@ -65,8 +68,7 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     }
   }
   if (target) return target;
-  // A property in a code fence is the code's text.
-  const prop = lines && row !== undefined && inCodeFence(lines, row) ? null : propertyAtCursor(line, column);
+  const prop = propertyAtCursor(line, column);
   if (!prop) return null;
   return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
 }

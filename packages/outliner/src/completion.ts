@@ -1,3 +1,4 @@
+import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { PageAddressMatch } from "./types";
 import { referenceEnvelopeEnd } from "@ep0ch/outline-core/addressable-resource";
 import { workIdReferences } from "./work-ids";
@@ -75,10 +76,17 @@ export function pageAddressCompletion(
 }
 
 
+/**
+ * The innermost unclosed `[[`, `((` or `[file::` before the cursor, or null. With the note's `lines` and the cursor's
+ * `row`, null in code too (PIE-764, outline-core's `cursorInCode`): a fence, a code span, or one being typed.
+ */
 export function completionTargetAtCursor(
   line: string,
   column: number,
+  lines?: readonly string[],
+  row?: number,
 ): CompletionTarget | null {
+  if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
   let target: CompletionTarget | null = null;
