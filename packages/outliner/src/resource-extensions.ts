@@ -113,6 +113,12 @@ async function boundedFile(path: string): Promise<string> {
   return file.text();
 }
 
+/** The outlines folder whose host listens at `socket` (`<outlines>/.host/host.sock`), else undefined. */
+export function outlinesOfHostSocket(socket: string | undefined): string | undefined {
+  const suffix = "/.host/host.sock";
+  return socket?.endsWith(suffix) && socket.length > suffix.length ? socket.slice(0, -suffix.length) : undefined;
+}
+
 /** What every extension process gets besides its request (PIE-754): no more than this, and no host secrets. */
 export interface ExtensionProcessEnv {
   readonly [name: string]: string;
@@ -661,6 +667,9 @@ export class ResourceExtensionRuntime {
       EP0CH_EXT_GRANT: grant,
       ...(connection.socket ? { EP0CH_SOCKET: connection.socket } : {}),
       ...(connection.outline ? { EP0CH_WS: connection.outline } : {}),
+      // An outline host's own socket says where its outlines are: a program it starts (`claude` for @margin) finds the
+      // same host and folder, and the mod knows the socket is this machine's.
+      ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
     };
     let output: string;
     try {

@@ -106,14 +106,16 @@ export function namedWorkspaceOf(
 }
 
 /**
- * Whether EP0CH_SOCKET (when set) is a host on this machine that EP0CH_WS can name an outline on: an absolute socket
- * that isn't a forward to another machine (`<outlines>/.remote/<ssh-name>.sock`), with no EP0CH_MACHINE beside it.
- * Unset is fine too.
+ * Whether EP0CH_SOCKET (when set) is this machine's outline host: exactly `<outlines>/.host/host.sock`, the outlines
+ * folder being EP0CH_OUTLINES, else `~/outlines`, with no EP0CH_MACHINE beside it. Any other socket (an ssh forward
+ * anywhere, `/tmp/remote.sock` too) could be another machine's host, so it's refused. Unset is fine.
  */
-export function sameHostSocket(socket: string | undefined, machine: string | undefined): boolean {
+export function sameHostSocket(socket: string | undefined, machine: string | undefined, outlines: string | undefined, home: string | undefined): boolean {
   const path = socket?.trim()
   if (!path) return true
-  return path.startsWith('/') && !/\/\.remote\//.test(path) && !machine?.trim()
+  if (machine?.trim()) return false
+  const folder = (outlines?.trim() || (home?.trim() ? `${home.trim().replace(/\/+$/, '')}/outlines` : '')).replace(/\/+$/, '')
+  return !!folder && folder.startsWith('/') && path === `${folder}/.host/host.sock`
 }
 
 /**

@@ -881,9 +881,9 @@ async function namedFromEnv($: EngineInterface, cwd: string): Promise<Workspace 
   if (!ws?.trim()) return null
   const machine = await $.env.get('EP0CH_MACHINE')
   // EP0CH_SOCKET with EP0CH_WS names a host and the outline on it, the pair an outline host hands every program it
-  // starts (an extension's process, @margin's session): the CLI asks that host for that outline. A forward to another
-  // machine (`.remote/`), or one beside EP0CH_MACHINE, would take every CLI run elsewhere than the outline named.
-  if (!sameHostSocket(await $.env.get('EP0CH_SOCKET'), machine)) {
+  // starts (an extension's process, @margin's session, with its EP0CH_OUTLINES): taken only when it is this machine's
+  // host socket. Any other (a forward to another machine, wherever it lives) would take every CLI run elsewhere.
+  if (!sameHostSocket(await $.env.get('EP0CH_SOCKET'), machine, await $.env.get('EP0CH_OUTLINES'), await $.env.get('HOME'))) {
     throw Error("EP0CH_SOCKET in Claude's environment would send it to another machine's host than EP0CH_WS names; unset it, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
   }
   return namedWorkspaceOf(cwd, null, ws, machine)
