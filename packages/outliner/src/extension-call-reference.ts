@@ -17,8 +17,10 @@ import type {
   BlockCommentPassage,
   BlockProperty,
   BlockSearchQuery,
+  ChangeFeedPage,
   NoteAddress,
   NotePublication,
+  OutlinerChange,
   OutlinerRequestAction,
   PageAddressResolution,
   RenderedNote,
@@ -71,6 +73,13 @@ export interface ExtensionCallReference {
   "annotations.batch": Call<Ask<"annotations.batch">, ReturnType<OutlinerStore["createAnnotationBatch"]>>;
   /** A reply in a thread; `requestId` as `annotations.batch`'s. */
   "annotations.reply": Call<Ask<"annotations.reply">, ReturnType<OutlinerStore["replyToAnnotation"]>>;
+  /**
+   * What changed in the outline after `sequence` (a cursor you keep), oldest first: each change's block, kind and who
+   * wrote it. The way to react to the outline ("a note mentions me", "a card moved") without reading it all: keep
+   * `nextSequence` as your cursor ([where state lives](#where-an-extension-keeps-its-state)); a `reset` page says the
+   * history is gone, so read what you need afresh and resume from its `sequence`.
+   */
+  "changes.since": Call<Ask<"changes.since">, ChangeFeedPage>;
   /** The outline, this machine's name and, with `blockId`, the note's `ep0ch://` URI and its web URLs when it is published. */
   "notes.address": Call<Ask<"notes.address">, NoteAddress>;
   /** A note and the notes under it, rendered by the publisher's renderer (Markdown or HTML), published or not. */
@@ -94,6 +103,8 @@ export interface ExtensionCallTypes {
   BlockCommentPassage: BlockCommentPassage;
   AnnotationReplyInput: AnnotationReplyInput;
   AnnotationBatchReceipt: AnnotationBatchReceipt;
+  ChangeFeedPage: ChangeFeedPage;
+  OutlinerChange: OutlinerChange;
   NoteAddress: NoteAddress;
   NotePublication: NotePublication;
   RenderedNote: RenderedNote;

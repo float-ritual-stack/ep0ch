@@ -2426,7 +2426,13 @@ export type OutlinerRequestAction =
       /** Who stamped it: an agent's allocation is attributed. */
       mutation?: MutationProvenance;
     }
-  | { id: string; action: "changes.since"; sequence: number; limit?: number }
+  | {
+      id: string; action: "changes.since";
+      /** The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. */
+      sequence: number;
+      /** At most this many changes (default 200, at most 1000); a page never splits one sequence. */
+      limit?: number;
+    }
   /**
    * A note's address (PIE-767): the outline, this host's machine name, the note's `ep0ch://` URI and, when it is
    * published, its web URLs (`NoteAddress`). Without `blockId`, the outline and machine alone. Reads only.

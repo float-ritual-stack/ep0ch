@@ -132,7 +132,7 @@ const TONES: Record<string, string> = { yellow: "warn", orange: "warn", blue: "a
 
 /**
  * Imported words stay words: a `[key::value]`, `[[page]]` or `((ref))` in a highlight is escaped, never a property or a
- * link. A `[key::value]` takes outline-core's escape (`\\[`); a link has none yet, so every `[` or `(` before another
+ * link. A `[key::value]` takes outline-core's escape (`\\[`); a link is a pair, so every `[` or `(` before another
  * gets a backslash after it (`[\\[page]]`, `(\\(ref))`): no two are left side by side, however many there were.
  */
 const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[").replace(/\[(?=\[)/g, "[\\").replace(/\((?=\()/g, "(\\");

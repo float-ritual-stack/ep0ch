@@ -1025,11 +1025,20 @@ Text from outside (a highlight, a message, a title) must not become properties o
 - **A code span or fence is the escape for links and properties** (PIE-764, #366): `` `[[Herons]]` ``,
   `` `((ref))` `` and `` `[mood::calm]` `` are text, for every reader, the index and the publisher. Use it for text
   that *is* code or a literal (an id, a command, a path).
-- **For prose it reads wrong** (a highlight in monospace, and a backtick in the text needs a longer fence), so
-  today: a `[key::value]` takes outline-core's escape, `\[mood::calm]`; and a link has no escape yet, so break the
-  pair: a backslash after each `[` or `(` that has another after it (`[\[Herons]]`, `(\(ref))`). Readwise's `inert()`
-  does both. A real escape for `[[` and `((` in outline-core's grammar is the open question (it changes what the
-  grammar matches, so PROTOCOL).
+- **For prose, a backslash** (a highlight in monospace reads wrong, and a backtick in the text needs a longer
+  fence). A `[key::value]` takes outline-core's escape, `\[mood::calm]`. A link is a pair, so break the pair: a
+  backslash after each `[` or `(` that has another after it (`[\[Herons]]`, `(\(ref))`), so no two are side by side
+  and no reader finds a link. Readwise's `inert()` does both in one line:
+
+  ```ts
+  const inert = (text: string) => text.replace(/\r/g, "").replace(/\[(?=[A-Za-z][\w.-]*::)/g, "\\[")
+    .replace(/\[(?=\[)/g, "[\\").replace(/\((?=\()/g, "(\\");
+  ```
+
+  The publisher, `notes.render`, Detail and Reader draw the words without the backslash (`[[Herons]]`, as Markdown
+  escapes do); the door's note surface shows it as typed, as it does a `\[key::value]`'s. This is the escape: the
+  grammar has no separate one for `[[` and `((`, and needs none (PIE-767 checked; adding one would change what
+  outline-core matches in text people already wrote).
 - **A block an action's `writes` creates is inert** by itself (its `key::` lines and `[key::value]` stay words); a
   block written over the connection is a normal write, so escape what you import there.
 
@@ -1187,6 +1196,17 @@ A reply in a thread; `requestId` as `annotations.batch`'s.
 | `input` | `AnnotationReplyInput` |  |
 
 Answers `AnnotationBatchReceipt`.
+
+#### `changes.since`
+
+What changed in the outline after `sequence` (a cursor you keep), oldest first: each change's block, kind and who wrote it. The way to react to the outline ("a note mentions me", "a card moved") without reading it all: keep `nextSequence` as your cursor ([where state lives](#where-an-extension-keeps-its-state)); a `reset` page says the history is gone, so read what you need afresh and resume from its `sequence`.
+
+| Field | Type | |
+|---|---|---|
+| `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
+| `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
+
+Answers `ChangeFeedPage`.
 
 #### `notes.address`
 
@@ -1401,6 +1421,28 @@ Answers `RenderedNote`.
 | `annotations` | `AnnotationRecord[]` | What was written, one per operation, in order. |
 | `deduplicated` | `boolean` | True when the `requestId` had been used with these same operations: the first receipt, and nothing written now. |
 
+**`ChangeFeedPage`**
+
+- `{ kind: "changes"; changes: OutlinerChange[]; nextSequence: number; completeness: BlockCollectionCompleteness; sequence: number; }`
+- `{ kind: "reset"; reason: "history-unavailable" \| "sequence-ahead"; oldestSequence: number; sequence: number; }`
+
+**`OutlinerChange`**
+
+| Field | Type | |
+|---|---|---|
+| `sequence` | `number` | Service sequence after the change; changes are ordered by sequence, then `changeId`. |
+| `changeId` | `number` | Monotonic feed position; unique even when two changes share a sequence. |
+| `action` | `string` | The request (or internal) action that caused the change. |
+| `kind` | `OutlinerChangeKind` |  |
+| `blockId?` | `string` | Primary block. Other blocks (a moved subtree, reordered siblings) may change too. |
+| `parentId?` | `string` | Parent after the change; `null` for a root. Absent without a readable block. |
+| `previousParentId?` | `string` | Parent before a `move`. |
+| `revision?` | `number` | Block revision after the change. |
+| `deleted?` | `boolean` | True when the block is in Trash after the change. |
+| `actor?` | `MutationProvenance` | Declared provenance of the request; absent when the request carried none. |
+| `requestedBy?` | `MutationProvenance` | Who asked for the change when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent (`extensions.act`'s `mutation`). Absent when the writer acted on its own. |
+| `recordedAt` | `string` |  |
+
 **`NoteAddress`**: A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names), the note's URI, and where it is published when it is.
 
 | Field | Type | |
@@ -1479,7 +1521,7 @@ Run 2 built the Readwise extension with no core change, reading the source for t
 | A schedule once per host, or in one outline (Readwise needed a claim on its board page) | [`"once": "host"`](#a-schedule); Readwise's claim is gone |
 | Where a sync keeps its cursor (its folder reloads it) | [Where an extension keeps its state](#where-an-extension-keeps-its-state) |
 | A collection doesn't fit annotations or cursors, and caps at 500 | [Collection or program?](#collections) |
-| No escape for `[[page]]` or `((ref))` in imported text | [Imported text](#imported-text-keep-its-words-words): code spans (PIE-764) for literals; for prose, the pair broken. A grammar escape is open |
+| No escape for `[[page]]` or `((ref))` in imported text | [Imported text](#imported-text-keep-its-words-words): code spans (PIE-764) for literals; for prose, the pair broken with a backslash, which every renderer but the door's surface draws as the plain words. No grammar escape is needed |
 | No web URL for a note, no machine name for an `ep0ch://` link | [`notes.address`](#a-notes-address-and-its-rendering) |
 | No HTML or Markdown render of a note | [`notes.render`](#a-notes-address-and-its-rendering), the publisher's renderer |
 | Whether a write only to an outside service is `read` or `write` | [Writes to an outside service](#writes-to-an-outside-service) |
@@ -1615,6 +1657,13 @@ An extension that calls an outside API is shown the same way, with the outside w
 
 [readwise](../../extensions/readwise) is this, with annotations at passages and a board in another outline.
 
+**Around the extension (a kit).** A sync is usually one part of a kit: what it writes is shown and sorted by parts
+that are notes, not code. An inbox is a **view** (`[type::virtual-branch]` with a `[query::…]` on the sync's own
+properties, `stars.state=unread`), a board is a **hub** with two or more views under it, a familiar filter is a saved
+query, and a "when an item lands, tag it" step is a [rule note](#rule-notes-the-no-code-tier). Their syntax is the
+`ep0ch-outline` skill's "Views, boards and hubs" (`packages/door/skills/ep0ch-outline/SKILL.md`). Query the
+properties your sync writes; never a list of keys in code ([properties are open](../../../../AGENTS.md#properties-are-open)).
+
 ## Not yet
 
 - **The door's `::graph-*` figures** (`graph-check`, `graph-stat`, `graph-table`, `graph-rank`) stay
@@ -1632,6 +1681,4 @@ An extension that calls an outside API is shown the same way, with the outside w
   until `r` on it (or it's worded differently).
 - **The publisher** shows data records (they are blocks) but not yet handler outputs; it will ask
   `extensions.render` for `html`. So `notes.render` doesn't draw a handler line's output either.
-- **An escape for `[[` and `((`** in outline-core's grammar, for imported prose ([imported
-  text](#imported-text-keep-its-words-words)).
 - **Generic Resource providers.** `kind: "resource"` is Jira's path; others use `data`.
