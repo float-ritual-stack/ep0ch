@@ -60,10 +60,12 @@ export async function refreshTicket(b: SocketBoard, resourceId: string): Promise
   await b.refreshResource(resourceId);
 }
 
-/** The outliner's example extensions the showcase shows (PIE-507): one of each kind, an @name agent, and a scheduled program (PIE-754). */
-export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy", "glyphs", "almanac"] as const;
+/** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */
+export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot", "tidy", "glyphs"] as const;
 /** The outliner's example rules (PIE-600): one that decorates, one that runs, one on a text pattern. */
 export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
+/** The outliner's example program (PIE-754): a scheduled action that writes a dated note under a page. Installed with the rules. */
+export const PROGRAM_EXAMPLES = ["almanac"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user
