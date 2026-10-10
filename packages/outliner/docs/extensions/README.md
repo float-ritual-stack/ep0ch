@@ -821,6 +821,8 @@ socket call.
 An extension is a program (PIE-754), not only something a line or a key calls: it can run on a schedule, reach the
 outline over its own connection, write anywhere its host serves, read a `with-secrets` key, and keep a collection.
 [almanac](../../extensions/almanac) is the example: every morning it writes a dated note under the `almanac` page.
+[readwise](../../extensions/readwise) is the full one: an action that sends a note to Readwise Reader, and an hourly
+pull that writes each highlight back as an annotation at its passage, or onto a board in another outline.
 
 ### A schedule
 

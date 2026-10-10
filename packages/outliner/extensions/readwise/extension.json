@@ -1,0 +1,36 @@
+{
+  "contract": 2,
+  "id": "readwise",
+  "version": 1,
+  "name": "Readwise",
+  "description": "Send a note to Readwise Reader, and pull your Readwise and Reader highlights back: onto the note they came from, at the passage, or onto a readwise board.",
+  "run": ["bun", "readwise.ts"],
+  "deadline": "5m",
+  "secrets": {
+    "token": { "group": "readwise", "key": "READWISE_TOKEN", "description": "Readwise access token (readwise.io/access_token)" }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "board": { "type": "string", "minLength": 1, "description": "The outline other highlights land in (default readwise)" },
+      "page": { "type": "string", "minLength": 1, "description": "The page in the board outline they land under (default readwise)" },
+      "link": { "type": "string", "minLength": 1, "description": "The URL a sent note gets in Reader, with {outline}, {machine} and {id} (default https://ep0ch.invalid/{outline}@{machine}/b/{id})" },
+      "machine": { "type": "string", "minLength": 1, "description": "This machine's name in ep0ch:// links (default the host name)" },
+      "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags a sent document gets in Reader (default [\"ep0ch\"])" },
+      "api": { "type": "string", "minLength": 1, "description": "Readwise's address (default https://readwise.io); a test points it at a fake" },
+      "minutes": { "type": "integer", "minimum": 1, "maximum": 4, "description": "How long one pull may work before it stops and leaves the rest for the next (default 4)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "send", "label": "Send to Reader", "on": "block", "effects": "write",
+      "description": "Saves the note (and the notes under it) to Readwise Reader as a document that links back here"
+    },
+    {
+      "id": "pull", "label": "Pull Readwise highlights", "on": "outline", "effects": "write",
+      "description": "Fetches highlights changed since the last pull: one on a note you sent becomes an annotation at its passage; the rest land on the readwise board",
+      "schedule": { "every": "1h" }
+    }
+  ]
+}

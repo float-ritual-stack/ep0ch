@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A Readwise extension: send a note to Reader, pull highlights back (PIE-743)
+
+- **New:** `extensions/readwise`, an example extension. `ext.readwise.send` saves a note (and the notes under it) to
+  Readwise Reader as a document that links back to it. `ext.readwise.pull` runs every hour: a highlight on a sent note
+  becomes an annotation at its passage (`kind=highlight`, your note as the body); every other highlight lands on a
+  `readwise` board outline, a block per book and per highlight. Running it twice writes nothing new.
+- Setup: `with-secrets --add readwise READWISE_TOKEN`, `ep0ch init readwise`, `ep0ch ext add readwise`.
+- *Why it matters:* the first real extension built from the extension docs alone by an agent that hadn't seen the code;
+  your Reader notes come back into the outline without copy and paste.
+
 ### Extensions are programs: a schedule, a connection to the outline, writes anywhere, secrets by group (PIE-754)
 
 - **New:** a handler or action may declare `schedule` (`every` or `cron`). The outline host runs it and records each
