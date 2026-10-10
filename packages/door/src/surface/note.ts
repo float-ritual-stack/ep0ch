@@ -4440,7 +4440,7 @@ export class NoteSurface {
     // The passage toolbar goes on the line too: when it all fits beside the count and [Y source] they stay; else they
     // give it their room (Y still copies the source).
     const bar = this.msg && !this.msg.partial && s.text(rows).trim() ? this.passageChoices() : [];
-    const full = `── ${n} chars ${copy} ${source} │ `.length + width(toolbarRow(bar, this.passageMenu, w).text.replace(/\x1b\[[\d;]*m/g, ""));
+    const full = `── ${n} chars ${copy} ${source} · `.length + width(toolbarRow(bar, this.passageMenu, w).text.replace(/\x1b\[[\d;]*m/g, ""));
     const compact = bar.length > 0 && full > w;
     const lead = compact ? "" : `── ${n} chars `;
     const at = d.top - 1, wide = !compact && lead.length + copy.length + 1 + source.length <= w, fits = !!lead && lead.length + copy.length <= w;
@@ -4453,7 +4453,7 @@ export class NoteSurface {
     if (bar.length) {
       const left = width(shown) + 3, row = toolbarRow(bar, this.passageMenu, w - left);
       if (row.hits.length) {
-        shown += fg(C.blue) + " │ " + row.text;
+        shown += fg(C.grey) + " · " + row.text;
         for (const x of row.hits) this.hits.push({ row: at, from: left + x.from, to: left + x.to, passage: x.action });
       }
     }

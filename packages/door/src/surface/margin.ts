@@ -111,7 +111,7 @@ export interface PassageChoice { action: string; label: string; key?: string }
 /** The toolbar's chips in one row, `w` cells at most: `a ▸ [Highlight h] [Comment c] …`, and where each landed. */
 export function toolbarRow(choices: readonly PassageChoice[], armed: boolean, w: number): { text: string; hits: { from: number; to: number; action: string }[] } {
   const hits: { from: number; to: number; action: string }[] = [];
-  let text = fg(armed ? C.yellow : C.blue) + (armed ? "a ▸ " : "a: "), col = width0(armed ? "a ▸ " : "a: ");
+  let text = fg(armed ? C.yellow : C.grey) + (armed ? "a ▸ " : "a: "), col = width0(armed ? "a ▸ " : "a: ");
   for (const c of choices) {
     const shown = `[${c.label}${c.key ? ` ${c.key}` : ""}]`;
     if (col + shown.length + 1 > w) break;
