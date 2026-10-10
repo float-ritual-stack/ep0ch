@@ -1,3 +1,4 @@
+import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { FragmentCandidateCollection, FragmentCandidateQuery } from "./fragment-search";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
 import type {DocumentSelection} from './document-frame';
@@ -975,8 +976,10 @@ export function renderedSelectionAnnotationTarget(
         : "canonical";
   const { snapshotText, passage, ...evidence } = capture;
   const observation: RenderedPassageObservation = { ...evidence, projection };
-  const match = passage ? -1 : snapshotText.indexOf(capture.quote);
-  const unique = match >= 0 && snapshotText.indexOf(capture.quote, match + 1) < 0;
+  // The one quote lookup (outline-core passage.ts, ADR 0004 contract 5): placed only when the words are there once.
+  const found = passage ? null : findPassage(snapshotText, capture.quote);
+  const match = found && !isMiss(found) ? found.start : -1;
+  const unique = match >= 0;
   const contentHash = annotationSourceHash(snapshotText);
   return {
     ...(passage ? {passage} : {}),

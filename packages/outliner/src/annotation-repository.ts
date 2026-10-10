@@ -384,8 +384,17 @@ export class AnnotationRepository {
             // doesn't is refused as stale.
             const context = request.passage && (request.passage.prefix !== undefined || request.passage.suffix !== undefined);
             if (block.revision !== request.expectedRevision && !context) throw new Error("Comment source revision is stale; read the current block before commenting");
-            const passage = block.revision !== request.expectedRevision && request.passage ? { ...request.passage, start: undefined } : request.passage;
-            raw = { target: blockCommentTarget(block, passage), body: request.body, source: request.source, ...(request.properties ? { properties: request.properties } : {}) };
+            const stale = block.revision !== request.expectedRevision;
+            const passage = stale && request.passage ? { ...request.passage, start: undefined } : request.passage;
+            let target: AnnotationTarget;
+            try {
+              target = blockCommentTarget(block, passage);
+            } catch (error) {
+              // Not found once with its context in the newer text: refused as stale, as one without context is.
+              if (stale) throw new Error(`Comment source revision is stale; read the current block before commenting (${error instanceof Error ? error.message : String(error)})`);
+              throw error;
+            }
+            raw = { target, body: request.body, source: request.source, ...(request.properties ? { properties: request.properties } : {}) };
           } else raw = operation.input;
           const input = normalizeAnnotationCreateInput(raw);
           this.requireSubject(input.target.representation.subject);
