@@ -324,11 +324,11 @@ export class Lanes implements SourceModel {
     this.host.redraw();
   }
 
-  loadLanes(which: Lane[] = this.lanes) {
+  loadLanes(which: Lane[] = this.lanes): Promise<unknown> {
     if (which === this.lanes || which.length === this.lanes.length) this.refreshes.full++; else this.refreshes.lanes += which.length;
     this.asked.push(...which.map(l => l.name));
     if (this.asked.length > 200) this.asked.splice(0, 100);
-    for (const l of which) void l.load(this.host);
+    return Promise.all(which.map(l => l.load(this.host)));
   }
 
   /** Everything again: after a reconnect the door couldn't catch up on. Drafts are kept, only marked. */
@@ -708,10 +708,13 @@ export class Lanes implements SourceModel {
       this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}`, ...by };
       ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
     } finally {
-      this.moving = null; this.status = "";
+      this.status = "";
       // Either way, show the lanes as the service has them now. After a move that landed, the source and
-      // target are enough: the move's own change record refreshes any other lane.
-      this.loadLanes(landed ? [this.lanes[from]!, target].filter(Boolean) : this.lanes);
+      // target are enough: the move's own change record refreshes any other lane. The card stays "moving" until
+      // they have: a second move (L twice, or an agent's card.move) before then would read the old lanes and
+      // act on the wrong card or find none that lists this one.
+      try { await this.loadLanes(landed ? [this.lanes[from]!, target].filter(Boolean) : this.lanes); }
+      finally { this.moving = null; this.host.redraw(); }
     }
   }
 
