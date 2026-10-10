@@ -28,6 +28,7 @@ import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
+import type { SessionMark } from "./agent-sessions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -148,6 +149,8 @@ export interface PtySpec {
   inShell?: boolean;
   /** What its title calls the program, when the first word of `cmd` isn't it (a picker sh runs: `tv ep0ch`). */
   shows?: string;
+  /** It was started as an agent session (PIE-737, src/desk/agent-sessions.ts): its program, persona and config, saved with it. */
+  session?: SessionMark;
 }
 
 export class PtyPane implements Pane {
@@ -170,7 +173,7 @@ export class PtyPane implements Pane {
    * Its program starts inside the person's login shell (inLoginShell), so its exit line is read: from what the tile
    * runs, so a program adopted after a session handover (never spawned here) is read the same.
    */
-  private get wrapped(): boolean { return this.run.inShell ?? isAgentCmd(this.run.cmd); }
+  private get wrapped(): boolean { return this.run.inShell ?? (isAgentCmd(this.run.cmd) || !!this.run.session); }
   /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
   programTitle = "";
   /**
@@ -240,7 +243,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
+  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.run.session ? { session: this.run.session } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; this.stopForegroundWatch(); dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }
@@ -414,6 +417,9 @@ export class PtyPane implements Pane {
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
     for (const [k, v] of Object.entries(this.run.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
+    // A session's persona (PIE-737): what its writes and its `ep0ch act` are attributed to.
+    const persona = this.run.session?.persona;
+    if (persona) { env.EP0CH_AGENT = persona; env.OUTLINER_ACTOR = persona; }
     try {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
@@ -434,6 +440,12 @@ export class PtyPane implements Pane {
     }
     this.watch(this.proc);
   }
+
+  /**
+   * Start its program now, before it's first drawn (an agent session started behind the tab shown, PIE-737): at this
+   * size, which its first paint corrects. Nothing when it has started already.
+   */
+  startNow(cols = 100, rows = 30) { if (!this.term) this.start(Math.max(20, cols), Math.max(5, rows)); }
 
   /** It runs: kept with the live ones until it exits. */
   private watch(proc: PtyProc) {

@@ -31,10 +31,14 @@ describe("the drawer's own program", () => {
     expect(programName(["htop"])).toBe("htop");
   });
 
-  test("the folder: the person's EP0CH_DAILY_CWD, else the project's .ep0ch folder, else the outline's, else where the door started", () => {
+  test("the folder: the one chosen with the agent, else the project's .ep0ch folder, else the outline's, else where the door started", () => {
     const env = { EP0CH_OUTLINES: outlines };
-    // Chosen by the person (~ is home).
-    expect(drawerProgram({ env: { ...env, EP0CH_DAILY_CWD: "~/patch" }, outline: "allotment", start: project, home })).toMatchObject({ cwd: join(home, "patch"), folderWhy: "EP0CH_DAILY_CWD (~/patch)" });
+    // Chosen with the agent (host.agent in=, ~ is home), as the person's default; EP0CH_DAILY_CWD is read no more (PIE-737).
+    const chose = join(root, "chose");
+    mkdirSync(chose, { recursive: true });
+    writeFileSync(join(chose, "drawer-agent.json"), JSON.stringify({ agent: "claude", folder: "~/patch" }));
+    expect(drawerProgram({ env, outline: "allotment", start: project, home, state: chose })).toMatchObject({ cwd: join(home, "patch"), folderWhy: "chosen with the agent (~/patch)" });
+    expect(drawerProgram({ env: { ...env, EP0CH_DAILY_CWD: "~/patch" } as any, outline: "allotment", start: join(project, "src"), home })).toMatchObject({ cwd: project });
     // Started inside the project whose .ep0ch names this outline: the project.
     expect(drawerProgram({ env, outline: "allotment", start: join(project, "src"), home })).toMatchObject({ cwd: project, folderWhy: "the folder whose .ep0ch names allotment" });
     // A .ep0ch that names another outline isn't this one's project (orchard has no folder here either): where it started.

@@ -617,7 +617,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
       const { placeOf } = await import("../session/place");
       const dir = here?.outline ? placeOf({ outline: here.outline, ...(here.machine ? { machine: here.machine } : {}) }, root, env).dir : null;
       const { cmd, cwd, programWhy, folderWhy } = drawerProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home, dir, state: root });
-      return { cmd, cwd, programWhy, folderWhy };
+      return { cmd, cwd, programWhy, folderWhy, ...(env.EP0CH_DAILY_CWD?.trim() ? { retiredCwd: env.EP0CH_DAILY_CWD.trim() } : {}) };
     })(),
     machines,
     drawers: await (async () => {

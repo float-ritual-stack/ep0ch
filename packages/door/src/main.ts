@@ -19,6 +19,7 @@ import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
+import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
@@ -122,6 +123,7 @@ ${LIBRARY_USAGE}
                                    this folder's outline, else the only one running. open <id> is
                                    act open id=<id>; a URI names its outline and machine first; open file:<path>
                                    [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
+${AGENT_USAGE}
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one
@@ -186,6 +188,7 @@ if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
+if (args[0] === "agent") process.exit(await agentCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
   try {

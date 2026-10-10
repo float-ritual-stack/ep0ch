@@ -177,13 +177,13 @@ describe("attaching", () => {
 });
 
 describe("the defaults", () => {
-  test("plain claude unless the drawer names the agent (no door-claude, no hidden --continue); the folder is EP0CH_DAILY_CWD", () => {
+  test("plain claude unless the drawer names the agent (no door-claude, no hidden --continue); the folder is the one the drawer started it in", () => {
     const base = { HOME: "/home/someone", PWD: "/somewhere" };
     expect(agentConfig(base, c => (c === "door-claude" ? "/bin/door-claude" : null)).cmd).toBe("claude");
     expect(agentConfig(base, () => "/x", { agent: ["codex", "--model", "x"] }).agent).toEqual(["codex", "--model", "x"]);
     expect(launchArgs(["--session", "pie-hole@float-2", "--agent", "pi"])).toEqual({ session: "pie-hole@float-2", agent: ["pi"] });
     const c = agentConfig({ ...base, EP0CH_DAILY_CWD: "~/garden", EP0CH_TILE: "claude" }, () => null);
-    expect(c.cwd).toBe("/home/someone/garden");
+    expect(c.cwd).toBe(process.cwd());                                // EP0CH_DAILY_CWD is read no more (PIE-737)
     expect(c).toMatchObject({ pane: "door-claude", name: "door", workspace: "door" });
     expect(c.env.EP0CH_TILE).toBe("claude");
     expect(c.env.EP0CH_CONTROL).toBe(c.link);
