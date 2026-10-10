@@ -201,7 +201,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
 
 const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",
-  about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key; ⏎ runs it as that key would",
+  about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key, found by its name or what it does; ⏎ runs it as that key would",
   main: { empty: false, typed: true, most: 6 },
   rows(q, host) {
     const top = host.screens().at(-1);
@@ -218,7 +218,8 @@ const ACTIONS: BarSource = {
       const k = firstKey(a.keys);
       rows.push({ key: a.name, label: a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
     }
-    return filtered(rows, q, r => [r.label, r.detail ?? ""]);
+    // By name, and by what it says it does (its summary: an extension's action by its label and description).
+    return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
   },
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };

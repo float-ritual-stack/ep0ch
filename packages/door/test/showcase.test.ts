@@ -2299,6 +2299,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const names = async () => (await board.children(beds.id)).map(m => title(m).split(" [")[0]);
     expect(await names()).toEqual(["Herb bed", "Root bed", "Bean row"]);
     // The person's run: the bar asks, lit on the note's own [sort-by::bed-size]; "tit" then ⏎ picks title, ⏎ takes asc.
+    // The actions scope finds it by what it does, not only by its name.
+    const found = await app.act({ action: "bar.open", args: { scope: ">", query: "sort the children" }, as: "test-agent" }) as { rows: { label: string }[] };
+    expect(found.rows.map(r => r.label)).toContain("ext.structure.sort-blocks");
     // The bar is the App's, over the showcase: what it lists is read from it.
     const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
     void app.dispatch.press("ext.structure.sort-blocks", { block: beds.id });
