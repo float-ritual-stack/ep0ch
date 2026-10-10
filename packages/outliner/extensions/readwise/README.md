@@ -70,7 +70,7 @@ new.
 |---|---|---|
 | `board` | `readwise` | The outline other highlights land in (on this host) |
 | `page` | `readwise` | The page in it they land under |
-| `link` | the note's published permalink, else `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--url` or `--public-url`) with `?ep0ch=<outline>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{outline}` and `{id}`: the pull reads the note back out of it |
+| `link` | the note's published permalink, else `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--url` or `--public-url`) with `?ep0ch=<outline>@<machine>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{outline}` and `{id}`: the pull reads the note back out of it |
 | `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |

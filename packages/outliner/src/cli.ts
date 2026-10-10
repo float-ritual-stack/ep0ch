@@ -249,9 +249,9 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     if (publicPort !== undefined && (!Number.isInteger(publicPort) || publicPort < 0 || publicPort > 65535)) throw new Error("--public-port must be a port number");
     if (publicPort !== undefined && publicPort !== 0 && publicPort === port) throw new Error("--public-port must differ from --port");
     const publicUrl = values["public-url"] ?? process.env.OUTLINER_PUBLIC_URL;
-    const publishUrl = values.url ?? process.env.OUTLINER_PUBLISH_URL;
-    if (publishUrl && !/^https?:\/\/[^/\s]+(\/\S*)?$/.test(publishUrl)) throw new Error(`--url must be the full http(s) URL the publisher is opened at, such as https://host.ts.net/pub: ${publishUrl}`);
-    const { checkPublicBind } = await import("./publish");
+    const { checkPublicBind, publisherUrl } = await import("./publish");
+    const rawPublishUrl = values.url ?? process.env.OUTLINER_PUBLISH_URL;
+    const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
     const { Publisher, servePublisher, renderIndexText } = await import("./publish");
     const publisher = new Publisher({

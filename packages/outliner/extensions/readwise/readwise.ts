@@ -97,23 +97,26 @@ const fromTemplate = (template: string, name: string, id: string) => template.re
 
 /**
  * A note's URL in Reader: config `link` when it's set; else, when the note is published, its permalink (the page by
- * its id) with `?ep0ch=<outline>` so a pull knows the outline; else the fallback template. Reader needs a unique web
+ * its id) with `?ep0ch=<outline>@<machine>` so a pull knows the note's outline and machine; else the fallback template. Reader needs a unique web
  * URL per document, and the pull reads the note back out of it.
  */
 async function linkOf(name: string, id: string): Promise<string> {
   if (config.link) return fromTemplate(config.link, name, id);
   const address = await outline<Address>({ action: "notes.address", blockId: id }, name);
   const permalink = address.published?.permalink;
-  return permalink ? `${permalink}?ep0ch=${encodeURIComponent(name)}` : fromTemplate(FALLBACK_LINK, name, id);
+  return permalink ? `${permalink}?ep0ch=${encodeURIComponent(name)}@${encodeURIComponent(MACHINE)}` : fromTemplate(FALLBACK_LINK, name, id);
 }
 
-/** The note a document's URL names: an ep0ch:// URI, a published permalink with `?ep0ch=`, or the `link` template's shape. */
+/** The note a document's URL names: an ep0ch:// URI, a published permalink with `?ep0ch=<outline>@<machine>`, or the `link` template's shape. */
 function noteOf(url: string | null | undefined): { outline: string; machine: string; id: string } | null {
   if (!url) return null;
   const canonical = /^ep0ch:\/\/([^/@]+)@([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(url);
   if (canonical) return { outline: canonical[1]!, machine: canonical[2]!, id: canonical[3]!.toLowerCase() };
-  const permalink = /\/p\/([0-9a-f-]{36})\?ep0ch=([^&#/]+)$/i.exec(url);
-  if (permalink) return { outline: decodeURIComponent(permalink[2]!), machine: MACHINE, id: permalink[1]!.toLowerCase() };
+  const permalink = /\/p\/([0-9a-f-]{36})\?ep0ch=([^&#/@]+)@([^&#/@]+)$/i.exec(url);
+  if (permalink) {
+    // A document's URL is outside text: one that doesn't decode is no note's, never a failed pull.
+    try { return { outline: decodeURIComponent(permalink[2]!), machine: decodeURIComponent(permalink[3]!), id: permalink[1]!.toLowerCase() }; } catch { return null; }
+  }
   const order: string[] = [];
   const pattern = LINK.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{(outline|machine|id)\}/g, (_, name: string) => {
     order.push(name);
@@ -122,7 +125,7 @@ function noteOf(url: string | null | undefined): { outline: string; machine: str
   const match = new RegExp(`^${pattern}$`).exec(url);
   if (!match) return null;
   const found: Record<string, string> = { machine: MACHINE };
-  order.forEach((name, index) => { found[name] = decodeURIComponent(match[index + 1]!); });
+  try { order.forEach((name, index) => { found[name] = decodeURIComponent(match[index + 1]!); }); } catch { return null; }
   return found.outline && found.id ? { outline: found.outline, machine: found.machine!, id: found.id.toLowerCase() } : null;
 }
 

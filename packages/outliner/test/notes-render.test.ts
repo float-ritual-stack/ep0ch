@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { canonicalLocalMachineName } from "../src/machine-name";
-import { Publisher } from "../src/publish";
+import { Publisher, publisherUrl } from "../src/publish";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, NoteAddress, RenderedNote } from "../src/types";
@@ -89,4 +89,11 @@ test("notes.render: the publisher's rendering of a note and the notes under it, 
     await expect(client.request({ action: "notes.render", blockId, format: "html" })).rejects.toThrow("[publish::never]");
   }
   await expect(client.request({ action: "notes.render", blockId: note.id, format: "pdf" as never })).rejects.toThrow("markdown or html");
+});
+
+test("a publisher's URL is a full http(s) URL a note's path can follow: no query, fragment or credentials", () => {
+  expect(publisherUrl("https://pub.example.invalid/pub/")).toBe("https://pub.example.invalid/pub");
+  for (const bad of ["https://pub.example.invalid/pub#top", "https://pub.example.invalid/pub?x=1", "ftp://pub.example.invalid", "http://[", "https://someone:secret@pub.example.invalid"]) {
+    expect(() => publisherUrl(bad)).toThrow("--url must be the full http(s) URL");
+  }
 });

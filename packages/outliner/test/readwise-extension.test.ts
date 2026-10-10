@@ -270,7 +270,7 @@ test("a published note's link in Reader is its permalink, and a highlight on it 
   const address = await call<{ outline: string; machine: string; uri: string; published: { slug: string; url: string; permalink: string } }>("garden", { action: "notes.address", blockId: note.id });
   expect(address.published).toEqual({ slug: "shed", public: false, url: "https://pub.example.invalid/pub/p/shed", permalink: `https://pub.example.invalid/pub/p/${note.id}` } as never);
   await act("garden", "send", note.id);
-  expect(fake.saved[0]!.url).toBe(`https://pub.example.invalid/pub/p/${note.id}?ep0ch=garden`);
+  expect(fake.saved[0]!.url).toBe(`https://pub.example.invalid/pub/p/${note.id}?ep0ch=garden@${MACHINE}`);
   fake.state.pages = [[{ user_book_id: 11, title: "Shed notes", source_url: String(fake.saved[0]!.url), highlights: [{ id: 501, text: "sticks in the rain", note: "plane the edge" }] }]];
   expect((await act("garden", "pull")).message).toBe("pulled: 1 new, 0 changed (1 on notes, 0 on the readwise board)");
   expect((await threads("garden", note.id)).map((thread) => thread.body)).toEqual(["plane the edge"]);

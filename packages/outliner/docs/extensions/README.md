@@ -861,8 +861,8 @@ A handler or an action may declare `schedule`: `{ "every": "15m" }` (at least `1
   "schedule": { "every": "1h", "once": "host" }
   ```
 
-  Then one outline's runner holds it for the whole host (the first to see it, until that outline closes; then the
-  next takes it) and the others list where it runs (`runsIn`). Its runs are one at a time across the host, and so
+  Then one outline's runner holds it for the whole host (the first to see it, until that outline closes or stops serving
+  the extension; then the next takes it, with its last run, so it is due one interval after that run) and the others list where it runs (`runsIn`). Its runs are one at a time across the host, and so
   is its action whoever asks, in any outline: a person's `ext act` in one outline waits for the scheduled run in
   another. `EP0CH_WS` is the outline holding it, so a host-wide program names the outlines it writes to (`outline`
   on each request). A run asked for by hand (`ext run`, `ext act`) runs in the outline it's asked in.
@@ -1148,7 +1148,7 @@ A new block under `parentId` (none: the top level), last among its siblings. Pro
 
 | Field | Type | |
 |---|---|---|
-| `parentId?` | `string` |  |
+| `parentId?` | `string \| null` |  |
 | `text` | `string` |  |
 
 Answers `Block`.
@@ -1435,8 +1435,8 @@ Answers `RenderedNote`.
 | `action` | `string` | The request (or internal) action that caused the change. |
 | `kind` | `OutlinerChangeKind` |  |
 | `blockId?` | `string` | Primary block. Other blocks (a moved subtree, reordered siblings) may change too. |
-| `parentId?` | `string` | Parent after the change; `null` for a root. Absent without a readable block. |
-| `previousParentId?` | `string` | Parent before a `move`. |
+| `parentId?` | `string \| null` | Parent after the change; `null` for a root. Absent without a readable block. |
+| `previousParentId?` | `string \| null` | Parent before a `move`. |
 | `revision?` | `number` | Block revision after the change. |
 | `deleted?` | `boolean` | True when the block is in Trash after the change. |
 | `actor?` | `MutationProvenance` | Declared provenance of the request; absent when the request carried none. |

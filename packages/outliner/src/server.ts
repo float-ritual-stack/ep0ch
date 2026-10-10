@@ -125,7 +125,7 @@ import {
   type PublisherAddress,
   type RenderedNote,
 } from "./types";
-import { Publisher, type PublishClient } from "./publish";
+import { Publisher, publisherUrl, type PublishClient } from "./publish";
 import { canonicalLocalMachineName } from "./machine-name";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
@@ -268,15 +268,15 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "extensions.list", "work-ids.status", "notes.render", "notes.address",
 ]);
 
-/** A publisher's address as it registers (PIE-767): each URL a full http(s) URL, at most 2 000 characters, or refused. */
+/** A publisher's address as it registers (PIE-767): each URL a full http(s) URL (`publisherUrl`), or refused. */
 function normalizePublisherAddress(address: unknown): PublisherAddress {
   if (!address || typeof address !== "object") throw new Error("A client's publish address is an object: { url?, publicUrl? }");
   const out: PublisherAddress = {};
   for (const key of ["url", "publicUrl"] as const) {
     const value = (address as Record<string, unknown>)[key];
     if (value === undefined) continue;
-    if (typeof value !== "string" || value.length > 2_000 || !/^https?:\/\/[^/\s]+(\/\S*)?$/.test(value)) throw new Error(`A client's publish.${key} must be a full http(s) URL`);
-    out[key] = value.replace(/\/+$/, "");
+    if (typeof value !== "string") throw new Error(`A client's publish.${key} must be a full http(s) URL`);
+    out[key] = publisherUrl(value, `A client's publish.${key}`);
   }
   return out;
 }

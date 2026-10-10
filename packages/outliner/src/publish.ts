@@ -404,6 +404,20 @@ export function checkPublicBind(address: string, interfaces = networkInterfaces(
 }
 
 /** Where the public listener is mounted when nothing says otherwise. */
+/**
+ * Where a publisher is opened (`--url`, and a publisher's registration with the service, PIE-767): a full http(s) URL
+ * with no query, fragment or credentials, since a note's path is added after it. Answers it without a trailing slash;
+ * anything else throws, saying what is wanted.
+ */
+export function publisherUrl(value: string, label = "--url"): string {
+  let parsed: URL | undefined;
+  try { parsed = new URL(value); } catch { /* said below */ }
+  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.search || parsed.hash || parsed.username || parsed.password || value.length > 2_000) {
+    throw new Error(`${label} must be the full http(s) URL the publisher is opened at, with no query or fragment, such as https://host.ts.net/pub: ${value}`);
+  }
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+}
+
 export const DEFAULT_PUBLIC_BASE_PATH = "/share";
 
 export class Publisher {

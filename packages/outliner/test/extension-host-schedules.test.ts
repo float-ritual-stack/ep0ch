@@ -12,9 +12,9 @@ const extension = (directory: string, schedule: Record<string, string>) => ({
 }) as unknown as LoadedExtension;
 
 /** One outline's runner over the same user-folder extension, recording which outline ran each entry. */
-function runner(outline: string, served: LoadedExtension, now: () => number, ran: string[], gate?: Promise<void>) {
+function runner(outline: string, served: LoadedExtension, now: () => number, ran: string[], gate?: Promise<void>, serves = () => true) {
   const schedules = new ExtensionSchedules({
-    serving: () => [served],
+    serving: () => (serves() ? [served] : []),
     run: async (entry: ScheduledEntry) => { ran.push(`${outline} ${entry.entry}`); await gate; return `pulled in ${outline}`; },
     now, outline: () => outline, tickMs: 3_600_000,
   });
@@ -37,7 +37,12 @@ test("a host-wide schedule runs in one outline of the host; the others list wher
     expect(shed.list("feed")[0]).toMatchObject({ runsIn: "garden", last: { ok: true, message: "pulled in garden" } });
     // Its holder closes: the next outline to look takes it, and runs it when it's due.
     garden.stop();
+    // It takes the holder's last run with it: due an hour after that run, not at once.
+    expect(shed.list("feed")[0]).toMatchObject({ next: "2026-10-10T11:00:30.000Z", last: { message: "pulled in garden" } });
     expect(shed.list("feed")[0]).not.toHaveProperty("runsIn");
+    now = Date.parse("2026-10-10T10:05:00.000Z");
+    await shed.tick();
+    expect(ran).toEqual(["garden action:pull"]);
     now = Date.parse("2026-10-10T11:01:00.000Z");
     await shed.tick();
     expect(ran).toEqual(["garden action:pull", "shed action:pull"]);
@@ -79,6 +84,27 @@ test("a host-wide schedule runs one at a time across the host: asked now in anot
     await running;
     // Asked by hand once it's done, it runs where it's asked.
     expect(await shed.runNow("feed", "action:pull")).toMatchObject({ ok: true, message: "pulled in shed" });
+  } finally {
+    garden.stop();
+    shed.stop();
+  }
+});
+
+test("a host-wide schedule's holder that stops serving the extension lets another outline take it", async () => {
+  let now = Date.parse("2026-10-10T09:00:00.000Z");
+  const ran: string[] = [];
+  let gardenServes = true;
+  const hostWide = extension("/made-up/user-extensions/feed-4", { every: "1h", once: "host" });
+  const [garden, shed] = [runner("garden", hostWide, () => now, ran, undefined, () => gardenServes), runner("shed", hostWide, () => now, ran)];
+  try {
+    garden.list("feed");
+    expect(shed.list("feed")[0]).toMatchObject({ runsIn: "garden" });
+    // The extension leaves garden (disabled there, its folder moved): garden is open, but shed runs it now.
+    gardenServes = false;
+    expect(shed.list("feed")[0]).not.toHaveProperty("runsIn");
+    now = Date.parse("2026-10-10T10:00:30.000Z");
+    await Promise.all([garden.tick(), shed.tick()]);
+    expect(ran).toEqual(["shed action:pull"]);
   } finally {
     garden.stop();
     shed.stop();

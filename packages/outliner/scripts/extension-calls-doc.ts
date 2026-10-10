@@ -45,10 +45,17 @@ function fieldRows(checker: ts.TypeChecker, type: ts.Type, at: ts.Node): string[
   return checker.getPropertiesOfType(type).map((property) => {
     const optional = (property.flags & ts.SymbolFlags.Optional) !== 0;
     const declared = property.valueDeclaration ?? property.declarations?.[0];
-    let fieldType = checker.getTypeOfSymbolAtLocation(property, declared ?? at);
-    // An optional field's type without the `undefined` the checker adds: the `?` says it.
-    if (optional) fieldType = checker.getNonNullableType(fieldType);
-    return `| \`${property.name}${optional ? "?" : ""}\` | ${code(checker.typeToString(fieldType, undefined, FORMAT))} | ${docOf(checker, property)} |`;
+    const fieldType = checker.getTypeOfSymbolAtLocation(property, declared ?? at);
+    // An optional field's type without the `undefined` the checker adds (the `?` says it), and nothing else: a
+    // `string | null` stays that. A written type is read from its declaration; any other loses `undefined` alone.
+    let text = checker.typeToString(fieldType, undefined, FORMAT);
+    if (optional) {
+      const node = declared && (ts.isPropertySignature(declared) || ts.isPropertyDeclaration(declared)) ? declared.type : undefined;
+      const nullable = fieldType.isUnion() && fieldType.types.some((member) => member.flags & ts.TypeFlags.Null);
+      text = node ? checker.typeToString(checker.getTypeFromTypeNode(node), undefined, FORMAT)
+        : `${checker.typeToString(checker.getNonNullableType(fieldType), undefined, FORMAT)}${nullable ? " | null" : ""}`;
+    }
+    return `| \`${property.name}${optional ? "?" : ""}\` | ${code(text)} | ${docOf(checker, property)} |`;
   });
 }
 

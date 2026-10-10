@@ -12,6 +12,8 @@ test("the README's call reference is what the types say (run bun scripts/extensi
   for (const call of ["get", "children", "blocks.query", "pages.resolve", "create", "update", "annotations.list", "annotations.batch", "annotations.reply", "changes.since", "notes.address", "notes.render"]) {
     expect(wanted).toContain(`#### \`${call}\``);
   }
+  // An optional field keeps a `null` it may hold (only the `undefined` its `?` adds is left out).
+  expect(wanted).toContain("| `parentId?` | `string \\| null` |");
   for (const field of ["`subtreeRootId?`", "`expectedRevision`", "`requestId`", "`deduplicated`", "`permalink?`", "`includeResolved?`"]) expect(wanted).toContain(field);
   expect(writtenCallReference(readFileSync(README, "utf8"))).toBe(wanted);
 }, 60_000);

@@ -147,6 +147,11 @@ export interface ExtensionSchedulesOptions {
  */
 const hostHolders = new Map<string, ExtensionSchedules>();
 const hostRunning = new Set<string>();
+/**
+ * A host-wide entry's latest run, whichever runner ran it (its schedule's run, or `ext run` in another outline): each
+ * runner works out `next` from it, so a handover or a run asked for elsewhere never repeats or restarts the interval.
+ */
+const hostLast = new Map<string, ScheduleRun>();
 
 const MAX_MESSAGE = 300;
 
@@ -213,7 +218,8 @@ export class ExtensionSchedules {
     const key = this.hostKey(entry);
     if (!key) return this;
     const held = hostHolders.get(key);
-    if (held && !held.stopped) return held;
+    // A holder that stopped, or no longer serves the entry (the extension left its outline), lets it go.
+    if (held && !held.stopped && (held === this || held.entries().some((candidate) => held.hostKey(candidate) === key))) return held;
     if (take && !this.stopped) hostHolders.set(key, this);
     return this;
   }
@@ -239,7 +245,10 @@ export class ExtensionSchedules {
   /** What is kept for an entry, its next run worked out again when the schedule itself changed. */
   private state(entry: ScheduledEntry): Kept {
     const key = this.key(entry);
-    const kept = this.kept.get(key);
+    let kept = this.kept.get(key);
+    // A host-wide entry run since by another outline's runner: its run is this one's last too.
+    const shared = this.hostKey(entry) ? hostLast.get(this.hostKey(entry)!) : undefined;
+    if (shared && (!kept?.last || Date.parse(shared.at) > Date.parse(kept.last.at))) kept = { firstSeen: kept?.firstSeen ?? shared.at, last: shared, next: "" };
     const firstSeen = kept?.firstSeen ?? new Date(this.now).toISOString();
     const from = Date.parse(kept?.last?.at ?? firstSeen);
     const next = new Date(nextRun(entry.schedule, from)).toISOString();
@@ -292,6 +301,7 @@ export class ExtensionSchedules {
       this.running.delete(key);
       if (hostKey) hostRunning.delete(hostKey);
     }
+    if (hostKey) hostLast.set(hostKey, run);
     const firstSeen = this.kept.get(key)?.firstSeen ?? run.at;
     this.kept.set(key, { firstSeen, last: run, next: new Date(nextRun(entry.schedule, started)).toISOString() });
     this.save();
