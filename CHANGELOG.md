@@ -29,7 +29,7 @@ are its record. The outliner's entries from then are kept below, under
   runbook v2): a pull no longer makes the boards.
 - **Changed:** `&` is the door's extensions scope: an extension's bar source can't take it as its prefix.
 - Kitchen sink: the `ext-pages` section shows the hub beside the notifications hub's page.
-- Protocol PROTOCOL_PLACEHOLDER (`extensions.install`, `extensions.uninstall`, `hub`, `pages` and `available` on
+- Protocol 134 (`extensions.install`, `extensions.uninstall`, `hub`, `pages` and `available` on
   `extensions.list`): update the host and every client together, `ep0ch install --apply` on each machine. No schema
   change. On the next start each outline the host serves gets its Extensions hub and a page per installed extension.
 
