@@ -134,6 +134,31 @@ const Handler = Type.Object(
 );
 export type ExtensionHandler = Static<typeof Handler>;
 
+/**
+ * An argument an action declares (PIE-784): what a client asks for when a person runs it by key or menu, `act` takes as
+ * `name=value`, and agents see in the action list. `choice` takes one of `options`; `property` a property's name, offered
+ * from the keys `from` has (the block's own, its children's, or the outline's) after any fixed `options` (`title`);
+ * `number` a number; `text` anything. `default` fills it in when it isn't given, after `defaultProperty`: the acted-on
+ * block's own value of that property (`[sort-by::price]`), so a note can say its own default.
+ */
+const ActionArg = Type.Object(
+  {
+    name: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,31}$" }),
+    type: Type.Union([Type.Literal("text"), Type.Literal("choice"), Type.Literal("property"), Type.Literal("number")]),
+    label: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+    description: Type.Optional(Type.String({ maxLength: 200 })),
+    options: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 60 }), { minItems: 1, maxItems: 32 })),
+    from: Type.Optional(Type.Union([Type.Literal("block"), Type.Literal("children"), Type.Literal("outline")])),
+    required: Type.Optional(Type.Boolean()),
+    default: Type.Optional(Type.String({ maxLength: 200 })),
+    defaultProperty: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,63}$" })),
+  },
+  { additionalProperties: false },
+);
+export type ExtensionActionArg = Static<typeof ActionArg>;
+/** Names an action's request already uses: a declared argument can't be one of them. */
+export const RESERVED_ARG_NAMES = new Set(["block", "line", "with", "quote", "near", "tile", "action", "color"]);
+
 const Action = Type.Object(
   {
     id: ID,
@@ -153,6 +178,8 @@ const Action = Type.Object(
     /** Run it on this schedule (PIE-754); it then acts on the outline (`on: "outline"`). */
     schedule: Type.Optional(ScheduleSchema),
     deadline: Type.Optional(Duration),
+    /** What it asks for (PIE-784): a client prompts for them, `act` takes them, agents see them. */
+    args: Type.Optional(Type.Array(ActionArg, { maxItems: 8 })),
   },
   { additionalProperties: false },
 );
@@ -532,6 +559,20 @@ function checkManifest(manifest: ExtensionManifest): void {
     if (action.schedule) {
       if (action.on !== "outline") throw new ExtensionLoadError(`extension.json: actions/${index}/schedule: a scheduled action acts on the outline; give it "on": "outline"`);
       checkSchedule(action.schedule, `actions/${index}/schedule`);
+    }
+    const argNames = new Set<string>();
+    for (const [at, arg] of (action.args ?? []).entries()) {
+      const where = `extension.json: actions/${index}/args/${at}`;
+      if (RESERVED_ARG_NAMES.has(arg.name)) throw new ExtensionLoadError(`${where}/name ${arg.name} is one the request already uses (${[...RESERVED_ARG_NAMES].join(", ")})`);
+      if (argNames.has(arg.name)) throw new ExtensionLoadError(`${where}/name ${arg.name} is declared twice`);
+      argNames.add(arg.name);
+      if (arg.type === "choice" && !arg.options) throw new ExtensionLoadError(`${where}: a choice needs options`);
+      if (arg.from && arg.type !== "property") throw new ExtensionLoadError(`${where}/from: only a property argument offers keys from somewhere`);
+      if (arg.default !== undefined && arg.type === "choice" && !arg.options!.includes(arg.default)) throw new ExtensionLoadError(`${where}/default ${arg.default} isn't one of its options`);
+      if (arg.default !== undefined && arg.type === "number" && !Number.isFinite(Number(arg.default))) throw new ExtensionLoadError(`${where}/default must be a number`);
+      if (arg.defaultProperty && !["block", "passage"].includes(action.on ?? "block") && !action.on?.startsWith("handler:")) {
+        throw new ExtensionLoadError(`${where}/defaultProperty reads the acted-on block's property; this action acts on ${action.on}`);
+      }
     }
     const actionDeadline = durationMs(action.deadline);
     if (actionDeadline !== undefined && actionDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: actions/${index}/deadline is longer than 5m`);

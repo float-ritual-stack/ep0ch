@@ -182,7 +182,8 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
     const what = [
       ...entry.handlers.map((handler) => `${handler.key}:: (${handler.kind}, ${handler.effects})`),
       ...entry.tiles.map((tile) => `tile ${tile.kind}`),
-      ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}`),
+      ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}${action.args?.length
+        ? ` ${action.args.map((arg) => `${arg.required ? "" : "["}--arg ${arg.name}=<${arg.type === "choice" ? arg.options!.join("|") : arg.type}>${arg.required ? "" : "]"}`).join(" ")}` : ""}`),
     ];
     lines.push(`${entry.id}\t${entry.state}\t${entry.origin}${entry.version !== undefined ? `\tv${entry.version}` : ""}\t${entry.directory}`);
     if (what.length) lines.push(`  serves ${what.join(", ")}`);
@@ -228,9 +229,11 @@ const USAGE = `usage: outliner ext ls
        outliner ext add <name|path> [--outline-folder <outline root>]
        outliner ext remove <name> [--outline-folder <outline root>] [--demo keep|remove]
        outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
+       outliner ext undo <id> [--actor <agent id>]   takes back an action's writes whole (the id ext act prints after undo:)
        outliner ext run <name> <action:id|handler:key>   runs one of its schedules now, recorded as any run
   An action on a passage (on: passage) takes --block and --quote: the words, exact, in the note's text now (--near picks among repeats).
-  ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked.
+  ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked. An action's declared
+  arguments (ext ls lists them) are --arg name=value; one left out takes its default.
   Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
   outline's Extensions hub, with its demo notes once; remove keeps the demo notes unless --demo remove.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
@@ -345,7 +348,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (isMiss(at)) throw new Error(missMessage(at));
         passage = passageAt(block.text, at.start, at.end, block.id, block.revision);
       }
-      const result = await client.request<{ message?: string; written: string[]; copy?: string; open?: string }>({
+      const result = await client.request<{ message?: string; written: string[]; copy?: string; open?: string; undo?: string }>({
         action: "extensions.act", extension, extensionAction: action,
         ...(passage ? { passage } : values.block ? { blockId: values.block } : {}),
         ...(values.line !== undefined ? { line: Number(values.line) } : {}),
@@ -360,7 +363,23 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (result.copy !== undefined) console.log(result.copy);
         // What it asks a client to open (a shell has none to open it in): said, for the person or agent to open.
         if (result.open !== undefined) print(`open ${result.open}`);
+        // Its writes as one step: what takes them back.
+        if (result.undo !== undefined) print(`undo: ep0ch ext undo ${result.undo}`);
       }
+      return 0;
+    }
+    if (operation === "undo") {
+      const { values, positionals } = parseArgs({ args: [...rest], allowPositionals: true, strict: true, options: { json: { type: "boolean" }, actor: { type: "string" } } });
+      const [id, ...extra] = positionals;
+      if (!id || extra.length) throw new Error(USAGE);
+      const client = await connect();
+      if (!client) throw new Error("No outline service answers here (start the outline host, or name an outline with EP0CH_WS or a .ep0ch)");
+      const done = await client.request<{ undone: string; action: string; written: string[] }>({
+        action: "extensions.undo", undo: id,
+        mutation: values.actor?.trim() ? { author: "agent", actorId: values.actor.trim() } : { author: "user" },
+      });
+      if (values.json) console.log(JSON.stringify(done));
+      else print(`undid ${done.action}: ${done.written.length} ${done.written.length === 1 ? "block" : "blocks"} put back`);
       return 0;
     }
     console.log(USAGE);

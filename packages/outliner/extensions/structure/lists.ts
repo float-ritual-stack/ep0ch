@@ -8,12 +8,11 @@ const MARK = /^(\s*)([-*+]|\d+[.)])\s+/;
 const indentOf = (line: string) => /^\s*/.exec(line)![0].length;
 const blank = (line: string) => line.trim() === "";
 
-/** The sort asked for: arguments first, then the block's own `[sort-by::]` / `[sort-order::]`, else by title, ascending. */
-export function sortSpec(args: Record<string, string> | undefined, properties: { key: string; value: string }[] | undefined): SortSpec {
-  const own = (key: string) => properties?.find((p) => p.key === key)?.value.trim();
-  const by = (args?.by ?? own("sort-by") ?? "title").trim() || "title";
-  const order = (args?.order ?? own("sort-order") ?? "asc").trim().toLowerCase();
-  if (order !== "asc" && order !== "desc") throw new Error(`order is asc or desc, not "${order}" (with={"by":"${by}","order":"desc"})`);
+/** The sort asked for: by title, ascending, unless the arguments say (the service fills in the note's own defaults). */
+export function sortSpec(args: Record<string, string> | undefined): SortSpec {
+  const by = (args?.by ?? "title").trim() || "title";
+  const order = (args?.order ?? "asc").trim().toLowerCase();
+  if (order !== "asc" && order !== "desc") throw new Error(`order is asc or desc, not "${order}"`);
   return { by, order };
 }
 
@@ -124,9 +123,9 @@ export function noteMissingKey(items: Item[], key: string): string | null {
 export function sortListInText(text: string, spec: SortSpec, which = 0, touch?: [number, number]): { text: string; count: number } {
   const lines = text.split("\n");
   const runs = listRuns(lines);
-  let run = runs[which];
+  let run: Run | undefined = runs[which];
   if (touch) run = runs.find((r) => r.start < touch[1] && r.end > touch[0]);
-  if (!run) throw new Error(touch ? "the selection touches no list: a list is lines starting with -, * or 1." : runs.length ? `the text has ${runs.length} list${runs.length === 1 ? "" : "s"}; list ${which + 1} isn't one (with={"list":"1"})` : "no list here: a list is lines starting with -, * or 1.");
+  if (!run) throw new Error(touch ? "the selection touches no list: a list is lines starting with -, * or 1." : runs.length ? `the text has ${runs.length} list${runs.length === 1 ? "" : "s"}; list ${which + 1} isn't one (list=1 is the first)` : "no list here: a list is lines starting with -, * or 1.");
   let first = 0, last = run.items.length;
   if (touch) {
     let at = run.start;

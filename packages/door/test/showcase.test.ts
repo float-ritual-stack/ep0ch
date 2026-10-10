@@ -2289,6 +2289,40 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0]!;
+    const demo = await board.children(listed.pages!.structure!);
+    const beds = demo.find(m => title(m).startsWith("Beds"))!, plan = demo.find(m => title(m) === "Garden plan")!;
+    const names = async () => (await board.children(beds.id)).map(m => title(m).split(" [")[0]);
+    expect(await names()).toEqual(["Herb bed", "Root bed", "Bean row"]);
+    // The person's run: the bar asks, lit on the note's own [sort-by::bed-size]; "tit" then ⏎ picks title, ⏎ takes asc.
+    void app.dispatch.press("ext.structure.sort-blocks", { block: beds.id });
+    await until(() => screen().includes("Sort the children · Sort by") && screen().includes("bed-size"), "the bar asks for by", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    for (const c of "tit") ch(c);
+    press({ kind: "enter" });
+    await until(() => screen().includes("Sort the children · Order"), "the bar asks for order", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    press({ kind: "enter" });
+    await until(async () => (await names()).join() === "Bean row,Herb bed,Root bed", "sorted by title", 8000);
+    // An agent names what it wants and is never asked; the note's own default fills in what it leaves out.
+    await app.act({ action: "ext.structure.sort-blocks", args: { block: beds.id }, as: "test-agent" });
+    expect(await names()).toEqual(["Herb bed", "Bean row", "Root bed"]);
+    // Extract: the child and the note's edit are one group, and one undo puts both back.
+    const quote = "The north fence needs mending before the beans go in";
+    const done = await app.act({ action: "ext.structure.extract", args: { block: plan.id, quote }, as: "test-agent" }) as { undo?: string; written: string[] };
+    const [child] = await board.children(plan.id);
+    expect(child!.text).toBe(quote);
+    expect((await board.get(plan.id))!.text).toContain(`!((${child!.id}))`);
+    await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
+    expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");

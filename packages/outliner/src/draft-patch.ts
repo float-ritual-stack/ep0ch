@@ -347,11 +347,32 @@ export interface DraftProposal {
    */
   dedupe?: string;
   allowStructural?: boolean;
+  /** An extension's write group: its blocks made, moved and put in order, applied with `edits` as one step or not at all. */
+  group?: DraftGroup;
 }
 
-/** How many changes (spans) a proposal holds, across its notes. */
-export function proposalChanges(proposal: Pick<DraftProposal, "edits">): number {
-  return proposal.edits.reduce((count, edit) => count + edit.patches.length, 0);
+/**
+ * The structural part of an extension's write group (ext-writes.ts) held in a proposal: what it makes, moves and puts
+ * in order, its new blocks' ids minted already (so `edits` can link to them). Its text edits are the proposal's
+ * `edits`. Applied, all of it lands in one step with the edits, or none of it.
+ */
+export interface DraftGroup {
+  /** The extension (`ext:<id>` writes what it makes) and the action, `ext.<id>.<action>`. */
+  extension: string;
+  action: string;
+  /** The note the action acted on: the proposal sits under it. */
+  hostId: string;
+  writes: DraftGroupWrite[];
+}
+
+export type DraftGroupWrite =
+  | { op: "create"; id: string; parentId: string; text: string; position?: number }
+  | { op: "move"; blockId: string; parentId: string; position?: number; expectedRevision: number }
+  | { op: "order"; parentId: string; children: string[] };
+
+/** How many changes a proposal holds: its spans across its notes, and its group's writes. */
+export function proposalChanges(proposal: Pick<DraftProposal, "edits"> & { group?: DraftGroup }): number {
+  return proposal.edits.reduce((count, edit) => count + edit.patches.length, 0) + (proposal.group?.writes.length ?? 0);
 }
 
 /** A code fence that no run of backticks in `text` can close. */
@@ -411,7 +432,8 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
   if (payload.length > DRAFT_PROPOSAL_MAX_PAYLOAD) {
     throw new Error(`The patch is too large to keep as a proposal (${Math.ceil(payload.length / 1024)} KB of the ${DRAFT_PROPOSAL_MAX_PAYLOAD / 1024} KB a proposal holds); nothing was changed. Patch a smaller passage`);
   }
-  const targets = [...new Set(proposal.edits.map(edit => edit.blockId))].map(id => `((${id}|${labelOf(names(id))}))`).join(", ");
+  const targets = [...new Set([...proposal.edits.map(edit => edit.blockId), ...(proposal.group && !proposal.edits.length ? [proposal.group.hostId] : [])])]
+    .map(id => `((${id}|${labelOf(names(id))}))`).join(", ");
   const changes = proposalChanges(proposal);
   const many = changes > 1;
   const lines = [
@@ -427,7 +449,23 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
         ...shownSpan(span));
     }
   }
+  const made = new Map((proposal.group?.writes ?? []).flatMap(write => write.op === "create" ? [[write.id, write.text]] : []));
+  const title = (id: string) => made.has(id) ? `the new "${labelOf(made.get(id)!.split("\n", 1)[0]!)}"` : labelOf(names(id));
+  for (const write of proposal.group?.writes ?? []) {
+    change += 1;
+    lines.push("", ...shownGroupWrite(write, title, many ? `Change ${change} of ${changes}: ` : ""));
+  }
   return lines.join("\n");
+}
+
+/** How a proposal shows one of its group's writes: a new block's text fenced, a move or an order in words. */
+function shownGroupWrite(write: DraftGroupWrite, title: (id: string) => string, lead = ""): string[] {
+  if (write.op === "create") {
+    const fence = fenceFor(write.text);
+    return [`${lead}a new block under ${title(write.parentId)}:`, fence, write.text, fence];
+  }
+  if (write.op === "move") return [`${lead}${title(write.blockId)} moves under ${title(write.parentId)}${write.position !== undefined ? `, at ${write.position + 1}` : ""}.`];
+  return [`${lead}the children of ${title(write.parentId)} in this order: ${write.children.map(title).join(", ")}.`];
 }
 
 /** How a proposal shows one span: the passage and what it becomes, each fenced. */
@@ -442,6 +480,8 @@ function shownSpan(span: DraftPatchSpan): string[] {
  * hidden payload that says something else.
  */
 export function proposalShowsPatch(text: string, proposal: DraftProposal): boolean {
+  const made = (proposal.group?.writes ?? []).filter((write): write is Extract<DraftGroupWrite, { op: "create" }> => write.op === "create");
+  if (made.some(write => typeof write.text !== "string" || !text.includes(`\n${shownGroupWrite(write, () => "").slice(1).join("\n")}`))) return false;
   return proposal.edits.every(edit => Array.isArray(edit.patches) && edit.patches.every(span =>
     typeof span?.observed === "string" && typeof span.replacement === "string" && text.includes(`\n${shownSpan(span).join("\n")}`)));
 }
