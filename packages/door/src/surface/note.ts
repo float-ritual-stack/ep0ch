@@ -2991,7 +2991,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c)} · ${c.author}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${c.author}${c.open ? "" : " · resolved"}` });
     }
     return out;
   }
@@ -4503,7 +4503,8 @@ export class NoteSurface {
     for (const c of laid.margin.cards) c.rows.forEach((t, j) => byRow.set(c.at + j, { thread: c.thread, text: t }));
     for (let i = top; i < lines.length && i - top < room; i++) {
       const r = i - top + this.scroll, card = byRow.get(r);
-      lines[i] = pad(lines[i]!, bodyW) + fg(C.dark) + "│" + RESET + " " + (card ? card.text : " ".repeat(cols - 2));
+      // Only a card's rows have the column's edge: the margin is quiet where it holds nothing.
+      lines[i] = pad(lines[i]!, bodyW) + (card ? fg(C.dark) + "│" + RESET + " " + card.text : " ".repeat(cols));
       if (card) this.hits.push({ row: i, from: bodyW + 1, to: bodyW + cols, thread: card.thread, elem: `comment:${card.thread}` });
     }
   }

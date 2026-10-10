@@ -213,7 +213,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   test("⏎ in a detail: a link follows in place, a fold toggles, a row and an embed open their note in place, a comment mark expands its thread", async () => {
     let d = await detail();
     stepTo(d, "Stake the beans");
-    expect(frame().map(plain).some(l => l.includes("[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new"))).toBe(true);   // the reader's footer
+    expect(frame().map(plain).some(l => l.includes("[ ] 2/10 · link Stake the beans · ⏎ follow · alt⏎ new"))).toBe(true);   // the reader's footer (the comment's margin card is an element too)
     key({ kind: "enter" });
     await whole(d, n.beans.id);
     expect(B().details.length).toBe(1);
