@@ -109,11 +109,16 @@ describe('mention-message', () => {
     expect(workspaceEnvOf(namedWorkspaceOf('/tmp', null, 'garden', 'far')!)).toEqual({ OUTLINER_WORKSPACE_ROOT: '/tmp', EP0CH_WS: 'garden', EP0CH_MACHINE: 'far' })
   })
 
-  test('EP0CH_SOCKET beside EP0CH_WS is a host here naming that outline (what an outline host gives @margin), unless it is a forward', async () => {
-    expect(sameHostSocket(undefined, undefined)).toBe(true)
-    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '')).toBe(true)
-    expect(sameHostSocket('/home/someone/outlines/.remote/far.sock', '')).toBe(false)
-    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', 'far')).toBe(false)
-    expect(sameHostSocket('host.sock', undefined)).toBe(false)
+  test('EP0CH_SOCKET beside EP0CH_WS is taken only when it is this machine\'s host socket (what an outline host gives @margin)', async () => {
+    const home = '/home/someone'
+    expect(sameHostSocket(undefined, undefined, undefined, home)).toBe(true)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '', undefined, home)).toBe(true)
+    expect(sameHostSocket('/scratch/outlines/.host/host.sock', '', '/scratch/outlines/', home)).toBe(true)
+    // A forward anywhere else could be another machine's host: refused, wherever it lives.
+    expect(sameHostSocket('/tmp/remote.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/tmp/outlines/.host/host.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.remote/far.sock', '', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', 'far', undefined, home)).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '', undefined, undefined)).toBe(false)
   })
 })

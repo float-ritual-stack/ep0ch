@@ -401,7 +401,7 @@ export const DEFAULT_DEADLINE_MS = 15_000;
 
 /** Variables the service sets for every call: a manifest's `env` can't name them. */
 export const RESERVED_EXTENSION_ENV: ReadonlySet<string> = new Set([
-  "PATH", "LANG", "HOME", "WITH_SECRETS_DIR", "OUTLINER_EXTENSION", "EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS",
+  "PATH", "LANG", "HOME", "WITH_SECRETS_DIR", "OUTLINER_EXTENSION", "EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS", "EP0CH_OUTLINES",
 ]);
 
 /** Property keys the core already gives a meaning; a handler can't take them. */

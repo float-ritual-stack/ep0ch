@@ -196,3 +196,10 @@ test("a hub is a block with two or more views under it: child>=2: counts the chi
   expect(await mine("type=hub OR child>=2:type=virtual-branch")).toEqual([hub.id, tagged.id].sort());
   await expect(ids("child>=0:type=virtual-branch")).rejects.toThrow(/needs N of 1 or more/);
 });
+
+test("a program an outline host starts is told the outlines folder its socket is in, so @margin's session finds this machine's host", async () => {
+  const { outlinesOfHostSocket } = await import("../src/resource-extensions");
+  expect(outlinesOfHostSocket("/home/someone/outlines/.host/host.sock")).toBe("/home/someone/outlines");
+  expect(outlinesOfHostSocket("/tmp/scratch/outliner.sock")).toBeUndefined();
+  expect(outlinesOfHostSocket(undefined)).toBeUndefined();
+});
