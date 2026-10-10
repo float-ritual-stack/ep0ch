@@ -737,17 +737,15 @@ export interface QueryRelations {
   parentOf?(blockId: string): string | null | undefined;
   /** The ids of the blocks whose latest change (else their creation) came from a call with this id (PIE-685). */
   callBlocks?(call: string): ReadonlySet<string>;
-  /** Who `me` is in `unread:me` and `thread:me`: the asker (`user`, the person, unless an agent asked). */
-  readonly reader?: string;
   /** The revision `reader` last read each block at (`unread:`, PIE-708). */
   readRevisions?(reader: string): ReadonlyMap<string, number>;
   /** The comments and replies in the threads `reader` started or wrote in (`thread:`). */
   threadBlocks?(reader: string): ReadonlySet<string>;
 }
 
-/** The reader an atom names: `me` is the asker (the person when nobody else is named). */
-function readerOf(reader: string, relations: QueryRelations): string {
-  return reader === ME_READER ? relations.reader ?? PERSON_READER : reader;
+/** The reader an atom names: `me` is the person (every client reads as them); an agent names its own actor id. */
+function readerOf(reader: string): string {
+  return reader === ME_READER ? PERSON_READER : reader;
 }
 
 /** The person's reader key (their read marks, their threads): the door, the web client and the CLI read as them. */
@@ -811,11 +809,11 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     }
     case "unread": {
       // Read at its current revision or later is read; anything else (never opened, changed since) is unread.
-      const read = relations?.readRevisions?.(readerOf(expression.reader, relations));
+      const read = relations?.readRevisions?.(readerOf(expression.reader));
       return subject => !!read && subject.id !== undefined && (read.get(subject.id) ?? 0) < (subject.revision ?? 1);
     }
     case "thread": {
-      const blocks = relations?.threadBlocks?.(readerOf(expression.reader, relations));
+      const blocks = relations?.threadBlocks?.(readerOf(expression.reader));
       return subject => !!blocks && subject.id !== undefined && blocks.has(subject.id);
     }
     case "property": {

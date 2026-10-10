@@ -996,7 +996,8 @@ export class Publisher {
     const fields = ["text", "parent", "properties", "author", "timestamps"] as const;
     const [all, unread] = await Promise.all([
       this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: RECENT_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields: [...fields] }),
-      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: UNREAD_REPLIES_QUERY, limit: MAX_BLOCK_READ_IDS }, fields: ["parent"] }),
+      // The same order and limit: every unread one among those shown is among the newest unread.
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: UNREAD_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields: ["parent"] }),
     ]);
     const fresh = new Set(unread.blocks.map((block) => block.id));
     // A reply's tree parent is its thread's comment; the comment's is the note it's on.

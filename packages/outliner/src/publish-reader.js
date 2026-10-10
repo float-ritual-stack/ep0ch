@@ -266,13 +266,13 @@
     return node;
   }
 
-  /** The thread read by the person: once per thread and page load, quietly (a failure only means it stays unread). */
-  const marked = new Set();
+  /** The thread read by the person, quietly (a failure only means it stays unread); one request at a time per thread. */
+  const reading = new Set();
   function markRead(id) {
-    if (!id || marked.has(id)) return;
-    marked.add(id);
+    if (!id || reading.has(id)) return;
+    reading.add(id);
     fetch(`${api}/write`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ page, ...(full ? { view: "full" } : {}), action: "read", thread: id }) })
-      .then((response) => { if (!response.ok) marked.delete(id); }, () => marked.delete(id));
+      .catch(() => {}).finally(() => reading.delete(id));
   }
 
   /** `#thread=<id>` (a link from Recent replies): its card opened and brought into view, and the thread marked read. */

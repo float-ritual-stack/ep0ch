@@ -44,8 +44,8 @@ const memory = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) :
 const question = (/THE QUESTION: (.*)/.exec(prompt) || [])[1] || "?";
 memory.asked.push(question);
 fs.writeFileSync(file, JSON.stringify(memory));
-const saw = [prompt.includes("THE PAGE'S OTHER COMMENTS") ? "other comments" : "", prompt.includes("note to self") ? "the aside" : ""].filter(Boolean).join(", ");
-const query = question.includes("view") ? " Try [query::type=chore AND area=garden] or [query::kind=ask] [sort::modified desc]." : "";
+const saw = [prompt.includes("THE PAGE'S OTHER COMMENTS") ? "other comments" : "", prompt.includes("note to self") ? "the aside" : "", prompt.includes("ext:marginalia: turn") ? "an earlier answer" : ""].filter(Boolean).join(", ");
+const query = question.includes("view") ? " Try \`[query::under:[[Garden]] AND type=chore]\` or [query::kind=ask] [sort::modified desc]." : "";
 console.log("turn " + memory.asked.length + "; first you asked: " + memory.asked[0] + (saw ? "; I saw " + saw : "") + "." + query);
 `;
 
@@ -114,7 +114,7 @@ test("a margin thread is one conversation: @margin resumes its session, a reply 
   // @margin in a reply resumes the session: the model remembers the first question, and saw the aside in the thread.
   await reply("again", id, "@margin and in winter?");
   const second = await until("the second answer", async () => (await answers(id))[1]);
-  expect(second.body).toBe("turn 2; first you asked: why dawn?; I saw other comments, the aside.");
+  expect(second.body).toBe("turn 2; first you asked: why dawn?; I saw other comments, the aside, an earlier answer.");
   expect((await threads()).find(t => t.block.id === id)!.properties!["margin-session"]).toEqual([session]);
 });
 
@@ -124,16 +124,26 @@ test("a session that can't be resumed starts again with the whole thread; a sugg
   await until("the first answer", async () => (await answers(id))[0]);
   const session = (await threads()).find(t => t.block.id === id)!.properties!["margin-session"]![0]!;
   rmSync(join(memory, `${session}.json`));
-  store.create("Dig the bed [type::chore] [area::garden]", null, "user");
+  const garden = store.create("Garden [page::Garden]", null, "user");
+  store.create("Dig the bed [type::chore] [area::garden]", garden.id, "user");
   await reply("again", id, "@margin which view lists the chores?");
   const second = await until("the second answer", async () => (await answers(id))[1]);
   expect(second.body).toStartWith("turn 1; first you asked: which view lists the chores?");
   expect((await threads()).find(t => t.block.id === id)!.properties!["margin-session"]![0]).not.toBe(session);
   // The working query passes; kind (no note has it) and a sort by a key nobody wrote are said, with the nearest keys.
   expect(second.body).toContain("⚠ checked with the outline:");
-  expect(second.body).not.toContain("[query::type=chore AND area=garden]:");
+  expect(second.body).not.toContain("[query::under:[[Garden]] AND type=chore]:");
   expect(second.body).toMatch(/\[query::kind=ask\]: no notes have kind/);
   expect(second.body).toMatch(/\[sort::modified desc\]: no notes have modified/);
+});
+
+test("two asks in a row are answered in turn, the second knowing the first answer", async () => {
+  const { comment, reply, answers } = await setup();
+  const id = await comment("ask", "tomatoes at dawn", "@margin why dawn?");
+  await reply("quick", id, "@margin and at dusk?");
+  const both = await until("both answers", async () => { const a = await answers(id); return a.length === 2 && a; });
+  expect(both[0]!.body).toStartWith("turn 1; first you asked: why dawn?");
+  expect(both[1]!.body).toBe("turn 2; first you asked: why dawn?; I saw an earlier answer.");
 });
 
 test("Recent replies: replies on the reader's threads, not their own; unread until the thread is read, and again when a new reply lands", async () => {

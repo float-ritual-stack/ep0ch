@@ -24,7 +24,7 @@ interface Request {
   input: Record<string, any>;
   config?: { color?: string; answer?: string[]; session?: { start: string[]; resume: string[] } };
 }
-interface Said { author: string; body: string }
+interface Said { id?: string; author: string; body: string }
 
 const TONES = ["default", "good", "warn", "bad", "dim", "accent"];
 const request = (await Bun.stdin.json()) as Request;
@@ -81,6 +81,9 @@ function prompt(input: Record<string, any>, resumed: boolean): string {
   const thread = (input.thread ?? []) as Said[];
   const comments = (input.comments ?? []) as { quote: string; thread: Said[] }[];
   const question = String(input.request ?? "").trim() || "what does this mean?";
+  // Everything said in the thread but the ask itself (`asked`): an answer that landed after it is kept.
+  const asked = typeof input.asked === "string" ? input.asked : thread.at(-1)?.id;
+  const before = thread.filter((t, at) => (asked ? t.id !== asked : at < thread.length - 1));
   const others = comments.flatMap((c) => [c.quote ? `- on "${c.quote}":` : "- on the whole note:", ...c.thread.map((t) => `    ${said(t)}`)]);
   return [
     resumed
@@ -88,7 +91,7 @@ function prompt(input: Record<string, any>, resumed: boolean): string {
       : "You answer in the margin of a note, beside the passage a reader asked about. Plain text, under 120 words. The first sentence answers. Don't write query or view syntax ([query::], [sort::]) unless you checked it against the outline; the outline checks any you write and says so under your answer.",
     "", "THE NOTE:", text.slice(0, 20_000), "",
     p ? `THE PASSAGE: "${p.quote}"` : "THE PASSAGE: (the whole note)",
-    ...(thread.length > 1 ? ["", "THE THREAD SO FAR (the reader's own notes between asks included):", ...thread.slice(0, -1).map(said)] : []),
+    ...(before.length ? ["", "THE THREAD SO FAR (the reader's own notes between asks included):", ...before.map(said)] : []),
     ...(others.length ? ["", "THE PAGE'S OTHER COMMENTS:", ...others] : []),
     "", `THE QUESTION: ${question}`,
   ].join("\n");

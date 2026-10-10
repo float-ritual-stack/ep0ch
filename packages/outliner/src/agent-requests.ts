@@ -10,6 +10,7 @@ import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
 import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } from "./types";
 import { resourceCommentSource } from "./resource-comments";
+import { parsePropertyRecords } from "./properties";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -559,13 +560,14 @@ export class AgentRequests {
 
   private answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
     const rootId = record.parentAnnotationId ?? record.block.id;
-    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, line)).catch(() => {});
+    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, record.block.id, line)).catch(() => {});
     this.threadTurns.set(rootId, turn);
     void turn.finally(() => { if (this.threadTurns.get(rootId) === turn) this.threadTurns.delete(rootId); });
     return turn;
   }
 
-  private async answerTurn(rootId: string, line: RequestLine): Promise<void> {
+  /** One ask answered: `asked` is the comment or reply that asked (a later turn may have landed after it). */
+  private async answerTurn(rootId: string, asked: string, line: RequestLine): Promise<void> {
     const bound = this.registry.agent(line.agent);
     if (!bound || this.stopped) return;
     const { extension, agent } = bound;
@@ -604,6 +606,7 @@ export class AgentRequests {
         ...(note ? { note: { ...note, text: note.text.slice(0, MAX_NOTE_TEXT) } } : {}),
         ...(passage ? { passage } : {}),
         thread,
+        asked,
         comments,
         ...(session ? { session } : {}),
         properties: root.properties ?? {},
@@ -636,7 +639,9 @@ export class AgentRequests {
    * the answer with why. The answer itself is never refused.
    */
   private checkedQueries(reply: string): string {
-    const found = (key: string) => [...reply.matchAll(new RegExp(`\\[${key}::([^\\]\\n]+)\\]`, "gi"))].map((m) => m[1]!.trim());
+    // The property grammar reads them (a page link inside a query too), in code spans as well as in prose.
+    const records = parsePropertyRecords(reply.replace(/`/g, ""));
+    const found = (key: string) => records.filter((record) => record.key === key).map((record) => record.value.trim()).filter(Boolean);
     const wheres = [...found("query"), ...found("where")];
     const sorts = found("sort"), groups = found("group");
     if (!wheres.length && !sorts.length && !groups.length) return reply;

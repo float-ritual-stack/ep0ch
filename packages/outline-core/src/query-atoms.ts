@@ -24,7 +24,7 @@ export type QueryAtom =
   /** Comments and replies in the threads `reader` started or wrote in. */
   | { kind: "thread"; reader: string };
 
-/** A reader's atom names who reads: `me` (the person asking, bound by the service) or an agent's actor id. */
+/** A reader's atom names who reads: `me` (the person: the door, the web client and the CLI read as them) or an agent's actor id. */
 export type QueryReaderAtom = "unread" | "thread";
 export const ME_READER = "me";
 const READER = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
@@ -56,8 +56,8 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "title~text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
   { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
-  { atom: "unread:<reader>", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person asking, else an agent's actor id", example: "unread:me  type=annotation-reply unread:me" },
-  { atom: "thread:<reader>", means: "comments and replies in the threads the reader started or wrote in; me is the person asking", example: "type=annotation-reply thread:me NOT annotation-source=user" },
+  { atom: "unread:<reader>", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person, and an agent names its own actor id", example: "unread:me  type=annotation-reply unread:me" },
+  { atom: "thread:<reader>", means: "comments and replies in the threads the reader started or wrote in; me is the person, an agent names its actor id", example: "type=annotation-reply thread:me NOT annotation-source=user" },
 ];
 
 const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread):|(?:title|text)~)/i;

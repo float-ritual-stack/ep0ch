@@ -1810,7 +1810,7 @@ created < 2026-09-01T12:00Z
   | `parent:[[page]]`, `parent:((id))` | the target's direct children |
   | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
   | `text~text` | blocks whose whole text contains the text, ignoring case |
-  | `unread:me`, `unread:<actor id>` | blocks the reader hasn't read at their current revision (never opened, or changed since; PIE-708's read marks, set by `annotations.read` when a thread is opened). `me` is the person asking |
+  | `unread:me`, `unread:<actor id>` | blocks the reader hasn't read at their current revision (never opened, or changed since; PIE-708's read marks, set by `annotations.read` when a thread is opened). `me` is the person; an agent names its own actor id |
   | `thread:me`, `thread:<actor id>` | comments and replies in the threads the reader started or wrote in. Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user` (outline-core `recent-replies.ts`) |
 
   Quote text with spaces (`title~"weekly review"`). A target that names no block fails the query with the atom and a
