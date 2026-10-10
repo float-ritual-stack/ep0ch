@@ -29,6 +29,8 @@ const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "
  */
 function written(text: string, line: number): Child[] {
   const rest = text.split("\n").slice(line + 1).join("\n");
+  // Only a block that uses the marker is written inline; any other words under the line leave the child notes alone.
+  if (!/^\|\|\|\s*$/m.test(rest)) return [];
   return rest.split(/^\|\|\|\s*$/m).map((part, index) => ({ id: String(index), text: part.trim() })).filter((part) => part.text);
 }
 
