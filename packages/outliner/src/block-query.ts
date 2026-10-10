@@ -1,5 +1,5 @@
 import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
-import { QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
+import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
 import { ROADMAP_WORK_STAGES } from "./types";
 import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
@@ -19,6 +19,8 @@ import type {
 
 export const MAX_BLOCK_QUERY_LIMIT = QUESTION_MAX_LIMIT;
 const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s");
+/** `child:` or a counted `child>=N:` (at least N direct children have the property). */
+const CHILD_COUNT = /^child(?:>=(\d{1,4}))?:/i;
 
 const BOOLEAN_OPERATORS = new Set(["and", "not", "or"]);
 const PROPERTY_QUERY_SCOPES = new Set<PropertyQueryScope>([
@@ -415,7 +417,8 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
     text = text.slice(0, text.length - closing);
     if (text) {
       const lower = text.toLowerCase();
-      const keyedRange = KEYED_RANGE.exec(text);
+      // `child>=2:key=value` is one clause (a counted `child:`), not a range on a key named child.
+      const keyedRange = CHILD_COUNT.test(text) ? null : KEYED_RANGE.exec(text);
       const bareRange = /^(<=|>=|<|>)(.*)$/s.exec(text);
       if (lower === "and" || lower === "or" || lower === "not") {
         tokens.push({ kind: lower, start });
@@ -622,12 +625,17 @@ class ExpressionParser {
     }
     // `child:key=value` holds when a direct child has the property. `:` was never
     // valid in a key, so no query that parsed before changes meaning.
-    const relation = /^child:/i.test(token.text) ? "child" as const : undefined;
-    const clause = parsePropertyFilterClause(relation ? token.text.slice(6) : token.text, token.start + (relation ? 6 : 0));
+    // `child>=2:key=value`: at least that many direct children have it (a hub: `child>=2:type=virtual-branch`).
+    const child = CHILD_COUNT.exec(token.text);
+    const relation = child ? "child" as const : undefined;
+    const count = child?.[1] === undefined ? 1 : Number(child[1]);
+    if (child && count < 1) syntaxError("child>=N: needs N of 1 or more, like child>=2:type=virtual-branch", token.start);
+    const skip = child?.[0].length ?? 0;
+    const clause = parsePropertyFilterClause(token.text.slice(skip), token.start + skip);
     if (this.rejectDeleted && clause.key === "deleted") {
       syntaxError("deleted=true selects Trash and cannot be combined with OR, NOT, groups or ranges", token.start);
     }
-    return { kind: "property", ...clause, ...(relation ? { relation } : {}) };
+    return { kind: "property", ...clause, ...(relation ? { relation } : {}), ...(count > 1 ? { count } : {}) };
   }
 }
 
@@ -644,7 +652,7 @@ export function parseQueryExpression(input: string): QueryExpression {
  */
 export function parseSearchExpression(input: string): { filters: PropertyFilter[]; where?: QueryExpression } {
   const { tokens, simple } = lexQueryExpression(input);
-  if (simple && !tokens.some((token) => token.kind === "word" && /^child:/i.test(token.text))) {
+  if (simple && !tokens.some((token) => token.kind === "word" && CHILD_COUNT.test(token.text))) {
     return { filters: parsePropertyFilterExpression(input) };
   }
   return { filters: [], where: new ExpressionParser(tokens, input.length, true).parse() };
@@ -659,7 +667,9 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
       const filter = normalizePropertyFilter({ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) });
       if (filter.key === "deleted") throw new BlockQueryError("deleted=true cannot appear inside a query expression; use filters or includeDeleted");
       if (expression.relation !== undefined && expression.relation !== "child") throw new BlockQueryError(`Unknown query relation: ${String(expression.relation)}`);
-      return { kind: "property", ...filter, ...(expression.relation ? { relation: expression.relation } : {}) };
+      const count = expression.count;
+      if (count !== undefined && (!Number.isInteger(count) || count < 1 || count > 9999 || expression.relation !== "child")) throw new BlockQueryError("count is a child: clause's minimum, a whole number from 1");
+      return { kind: "property", ...filter, ...(expression.relation ? { relation: expression.relation } : {}), ...(count !== undefined && count > 1 ? { count } : {}) };
     }
     case "time": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
@@ -678,11 +688,14 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
     case "parent":
     case "title":
     case "text":
-    case "call": {
+    case "call":
+    case "unread":
+    case "thread": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
       const word = expression.kind === "tag" ? `#${String(expression.tag)}`
         : expression.kind === "links" || expression.kind === "linkedfrom" || expression.kind === "under" || expression.kind === "parent" ? `${expression.kind}:${String(expression.target)}`
         : expression.kind === "call" ? `call:${String(expression.call)}`
+        : expression.kind === "unread" || expression.kind === "thread" ? `${expression.kind}:${String(expression.reader)}`
         : `${expression.kind}~"${String(expression.text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
       try {
         const atom = parseQueryAtom(word);
@@ -724,13 +737,29 @@ export interface QueryRelations {
   parentOf?(blockId: string): string | null | undefined;
   /** The ids of the blocks whose latest change (else their creation) came from a call with this id (PIE-685). */
   callBlocks?(call: string): ReadonlySet<string>;
+  /** Who `me` is in `unread:me` and `thread:me`: the asker (`user`, the person, unless an agent asked). */
+  readonly reader?: string;
+  /** The revision `reader` last read each block at (`unread:`, PIE-708). */
+  readRevisions?(reader: string): ReadonlyMap<string, number>;
+  /** The comments and replies in the threads `reader` started or wrote in (`thread:`). */
+  threadBlocks?(reader: string): ReadonlySet<string>;
 }
+
+/** The reader an atom names: `me` is the asker (the person when nobody else is named). */
+function readerOf(reader: string, relations: QueryRelations): string {
+  return reader === ME_READER ? relations.reader ?? PERSON_READER : reader;
+}
+
+/** The person's reader key (their read marks, their threads): the door, the web client and the CLI read as them. */
+export const PERSON_READER = "user";
 
 export interface QueryExpressionSubject {
   id?: string;
   text?: string;
   createdAt: string;
   updatedAt: string;
+  /** Its revision, for `unread:` (read at an older one is unread again). */
+  revision?: number;
   /** The block's active direct children's properties, for `child:` clauses; without it they never match. */
   childProperties?: () => readonly (readonly (BlockProperty | PropertyRecord)[])[];
 }
@@ -780,10 +809,24 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       const written = relations?.callBlocks?.(expression.call);
       return subject => !!written && subject.id !== undefined && written.has(subject.id);
     }
+    case "unread": {
+      // Read at its current revision or later is read; anything else (never opened, changed since) is unread.
+      const read = relations?.readRevisions?.(readerOf(expression.reader, relations));
+      return subject => !!read && subject.id !== undefined && (read.get(subject.id) ?? 0) < (subject.revision ?? 1);
+    }
+    case "thread": {
+      const blocks = relations?.threadBlocks?.(readerOf(expression.reader, relations));
+      return subject => !!blocks && subject.id !== undefined && blocks.has(subject.id);
+    }
     case "property": {
       const filter = [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
       if (expression.relation === "child") {
-        return (subject) => (subject.childProperties?.() ?? []).some((properties) => matchesFilters(properties, filter));
+        const least = expression.count ?? 1;
+        return (subject) => {
+          let found = 0;
+          for (const properties of subject.childProperties?.() ?? []) if (matchesFilters(properties, filter) && ++found >= least) return true;
+          return false;
+        };
       }
       return (_subject, properties, scope) => matchesFilters(properties, filter, scope);
     }
@@ -839,6 +882,8 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
     case "title":
     case "text":
     case "call":
+    case "unread":
+    case "thread":
     case "not": return [];
     default: return expression.operands.flatMap(positivePropertyFilters);
   }

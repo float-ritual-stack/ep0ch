@@ -20,7 +20,8 @@ import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
-import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE } from "./annotations";
+import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
+import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
@@ -320,8 +321,8 @@ header.bar{border-bottom:1px solid var(--rule);padding-bottom:.5rem;margin-botto
 footer{border-top:1px solid var(--rule);margin-top:3rem;padding-top:.5rem}
 pre,code{font:14px/1.45 ui-monospace,Menlo,monospace}
 pre{overflow-x:auto;padding:.75rem;border:1px solid var(--rule)}
-table{border-collapse:collapse;width:100%;font:14px/1.5 ui-monospace,Menlo,monospace}
-th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+table{border-collapse:collapse;font:14px/1.5 ui-monospace,Menlo,monospace;display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var(--rule);vertical-align:top;min-width:7em;overflow-wrap:normal}
 th{color:var(--dim);font-weight:normal}
 .dim{color:var(--dim)}
 img{max-width:100%}
@@ -349,6 +350,8 @@ ul.kids .t{display:block;color:var(--link)}
 ul.kids .s{display:block;color:#c9c7bf;font-size:15px;line-height:1.45;margin-top:.15rem}
 ul.kids .m{display:block;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);margin-top:.2rem;overflow-wrap:anywhere}
 ul.kids li.locked{padding:.75rem .35rem;color:var(--dim);font-style:italic}
+ul.replies li.new .t{color:var(--fg);font-weight:600}
+ul.replies .dot{color:var(--link);font-size:.8em}
 ::selection{background:#3b4250;color:inherit}
 main.browse [hidden],.mg-ui[hidden]{display:none!important}
 .mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
@@ -848,6 +851,8 @@ export class Publisher {
         }
         return renderedHtml(renderIndexHtml(await this.readIndex(), this.basePath, this.publicHrefs()));
       }
+      // Recent replies (a bookmark on the phone): every reply on his threads, newest first, the unread marked.
+      if (audience === "tailnet" && (path === "/replies" || path === "/replies/")) return await this.serveReplies(await this.readIndex());
       if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
@@ -979,6 +984,55 @@ export class Publisher {
     return entry
       ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false) }), 200, READER_CSP)
       : renderedHtml(htmlPage(title, body, crumbs, { browse: true }));
+  }
+
+  /**
+   * Recent replies (the capability "Conversations in the margin"): the saved view's question (outline-core
+   * recent-replies.ts) asked of the service, the unread ones (`unread:me`) marked. Each opens its note at the thread,
+   * and opening it there marks it read. A reply on a locked note, or marked `[publish::never]`, isn't listed.
+   */
+  private async serveReplies(index: PublishedIndex): Promise<Response> {
+    const base = this.basePath;
+    const fields = ["text", "parent", "properties", "author", "timestamps"];
+    const [all, unread] = await Promise.all([
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: RECENT_REPLIES_QUERY, sort: { field: "created", direction: "desc" }, limit: MAX_RECENT_REPLIES }, fields }),
+      this.client.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: UNREAD_REPLIES_QUERY, limit: MAX_BLOCK_READ_IDS }, fields: ["parent"] }),
+    ]);
+    const fresh = new Set(unread.blocks.map((block) => block.id));
+    // A reply's tree parent is its thread's comment; the comment's is the note it's on.
+    const roots = [...new Set(all.blocks.map((block) => block.parentId).filter((id): id is string => !!id))];
+    const rootRead = roots.length ? await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: roots, fields: ["text", "parent"] }) : { blocks: [], unavailable: [] };
+    const rootOf = new Map(rootRead.blocks.map((block) => [block.id, block]));
+    const notes = [...new Set(rootRead.blocks.map((block) => block.parentId).filter((id): id is string => !!id))];
+    const [locked, titles, noteRead] = await Promise.all([
+      this.lockedIds([...notes, ...all.blocks.map((block) => block.id)]),
+      this.titles(notes),
+      notes.length ? this.client.request<BlockReadCollection>({ action: "blocks.read", ids: notes, fields: ["properties"] }) : Promise.resolve({ blocks: [], unavailable: [] } as BlockReadCollection),
+    ]);
+    const noteOf = new Map(noteRead.blocks.map((block) => [block.id, block]));
+    const rows: string[] = [];
+    let unreadCount = 0;
+    for (const reply of all.blocks) {
+      const root = reply.parentId ? rootOf.get(reply.parentId) : undefined;
+      const noteId = root?.parentId ?? undefined;
+      if (!root || !noteId || locked.has(noteId) || locked.has(reply.id)) continue;
+      const isNew = fresh.has(reply.id);
+      if (isNew) unreadCount += 1;
+      const by = reply.author === "user" ? "you" : (reply.actorId ?? "agent").replace(/^ext:/, "");
+      const quote = /^[A-Z][a-z-]{0,23} on “(.*)”$/.exec((root.text ?? "").split("\n")[0] ?? "")?.[1] ?? "";
+      const said = plainBody(extractAnnotationBody(reply.text ?? "")).replace(/\s+/g, " ").trim();
+      const href = `${base}${notePath(noteOf.get(noteId) ?? { id: noteId }, index)}#thread=${root.id}`;
+      const meta = [by, (reply.createdAt ?? "").slice(0, 16).replace("T", " "), `on ${noteTitle(titles.get(noteId) ?? "") || "a note"}`].join(" · ");
+      rows.push(`<li${isNew ? ` class="new"` : ""}><a href="${escapeHtml(href)}"><span class="t">${isNew ? `<span class="dot" aria-label="unread">●</span> ` : ""}${escapeHtml(said.length > 220 ? `${said.slice(0, 219).trimEnd()}…` : said || "(empty)")}</span>` +
+        `${quote ? `<span class="s">“${escapeHtml(quote)}”</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`);
+    }
+    const list = rows.length
+      ? `<ul class="kids replies">\n${rows.join("\n")}\n</ul>\n`
+      : `<p class="dim">No replies yet. When someone (or @margin) answers in a thread you started or wrote in, it shows here.</p>\n`;
+    const body = `<article>\n<h1>Recent replies</h1>\n<p class="dim">${unreadCount ? `${unreadCount} unread · ` : ""}replies on your threads, newest first. Opening one marks its thread read.</p>\n</article>\n` +
+      `<section class="inside">${list}</section>\n<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Recent replies</span></nav>`;
+    return renderedHtml(htmlPage("Recent replies", body, crumbs, { browse: true }));
   }
 
   /** Breadcrumbs from the outline's top level down to `entry`, each a link but the note itself (on its full page, a link back to the folder). */
@@ -1556,6 +1610,8 @@ function fileChip(source: string, index: PublishedIndex, basePath: string): stri
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A folder page lists at most this many children, and counts what's inside the first this many. */
 const MAX_LISTED_CHILDREN = 500;
+/** Recent replies lists at most this many. */
+const MAX_RECENT_REPLIES = 60;
 const MAX_COUNTED_CHILDREN = 200;
 
 /** A note's title (the service's) as a tailnet page shows it: a reference read as its label, a heading's marks left out. */

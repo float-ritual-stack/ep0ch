@@ -3045,7 +3045,7 @@ export class NoteSurface {
       return { folded: this.folded.has(p.key) };
     }
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
-    if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
+    if (e.kind === "comment") { if (select) { this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); this.readThread(e.thread!, host); } host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
     if (e.kind === "control" && e.link?.unsent) return this.runKey(`unsent.${e.link.unsent.op}`, { kind: e.link.unsent.kind }, host);
     // A live figure's tab shows it; its density control steps to the next density.
@@ -3081,6 +3081,14 @@ export class NoteSurface {
   setExpanded(thread: string, on: boolean) {
     if (on) this.expanded.add(thread); else this.expanded.delete(thread);
     this.reveal = true;
+  }
+
+  /**
+   * The person opened a thread (expanded it, or its card): it's read (PIE-708), so its replies leave Recent replies'
+   * unread. Only the person's opening reads it; quietly, as a failure only leaves it unread.
+   */
+  readThread(thread: string, host: SurfaceHost) {
+    if (this.expanded.has(thread)) void host.ctx.board.readThread(thread).catch(() => {});
   }
 
   /** A thread of the note shown, by id or its first 6+ characters. */
@@ -3141,6 +3149,7 @@ export class NoteSurface {
     // A margin card folded under its passage: its thread expands there, as a click on its mark does.
     if (e.control === "card") {
       this.setExpanded(c.id, true);
+      this.readThread(c.id, host);
       host.redraw();
       return { thread: c.id, expanded: true };
     }
@@ -6401,6 +6410,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       await surface.whole();
       const id = surface.threadId(thread);
       surface.setExpanded(id, expand ?? !surface.expanded.has(id));
+      surface.readThread(id, host);
       host.redraw();
       return { thread: id, expanded: surface.expanded.has(id) };
     },

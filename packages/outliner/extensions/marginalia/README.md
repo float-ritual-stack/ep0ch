@@ -17,8 +17,17 @@ or click the chips on the selection's line. `M` in a reader changes how the marg
   they were, or found once with the words around them), sends it as `target.passage` with the note's text, and writes
   what the action returns as `ext:marginalia`, with who asked beside it. An `annotate` write is an annotation on the
   passage; properties are open, so a highlight is found like any block (`kind=highlight`, `tags=soil`).
-- **`@margin`** (`"threads": true`): a person's comment on a passage that starts `@margin …` is sent to `respond` with
-  the passage, the note and the thread; the reply goes in the thread. An agent's own `@margin` never sets it off.
+- **`@margin`** (`"threads": true`): a person's comment on a passage that starts `@margin …`, or a reply in its thread
+  that does, is sent to `respond` with the passage, the note, the whole thread and the page's other comments; the reply
+  goes in the thread. A reply without `@margin` is a note to self: never sent, never answered. An agent's own
+  `@margin` never sets it off.
+- **A thread is one conversation.** The first `@margin` starts a session and its id is kept on the thread
+  (`[margin-session::<id>]`); a later `@margin` there resumes it, so the agent remembers the earlier turns. `claude`
+  works as it is (`--session-id`, `--resume`); another command says how in `config.session`
+  (`{"start": ["--new", "{id}"], "resume": ["--continue", "{id}"]}`). A session that can't be resumed starts again
+  with the whole thread.
+- **Suggested queries are checked.** An answer that writes `[query::…]`, `[sort::…]` or `[group::…]` has it asked of the
+  outline before it lands; one that wouldn't work is marked under the answer with why.
 - **No model by default.** Set `config.answer` to a command that reads a prompt on stdin and prints an answer
   (`["claude", "-p"]`, in `config.json`); without one `@margin` answers from the note's own sentences and says so.
 - **Works on files too**: a Resource's passage (a `[file::]` the note links, opened in a reader) is annotated in the

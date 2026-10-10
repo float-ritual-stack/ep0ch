@@ -1,5 +1,5 @@
 // The relation and text atoms of the query grammar: `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`,
-// `text~` and `call:`. A relation's target may be `this`, a role (ADR 0001): the block the question is asked for, which
+// `text~`, `call:`, and the reader's `unread:` and `thread:`. A relation's target may be `this`, a role (ADR 0001): the block the question is asked for, which
 // the service binds (`blocks.query`'s `this`) and refuses a question without. This file is the
 // one place that says what an atom looks like and what a malformed one is told; the service's query parser
 // (outliner `block-query.ts`) calls it and evaluates the result (the reference index, the tree, the text). Every
@@ -18,7 +18,16 @@ export type QueryAtom =
   | { kind: "parent"; target: string }
   | { kind: "title"; text: string }
   | { kind: "text"; text: string }
-  | { kind: "call"; call: string };
+  | { kind: "call"; call: string }
+  /** Blocks `reader` hasn't read at their current revision (PIE-708: never read, or changed since). */
+  | { kind: "unread"; reader: string }
+  /** Comments and replies in the threads `reader` started or wrote in. */
+  | { kind: "thread"; reader: string };
+
+/** A reader's atom names who reads: `me` (the person asking, bound by the service) or an agent's actor id. */
+export type QueryReaderAtom = "unread" | "thread";
+export const ME_READER = "me";
+const READER = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
 
 /** A malformed atom: the message names the atom and shows a working example. */
 /** The relation atoms: each names a target block (a page, a block id, a Work ID or `this`). */
@@ -47,9 +56,11 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "title~text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
   { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
+  { atom: "unread:<reader>", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person asking, else an agent's actor id", example: "unread:me  type=annotation-reply unread:me" },
+  { atom: "thread:<reader>", means: "comments and replies in the threads the reader started or wrote in; me is the person asking", example: "type=annotation-reply thread:me NOT annotation-source=user" },
 ];
 
-const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call):|(?:title|text)~)/i;
+const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
 export function isQueryAtomWord(word: string): boolean {
@@ -134,6 +145,11 @@ export function parseQueryAtom(word: string): QueryAtom | null {
       if (!CALL_PATTERN.test(id)) throw new QueryAtomError(`call:${id} is not a call id: write call:c-7f3a1c (letters, digits, . _ -; the id list_outlines tells a call)`);
       return { kind: "call", call: id };
     }
+    if (name === "unread" || name === "thread") {
+      const reader = word.slice(colon + 1);
+      if (!READER.test(reader)) throw new QueryAtomError(`${name}:${reader} names no reader: write ${name}:me (the person asking) or ${name}:<an agent's actor id>`);
+      return { kind: name, reader: reader.toLowerCase() === ME_READER ? ME_READER : reader };
+    }
     if (isQueryRelationAtom(name)) return { kind: name, target: targetOf(name, word.slice(colon + 1)) } as QueryAtom;
   }
   const tilde = word.indexOf("~");
@@ -156,6 +172,9 @@ export function showQueryAtom(atom: QueryAtom): string {
     case "parent":
       return `${atom.kind}:${atom.target}`;
     case "call": return `call:${atom.call}`;
+    case "unread":
+    case "thread":
+      return `${atom.kind}:${atom.reader}`;
     case "title":
     case "text":
       return /[\s"\\()]/.test(atom.text) || !atom.text

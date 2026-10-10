@@ -525,6 +525,17 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "margin-replies", need: "talk in the margin and find the answers later: a thread is one conversation (@margin there resumes it; a reply without it is a note to self, never answered), and every reply on your threads comes back to one place, the new ones unread until you open the thread",
+    part: "a margin thread's session (outliner agent-requests.ts answerInThread: the thread's [margin-session::] handed back to marginalia's respond; the whole thread and the page's other comments every time) and Recent replies: a saved view in the views' grammar (outline-core recent-replies.ts: thread:me, unread:me over the service's read marks, PIE-708), the same question the web client's /replies page asks; opening a thread marks it read (annotations.read: the person's thread.toggle, a click on its card or mark)",
+    files: "outline-core/src/recent-replies.ts, outline-core/src/query-atoms.ts (unread:, thread:), outliner src/read-marks.ts, src/agent-requests.ts, extensions/marginalia, src/publish.ts (serveReplies), src/surface/note.ts (readThread)",
+    aside: "left: the greenhouse plan, its question answered and a note to self after it (no @margin, so no answer); right: Recent replies, the answer on it. Click the question's card (or ⏎ on its mark) to open the thread: it's read, and unread:me no longer lists it. Write @margin in a reply to ask again in the same conversation",
+    stage(n, show) {
+      const plan = new ReaderPane(), replies = new ReaderPane();
+      return deskOf({ title: "showcase · margin replies", panes: [plan, replies], names: ["plan", "replies"],
+        layout: ([a, b]) => row(0.58, a!, b!) }, show, [[plan, n.marginalia], [replies, n.recentReplies]]);
+    },
+  },
+  {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {

@@ -1010,6 +1010,14 @@ export class SocketBoard implements Board {
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }
 
+  /**
+   * A thread read by the person (PIE-708): its comment and replies marked read, so they leave `unread:me` (Recent
+   * replies' new ones). Bookkeeping: nothing in the thread changes, and repeating it is harmless.
+   */
+  async readThread(annotationId: string): Promise<{ thread: string; marked: number }> {
+    return this.request("annotations.read", { annotationId });
+  }
+
   /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */
   async setLifecycle(annotationId: string, lifecycle: "open" | "resolved", actor: Actor = USER): Promise<void> {
     await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: mutationFor(actor) });

@@ -1,4 +1,5 @@
-import { queryRequestProblem } from "./block-query";
+import { PERSON_READER, queryRequestProblem } from "./block-query";
+import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
@@ -2673,6 +2674,9 @@ export class OutlinerServer {
         case "annotations.agent-evidence":
           result = this.store.summarizeAnnotationAgentEvidence(request.limit);
           break;
+        case "annotations.read":
+          result = this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER));
+          break;
         case "annotations.lifecycle":
           result = this.store.setAnnotationLifecycle(
             request.input,
@@ -3239,6 +3243,12 @@ export class OutlinerServer {
       case "annotations.lifecycle":
         domain = "content";
         blockId = request.input.annotationId;
+        break;
+      case "annotations.read":
+        // Nothing in a block changed; views that ask `unread:` read again.
+        if (!(response.result as { marked: number }).marked) return null;
+        domain = "content";
+        blockId = (response.result as { thread: string }).thread;
         break;
       case "attention.mark":
       case "attention.advance":

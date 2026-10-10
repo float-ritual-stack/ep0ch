@@ -54,6 +54,7 @@ import {
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
+import { ReadMarks } from "./read-marks";
 import {
   firstLineWithoutPropertyTokens,
   withHeaderDashes,
@@ -819,6 +820,8 @@ export class OutlinerStore {
   readonly annotations: AnnotationRepository;
   readonly workingSelections: WorkingSelectionRepository;
   readonly changes: ChangeFeed;
+  /** What each reader has read (PIE-708). */
+  readonly readMarks: ReadMarks;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
   /** Which database instance this file holds (outline-instance.ts); changes when the database is replaced. */
@@ -842,6 +845,7 @@ export class OutlinerStore {
       this.outlineInstanceId = this.instance.id;
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
+      this.readMarks = new ReadMarks(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         ...resourceOptions,
@@ -1193,6 +1197,21 @@ export class OutlinerStore {
     provenance?: BlockProvenance,
   ): AnnotationBatchReceipt {
     return this.annotations.batch(requestId, operations, author, provenance);
+  }
+
+  /**
+   * A thread read by `reader` (PIE-708): its comment and every reply marked read at their revisions, by the thread's
+   * id or a reply's. Bookkeeping only: no block changes.
+   */
+  markAnnotationThreadRead(annotationId: string, reader: string): { thread: string; marked: number } {
+    this.getAnnotation(annotationId);
+    const { root, ids } = this.readMarks.threadOf(annotationId);
+    return { thread: root, marked: this.readMarks.mark(reader, ids) };
+  }
+
+  /** Sets properties on a thread's comment (its other properties, body and lifecycle kept): a margin session's id. */
+  setAnnotationProperties(annotationId: string, properties: Readonly<Record<string, readonly string[]>>, mutation: MutationProvenance): AnnotationRecord {
+    return this.annotations.setProperties(annotationId, properties, mutation);
   }
 
   getAnnotation(annotationId: string): AnnotationRecord {
@@ -2964,6 +2983,8 @@ export class OutlinerStore {
     const sources = new Map<string, ReadonlySet<string>>();
     const targets = new Map<string, ReadonlySet<string>>();
     const calls = new Map<string, ReadonlySet<string>>();
+    const reads = new Map<string, ReadonlyMap<string, number>>();
+    const threads = new Map<string, ReadonlySet<string>>();
     return {
       linkTargets: (blockId) => {
         let found = targets.get(blockId);
@@ -3002,6 +3023,22 @@ export class OutlinerStore {
           `).all(-(call.length + 1), `#${call}`) as { id: string }[];
           found = new Set(rows.map(r => r.id));
           calls.set(call, found);
+        }
+        return found;
+      },
+      readRevisions: (reader) => {
+        let found = reads.get(reader);
+        if (!found) {
+          found = this.readMarks.revisions(reader);
+          reads.set(reader, found);
+        }
+        return found;
+      },
+      threadBlocks: (reader) => {
+        let found = threads.get(reader);
+        if (!found) {
+          found = this.readMarks.threadBlocks(reader);
+          threads.set(reader, found);
         }
         return found;
       },

@@ -12,8 +12,9 @@
  * `resources`, `remote_entity_source_snapshots`: SQLite can't alter a check) with their rows, renames `jira` to
  * `ext:jira` in their provider columns and in every stored JSON that names it (`"kind":"jira"`, `"provider":"jira"`),
  * checks the foreign keys and the new shape, and stamps `PRAGMA user_version = 5`. Anything else rolls back and leaves
- * the file as it was. A version-5 database missing its outline instance id (or holding one that isn't a UUID) is
- * repaired: it gets a fresh one.
+ * the file as it was. It also adds the read marks table (PIE-708: what each reader has read). A version-5 database
+ * missing its outline instance id (or holding one that isn't a UUID) is repaired: it gets a fresh one, and one made
+ * before read marks joined version 5 gets their table.
  *
  * A one-off: run it on the outlines that matter, then delete it (git keeps it).
  */
@@ -21,7 +22,7 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import {
-  insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, REMOTE_ENTITY_PROVIDER_CHECK, RESOURCE_PROVIDER_CHECK, SCHEMA_SQL, SCHEMA_VERSION,
+  insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, READ_MARKS_SQL, REMOTE_ENTITY_PROVIDER_CHECK, RESOURCE_PROVIDER_CHECK, SCHEMA_SQL, SCHEMA_VERSION,
 } from "../../src/schema";
 import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, type SchemaShape } from "./0001-stamp";
@@ -33,8 +34,8 @@ export const REBUILT_TABLES = ["resource_sources", "resources", "remote_entity_s
 const V4_RESOURCE_CHECK = "CHECK (provider IN ('filesystem', 'web', 'github', 'application', 'jira', 'linear', 'computed'))";
 const V4_REMOTE_ENTITY_CHECK = "CHECK (provider IN ('jira', 'linear'))";
 
-/** The schema at version 4: this one with the provider checks as they were. */
-export const SCHEMA_SQL_4 = SCHEMA_SQL.replaceAll(RESOURCE_PROVIDER_CHECK, V4_RESOURCE_CHECK).replaceAll(REMOTE_ENTITY_PROVIDER_CHECK, V4_REMOTE_ENTITY_CHECK);
+/** The schema at version 4: this one with the provider checks as they were, and no read marks. */
+export const SCHEMA_SQL_4 = SCHEMA_SQL.replace(READ_MARKS_SQL, "").replaceAll(RESOURCE_PROVIDER_CHECK, V4_RESOURCE_CHECK).replaceAll(REMOTE_ENTITY_PROVIDER_CHECK, V4_REMOTE_ENTITY_CHECK);
 
 /** A version-4 database's shape. */
 export function shapeAt4(): SchemaShape {
@@ -79,6 +80,8 @@ export function migrate(path: string): { migrated: boolean; repaired?: boolean; 
     database.exec("PRAGMA busy_timeout = 5000;");
     const { user_version: version } = database.query("PRAGMA user_version").get() as { user_version: number };
     if (version === 5) {
+      // A version-5 file made before read marks joined it (a scratch outline) gets their table.
+      database.exec(READ_MARKS_SQL);
       const existing = instanceId(database);
       if (existing) return { migrated: false, outlineInstanceId: existing };
       return { migrated: false, repaired: true, outlineInstanceId: insertOutlineInstanceId(database) };
@@ -95,6 +98,7 @@ export function migrate(path: string): { migrated: boolean; repaired?: boolean; 
       if (differences.length > 0) {
         throw new Error(`${path} does not match schema version 4, so it was not migrated:\n- ${differences.join("\n- ")}`);
       }
+      database.exec(READ_MARKS_SQL);
       for (const table of REBUILT_TABLES) {
         const { table: create, indexes } = definitions.get(table)!;
         const columns = (database.query(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map((column) => `"${column.name}"`);

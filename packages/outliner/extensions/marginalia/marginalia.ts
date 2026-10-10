@@ -8,9 +8,13 @@
 //     in the margin as an annotation with `kind: define`; nothing found, nothing written, and it says so;
 //   - cite: `copy`, the quote as a Blockdown quote and where it's from. Nothing is written.
 // - `respond` as the agent `margin` (`threads: true`): a person's `@margin …` in a comment on a passage (a client's
-//   Ask) is sent here with the passage, the text and the thread so far; the reply lands in that thread. With
-//   `config.answer` (a command: the prompt on stdin, the answer on stdout) it asks that; without, it answers from the
-//   note's own sentences and says that's all it did.
+//   Ask), or in a reply in its thread, is sent here with the passage, the text, the whole thread and the page's other
+//   comments; the reply lands in that thread. With `config.answer` (a command: the prompt on stdin, the answer on
+//   stdout) it asks that; without, it answers from the note's own sentences and says that's all it did.
+// - A thread is one conversation: the first `@margin` starts a session (`config.session.start`, with a new id) and
+//   returns its id, which the service keeps on the thread; a later `@margin` there resumes it (`config.session.resume`).
+//   `claude` needs no config for it (`--session-id` and `--resume`). A session that can't be resumed (another machine,
+//   cleared) starts again with the whole thread, so nothing said is lost. A reply without `@margin` is never sent.
 //
 // Self-contained on purpose: an extension folder is copied anywhere, so it imports nothing from the outline's code.
 
@@ -18,8 +22,9 @@ interface Passage { subject: string; revision: number | string; quote: string; s
 interface Request {
   operation: string;
   input: Record<string, any>;
-  config?: { color?: string; answer?: string[] };
+  config?: { color?: string; answer?: string[]; session?: { start: string[]; resume: string[] } };
 }
+interface Said { author: string; body: string }
 
 const TONES = ["default", "good", "warn", "bad", "dim", "accent"];
 const request = (await Bun.stdin.json()) as Request;
@@ -62,24 +67,57 @@ function fromTheText(text: string, p: Passage | undefined, question: string): st
     : "The note says nothing more about this, and no model is set up to ask (config.answer names one).";
 }
 
-async function answer(input: Record<string, any>): Promise<string> {
+/** How the answer command starts and resumes a session (`{id}` is the session's id): `claude`'s own flags by default. */
+function sessionArgs(command: string[]): { start: string[]; resume: string[] } | null {
+  if (request.config?.session) return request.config.session;
+  return /(?:^|\/)claude$/.test(command[0] ?? "") ? { start: ["--session-id", "{id}"], resume: ["--resume", "{id}"] } : null;
+}
+
+const said = (t: Said) => `${t.author === "user" ? "reader" : t.author}: ${t.body}`;
+
+function prompt(input: Record<string, any>, resumed: boolean): string {
   const p = input.passage as Passage | undefined;
   const text = String(input.note?.text ?? "");
-  const thread = (input.thread ?? []) as { author: string; body: string }[];
+  const thread = (input.thread ?? []) as Said[];
+  const comments = (input.comments ?? []) as { quote: string; thread: Said[] }[];
   const question = String(input.request ?? "").trim() || "what does this mean?";
-  const command = request.config?.answer;
-  if (!command?.length) return fromTheText(text, p, question);
-  const prompt = [
-    "You answer in the margin of a note, beside the passage a reader asked about. Plain text, under 120 words. The first sentence answers.",
+  const others = comments.flatMap((c) => [c.quote ? `- on "${c.quote}":` : "- on the whole note:", ...c.thread.map((t) => `    ${said(t)}`)]);
+  return [
+    resumed
+      ? "The reader asks again in the same margin thread. Here is the thread and the page as they are now."
+      : "You answer in the margin of a note, beside the passage a reader asked about. Plain text, under 120 words. The first sentence answers. Don't write query or view syntax ([query::], [sort::]) unless you checked it against the outline; the outline checks any you write and says so under your answer.",
     "", "THE NOTE:", text.slice(0, 20_000), "",
     p ? `THE PASSAGE: "${p.quote}"` : "THE PASSAGE: (the whole note)",
-    ...(thread.length > 1 ? ["", "THE THREAD SO FAR:", ...thread.slice(0, -1).map(t => `${t.author}: ${t.body}`)] : []),
+    ...(thread.length > 1 ? ["", "THE THREAD SO FAR (the reader's own notes between asks included):", ...thread.slice(0, -1).map(said)] : []),
+    ...(others.length ? ["", "THE PAGE'S OTHER COMMENTS:", ...others] : []),
     "", `THE QUESTION: ${question}`,
   ].join("\n");
-  const proc = Bun.spawn(command, { stdin: new Blob([prompt]), stdout: "pipe", stderr: "pipe" });
+}
+
+async function run(command: string[], stdin: string): Promise<{ code: number; out: string }> {
+  const proc = Bun.spawn(command, { stdin: new Blob([stdin]), stdout: "pipe", stderr: "pipe" });
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  if (code !== 0) throw new Error(`the answer command exited ${code}`);
-  return out.trim() || "(the answer command said nothing)";
+  return { code, out: out.trim() };
+}
+
+async function answer(input: Record<string, any>): Promise<{ reply: string; session?: string }> {
+  const command = request.config?.answer;
+  if (!command?.length) {
+    const question = String(input.request ?? "").trim() || "what does this mean?";
+    return { reply: fromTheText(String(input.note?.text ?? ""), input.passage as Passage | undefined, question) };
+  }
+  const args = sessionArgs(command);
+  const fill = (template: string[], id: string) => template.map((part) => part.replaceAll("{id}", id));
+  const kept = typeof input.session === "string" ? input.session : "";
+  if (args && kept) {
+    const resumed = await run([...command, ...fill(args.resume, kept)], prompt(input, true));
+    if (resumed.code === 0) return { reply: resumed.out || "(the answer command said nothing)", session: kept };
+    // Not resumable here (another machine's, or cleared): a new session, told the whole thread.
+  }
+  const id = args ? crypto.randomUUID() : "";
+  const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false));
+  if (started.code !== 0) throw new Error(`the answer command exited ${started.code}`);
+  return { reply: started.out || "(the answer command said nothing)", ...(args ? { session: id } : {}) };
 }
 
 if (request.operation === "act") {
@@ -102,7 +140,7 @@ if (request.operation === "act") {
   } else process.stdout.write(JSON.stringify({ ok: false, code: "invalid-config" }));
 } else if (request.operation === "respond") {
   try {
-    ok({ reply: await answer(request.input) });
+    ok(await answer(request.input));
   } catch (error) {
     ok({ reply: `couldn't answer: ${error instanceof Error ? error.message : String(error)}` });
   }

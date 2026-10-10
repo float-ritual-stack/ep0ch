@@ -25,6 +25,7 @@ import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -330,6 +331,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
+    // The plan's answered question beside Recent replies, which lists the answer.
+    "margin-replies": ["Greenhouse plan for the spring", "question · ", "Recent replies"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
@@ -863,6 +866,41 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(book?.blocks.filter(b => b.parentId === plan.id).length).toBeGreaterThanOrEqual(5);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
+
+  test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "margin-replies" }, as: "test-agent" })).toMatchObject({ key: "margin-replies" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "margin-replies")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    await until(() => tiles().find(t => t.name === "replies")?.showing?.id === seeded.notes.recentReplies.id && screen().includes("question · "), "the plan and Recent replies", 8000);
+    const plan = seeded.notes.marginalia;
+    const thread = (await board.comments(plan.id)).find(t => t.body === "Why ten days, not a week?")!;
+    const answer = thread.replies.find(r => r.author !== "user")!;
+    const aside = thread.replies.find(r => r.author === "user")!;
+    // The saved view: the agent's answer on his thread, not his own note to self.
+    const listed = (await board.readSavedView(seeded.notes.recentReplies.id))!.blocks.map(b => b.id);
+    expect(listed).toContain(answer.id);
+    expect(listed).not.toContain(aside.id);
+    // The note to self was never sent: nothing answered it.
+    expect(thread.replies.filter(r => r.author !== "user")).toHaveLength(1);
+    const unread = async () => (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
+    expect(await unread()).toContain(answer.id);
+    // A click on the question's card opens its thread: read now.
+    const lines = screen().split("\n");
+    const y = lines.findIndex(l => l.includes("question · "));
+    const x = lines[y]!.indexOf("question · ");
+    press({ kind: "mouse", action: "down", button: 0, x: x + 2, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 2, y });
+    const end = Date.now() + 5000;
+    while ((await unread()).includes(answer.id)) { if (Date.now() > end) throw new Error("timed out waiting for the thread to be read"); await Bun.sleep(50); }
+    // @margin in a reply asks again in the same thread (answered from the note: no model in a test).
+    await board.reply("showcase-margin-again", thread.id, "@margin and for the leeks?", { kind: "user" });
+    const again = Date.now() + 10_000;
+    while (!(await board.comments(plan.id)).find(t => t.id === thread.id)!.replies.some(r => r.author === "ext:marginalia")) {
+      if (Date.now() > again) throw new Error("timed out waiting for the margin's answer");
+      await Bun.sleep(50);
+    }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;
