@@ -1,0 +1,28 @@
+{
+  "contract": 2,
+  "id": "notify",
+  "version": 1,
+  "name": "Notifications hub",
+  "description": "A deterministic fetcher (no model): GitHub notifications, and Gmail, Jira and Slack behind the same shape, become one note each on a notifications page, with a board by read state and one by source.",
+  "run": ["bun", "notify.ts"],
+  "deadline": "2m",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "sources": { "type": "array", "items": { "enum": ["github", "gmail", "jira", "slack"] }, "description": "Which sources to fetch (default github)" },
+      "page": { "type": "string", "minLength": 1, "description": "The page the notifications land under (default notifications)" },
+      "outline": { "type": "string", "minLength": 1, "description": "Another outline on this host to write in (default the one it runs for)" },
+      "days": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "How far back the first pull of a source looks (default 14)" },
+      "home": { "type": "string", "minLength": 1, "description": "The folder holding gh's login (default the service user's home): a call's environment has no HOME" },
+      "fixtures": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Source name to a JSON file (relative to this folder) of made-up notifications read instead of the real service" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "pull", "label": "Pull notifications", "on": "outline", "effects": "write",
+      "description": "Fetches each source's notifications changed since its last pull: a new one becomes a note, a changed one is updated, one read at the source is marked read here; one you marked read stays read",
+      "schedule": { "every": "5m", "once": "host" }
+    }
+  ]
+}

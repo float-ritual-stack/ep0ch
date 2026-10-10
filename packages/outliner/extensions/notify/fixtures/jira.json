@@ -1,0 +1,21 @@
+[
+  {
+    "id": "PC-12:comment-7",
+    "kind": "Comment",
+    "from": "PC-12",
+    "title": "Ben Sample commented on PC-12: Heron counter",
+    "url": "https://tickets.example.invalid/browse/PC-12",
+    "unread": true,
+    "received": "2026-10-09T10:40:00.000Z",
+    "snippet": "Counter works on the second try."
+  },
+  {
+    "id": "PC-9:assigned",
+    "kind": "Assigned",
+    "from": "PC-9",
+    "title": "PC-9: Repaint the shed was assigned to you",
+    "url": "https://tickets.example.invalid/browse/PC-9",
+    "unread": true,
+    "received": "2026-10-07T07:30:00.000Z"
+  }
+]
