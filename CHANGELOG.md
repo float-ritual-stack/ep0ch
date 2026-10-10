@@ -10,6 +10,27 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Your outline in the browser on the tailnet: browse it like folders, read on the phone, mark it up (PIE-782, PIE-774, PIE-775)
+
+- **New:** on the tailnet every note is a page, no `[publish::]` needed: `https://float-2.<tailnet>.ts.net/pub/` (or
+  `https://my.ep0ch.sh/p/<id>`) in a browser. A page is a folder that is also a file: breadcrumbs, the note's own
+  text, then its children as links with a summary line, a count and a date. Addresses are the published slug, else the
+  page name (`/p/Field%20Notes`), else the id. `[publish::never]` still hides a subtree.
+- **New:** select words on a page for Highlight, Comment, Ask (`@margin`), Copy (with a `((reference))`), Explain and
+  Define. Threads sit beside the text when the window is wide and under the passage when it's narrow, with Reply and
+  Resolve; answers appear when they land. Every write goes through the service as the door's do, so the door and
+  Detail show the same threads. Being on the tailnet is the sign-in: no accounts, no tokens.
+- **Changed:** on the tailnet a browser opening `/p/<address>` gets the page; curl and agents still get the Markdown
+  (`?view=md` asks for it). `?view=html` is the folder page there; `?view=full` is the old all-in-one page.
+- **Changed:** an extension's annotation (marginalia's highlight or definition) is drawn on published pages like any
+  other annotation; before, the extension-data rule left it off.
+- **Unchanged:** the public listener (`pie.ep0ch.sh`, `/share`) is read-only and shows only `[publish::public]` notes,
+  with no script.
+- No protocol or schema change. On each machine: `ep0ch install --apply`, then restart the publishers, which keep the
+  code they started with: on float-2 `systemctl --user restart outliner-publish.service outliner-publish-gurgle.service`.
+- *Why it matters:* the feedback loop from the phone. An agent writes a plan, you read it on the phone, mark it up,
+  and the marks are in the outline for the agents.
+
 ### A comment is written where you're reading: inline at the passage, or floating, split or popup by choice (PIE-770)
 
 - **New:** select words and press `C` (or a passage toolbar's Comment, Ask, Explain, or a thread's `[Reply]`): the

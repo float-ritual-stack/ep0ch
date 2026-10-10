@@ -15,7 +15,8 @@ import {
   type PublishedFileType,
 } from "./publish-attachments";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
-import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
+import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
+import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE } from "./annotations";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
@@ -23,10 +24,12 @@ import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
 import type {
   AnnotationThread,
+  Block,
   BlockProperty,
   BlockReadCollection,
   OutlinerServiceStatus,
   PageAddressResolution,
+  ProjectedBlock,
   ProjectedBlockCollection,
   PublisherAddress,
   NotePublication,
@@ -35,9 +38,13 @@ import type {
 } from "./types";
 
 /**
- * Outline as server: a read-only HTTP publisher for blocks carrying
- * `[publish::…]`. It is a client of the service (blocks.query, files.read, the
- * content event feed) and never writes. See README "Publishing blocks".
+ * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`, and on
+ * the tailnet a light web client for the whole outline (PIE-782): every note is a
+ * page, a folder that is also a file. It is a client of the service (blocks.query,
+ * children, files.read, the content event feed). It writes only one way: marginalia
+ * from a tailnet page (`<base>/_marginalia/write`, publish-page.ts), through the
+ * service's own annotation and passage-action paths; being on the tailnet is the
+ * sign-in. The public listener never writes. See README "Publishing blocks".
  */
 
 export const PUBLISH_PROPERTY = "publish";
@@ -311,11 +318,76 @@ input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
 ${MARGINALIA_STYLE}`;
 
-function htmlPage(title: string, body: string, nav: string): string {
+/**
+ * A tailnet page (PIE-782): phone first, a reading measure, targets a thumb can hit, and dark throughout. Evan is
+ * photosensitive: no transitions, no light surfaces, nothing that flashes. Margin cards sit beside the text when the
+ * window is wide and under their passage when it's narrow (publish-reader.js places them).
+ */
+const BROWSE_STYLE = `
+main.browse{max-width:42rem;padding:1rem 1rem 6rem}
+nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
+nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
+nav.crumbs a:hover{color:var(--fg)}
+main.browse article{overflow-wrap:anywhere}
+section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
+ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
+ul.kids li{border-bottom:1px solid var(--rule)}
+ul.kids a{display:block;padding:.75rem .35rem;min-height:2.75rem;text-decoration:none;color:var(--fg)}
+ul.kids a:hover,ul.kids a:active{background:#18181a}
+ul.kids .t{display:block;color:var(--link)}
+ul.kids .s{display:block;color:#c9c7bf;font-size:15px;line-height:1.45;margin-top:.15rem}
+ul.kids .m{display:block;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);margin-top:.2rem;overflow-wrap:anywhere}
+ul.kids li.locked{padding:.75rem .35rem;color:var(--dim);font-style:italic}
+::selection{background:#3b4250;color:inherit}
+main.browse [hidden],.mg-ui[hidden]{display:none!important}
+.mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
+.mg-ui button{font:15px/1 ui-sans-serif,system-ui,sans-serif;min-height:44px;min-width:44px;padding:0 .9rem;border-radius:.5rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer;flex:none}
+.mg-ui button:active{background:#2c2c2a}
+.mg-ui button.quiet{background:none;color:var(--dim)}
+#mg-bar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;gap:.4rem;overflow-x:auto;padding:.5rem .75rem calc(.5rem + env(safe-area-inset-bottom));background:#1a1a19;border-top:1px solid var(--rule)}
+#mg-sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:#1a1a19;border-top:1px solid var(--rule);padding:.75rem .75rem calc(.75rem + env(safe-area-inset-bottom))}
+#mg-sheet .q{color:var(--dim);font-style:italic;max-height:4.5em;overflow:hidden;margin:0 0 .5rem}
+#mg-sheet .why{color:#e0b46a;margin:.4rem 0 0}
+textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.5rem}
+.mg-row{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:.5rem}
+.mg-card{background:#171716;border:1px solid var(--rule);border-left:3px solid #4a4f5a;border-radius:.4rem;padding:.55rem .7rem;margin:.5rem 0 1rem;white-space:pre-wrap;overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
+.mg-card .who{font-size:12px;color:var(--dim)}
+.mg-card .q{color:var(--dim);font-style:italic}
+.mg-card .reply{border-top:1px solid var(--rule);margin-top:.5rem;padding-top:.45rem}
+.mg-card.bare{display:none}
+.mg-card.bare.open{display:block}
+.mg-card.on{border-color:#5a6170}
+mark.ann[data-ann]{cursor:pointer}
+mark.ann.on{outline:1px solid #6a7180}
+.mg-whole h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2rem 0 .4rem}
+#mg-toast{position:fixed;left:1rem;right:1rem;bottom:5.5rem;z-index:12;max-width:30rem;margin:0 auto;background:#222220;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.55rem .9rem}
+#mg-margin{display:none}
+@media (min-width:75rem){
+  main.reader{max-width:68rem;display:grid;grid-template-columns:minmax(0,42rem) 20rem;column-gap:3rem;align-items:start}
+  main.reader>*{grid-column:1}
+  main.reader>#mg-margin{display:block;grid-column:2;grid-row:1 / span 20;position:relative;align-self:stretch}
+  #mg-margin .mg-card{position:absolute;left:0;right:0;margin:0}
+}
+`;
+
+/** The reader script on a tailnet page: where it is, where it reads and writes, which note this is, and whether it's the full page. */
+interface ReaderTag { src: string; api: string; page: string; blockId: string; full: boolean }
+
+/**
+ * A page. `browse`: a tailnet page, with breadcrumbs (`nav` is them) and the folder list's style; `reader` also runs
+ * the marginalia reader on it. Any other page is as it always was: a bar, the body, no script.
+ */
+function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean } = {}): string {
+  const { reader } = options;
+  const browse = options.browse || !!reader;
+  const script = reader ? `<script src="${escapeHtml(reader.src)}" defer></script>` : "";
+  const main = reader
+    ? `<main class="browse reader" data-marginalia="${escapeHtml(reader.api)}" data-page="${escapeHtml(reader.page)}" data-note="${escapeHtml(reader.blockId)}"${reader.full ? ` data-view="full"` : ""}>`
+    : browse ? `<main class="browse">` : "<main>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)}</title><style>${PAGE_STYLE}</style></head>
-<body><main><header class="bar">${nav}</header>
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${browse ? BROWSE_STYLE : ""}</style>${script}</head>
+<body>${main}${browse ? nav : `<header class="bar">${nav}</header>`}
 ${body}
 </main></body></html>
 `;
@@ -329,6 +401,12 @@ const COMMON_HEADERS = {
 /** Pages the publisher renders itself run no script and embed nothing but images. */
 const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 /**
+ * A tailnet note's page runs one script, the publisher's own marginalia reader (PIE-774), from this origin, and it
+ * talks only to this origin. No inline script, no eval, nothing from elsewhere: the page's own text is Markdown with
+ * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
+ */
+const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/**
  * An attached `.html` file runs as authored, but in a sandbox without
  * `allow-same-origin`: its scripts get an opaque origin, so they cannot read
  * other pages on the same host (the tailnet name also serves other mounts) or
@@ -340,8 +418,8 @@ function respond(body: string, contentType: string, status = 200, extra: Record<
   return new Response(body, { status, headers: { ...COMMON_HEADERS, "content-type": contentType, ...extra } });
 }
 
-function renderedHtml(body: string, status = 200): Response {
-  return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": RENDERED_CSP });
+function renderedHtml(body: string, status = 200, csp = RENDERED_CSP): Response {
+  return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": csp });
 }
 
 function notFound(): Response {
@@ -438,6 +516,11 @@ export class Publisher {
   private connected = false;
   /** Advanced by every content change; an index built across a change is not cached. */
   private generation = 0;
+  /** Pages' script polls waiting for the next change. */
+  private waiting = new Set<() => void>();
+  private readonly marginalia: PageMarginalia;
+  /** The outline's name, the top of a tailnet page's breadcrumbs. */
+  private outlineName: string | undefined;
 
   constructor(private readonly options: PublisherOptions) {
     this.client = options.client;
@@ -451,6 +534,49 @@ export class Publisher {
     this.compiler = options.artifactCacheDirectory
       ? new ArtifactCompiler({ cacheDirectory: options.artifactCacheDirectory, log: this.log })
       : null;
+    this.marginalia = new PageMarginalia({
+      request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
+      view: (page, full) => this.view(page, full),
+      locks: (properties) => blockPublishIntent(properties) === "never",
+      generation: () => this.generation,
+      changed: (since, ms) => this.changed(since, ms),
+      log: this.log,
+    });
+  }
+
+  /** Resolves at the next content change after `since`, or after `ms`. */
+  private changed(since: number, ms: number): Promise<void> {
+    if (this.generation !== since) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(timer); this.waiting.delete(done); resolve(); };
+      const timer = setTimeout(done, ms);
+      this.waiting.add(done);
+    });
+  }
+
+  /**
+   * A tailnet page as its marginalia routes need it (publish-page.ts): the note at `page`, locks read now, with its
+   * rows in page order (the note alone on a folder page, its shown subtree with `full`) and the annotations it may show.
+   */
+  private async view(page: string, full: boolean): Promise<PageView | undefined> {
+    if (!page) return undefined;
+    const entry = await this.entryAt(page, await this.readIndex(), "tailnet");
+    if (!entry || entry.type !== "block") return undefined;
+    if ((await this.lockedIds([entry.blockId])).size) return undefined;
+    const whole = full
+      ? await this.client.request<ProjectedBlockCollection>({
+        action: "blocks.query", query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT }, fields: ["text", "parent", "properties", "revision"],
+      })
+      : await this.noteWithAnnotations(entry.blockId);
+    if (!whole) return undefined;
+    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !isAnnotationBlock(block)) }).filter((row) => !row.locked);
+    const shown = new Set(rows.map((row) => row.block.id));
+    const annotations = new Map(shownSubtree(whole)
+      .filter((row) => !row.locked && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
+      .map((row) => [row.block.id, row.block.parentId!] as const));
+    const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
+    if (!blocks[0]) return undefined;
+    return { root: blocks[0], blocks, annotations };
   }
 
   /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
@@ -474,6 +600,7 @@ export class Publisher {
   async start(): Promise<OutlinerServiceStatus> {
     if (!this.client.requireCompatibleService || !this.client.watch) throw new Error("Publisher.start needs a socket client");
     const status = await this.client.requireCompatibleService();
+    this.outlineName = status.outline?.name;
     const roots = [...(this.options.roots ?? [])];
     const location = status.location;
     // Attachments are checked on this machine's filesystem and read by the service from its own:
@@ -569,7 +696,7 @@ export class Publisher {
     const entry = full.entries.find((candidate) => candidate.blockId === blockId) ?? {
       blockId, title: publishedTitle(block.title ?? "", new Map()) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
     };
-    const { markdown, marks } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, base ?? "");
+    const { markdown, marks } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "" });
     const text = format === "markdown" ? markdown
       : htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks), index, base ?? "");
     return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
@@ -578,6 +705,7 @@ export class Publisher {
   private invalidate(): void {
     this.generation += 1;
     this.index = null;
+    for (const wake of [...this.waiting]) wake();
   }
 
   async stop(): Promise<void> {
@@ -650,8 +778,9 @@ export class Publisher {
   }
 
   /**
-   * Answers one HTTP request. Only GET and HEAD; only the index and published
-   * entries. The public audience has no index and sees only public notes.
+   * Answers one HTTP request: GET and HEAD of the index and published entries; on the tailnet, every note as a page
+   * (PIE-782) and a page's marginalia routes (`/_marginalia/…`, publish-page.ts). The public audience has no index,
+   * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet"): Promise<Response> {
     const response = await this.answer(request, audience);
@@ -659,9 +788,6 @@ export class Publisher {
   }
 
   private async answer(request: Request, audience: PublishAudience): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
-    }
     if (!this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
       return respond("Host not allowed\n", "text/plain; charset=utf-8", 421);
     }
@@ -671,11 +797,26 @@ export class Publisher {
     if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
       path = path.slice(basePath.length) || "/";
     }
+    // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
+    // tailnet is the sign-in; the public listener has none of these.
+    if (audience === "tailnet" && path.startsWith(`${PAGE_ROUTE}/`)) {
+      try {
+        return await this.marginalia.handle(request, path.slice(PAGE_ROUTE.length));
+      } catch (error) {
+        this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+        return respond(`${JSON.stringify({ ok: false, error: "the outline could not be reached; try again" })}\n`, "application/json; charset=utf-8", 502);
+      }
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    }
     try {
       // The public listener has no index: a public note is reached by its link alone.
       if (audience === "public" && !path.startsWith("/p/")) return notFound();
+      const accept = request.headers.get("accept") ?? "";
+      // A browser on the tailnet lands on the outline's top level, a folder of its root notes (PIE-782).
+      if (path === "/" && accept.includes("text/html")) return await this.serveFolder(null, await this.readIndex());
       if (path === "/" || path === "" || path === "/index" || path === "/index.html") {
-        const accept = request.headers.get("accept") ?? "";
         if (path !== "/index.html" && accept.includes("text/plain") && !accept.includes("text/html")) {
           return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
         }
@@ -691,14 +832,35 @@ export class Publisher {
         return notFound();
       }
       const index = audienceIndex(await this.readIndex(), audience);
-      const entry = index.entries.find((candidate) => candidate.slug === slug) ??
-        index.entries.find((candidate) => candidate.blockId === slug);
+      const entry = await this.entryAt(slug, index, audience);
       if (!entry) return notFound();
-      return await this.serveEntry(entry, index, url.searchParams.get("view"), audience);
+      const view = url.searchParams.get("view");
+      // On the tailnet a browser gets the page; `?view=md` (or anything without text/html, such as curl) the Markdown.
+      const browsing = audience === "tailnet" && view === null && accept.includes("text/html");
+      return await this.serveEntry(entry, index, browsing ? "html" : view, audience);
     } catch (error) {
       this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
       return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
     }
+  }
+
+  /**
+   * The entry at `/p/<address>`: a published note by its slug or id; on the tailnet also any other note, by its id or
+   * its page name (PIE-782: the whole outline is served there, no `[publish::]` needed). Locks are checked by the caller.
+   */
+  private async entryAt(address: string, index: PublishedIndex, audience: PublishAudience): Promise<PublishedEntry | undefined> {
+    const published = index.entries.find((candidate) => candidate.slug === address) ?? index.entries.find((candidate) => candidate.blockId === address);
+    if (published || audience !== "tailnet" || !address) return published;
+    let blockId: string | undefined;
+    if (BLOCK_ID.test(address)) blockId = address;
+    else if (tryNormalizePageAddress(address)) {
+      const resolution = await this.client.request<PageAddressResolution>({ action: "pages.resolve", address });
+      if (resolution.status === "resolved") blockId = resolution.block?.id;
+    }
+    if (!blockId) return undefined;
+    const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["title", "properties", "timestamps"] });
+    const block = read.blocks[0];
+    return block ? browseEntry(block, index) : undefined;
   }
 
   private publicHrefs(): (entry: PublishedEntry) => string | undefined {
@@ -746,12 +908,144 @@ export class Publisher {
       }
       return respond(contents.text, "text/plain; charset=utf-8");
     }
-    if (asHtml) {
-      const { markdown, marks } = await this.blockMarkdown(entry, index, audience, true);
-      return renderedHtml(this.page(entry, htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks), index, this.basePathFor(audience)), audience));
+    // On the tailnet a note's page is a folder that is also a file (PIE-775): its own text, then its children as
+    // links. `?view=full` is the whole subtree on one page, as a public page always is.
+    if (audience === "tailnet" && asHtml) return this.serveFolder(entry, index);
+    if (asHtml || (audience === "tailnet" && view === "full")) {
+      const browse = audience === "tailnet";
+      const rendered = await this.blockMarkdown(entry, index, audience, true, { browse });
+      const base = this.basePathFor(audience);
+      const article = htmlViewLinks(drawMarginalia(renderMarkdownHtml(rendered.markdown), rendered.marks, browse), rendered.index, base);
+      if (!browse) return renderedHtml(this.page(entry, article, audience));
+      const crumbs = await this.crumbs(entry, index, true);
+      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true)}`, crumbs, { reader: this.readerTag(entry, true) }), 200, READER_CSP);
     }
     const { markdown } = await this.blockMarkdown(entry, index, audience, false);
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
+  }
+
+  /**
+   * A tailnet page (PIE-775, PIE-782): breadcrumbs up to the outline, the note's own text with its marks (the file),
+   * then its children as links, each with its title and a summary line (the folder). `entry` null is the outline's
+   * top level. Annotations are drawn on their words, never listed; a `[publish::never]` child is a locked row.
+   */
+  private async serveFolder(entry: PublishedEntry | null, index: PublishedIndex): Promise<Response> {
+    const base = this.basePath;
+    let article = `<h1>${escapeHtml(this.outlineName ?? "outline")}</h1>\n`;
+    if (entry) {
+      if ((await this.lockedIds([entry.blockId])).size) return notFound();
+      const whole = await this.noteWithAnnotations(entry.blockId);
+      if (!whole) return notFound();
+      const rendered = await this.blockMarkdown(entry, index, "tailnet", true, { whole, browse: true });
+      article = htmlViewLinks(drawMarginalia(renderMarkdownHtml(rendered.markdown), rendered.marks, true), rendered.index, base);
+    }
+    const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
+    const listed = children.slice(0, MAX_LISTED_CHILDREN);
+    const [counts, titles] = await Promise.all([this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)), this.titles(listed.map((block) => block.id))]);
+    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id)));
+    const more = children.length > MAX_LISTED_CHILDREN ? `<p class="dim">and ${children.length - MAX_LISTED_CHILDREN} more (open it in the door to see them all)</p>\n` : "";
+    const inside = children.length
+      ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
+      : "";
+    const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false) : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a></footer>`}`;
+    const crumbs = entry ? await this.crumbs(entry, index, false) : `<nav class="crumbs">${escapeHtml(this.outlineName ?? "outline")}</nav>`;
+    const title = entry?.title ?? this.outlineName ?? "outline";
+    return entry
+      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false) }), 200, READER_CSP)
+      : renderedHtml(htmlPage(title, body, crumbs, { browse: true }));
+  }
+
+  /** Breadcrumbs from the outline's top level down to `entry`, each a link but the note itself (on its full page, a link back to the folder). */
+  private async crumbs(entry: PublishedEntry, index: PublishedIndex, full: boolean): Promise<string> {
+    const href = (path: string) => escapeHtml(`${this.basePath}${path}`);
+    const parts = [`<a href="${href("/")}">${escapeHtml(this.outlineName ?? "outline")}</a>`];
+    for (const block of await this.ancestors(entry.blockId)) parts.push(`<a href="${href(notePath(block, index))}">${escapeHtml(noteTitle(block.title ?? "") || block.id)}</a>`);
+    parts.push(full ? `<a href="${href(entry.path)}">${escapeHtml(entry.title)}</a>` : `<span>${escapeHtml(entry.title)}</span>`);
+    return `<nav class="crumbs">${parts.join(" / ")}</nav>`;
+  }
+
+  private pageFooter(entry: PublishedEntry, full: boolean): string {
+    const href = (query: string) => escapeHtml(`${this.basePath}${entry.path}${query}`);
+    const other = full ? `<a href="${href("")}">as a folder</a>` : `<a href="${href("?view=full")}">whole page</a>`;
+    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a></footer>`;
+  }
+
+  /** The notes above `blockId`, the top level first. A chain longer than the lock walk is cut there. */
+  private async ancestors(blockId: string): Promise<ProjectedBlock[]> {
+    const chain: ProjectedBlock[] = [];
+    let at: string | null = blockId;
+    for (let level = 0; at && level < LOCK_WALK_LIMIT; level++) {
+      const read: BlockReadCollection = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [at], fields: ["parent", "title", "properties"] });
+      const block = read.blocks[0];
+      if (!block) break;
+      if (block.id !== blockId) chain.unshift(block);
+      at = block.parentId ?? null;
+    }
+    return chain;
+  }
+
+  /** A note and its annotation children, as the rows a folder page renders (its other children are links, not rows). */
+  private async noteWithAnnotations(blockId: string): Promise<ProjectedBlockCollection | undefined> {
+    const fields = ["text", "parent", "properties", "author", "revision", "timestamps"] as const;
+    const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: [...fields] });
+    const root = read.blocks[0];
+    if (!root) return undefined;
+    const annotations = (await this.client.request<Block[]>({ action: "children", parentId: blockId })).filter(isAnnotationBlock);
+    return {
+      blocks: [{ ...root, depth: 0 }, ...annotations.map((block) => ({ ...block, depth: 1 }))],
+      completeness: { kind: "complete" },
+      fields: [...fields],
+    };
+  }
+
+  /** Each note's title as the service gives it (its first line without property tokens, as Tree and the CLI label it). */
+  private async titles(ids: readonly string[]): Promise<Map<string, string>> {
+    const titles = new Map<string, string>();
+    for (let start = 0; start < ids.length; start += MAX_BLOCK_READ_IDS) {
+      const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: ids.slice(start, start + MAX_BLOCK_READ_IDS), fields: ["title"] });
+      for (const block of read.blocks) titles.set(block.id, block.title ?? "");
+    }
+    return titles;
+  }
+
+  /** How many notes each of `ids` holds (annotations aren't notes), a few reads at a time. */
+  private async childCounts(ids: readonly string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(PAGE_RESOLVE_CONCURRENCY, ids.length) }, async () => {
+      while (next < ids.length) {
+        const id = ids[next++]!;
+        try {
+          const children = await this.client.request<Block[]>({ action: "children", parentId: id });
+          counts.set(id, children.filter((block) => !isAnnotationBlock(block)).length);
+        } catch { /* listed without its count */ }
+      }
+    }));
+    return counts;
+  }
+
+  /**
+   * The index a tailnet page links with: the published notes, and every other note `texts` (and their embeds) name,
+   * at its own page (PIE-782). A locked note stays a label.
+   */
+  private async browseIndex(index: PublishedIndex, texts: readonly string[], pages: ReadonlyMap<string, string>, embeds?: EmbedExpansion): Promise<PublishedIndex> {
+    const known = new Set(index.entries.map((entry) => entry.blockId));
+    const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
+    const ids = [...new Set([
+      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => occurrence.blockId)),
+      ...pages.values(),
+    ])].filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
+    if (!ids.length) return index;
+    const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids, fields: ["title", "properties", "timestamps"] });
+    const locked = await this.lockedIds(read.blocks.map((block) => block.id));
+    const extra = read.blocks.filter((block) => !locked.has(block.id)).map((block) => browseEntry(block, index));
+    return extra.length ? { ...index, entries: [...index.entries, ...extra] } : index;
+  }
+
+  /** The reader script's tag on a tailnet page: where it is, where it reads and writes, and which note this is. */
+  private readerTag(entry: PublishedEntry, full: boolean): ReaderTag {
+    // The reader names its note by id: an address (a slug, a page name) could later name another note.
+    return { src: readerScriptPath(this.basePath), api: `${this.basePath}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
   }
 
   /**
@@ -960,8 +1254,12 @@ export class Publisher {
    * The block and its subtree as markdown, with its links and embeds. Annotations are not rows: read as HTML
    * (`withMarks`), the open ones are drawn on their passages (`publish-marginalia.ts`).
    */
-  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean, base = this.basePathFor(audience)): Promise<{ markdown: string; marks: PublishedAnnotation[] }> {
-    const whole = await this.client.request<ProjectedBlockCollection>({
+  private async blockMarkdown(
+    entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
+    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean } = {},
+  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex }> {
+    const base = options.base ?? this.basePathFor(audience);
+    const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
       fields: ["text", "parent", "properties", "author", "revision"],
@@ -975,8 +1273,11 @@ export class Publisher {
     const decorations = await this.readDecorations(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
-    const markdown = renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), base, pages, embeds, decorations, marks, order);
-    return { markdown, marks: order };
+    let linked = await this.linkable(index, shown, pages, embeds, audience);
+    // On a tailnet page every note it names is a page too (PIE-782), not only published ones.
+    if (options.browse) linked = await this.browseIndex(linked, shown, pages, embeds);
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order);
+    return { markdown, marks: order, index: linked };
   }
 
   /**
@@ -1166,6 +1467,60 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
+/** A block id as an address (`/p/<id>`), told from a page name before anything is asked. */
+const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A folder page lists at most this many children, and counts what's inside the first this many. */
+const MAX_LISTED_CHILDREN = 500;
+const MAX_COUNTED_CHILDREN = 200;
+
+/** A note's title (the service's) as a tailnet page shows it: a reference read as its label, a heading's marks left out. */
+function noteTitle(title: string): string {
+  return plainBody(title).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();
+}
+
+/**
+ * Where a note is on the tailnet (PIE-782): its published path, else its page name, else its id. A page name is
+ * looked up through the service's page registry when it's opened.
+ */
+function notePath(block: { id: string; properties?: readonly BlockProperty[] }, index: PublishedIndex): string {
+  const published = index.entries.find((entry) => entry.blockId === block.id);
+  if (published) return published.path;
+  const page = getProperty([...(block.properties ?? [])], "page")?.trim();
+  // A page name a published slug already answers to would open that note instead: then the id.
+  const free = page && tryNormalizePageAddress(page) && !index.entries.some((entry) => entry.slug === page || entry.blockId === page);
+  return `/p/${free ? encodeURIComponent(page) : block.id}`;
+}
+
+/** A note that isn't published, as a tailnet page serves it (and links to it). */
+function browseEntry(block: ProjectedBlock, index: PublishedIndex): PublishedEntry {
+  const path = notePath(block, index);
+  return { blockId: block.id, title: noteTitle(block.title ?? "") || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
+}
+
+/** A note's summary line in a folder: its first line of text after the title, as words, cut short. */
+function summaryLine(text: string): string {
+  for (const raw of text.split("\n").slice(1)) {
+    const line = plainBody(stripFragmentAnchors(stripPropertyTokens(raw)))
+      .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
+      .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+    if (!line || /^`{3,}|^~{3,}/.test(raw.trim())) continue;
+    return line.length > 160 ? `${line.slice(0, 159).trimEnd()}…` : line;
+  }
+  return "";
+}
+
+/** One child in a folder: its title, a summary line, and what's inside, when it changed and its first properties. */
+function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined): string {
+  if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
+  const title = noteTitle(serviceTitle) || "untitled";
+  const summary = summaryLine(child.text);
+  const properties = child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3)
+    .map((property) => `${property.key}: ${property.value}`);
+  const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", child.updatedAt.slice(0, 10), ...properties].filter(Boolean).join(" · ");
+  return `<li><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
+    `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`;
+}
+
 /** At most this many blocks of one page are asked for their decorations. */
 const MAX_DECORATED_BLOCKS = 200;
 
@@ -1241,7 +1596,7 @@ function readerIndex(index: PublishedIndex): PublishedIndex {
 }
 
 /** An annotation or a reply: drawn on its passage, never listed as a row of the note. */
-function isAnnotationBlock(block: ProjectedVisibleBlock): boolean {
+function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): boolean {
   const type = getProperty(block.properties ?? [], "type");
   return type === ANNOTATION_TYPE || type === ANNOTATION_REPLY_TYPE;
 }
@@ -1273,7 +1628,8 @@ export function shownSubtree(subtree: ProjectedBlockCollection): Array<{ block: 
         (publishesExtension(at.properties ?? [], extension!) || optedIn(at.parentId, depth + 1));
     };
     const value: Decision = parent === undefined || decide(parent) !== "shown" || intent === "off" ? "hidden"
-      : extension && !optedIn(block.id) ? "hidden"
+      // An extension's annotation (marginalia's highlight) is a mark on the words, not a record the extension keeps.
+      : extension && !isAnnotationBlock(block) && !optedIn(block.id) ? "hidden"
       : intent === "never" ? "locked" : "shown";
     decided.set(block.id, value);
     return value;
@@ -1402,5 +1758,6 @@ export function renderIndexHtml(index: PublishedIndex, basePath = "", publicHref
  * (Caddy for a custom domain).
  */
 export function servePublisher(publisher: Publisher, port: number, audience: PublishAudience = "tailnet", hostname = "127.0.0.1"): ReturnType<typeof Bun.serve> {
-  return Bun.serve({ hostname, port, fetch: (request) => publisher.handle(request, audience) });
+  // A page's threads wait up to 20 s for a change (publish-page.ts): the idle limit leaves room for that.
+  return Bun.serve({ hostname, port, idleTimeout: 30, fetch: (request) => publisher.handle(request, audience) });
 }

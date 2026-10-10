@@ -1,6 +1,7 @@
 // Highlights and margin notes on a published page (ADR 0004, contract 6): read-only, drawn from the note's open
 // annotations. A passage is a `<mark class="ann ann-<tone>">` around its exact words, and an annotation with a body
-// is an `<aside class="margin-note">` after the paragraph holding it. No script, no write route.
+// is an `<aside class="margin-note">` after the paragraph holding it. On a tailnet page each carries its annotation's
+// id (`data-ann`), so the page's reader script (publish-reader.js, PIE-774) can hang its thread on it.
 //
 // The marks ride through the Markdown renderer as private-use sentinels placed around each passage in the block's
 // published text, then become tags once the HTML is rendered. A passage whose words fall across markup (a link, a
@@ -37,7 +38,7 @@ function count(text: string, exact: string, before: number): number {
 }
 
 /** A body's text with each `((id|label))` shown as its label: a page never prints another note's id. */
-function plainBody(body: string): string {
+export function plainBody(body: string): string {
   let out = "", cursor = 0;
   for (const reference of blockReferenceOccurrences(body)) {
     out += body.slice(cursor, reference.start) + (reference.label ?? "a note");
@@ -124,8 +125,11 @@ function balanced(fragment: string): boolean {
 
 const BLOCK_END = /<\/(?:p|h[1-6]|li|blockquote|td|th|pre)>|<(?:ul|ol)>/g;
 
-/** The rendered page with its sentinels drawn: marks around their words, asides after their paragraphs. */
-export function drawMarginalia(html: string, marks: readonly PublishedAnnotation[]): string {
+/**
+ * The rendered page with its sentinels drawn: marks around their words, asides after their paragraphs. `ids`: each
+ * carries its annotation's id, for a page that runs the reader script (never for text sent elsewhere).
+ */
+export function drawMarginalia(html: string, marks: readonly PublishedAnnotation[], ids = false): string {
   const opens = new Map<number, number>(), closes = new Map<number, number>();
   for (const match of html.matchAll(SENTINEL)) {
     (match[0][0] === OPEN ? opens : closes).set(match[0].charCodeAt(1) - INDEX_BASE, match.index!);
@@ -139,7 +143,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
     if (drawn) {
       const tags = mark.tags.length ? ` data-tags="${escapeHtml(mark.tags.join(" "))}"` : "";
       edits.push({ at: open, remove: 0, order: 0,
-        insert: `<mark class="ann ann-${escapeHtml(mark.tone)}" data-kind="${escapeHtml(mark.kind)}"${tags}>` });
+        insert: `<mark class="ann ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>` });
       edits.push({ at: close, remove: 0, order: 0, insert: "</mark>" });
     }
     if (!mark.body) continue;
@@ -148,7 +152,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
     const at = end ? (end[0].startsWith("</") ? end.index + end[0].length : end.index) : html.length;
     const replies = mark.replies ? ` <span class="replies">${mark.replies} ${mark.replies === 1 ? "reply" : "replies"}</span>` : "";
     edits.push({ at, remove: 0, order: index + 1,
-      insert: `\n<aside class="margin-note ann-${escapeHtml(mark.tone)}"><span class="kind">${escapeHtml(mark.kind)}</span> ` +
+      insert: `\n<aside class="margin-note ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""}><span class="kind">${escapeHtml(mark.kind)}</span> ` +
         `<span class="body">${escapeHtml(mark.body)}</span>${replies}</aside>` });
   }
   // Applied back to front; at one point, asides in mark order.
