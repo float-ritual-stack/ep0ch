@@ -36,10 +36,16 @@ import type { Block, MutationProvenance } from "./types";
  *   the shared primitives, rendered to the target a reader asks for.
  * - **Actions** (`act`): what an extension can do, returned as writes the
  *   service checks and commits as `author: agent`, `actorId: ext:<id>`, with
- *   who asked for it (`requestedBy`) beside it in the change feed. An update
- *   goes through `draft.patch` (the `edit` policy, a live draft's routing),
- *   as an `@agent`'s edit does; a created block's text is inert BlockDown. No
- *   write adds an `@name` request line.
+ *   who asked for it (`requestedBy`) beside it in the change feed. A write may
+ *   land anywhere in the outline (PIE-754); its process may also write over
+ *   the socket, to any outline the host serves, under the same attribution
+ *   (src/extension-grants.ts). An update goes through `draft.patch` (the
+ *   `edit` policy, a live draft's routing), as an `@agent`'s edit does; a
+ *   created block's text is inert BlockDown. No write adds an `@name` request
+ *   line.
+ * - **Collections** (PIE-754): a data handler's `read` may answer `records`,
+ *   many records keyed by the extension's own ids, written under the line's
+ *   record as blocks it owns. Writing one again is idempotent.
  *
  * When a handler runs on its own (`effects`):
  * - `read`: on save and on open, when it has no result, its result is older
@@ -72,7 +78,7 @@ interface PassOptions {
   readonly line?: number;
 }
 
-/** What an action may return: writes inside the block it acts on, checked and attributed by the service. */
+/** What an action may return: writes anywhere in the outline, checked and attributed by the service. */
 export type ExtensionWrite =
   | { readonly op: "create"; readonly parentId: string; readonly text: string }
   | { readonly op: "update"; readonly blockId: string; readonly expectedRevision: number; readonly text: string };
@@ -85,6 +91,8 @@ export interface ExtensionActRequest {
   readonly line?: number;
   /** Arguments a tile or agent passes along (the tile's own args). */
   readonly args?: Readonly<Record<string, string>>;
+  /** A run its schedule started (PIE-754): when, and the schedule; it has no block and no one who asked. */
+  readonly scheduled?: { readonly at: string; readonly every?: string; readonly cron?: string };
   /**
    * Who asked for it (the request's `mutation`): the person, or an agent with its actor id. The writes stay
    * the extension's (`ext:<id>`); this is recorded beside them as the change feed's `requestedBy`.
@@ -137,6 +145,8 @@ const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
 const MAX_WRITES = 20;
+/** Records one collection answer may hold (each is a block the extension owns). */
+const MAX_COLLECTION = 500;
 const MAX_WRITE_TEXT = 64 * 1024;
 const RETRY_FAILED_MS = 60_000;
 const MAX_SPEND_MEMORY = 5_000;
@@ -162,24 +172,64 @@ function validateOutput(value: unknown): { markdown: string; title?: string } {
   return { markdown: cleanExtensionText(value.markdown, true), ...(typeof value.title === "string" ? { title: cleanExtensionText(value.title) } : {}) };
 }
 
-/** A data handler's `read`: `{ record: { title, fields, body } }`. */
-function validateRecord(value: unknown): ExtensionRecordData {
-  const record = isObject(value) ? value.record : undefined;
-  if (!isObject(record) || typeof record.title !== "string" || !record.title.trim()) throw new Error("a data handler's read returns { record: { title, fields, body } }");
-  if (!Array.isArray(record.fields) || record.fields.length > 64) throw new Error("record.fields must be a list of at most 64 { key, value }");
+/** One record's `{ title, fields, body }`, checked and cleaned; `where` names it in an error. */
+function checkRecord(record: unknown, where: string): ExtensionRecordData {
+  if (!isObject(record) || typeof record.title !== "string" || !record.title.trim()) throw new Error(`${where} must be { title, fields, body }`);
+  if (!Array.isArray(record.fields) || record.fields.length > 64) throw new Error(`${where}.fields must be a list of at most 64 { key, value }`);
   const fields = record.fields.map((field, index) => {
     if (!isObject(field) || typeof field.key !== "string" || !/^[a-z][a-z0-9_-]{0,39}$/.test(field.key)) {
-      throw new Error(`record.fields[${index}].key must be a lowercase name`);
+      throw new Error(`${where}.fields[${index}].key must be a lowercase name`);
     }
     const value = field.value;
     const ok = value === null || typeof value === "string" || (Array.isArray(value) && value.length <= 200 && value.every((item) => typeof item === "string"));
-    if (!ok) throw new Error(`record.fields[${index}].value must be text, a list of text, or null`);
+    if (!ok) throw new Error(`${where}.fields[${index}].value must be text, a list of text, or null`);
     return { key: field.key, value: value as string | string[] | null };
   });
-  if (record.body !== undefined && typeof record.body !== "string") throw new Error("record.body must be markdown text");
+  if (record.body !== undefined && typeof record.body !== "string") throw new Error(`${where}.body must be markdown text`);
   const body = (record.body as string | undefined) ?? "";
-  if (Buffer.byteLength(body) > MAX_MARKDOWN) throw new Error("record.body is larger than 64 KiB");
+  if (Buffer.byteLength(body) > MAX_MARKDOWN) throw new Error(`${where}.body is larger than 64 KiB`);
   return { title: cleanExtensionText(record.title), fields, body: cleanExtensionText(body, true) };
+}
+
+/** A collection's member: a record with the extension's own id for it (`key`). */
+export interface ExtensionCollectionMember extends ExtensionRecordData {
+  readonly key: string;
+}
+
+/** What a data handler's `read` answered: one record, and (a collection, PIE-754) its members. */
+export interface ExtensionReadAnswer {
+  readonly record: ExtensionRecordData;
+  readonly members?: { readonly records: readonly ExtensionCollectionMember[]; readonly complete: boolean };
+}
+
+/**
+ * A data handler's `read`: `{ record: { title, fields, body } }`, or a collection,
+ * `{ record?, records: [{ key, title, fields, body }], complete? }`. A collection's `record` is the line's own block
+ * (default: the extension's name and the key); `complete: true` says the list is the whole collection, so a member
+ * it no longer names goes to Trash; otherwise members are only added or updated.
+ */
+export function validateRecord(value: unknown, fallbackTitle = "Collection"): ExtensionReadAnswer {
+  const answer = isObject(value) ? value : {};
+  if (answer.records === undefined) {
+    if (!isObject(answer.record)) throw new Error("a data handler's read returns { record: { title, fields, body } } or { records: [...] }");
+    return { record: checkRecord(answer.record, "record") };
+  }
+  if (!Array.isArray(answer.records) || answer.records.length > MAX_COLLECTION) throw new Error(`records must be a list of at most ${MAX_COLLECTION}`);
+  if (answer.complete !== undefined && typeof answer.complete !== "boolean") throw new Error("complete must be true or false");
+  const keys = new Set<string>();
+  const records = answer.records.map((member, index): ExtensionCollectionMember => {
+    const key = isObject(member) ? member.key : undefined;
+    if (typeof key !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(key)) {
+      throw new Error(`records[${index}].key must be the extension's own id for it (letters, digits and . _ : / -, up to 200)`);
+    }
+    if (keys.has(key)) throw new Error(`records[${index}].key ${key} is another record's too: each record's key is its own`);
+    keys.add(key);
+    return { key, ...checkRecord(member, `records[${index}]`) };
+  });
+  const record = answer.record === undefined
+    ? { title: fallbackTitle, fields: [], body: "" }
+    : checkRecord(answer.record, "record");
+  return { record, members: { records, complete: answer.complete === true } };
 }
 
 function validateAct(value: unknown): { message?: string; writes: ExtensionWrite[] } {
@@ -192,7 +242,7 @@ function validateAct(value: unknown): { message?: string; writes: ExtensionWrite
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
       if (typeof write.text !== "string" || Buffer.byteLength(write.text) > MAX_WRITE_TEXT) throw new Error(`writes[${index}].text must be text up to 64 KiB`);
-      if (write.op === "create" && typeof write.parentId === "string") return { op: "create", parentId: write.parentId, text: write.text };
+      if (write.op === "create" && typeof write.parentId === "string" && write.parentId) return { op: "create", parentId: write.parentId, text: write.text };
       if (write.op === "update" && typeof write.blockId === "string" && Number.isSafeInteger(write.expectedRevision)) {
         return { op: "update", blockId: write.blockId, expectedRevision: write.expectedRevision as number, text: write.text };
       }
@@ -470,7 +520,8 @@ export class ExtensionCalls {
       kind: call.kind as "output" | "component", request, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
     try {
       const answer = await this.runtime.invokeLoaded(extension, "run",
-        { handler: call.handlerKey, ...request, context: this.context(block, call.line) }, this.deadline(extension, call.handlerKey));
+        { handler: call.handlerKey, ...request, context: this.context(block, call.line) }, this.deadline(extension, call.handlerKey),
+        { label: `ext.${extension.id}.${call.handlerKey}` });
       let result: unknown;
       try {
         result = call.kind === "component"
@@ -497,10 +548,10 @@ export class ExtensionCalls {
     try {
       const answer = await this.runtime.invokeLoaded(extension, "read",
         { handler: call.handlerKey, key: itemKey, options: call.options, context: this.context(block, call.line) },
-        this.deadline(extension, call.handlerKey));
-      let record: ExtensionRecordData;
+        this.deadline(extension, call.handlerKey), { label: `ext.${extension.id}.sync` });
+      let read: ExtensionReadAnswer;
       try {
-        record = validateRecord(answer.value);
+        read = validateRecord(answer.value, `${extension.name}: ${itemKey}`);
       } catch (error) {
         throw new Error(`${extension.name} returned a record the service can't keep: ${message(error)}`);
       }
@@ -510,7 +561,12 @@ export class ExtensionCalls {
         this.store.changes.run(this.store.changes.attribution({ action: `ext.${extension.id}.sync`, actor }), () =>
           this.store.writeExtensionRecord({
             extensionId: extension.id, label: extension.name, parentBlockId: home, itemKey, resourceId: null,
-            text: recordBlockText(extension.id, itemKey, record),
+            text: recordBlockText(extension.id, itemKey, read.record),
+            // A collection's members: the extension's own ids, one owned block each, written again idempotently.
+            ...(read.members ? { members: {
+              items: read.members.records.map((member) => ({ itemKey: member.key, text: recordBlockText(extension.id, member.key, member) })),
+              complete: read.members.complete,
+            } } : {}),
           }));
       }
       this.state.delete(key);
@@ -539,6 +595,52 @@ export class ExtensionCalls {
       }
     }
     return false;
+  }
+
+  /**
+   * One run a schedule started (PIE-754, src/extension-schedule.ts), resolving to what it did in a few words, or
+   * throwing why it failed. `action:<id>` runs that action on the outline; `handler:<key>` fetches again every key
+   * the outline asks a data handler for, or runs again every line of an output or component handler.
+   */
+  async runScheduled(extension: LoadedExtension, entry: string, schedule: { every?: string; cron?: string }, at = new Date(this.now).toISOString()): Promise<string | undefined> {
+    if (entry.startsWith("action:")) {
+      const result = await this.act({ extension: extension.id, action: entry.slice(7), scheduled: { at, ...schedule } });
+      return result.message ?? (result.written.length ? `wrote ${result.written.length} ${result.written.length === 1 ? "block" : "blocks"}` : undefined);
+    }
+    const handlerKey = entry.slice(8);
+    const handler = extension.manifest.handlers?.find((candidate) => candidate.key === handlerKey);
+    if (!handler) throw new Error(`${extension.name} has no handler ${handlerKey}`);
+    if (handler.kind === "data") {
+      const keys = this.store.extensionAskedKeys(extension.id);
+      let fetched = 0;
+      const failed: string[] = [];
+      for (const itemKey of keys) {
+        const asker = this.store.extensionAskers(extension.id, itemKey)
+          .map((candidate) => this.calls(candidate.blockId))
+          .flatMap((found) => found ? found.calls.filter((call) => call.kind === "data" && call.handlerKey === handlerKey && call.argument === itemKey && call.argumentOk).map((call) => ({ block: found.block, call })) : [])[0];
+        if (!asker) continue;
+        await this.fetchRecord(asker.block, asker.call, extension);
+        const error = this.state.get(this.dataKey(extension.id, itemKey))?.error;
+        if (error) failed.push(`${itemKey}: ${error}`);
+        else fetched += 1;
+      }
+      if (failed.length && !fetched) throw new Error(`fetched none of ${failed.length}: ${failed[0]}`);
+      return `fetched ${fetched} ${fetched === 1 ? "record" : "records"}${failed.length ? `; ${failed.length} failed (${failed[0]})` : ""}`;
+    }
+    let lines = 0;
+    const failed: string[] = [];
+    const blocks = this.store.blocksContaining(`${handlerKey}::`, 200);
+    for (const blockId of blocks) {
+      const found = this.calls(blockId);
+      for (const call of found?.calls.filter((candidate) => candidate.handlerKey === handlerKey && !candidate.problems.length) ?? []) {
+        await this.materialize(blockId, "refresh", { line: call.line });
+        const error = this.state.get(this.outputKey(blockId, call.callKey))?.error;
+        if (error) failed.push(error);
+        else lines += 1;
+      }
+    }
+    if (failed.length && !lines) throw new Error(`ran none of ${failed.length} lines: ${failed[0]}`);
+    return `ran ${lines} ${handlerKey}:: ${lines === 1 ? "line" : "lines"}${failed.length ? `; ${failed.length} failed (${failed[0]})` : ""}`;
   }
 
   // ── What readers show ────────────────────────────────────────────────
@@ -656,8 +758,9 @@ export class ExtensionCalls {
 
   /**
    * Runs an action: the built-in `keep`, or the extension's own `act`. Its
-   * writes must stay inside the block it acts on; they are revision-checked
+   * writes may land anywhere in the outline (PIE-754); they are revision-checked
    * and attributed to the extension (`ext.<id>.<action>` in the change feed).
+   * An action `on: "outline"` takes no block (a schedule runs it that way).
    */
   async act(request: ExtensionActRequest): Promise<ExtensionActResult> {
     const extension = this.registry.extension(request.extension);
@@ -666,17 +769,20 @@ export class ExtensionCalls {
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
     if (request.blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
-    if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
+    if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && action.on !== "outline" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
     if (!block && (action.on ?? "block") === "block") throw new Error(`${action.name} acts on a block: pass blockId`);
     const call = block ? this.callFor(block, action, request.line) : undefined;
     if (action.builtIn) return this.keep(extension, action, block!, call!, request.requestedBy);
+    const declared = extension.manifest.actions?.find((candidate) => candidate.id === action.id);
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
       ...(request.args ? { args: request.args } : {}),
       ...(block ? { target: { blockId: block.id, revision: block.revision, ...(call ? { line: call.line, argument: call.argument, options: call.options } : {}) } } : {}),
-      ...(block ? { context: this.context(block, call?.line ?? request.line) } : {}),
+      // No block (an outline action, a scheduled run): the call still knows when it is.
+      context: block ? this.context(block, call?.line ?? request.line) : { now: request.scheduled?.at ?? new Date(this.now).toISOString() },
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
-    }, this.deadline(extension));
+      ...(request.scheduled ? { scheduled: request.scheduled } : {}),
+    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: { message?: string; writes: ExtensionWrite[] };
     try {
       parsed = validateAct(answer.value);
@@ -684,13 +790,13 @@ export class ExtensionCalls {
       throw new Error(`${extension.name} returned an answer the service can't apply: ${message(error)}`);
     }
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
-    const applied = parsed.writes.length ? await this.apply(extension, action, block, parsed.writes, request.requestedBy) : { written: [] };
+    const applied = parsed.writes.length ? await this.apply(extension, action, parsed.writes, request.requestedBy) : { written: [] };
     const written = applied.written;
     // An action's writes change what a read handler's line reads: run that line again (found again by its
     // call, in case the writes moved it) before answering. A spend or write line waits for r.
     const again = written.length && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
     if (again) await this.materialize(block!.id, "refresh", { line: again.line });
-    else if (written.length || applied.proposalId) this.options.changed?.(block!.id);
+    else if (block && (written.length || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}) };
@@ -746,30 +852,30 @@ export class ExtensionCalls {
     const markdown = call.kind === "component" ? renderComponent(result, "markdown").body : result.markdown ?? "";
     const heading = result.title ?? `${extension.name}${call.argument ? ` · ${call.argument}` : ""}`;
     const text = `${inertBlockdown(heading).split("\n", 1)[0]}\n\n${inertBlockdown(markdown)}`.trim();
-    const { written } = await this.apply(extension, action, block, [{ op: "create", parentId: block.id, text }], requestedBy);
+    const { written } = await this.apply(extension, action, [{ op: "create", parentId: block.id, text }], requestedBy);
     return { extension: extension.id, action: action.id, message: `kept ${call.handlerKey}:: as a block`, written };
   }
 
   /**
    * Commits an action's writes as the extension, with who asked beside it. Every write is checked first
-   * (inside the block, no new `@name` request line, an update's revision still the saved one), so a refusal
-   * writes nothing. Updates go through `draft.patch` with the `edit` policy, as an `@agent`'s edit does: a
+   * (a block that exists and isn't in the Trash or owned by an extension's record, no new `@name` request line, an
+   * update's revision still the saved one), so a refusal writes nothing. They may land anywhere in the outline
+   * (PIE-754): the limit is attribution, not place. Updates go through `draft.patch` with the `edit` policy, as an `@agent`'s edit does: a
    * door's live draft gets them, and the guard refuses one that drops linked structure. A created block's
    * text is inert BlockDown (a `key::` line or `[key::value]` in it stays words). Creates are written once
    * the updates applied; when the updates became a proposal, nothing else is written.
    */
   private async apply(
-    extension: LoadedExtension, action: ExtensionActionEntry, block: Block | null, writes: readonly ExtensionWrite[], requestedBy: MutationProvenance | undefined,
+    extension: LoadedExtension, action: ExtensionActionEntry, writes: readonly ExtensionWrite[], requestedBy: MutationProvenance | undefined,
   ): Promise<{ written: string[]; proposalId?: string; proposed?: string }> {
-    if (!block) throw new Error(`${action.name} returned writes but acts on no block; writes stay inside the block an action acts on`);
-    const inside = (id: string) => id === block.id || this.store.isDescendant(id, block.id);
     const creates: { parentId: string; text: string }[] = [];
     const updates = new Map<string, { revision: number; before: string; after: string }>();
     for (const write of writes) {
       const target = write.op === "create" ? write.parentId : write.blockId;
-      if (!inside(target)) throw new Error(`${action.name} tried to write outside the block it acts on (${target}); nothing was written`);
       const current = this.store.get(target);
       if (!current || current.effectiveDeletedRootId) throw new Error(`${action.name} wrote to ${target}, which is gone or in the Trash; nothing was written`);
+      // A record an extension keeps is that extension's sync's to write, not an action's.
+      if (write.op === "update" && this.store.extensionOwner(target)) throw new Error(`${action.name} tried to update ${target}, a record ${this.store.extensionOwner(target)!.extensionId} keeps; nothing was written`);
       if (write.op === "create") {
         const text = inertBlockdown(write.text);
         if (requestLines(text, null).length) throw new Error(`${action.name} tried to write an @request line; extensions can't ask agents (nothing was written)`);

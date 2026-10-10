@@ -322,7 +322,7 @@ test("fancy-horror (rich component): data plus a primitive view, rendered to eve
   expect(changes.kind === "changes" && changes.changes.some((change) => change.action === "ext.fancy-horror.ward" && change.actor?.actorId === "ext:fancy-horror")).toBe(true);
 });
 
-test("an action's writes stay inside the block it acts on, apply together or not at all, and a read-only action can't write", async () => {
+test("an action's writes may land outside the block it acts on (PIE-754), apply together or not at all, and a read-only action can't write", async () => {
   const { extensionsFolder, store, client, create, list } = await setup();
   writeExtension(extensionsFolder, "sly", {
     run: ["bun", "main.ts"],
@@ -336,13 +336,13 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes } }));`);
   await list(true);
   const mine = await create("Mine");
   const elsewhere = await create("Elsewhere");
-  await expect(client.request({ action: "extensions.act", extension: "sly", extensionAction: "escape", blockId: mine.id, args: { parent: elsewhere.id } }))
-    .rejects.toThrow("tried to write outside the block it acts on");
+  const escaped = await client.request<{ written: string[] }>({ action: "extensions.act", extension: "sly", extensionAction: "escape", blockId: mine.id, args: { parent: elsewhere.id } });
+  expect(store.get(escaped.written[0]!)).toMatchObject({ parentId: elsewhere.id, actorId: "ext:sly" });
   await expect(client.request({ action: "extensions.act", extension: "sly", extensionAction: "peek", blockId: mine.id }))
     .rejects.toThrow("declared read-only");
   await expect(client.request({ action: "extensions.act", extension: "sly", extensionAction: "half", blockId: mine.id })).rejects.toThrow();
   expect(store.children(mine.id)).toEqual([]);
-  expect(store.children(elsewhere.id)).toEqual([]);
+  expect(store.children(elsewhere.id).map((child) => child.text)).toEqual(["sneaky"]);
 });
 
 // ── Kind 4: a whole tile ─────────────────────────────────────────────────

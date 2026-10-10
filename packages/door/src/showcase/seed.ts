@@ -35,6 +35,7 @@ export const SEED = {
   errand: "Seed order for the plot",
   tickets: "Depot supplier call about ACME-12",
   omens: "Omens for the allotment week",
+  almanac: "Almanac",
   brief: "Daily brief — 2026-03-11",
   briefBefore: "Daily brief — 2026-03-10",
   callouts: "Callouts, as Obsidian writes them",
@@ -759,6 +760,14 @@ const OMENS = [
  * `## ` headings drawn as bands by a rule note under it (no code), and a line `shout` draws as a band in its place.
  * Under it, the rule note and a job `done-stamp` stamps when its status becomes done.
  */
+/** Where the almanac extension writes each morning's note (ext.almanac.write-day, by act or on its 06:05 schedule). */
+const ALMANAC = [
+  `${SEED.almanac} [page::almanac]`,
+  "",
+  "Each morning at 06:05 the almanac extension writes a dated note here, as ext:almanac, over its own connection to the",
+  "service. Run it now: act ext.almanac.write-day (once a day; again says it's there).",
+].join("\n");
+
 const RULES_NOTE = [
   `${SEED.rules} [type::meeting] [when::Sat 10:00] [where::the shed] [attendees::Ann, Bo, Cy]`,
   "",
@@ -933,6 +942,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const examples = !!opts.ticketsConfig && !!opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length > 0;
   if (examples) await board.listExtensions(true);
   notes.omens = await make(notes.root.id, OMENS);
+  // The page almanac (a scheduled program, PIE-754) writes its dated notes under: somewhere other than any note it's asked about.
+  notes.almanac = await make(notes.omens.id, ALMANAC);
   // @tidy answers once the note is quiet: wait for it (10 s at most), so the door opens on the tidied note.
   if (examples) {
     const end = Date.now() + 10_000;

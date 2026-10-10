@@ -13,6 +13,7 @@ import {
   annotationSourceHash,
   createTextQuoteAnchor,
   createAnnotationReferenceContext,
+  annotationLineProperties,
   formatAnnotationBlock,
   normalizeAnnotationCreateInput,
   normalizePassageResolution,
@@ -380,7 +381,8 @@ export class AnnotationRepository {
             }
             const block = this.blocks.requireActive(text(request.blockId, "Comment block ID"));
             if (block.revision !== request.expectedRevision) throw new Error("Comment source revision is stale; read the current block before commenting");
-            raw = { target: blockCommentTarget(block, request.passage), body: request.body, source: request.source };
+            raw = { target: blockCommentTarget(block, request.passage), body: request.body, source: request.source,
+              ...(request.properties !== undefined ? { properties: request.properties } : {}) };
           } else raw = operation.input;
           const input = normalizeAnnotationCreateInput(raw);
           this.requireSubject(input.target.representation.subject);
@@ -1041,7 +1043,9 @@ export class AnnotationRepository {
     const updated = this.blocks.update(
       annotationId,
       formatAnnotationBlock(
-        { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source },
+        // Its properties bag (PIE-754) stays as it was.
+        { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source,
+          ...(annotationLineProperties(record.block.text) ? { properties: annotationLineProperties(record.block.text)! } : {}) },
         undefined,
         { lifecycle: input.lifecycle, promotedBlockIds, allowLegacy: true },
       ),

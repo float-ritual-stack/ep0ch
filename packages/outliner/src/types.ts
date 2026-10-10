@@ -562,10 +562,18 @@ export interface AnnotationResolutionEvent {
   readonly createdAt: string;
 }
 
+/**
+ * Properties an annotation carries (PIE-754, the bag PIE-753's `kind`, `tags` and `color` ride in): written as
+ * `[key::value]` tokens on its metadata line, so every query reads them. Open: any key but the annotation's own
+ * (`type`, `annotation-*`, `parent-annotation`, `promoted-block`).
+ */
+export type AnnotationProperties = Readonly<Record<string, string | readonly string[]>>;
+
 export interface AnnotationCreateInput {
   readonly target: AnnotationTarget;
   readonly body: string;
   readonly source: AnnotationSource;
+  readonly properties?: AnnotationProperties;
 }
 
 /** A quote is exact source text; optional context must identify one occurrence. */
@@ -584,6 +592,8 @@ export interface BlockCommentInput {
   readonly source: AnnotationSource;
   /** Omit only for an intentional whole-block comment. */
   readonly passage?: BlockCommentPassage;
+  /** As an annotation's (`AnnotationCreateInput.properties`). */
+  readonly properties?: AnnotationProperties;
 }
 
 /**
@@ -1735,8 +1745,10 @@ export interface ComputedExecutionResult {
 /**
  * Any request may name its outline: the outline host routes the connection by
  * its first line's `outline`, and a later line naming another outline is refused.
+ * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
+ * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string };
 
 export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
@@ -2176,6 +2188,8 @@ export type OutlinerRequestAction =
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
    */
   | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
+  /** Runs one of an extension's schedules now (PIE-754): `entry` is `action:<id>` or `handler:<key>`; recorded as any run. */
+  | { id: string; action: "extensions.schedule.run"; extension: string; entry: string }
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */

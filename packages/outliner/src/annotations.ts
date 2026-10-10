@@ -3,6 +3,7 @@ import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import type {
+  AnnotationProperties,
   AnnotationAnchor,
   AnnotationPassage,
   AnnotationPassageResolution,
@@ -70,6 +71,36 @@ function optionalText(value: unknown, label: string): string | null {
 function source(value: unknown): AnnotationSource {
   if (value !== "user" && value !== "agent") throw new Error("Annotation source must be user or agent");
   return value;
+}
+
+/** Keys an annotation's own metadata uses; a properties bag can't set them. */
+const ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block"]);
+
+/**
+ * An annotation's properties bag (PIE-754): lowercase keys, values one line of text without brackets, at most 16
+ * keys and 32 values each. Undefined when there is none.
+ */
+export function normalizeAnnotationProperties(value: unknown): AnnotationProperties | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Annotation properties must map names to text or lists of text");
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 16) throw new Error("Annotation properties: at most 16 keys");
+  const out: Record<string, string | string[]> = {};
+  const one = (key: string, item: unknown): string => {
+    if (typeof item !== "string" || !item.trim() || item.length > 200 || /[\[\]\r\n]/.test(item)) {
+      throw new Error(`Annotation property ${key}: each value is one line of text up to 200 characters, without [ or ]`);
+    }
+    return item.trim();
+  };
+  for (const [key, item] of entries) {
+    if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key)) throw new Error(`Annotation property ${key}: a key is a lowercase name`);
+    if (ANNOTATION_OWN_KEYS.has(key)) throw new Error(`Annotation property ${key} is the annotation's own; use another key`);
+    if (Array.isArray(item)) {
+      if (!item.length || item.length > 32) throw new Error(`Annotation property ${key}: a list holds 1 to 32 values`);
+      out[key] = item.map((entry) => one(key, entry));
+    } else out[key] = one(key, item);
+  }
+  return entries.length ? out : undefined;
 }
 
 export function annotationSourceHash(text: string): string {
@@ -626,10 +657,12 @@ export function normalizeAnnotationCreateInput(
 ): AnnotationCreateInput {
   if (!input || typeof input !== "object") throw new Error("Annotation create input must be an object");
   const record = input as Record<string, unknown>;
+  const properties = normalizeAnnotationProperties(record.properties);
   return {
     target: normalizeAnnotationTarget(record.target, allowLegacy),
     body: identity(record.body, "Annotation body"),
     source: source(record.source),
+    ...(properties ? { properties } : {}),
   };
 }
 
@@ -733,6 +766,9 @@ export function formatAnnotationBlock(
   ];
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
+  for (const [key, value] of Object.entries(normalized.properties ?? {})) {
+    for (const item of typeof value === "string" ? [value] : value) metadata.push(`[${key}::${item}]`);
+  }
   return [heading, metadata.join(" "), normalized.body].join("\n");
 }
 
@@ -754,6 +790,21 @@ export interface AnnotationBlockContent {
   readonly lifecycle: AnnotationLifecycle;
   readonly promotedBlockIds: readonly string[];
   readonly parentAnnotationId?: string;
+  /** Its properties bag: the metadata line's tokens besides its own (PIE-754). */
+  readonly properties?: AnnotationProperties;
+}
+
+/** The bag on an annotation block's metadata line (the first line that starts with `[type::`), its own keys left out. */
+export function annotationLineProperties(text: string): AnnotationProperties | undefined {
+  const line = text.split(/\r?\n/).find((candidate) => candidate.startsWith("[type::"));
+  if (!line) return undefined;
+  const out: Record<string, string[]> = {};
+  for (const match of line.matchAll(/\[([a-z][a-z0-9._-]{0,63})::([^\]\n]*)\]/g)) {
+    if (ANNOTATION_OWN_KEYS.has(match[1]!)) continue;
+    (out[match[1]!] ??= []).push(match[2]!);
+  }
+  const keys = Object.keys(out);
+  return keys.length ? Object.fromEntries(keys.map((key) => [key, out[key]!.length === 1 ? out[key]![0]! : out[key]!])) : undefined;
 }
 
 export function parseAnnotationBlockContent(block: Block): AnnotationBlockContent {
@@ -767,6 +818,7 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
     source: source(getProperty(block.properties, "annotation-source")),
     lifecycle,
     promotedBlockIds: block.properties.filter((property) => property.key === "promoted-block").map((property) => property.value),
+    ...(annotationLineProperties(block.text) ? { properties: annotationLineProperties(block.text)! } : {}),
   };
   const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
   return parentAnnotationId ? { ...content, parentAnnotationId } : content;

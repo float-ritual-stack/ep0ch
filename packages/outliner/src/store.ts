@@ -521,6 +521,13 @@ export interface ExtensionRecordWriteInput {
   readonly text: string;
   /** Comment blocks, oldest first. `null` removes them; `undefined` leaves them. */
   readonly comments?: readonly { readonly itemKey: string; readonly text: string }[] | null;
+  /**
+   * A collection's members (PIE-754): blocks under the record keyed by the extension's own ids, each written again
+   * idempotently (an unchanged one isn't written). New ones go last. `complete`: the list is the whole collection,
+   * so a member it doesn't name goes to Trash (restorable, coming back with what's on it when named again).
+   * Kept as the record's child rows (role `comment` in `extension_records`); an extension has comments or members.
+   */
+  readonly members?: { readonly items: readonly { readonly itemKey: string; readonly text: string }[]; readonly complete: boolean };
 }
 
 export interface ExtensionRecordWriteReceipt {
@@ -2020,6 +2027,21 @@ export class OutlinerStore {
     return gone.length;
   }
 
+  /** Every key an outline's blocks ask an extension for (a scheduled data handler fetches each again). */
+  extensionAskedKeys(extensionId: string): string[] {
+    return (this.database.query(`
+      SELECT DISTINCT asker.item_key AS itemKey FROM extension_askers asker JOIN blocks block ON block.id = asker.block_id
+      WHERE asker.extension_id = ? AND block.effective_deleted_root_id IS NULL ORDER BY asker.item_key
+    `).all(extensionId) as Array<{ itemKey: string }>).map((row) => row.itemKey);
+  }
+
+  /** Active blocks whose text contains `fragment` (a handler's `key::`), earliest first, at most `limit`. */
+  blocksContaining(fragment: string, limit: number): string[] {
+    return (this.database.query(`
+      SELECT id FROM blocks WHERE instr(text, ?) > 0 AND effective_deleted_root_id IS NULL ORDER BY created_at, id LIMIT ?
+    `).all(fragment, limit) as Array<{ id: string }>).map((row) => row.id);
+  }
+
   /** Whether a block has asked an extension for a key (removing its last line still settles the record). */
   asksExtension(blockId: string): boolean {
     return !!this.database.query("SELECT 1 FROM extension_askers WHERE block_id = ? LIMIT 1").get(blockId);
@@ -2090,6 +2112,19 @@ export class OutlinerStore {
           const order = this.children(recordId).map((child) => child.id).filter((id) => ids.includes(id));
           if (order.join() !== ids.join()) {
             for (const id of ids) this.move(id, recordId, undefined, actor);
+          }
+        }
+        if (input.members !== undefined) {
+          const keys = new Set(input.members.items.map((member) => member.itemKey));
+          if (input.members.complete) {
+            for (const row of this.extensionRecords({ parentBlockId: recordId, extensionId: input.extensionId, role: "comment" })) {
+              if (keys.has(row.itemKey)) continue;
+              this.dropOwnedFromCurrentRead(row.blockId, input.extensionId, "comment", actor);
+              changed.push(row.blockId);
+            }
+          }
+          for (const member of input.members.items) {
+            this.writeOwnedBlockFromCurrentRead(input, "comment", recordId, member.itemKey, member.text, undefined, actor, now, changed);
           }
         }
       } finally {

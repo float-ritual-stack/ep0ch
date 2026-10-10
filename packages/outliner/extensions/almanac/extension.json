@@ -1,0 +1,23 @@
+{
+  "contract": 2,
+  "id": "almanac",
+  "version": 1,
+  "name": "Almanac",
+  "description": "A scheduled program: each morning it writes a dated note under the almanac page, wherever that is, as ext:almanac.",
+  "run": ["bun", "almanac.ts"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "page": { "type": "string", "minLength": 1, "description": "The page it writes under (default almanac)" },
+      "outline": { "type": "string", "minLength": 1, "description": "Another outline on the same host to write in (default the one it runs for)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "write-day", "label": "Write today's almanac", "on": "outline", "effects": "write",
+      "description": "Writes today's dated note under the almanac page (once a day; again says it's there)",
+      "schedule": { "cron": "5 6 * * *" }
+    }
+  ]
+}

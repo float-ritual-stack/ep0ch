@@ -1808,6 +1808,25 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("extensions as programs (PIE-754): almanac's schedule is listed; its action, through act with no block, writes a dated note under the Almanac page as ext:almanac, once a day", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "extensions" }, as: "test-agent" })).toMatchObject({ key: "extensions" });
+    await until(() => screen().includes("schedule action:write-day") && screen().includes("cron 5 6 * * *"), "almanac's schedule listed", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    expect(screen()).toContain("not run yet");
+    const page = seeded.notes.almanac.id;
+    expect(await board.children(page)).toEqual([]);
+    const done = await app.act({ action: "ext.almanac.write-day", as: "test-agent" }) as { message?: string };
+    expect(done.message).toStartWith("wrote Almanac for ");
+    const [note] = await board.children(page);
+    expect(note!.text).toMatch(/^Almanac for \d{4}-\d\d-\d\d \[type::almanac\] \[date::\d{4}-\d\d-\d\d\]/);
+    expect(String(note!.author)).toContain("ext:almanac");
+    // Again the same day: it says the note is there, and writes nothing.
+    expect((await app.act({ action: "ext.almanac.write-day", as: "test-agent" }) as { message?: string }).message).toEndWith("is already there");
+    expect(await board.children(page)).toHaveLength(1);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");

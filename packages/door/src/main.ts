@@ -115,6 +115,11 @@ ${NEW_USAGE}
 ${VIEW_USAGE}
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
+  ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
+        | run <name> <action:id|handler:key>
+                                   the outline's extensions: ls lists each folder, what it serves and each
+                                   schedule (every or cron, next run, last run and what it did); act runs an
+                                   action as the extension; run runs a schedule now (the outliner's ext command)
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
@@ -185,6 +190,14 @@ if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
+// The outline's extensions (PIE-754): ls (with each schedule's next and last run), add, remove, act and run, through
+// the outliner's own command (one implementation); --ws names the outline as for every command.
+if (args[0] === "ext") {
+  const at = args.indexOf("--ws");
+  if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
+  const { runExtCommand } = await import("@ep0ch/outliner/extension-install");
+  process.exit(await runExtCommand(args.slice(1)));
+}
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {

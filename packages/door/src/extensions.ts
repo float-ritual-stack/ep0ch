@@ -33,7 +33,10 @@ export interface ExtensionAction {
   name: string;
   label: string;
   description?: string;
-  /** `block` (the default), `handler:<key>` (a line of that handler) or `tile:<kind>` (a tile of that kind). */
+  /**
+   * `block` (the default), `handler:<key>` (a line of that handler), `tile:<kind>` (a tile of that kind), `bar` (a
+   * power bar row's) or `outline` (no block: the outline as a whole; a scheduled action's, PIE-754).
+   */
   on?: string;
   key?: string;
   effects?: string;
@@ -51,6 +54,12 @@ export interface ExtensionEntry {
   handlers: ExtensionHandler[];
   actions: ExtensionAction[];
   agents?: ExtensionAgent[];
+  /** Its schedules (PIE-754): `action:<id>` or `handler:<key>`, every or cron, the next run and what the last did. */
+  schedules?: ExtensionScheduleEntry[];
+}
+export interface ExtensionScheduleEntry {
+  entry: string; every?: string; cron?: string; next: string; running?: boolean;
+  last?: { at: string; ok: boolean; message?: string; error?: string; ms: number };
 }
 /** A tile kind ready to register (`extensions.list`'s `tileKinds`). */
 export interface ExtensionTileKind {
@@ -125,7 +134,9 @@ function cleaned(l: ExtensionList): ExtensionList {
   const action = (a: ExtensionAction): ExtensionAction => ({ ...a, id: oneLine(a.id), name: oneLine(a.name), label: oneLine(a.label) || oneLine(a.id), description: clean(a.description), ...(a.key !== undefined ? { key: oneLine(a.key) } : {}) });
   return {
     ...l,
-    extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [] })),
+    extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [],
+      // A run's message and error are the extension's own words: one clean line each.
+      schedules: (e.schedules ?? []).map(x => ({ ...x, entry: oneLine(x.entry), ...(x.last ? { last: { ...x.last, message: clean(x.last.message), error: clean(x.last.error) } } : {}) })) })),
     tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
     rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
     ruleProblems: (l.ruleProblems ?? []).map(oneLine),
@@ -203,12 +214,12 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
 
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
-  const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar";
+  const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar", outline = a.on === "outline";
   const k = keyOf(a.key);
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
-    summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
+    summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
@@ -219,7 +230,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
     },
     run({ block, line, with: w }, on, actor) {
       const args = withArgs(w);
-      if (!block && !bar) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
+      if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(args ? { args } : {}) }, actor);
     },
   };
