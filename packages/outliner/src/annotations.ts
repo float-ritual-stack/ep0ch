@@ -802,8 +802,8 @@ export function formatAnnotationBlock(
   return type === (parent ? ANNOTATION_REPLY_TYPE : ANNOTATION_TYPE) ? text : lines(word);
 }
 
-/** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`. */
-export const ANNOTATION_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23} on “)/;
+/** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone (the plain heading when the quote can't be one). */
+export const ANNOTATION_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);
