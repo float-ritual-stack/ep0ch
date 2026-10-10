@@ -1,0 +1,19 @@
+{
+  "contract": 2,
+  "id": "structure",
+  "version": 1,
+  "name": "Structure",
+  "description": "Do by one action what you do to a note by hand: extract a passage or a list item into its own child block, sort a list inside a block, sort a block's children.",
+  "run": ["bun", "structure.ts"],
+  "demo": "demo",
+  "actions": [
+    { "id": "extract", "label": "Extract to a child block", "key": "x", "on": "passage", "effects": "write",
+      "description": "Make the passage (or the list item and its children) a new child of the note, and put !((child)) where it was" },
+    { "id": "sort-selection", "label": "Sort the selected list", "key": "s", "on": "passage", "effects": "write",
+      "description": "Sort the list items the passage touches, with their children. By title, or by with={\"by\":\"price\",\"order\":\"desc\"}, or by the note's own [sort-by::] and [sort-order::]" },
+    { "id": "sort-list", "label": "Sort the list in this block", "key": "l", "on": "block", "effects": "write",
+      "description": "Sort the block's first list (with={\"list\":\"2\"}: the second), by title, with={\"by\":\"price\",\"order\":\"desc\"}, or by the block's own [sort-by::] and [sort-order::]" },
+    { "id": "sort-blocks", "label": "Sort the children", "key": "o", "on": "block", "effects": "write",
+      "description": "Sort the block's child blocks by title, by created, or by a property: with={\"by\":\"created\",\"order\":\"desc\"}, or the block's own [sort-by::] and [sort-order::]" }
+  ]
+}
