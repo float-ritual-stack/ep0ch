@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "columns",
-  "version": 1,
+  "version": 2,
   "name": "Columns",
   "description": "Rich component: the notes under a line are sections drawn side by side, stacked when the reader is narrow.",
   "run": ["bun", "columns.ts"],

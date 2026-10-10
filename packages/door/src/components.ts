@@ -10,7 +10,7 @@ import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { TONE as CALLOUT_TONE } from "./callouts";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
-export const PRIMITIVES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
+export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
 
 /** A primitive this door doesn't draw (a newer catalogue), or a view past the catalogue's bounds. */
 export class PrimitiveUnknown extends Error {}
@@ -87,22 +87,38 @@ function bandOf(n: Record<string, unknown>, w: number, headings: HeadingStyleReg
 type Node = Record<string, unknown>;
 const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : []);
 
+/** What the reader lends a view's drawing. */
+export interface PrimitiveDraw {
+  /** Tags a card's or a table row's block (`link` and `links` in the view): the reader's `[ ]` stops on it, a click opens it. */
+  link?(block: string, text: string): string;
+  /** A `blockdown` primitive drawn as the reader draws a note's body, `width` wide. Without it, its lines as written. */
+  blockdown?(text: string, width: number): string[];
+  headings?: HeadingStyleRegistry;
+}
+
+/** The narrowest a row's child is drawn when the view doesn't say (the service's ROW_MIN_WIDTH). */
+const ROW_MIN_WIDTH = 12;
+
 /**
- * A component's view as terminal lines, `w` wide, each line already coloured. `link` tags a card's or a
- * table row's block (`link` and `links` in the view), so the reader's `[ ]` stops on it and a click opens it.
+ * A component's view as terminal lines, `w` wide, each line already coloured.
  * Throws PrimitiveUnknown for a primitive outside the catalogue: the reader falls back to the line's markdown.
  */
-export function primitiveLines(view: unknown, w: number, link?: (block: string, text: string) => string, depth = 0, headings: HeadingStyleRegistry = BUILTIN_HEADING_STYLE_REGISTRY): string[] {
+export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {}, depth = 0): string[] {
   w = Math.max(8, Math.floor(w));
   if (depth > MAX_DEPTH) throw new PrimitiveUnknown(`the view nests deeper than ${MAX_DEPTH}`);
   if (!view || typeof view !== "object" || Array.isArray(view)) throw new PrimitiveUnknown("a primitive is an object");
   const n = view as Node;
-  const inner = (v: unknown, width: number) => primitiveLines(v, width, link, depth + 1, headings);
+  const { link } = draw, headings = draw.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
+  const inner = (v: unknown, width: number) => primitiveLines(v, width, draw, depth + 1);
   const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
   switch (n.type) {
     case "text":
       // Its lines are its own, as the service's terminal target keeps them; each wraps to the width.
       return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + l + UNBOLD : l) + RESET);
+    case "blockdown": {
+      const text = String(n.text ?? "");
+      return draw.blockdown ? draw.blockdown(text, w) : text.split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(C.white) + l + RESET);
+    }
     case "badge":
       return [fg(toned(n.tone ?? "accent")) + `[${one(n.label)}]` + RESET];
     case "stat": {
@@ -172,8 +188,9 @@ export function primitiveLines(view: unknown, w: number, link?: (block: string, 
       const cs = kids(n);
       if (!cs.length) return [];
       const each = Math.floor((w - 3 * (cs.length - 1)) / cs.length);
-      // Too narrow to sit side by side: one under the other.
-      if (each < 12) return cs.flatMap(c => inner(c, w));
+      // Too narrow to sit side by side (the view's `minWidth`): one under the other, a blank line between.
+      const min = typeof n.minWidth === "number" && Number.isFinite(n.minWidth) ? Math.max(4, n.minWidth) : ROW_MIN_WIDTH;
+      if (each < min) return cs.flatMap((c, i) => [...(i ? [""] : []), ...inner(c, w)]);
       const cols = cs.map(c => inner(c, each));
       return beside(cols, cols.map(() => each));
     }

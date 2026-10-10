@@ -18,6 +18,7 @@ import {
 import { checkServiceCompatibility } from "./service-compatibility";
 import { outlinerLinkUri } from "./outliner-links";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
+import { detailComponentMarkdown } from "./detail-rows";
 import type { DraftProposalsBeside } from "./draft-patch";
 import type {
   Block,
@@ -521,7 +522,9 @@ export function resourceProjectionLayout(projection: ResourceProjection): Resour
     // An extension's output or component (PIE-507): its markdown under the line, with when it ran.
     lines.push(`- ${title} · ran ${localTime(projection.output.ranAt)}${projection.fetching ? " · running" : ""}`);
     fetchedLine = 0;
-    for (const line of projection.output.markdown.split("\n")) lines.push(line.trim() ? `  ${line}` : "");
+    // A component is drawn from its view, so its rows sit side by side when Detail is wide enough (src/detail-rows.ts).
+    const markdown = (projection.output.component ? detailComponentMarkdown(projection.output.component.view) : null) ?? projection.output.markdown;
+    for (const line of markdown.split("\n")) lines.push(line.trim() ? `  ${line}` : "");
     while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
     if (projection.status === "stale" && reason) lines.push(`  ${reason}`);
   } else if ((projection.status === "ready" || projection.status === "stale") && projection.summary !== undefined) {

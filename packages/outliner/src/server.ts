@@ -3383,6 +3383,13 @@ export class OutlinerServer {
           this.agentRequests.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");
         }
       }
+      // A handler line reads its block's children and the blocks it names: a person's or agent's change to one
+      // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
+      // nothing loops.
+      if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")
+        && !isExtensionActor(event.change!.actor?.actorId)) {
+        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
+      }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
       // one in the Trash stops); an extension's own only moves what a trigger remembers.
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")) {

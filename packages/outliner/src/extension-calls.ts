@@ -25,6 +25,8 @@ import { checkPassage, isMiss, missMessage, type Passage } from "@ep0ch/outline-
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { resourceCommentSource } from "./resource-comments";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { createHash } from "node:crypto";
 
 /**
  * Runs extension handlers for the lines that ask for them, keeps their
@@ -177,6 +179,15 @@ const MAX_WRITE_TEXT = 64 * 1024;
 const MAX_PASSAGE_TEXT = 64 * 1024;
 const RETRY_FAILED_MS = 60_000;
 const MAX_SPEND_MEMORY = 5_000;
+/** At most this many blocks a line names count as its inputs, and this many such names are remembered. */
+const MAX_LINE_REFERENCES = 8;
+const MAX_WATCHED = 5_000;
+
+/** The inputs hash a stored result was run with (`ExtensionCalls.inputs`); none for one kept before it was. */
+const storedInputs = (row: ExtensionOutputRow): string | undefined => {
+  const request = row.request as { inputs?: unknown } | null;
+  return typeof request?.inputs === "string" ? request.inputs : undefined;
+};
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
@@ -355,6 +366,8 @@ export class ExtensionCalls {
   private readonly saves = new Map<string, { byPerson: boolean; created: boolean }>();
   /** Spend lines each block had at its last pass (most recent blocks only). */
   private readonly spendSeen = new Map<string, Set<string>>();
+  /** A block a handler line names, and the blocks whose lines name it: a change to it is a change to their inputs. */
+  private readonly named = new Map<string, Set<string>>();
   private stopped = false;
 
   constructor(
@@ -393,6 +406,42 @@ export class ExtensionCalls {
       this.saves.delete(blockId);
       void this.materialize(blockId, "save", { byPerson: save?.byPerson ?? false, created: save?.created ?? false }).catch(() => {});
     }, 0);
+  }
+
+  /**
+   * A block changed that handler lines read: its parent's lines read it as a child, and a line that names it
+   * reads it too. Those lines run again if what they read is different (`inputs`), as on open; an extension's own
+   * writes don't come here, so nothing loops.
+   */
+  inputChanged(blockId: string, parentIds: readonly (string | null | undefined)[]): void {
+    if (this.stopped) return;
+    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? [])]);
+    for (const reader of readers) {
+      const block = reader === blockId ? null : this.store.get(reader);
+      if (!block || !mayHaveHandlerLines(block.text)) continue;
+      void this.materialize(reader, "open").catch(() => {});
+    }
+  }
+
+  /**
+   * What a line reads, as one short hash: the block's text, its children as a call sees them, and the revision of each
+   * block the line names. Bounded as `context` is; a line runs again by itself (effects `read`) when it changes.
+   */
+  private inputs(block: Block, line: number | undefined, children: readonly { id: string; text: string }[] = this.store.blockContext(block.id).children): string {
+    const hash = createHash("sha256").update(block.text.slice(0, MAX_CONTEXT_TEXT));
+    for (const child of children.slice(0, MAX_CHILDREN)) hash.update(`\0${child.id}\0${child.text.slice(0, MAX_CHILD_TEXT)}`);
+    const text = line === undefined ? "" : block.text.split("\n")[line] ?? "";
+    const names = [...new Set([...blockReferenceOccurrences(text)].map((occurrence) => occurrence.blockId))].slice(0, MAX_LINE_REFERENCES);
+    for (const id of names) {
+      const target = this.store.get(id);
+      hash.update(`\0((${id}))\0${target && !target.effectiveDeletedRootId ? target.revision : "gone"}`);
+      const readers = this.named.get(id) ?? new Set<string>();
+      readers.add(block.id);
+      this.named.delete(id);
+      this.named.set(id, readers);
+      if (this.named.size > MAX_WATCHED) this.named.delete(this.named.keys().next().value!);
+    }
+    return hash.digest("hex").slice(0, 32);
   }
 
   /** The handler lines a block has now (none for a block an extension owns). */
@@ -473,7 +522,7 @@ export class ExtensionCalls {
         if (this.dataDue(call, extension, reason, fresh)) await this.fetchRecord(block, call, extension);
         return;
       }
-      if (this.outputDue(call, extension, rows.get(call.callKey), reason, fresh)) await this.run(block, call, extension);
+      if (this.outputDue(block, call, extension, rows.get(call.callKey), reason, fresh)) await this.run(block, call, extension);
     }));
   }
 
@@ -545,12 +594,14 @@ export class ExtensionCalls {
     return this.now - (this.failedAt.get(key) ?? 0) > RETRY_FAILED_MS;
   }
 
-  private outputDue(call: HandlerCall, extension: LoadedExtension, row: ExtensionOutputRow | undefined, reason: CallReason, fresh: boolean): boolean {
+  private outputDue(block: Block, call: HandlerCall, extension: LoadedExtension, row: ExtensionOutputRow | undefined, reason: CallReason, fresh: boolean): boolean {
     if (!this.automatic(call, reason, fresh, !row)) return false;
     if (reason === "refresh" || !row) return true;
     if (row.result === null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS && call.effects === "read";
     if (call.effects !== "read") return false;
     if (row.extensionVersion !== extension.version) return true;
+    // What it read changed (the block, a child, a block the line names): it redraws without r.
+    if (storedInputs(row) !== this.inputs(block, call.line)) return true;
     const handler = extension.manifest.handlers?.find((candidate) => candidate.key === call.handlerKey);
     const stale = durationMs(handler?.staleAfter);
     return stale !== undefined && row.ranAt !== null && this.now - Date.parse(row.ranAt) > stale;
@@ -562,7 +613,7 @@ export class ExtensionCalls {
   }
 
   /** What a call sees of the outline: bounded, read-only, from one read. */
-  private context(block: Block, line: number | undefined): Record<string, unknown> {
+  private context(block: Block, line: number | undefined): Record<string, unknown> & { children: { id: string; text: string }[] } {
     const context = this.store.blockContext(block.id);
     const lines = block.text.split("\n");
     return {
@@ -582,11 +633,14 @@ export class ExtensionCalls {
     this.options.changed?.(block.id);
     const request = { argument: call.argument, options: call.options };
     const attemptedAt = new Date(this.now).toISOString();
+    const context = this.context(block, call.line);
+    // What it read is kept beside what it was asked (the row's request), so a later pass can tell when that changed.
+    const inputs = this.inputs(block, call.line, context.children);
     const base = { blockId: block.id, callKey: call.callKey, extensionId: extension.id, handlerKey: call.handlerKey,
-      kind: call.kind as "output" | "component", request, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
+      kind: call.kind as "output" | "component", request: { ...request, inputs }, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
     try {
       const answer = await this.runtime.invokeLoaded(extension, "run",
-        { handler: call.handlerKey, ...request, context: this.context(block, call.line) }, this.deadline(extension, call.handlerKey),
+        { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
         { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
       let result: unknown;
       try {
@@ -767,7 +821,7 @@ export class ExtensionCalls {
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
       ...(call.kind === "component" ? { component: { data: result.data, view: result.view } } : {}),
-      ...(row.blockRevision !== block.revision ? { inputsChanged: true as const } : {}),
+      ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),
     };
     const failed = state?.error ?? row.error ?? undefined;

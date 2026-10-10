@@ -15,6 +15,8 @@ export interface DecorationDraw {
   /** The outline's heading styles (PIE-599): what a band or a track names, and draws with. */
   headings?: HeadingStyleRegistry;
   markdown: (text: string, width: number) => string[];
+  /** A `blockdown` primitive drawn as the note's body is (src/components.ts PrimitiveDraw). */
+  blockdown?: (text: string, width: number) => string[];
 }
 
 /** Where a note's decorations go, by body line (the reader's `after` and `decorate` hooks, src/doc.ts). */
@@ -27,7 +29,7 @@ export interface DecorationPlan {
 
 /** A decoration's rows, `width` wide: its view's primitives, else its Markdown, else what's wrong, dim. */
 export function decorationRows(d: Decoration, width: number, draw: DecorationDraw): string[] {
-  if (d.view) { try { return primitiveLines(d.view, width, draw.row, 0, draw.headings); } catch { /* the next step of the chain */ } }
+  if (d.view) { try { return primitiveLines(d.view, width, { link: draw.row, headings: draw.headings, blockdown: draw.blockdown }); } catch { /* the next step of the chain */ } }
   if (d.markdown?.trim()) return draw.markdown(d.markdown, width);
   // Not drawn yet, or failed: said in one dim line, so a rule's author sees why.
   const why = d.status === "not-run" ? `${d.name} · drawing…` : `${d.name} · ${d.reason ?? d.status}`;

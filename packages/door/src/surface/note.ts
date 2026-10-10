@@ -1432,6 +1432,11 @@ export class NoteSurface {
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
         ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false,
       }).lines,
+      // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
+      blockdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, src, text, drawn), {
+        ...env, width, nested: true, keepTags: true, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined,
+        task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined,
+      }).lines,
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -1442,7 +1447,7 @@ export class NoteSurface {
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
       const view = !!results && (m.props.type ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
-      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, headings: headingStylesOf(src) }, bodyText);
+      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, headings: headingStylesOf(src) }, bodyText);
       return regions.size || view || plan.after.size || plan.place.size ? {
         ...(plan.place.size ? {
           decorate: (line: number, width: number) => {

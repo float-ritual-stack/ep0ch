@@ -6,6 +6,7 @@ import {sanitizeDynamicText} from './terminal';
 import {sliceByColumn,stripTerminalSequences,visibleWidth,type Component,type MarkdownTheme} from '@earendil-works/pi-tui';
 import {atomicDocument,concatDocuments,sliceDocument,type MappedDocument} from './document-provenance';
 import {DocumentFrame,documentGlyphs,generatedGlyphs,wrapDocumentGlyphs,type DocumentGlyph,type GlyphStyle} from './document-frame';
+import {COLUMN_BREAK,DETAIL_ROW_LANGUAGE} from './detail-rows';
 
 const parser=new Marked();
 type Row=DocumentGlyph[];
@@ -123,6 +124,8 @@ type LayoutNode = (
   | {kind:'quote';children:LayoutNode[]}
   | {kind:'list';items:{marker:DocumentGlyph[];children:LayoutNode[]}[];loose:boolean}
   | {kind:'code';lines:DocumentGlyph[][];language:string}
+  /** A component's row (src/detail-rows.ts): its children side by side when each gets `min` cells, else stacked. */
+  | {kind:'row';columns:LayoutNode[][];min:number}
   | {kind:'table';table:TableNode;header:DocumentGlyph[][];rows:DocumentGlyph[][][]}
   | {kind:'rule'}
 ) & {blankAfter:boolean};
@@ -216,6 +219,10 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
     }
     if(token.type==='code') {
       const body=codeBody(source,token.text,token.codeBlockStyle==='indented');if(!body)return null;
+      const row=token.codeBlockStyle==='indented'?null:DETAIL_ROW_LANGUAGE.exec(token.lang??'');
+      // Only Detail's own text draws a row; an authored fence that says ep0ch-row is code.
+      const columns=row&&body.runs.every(run=>run.origin.kind==='generated')?rowColumns(body,nodePath,tokens.links):null;
+      if(columns){nodes.push({kind:'row',columns,min:Math.max(4,Number(row![1]??12)),blankAfter});continue;}
       let offset=0;
       const lines=body.text.split('\n').map(line=>{const mapped=sliceDocument(body,offset,offset+line.length);offset+=line.length+1;return documentGlyphs(mapped,['codeBlock']);});
       nodes.push({kind:'code',lines,language:token.lang??'',blankAfter});continue;
@@ -241,6 +248,18 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
     nodes.push({kind:'flow',glyphs,blankAfter});
   }
   return cursor===document.text.length?nodes:null;
+}
+/** A row's children, split at its COLUMN_BREAK lines, each compiled as a document of its own. Null: draw it as code. */
+function rowColumns(body:MappedDocument,path:string,definitions:Links|undefined):LayoutNode[][]|null {
+  const columns:LayoutNode[][]=[];let start=0,offset=0;
+  const lines=body.text.split('\n');
+  const close=(end:number)=>{const nodes=compileBlocks(sliceDocument(body,start,end),`${path}/column:${columns.length}`,definitions);if(!nodes)return false;columns.push(nodes);return true;};
+  for(const [index,line] of lines.entries()) {
+    const next=offset+line.length+(index<lines.length-1?1:0);
+    if(line===COLUMN_BREAK){if(!close(Math.max(start,offset-1)))return null;start=next;}
+    offset=next;
+  }
+  return close(body.text.length)?columns:null;
 }
 const glyphWidth=(glyphs:readonly DocumentGlyph[])=>glyphs.reduce((sum,glyph)=>sum+visibleWidth(glyph.text),0);
 type TableLayout=Extract<LayoutNode,{kind:'table'}>;
@@ -360,6 +379,22 @@ function layout(nodes:readonly LayoutNode[],width:number,theme:MarkdownTheme,lis
       }
       rows.push(...wrapDocumentGlyphs(generatedGlyphs('```','code fence',false,['codeBlockBorder']),width));
     } else if(node.kind==='table')rows.push(...layoutTable(node,width));
+    else if(node.kind==='row') {
+      const gap=3,count=node.columns.length,each=Math.floor((width-gap*(count-1))/Math.max(1,count));
+      const laid=(nodes:readonly LayoutNode[],at:number)=>{const out=layout(nodes,at,theme);while(out.length&&!out.at(-1)!.length)out.pop();while(out.length&&!out[0]!.length)out.shift();return out;};
+      if(count<2||each<node.min) node.columns.forEach((column,index)=>{if(index)rows.push([]);rows.push(...laid(column,width));});
+      else {
+        const columns=node.columns.map(column=>laid(column,each));
+        for(let line=0;line<Math.max(...columns.map(column=>column.length));line++) {
+          const row:Row=[];
+          columns.forEach((column,index)=>{
+            const cells=column[line]??[];row.push(...cells);
+            if(index<count-1)row.push(...generatedGlyphs(' '.repeat(Math.max(0,each-glyphWidth(cells))+gap),'row column gap'));
+          });
+          rows.push(row);
+        }
+      }
+    }
     else rows.push(generatedGlyphs('─'.repeat(Math.min(width,80)),'horizontal rule',false,['hr']));
     if(node.blankAfter)rows.push([]);
   }

@@ -505,6 +505,8 @@ export interface ExtDraw {
   /** The note the line is in: its actions and `r` act on that block and line. */
   note: string;
   markdown(text: string, width: number): string[];
+  /** A view's `blockdown` primitive, drawn as this reader draws a note's body (its links, lists and properties), `width` wide. */
+  blockdown?(text: string, width: number): string[];
   /** Tag a block a component names (a card's link, a table row's): `[ ]` stops on it, a click opens it. */
   row?(block: string, text: string): string;
   /** The keys the reader's host keeps (SurfaceHost.ownKeys): a control never names one as its key. */
@@ -526,7 +528,7 @@ export function primaryAction(p: ResourceProjection): { name: string; label: str
 /** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
 function componentBody(p: ResourceProjection, width: number, d: ExtDraw): { lines: string[]; via: "primitives" | "markdown" | "json" } {
   const c = p.output?.component;
-  if (c?.view) { try { return { lines: primitiveLines(c.view, width, d.row), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
   if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
   return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
 }
