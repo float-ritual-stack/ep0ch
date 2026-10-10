@@ -19,9 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-        with: { bun-version: 1.4.2 }
+        with:
+          bun-version: 1.4.2
       - uses: actions/cache@v4
-        with: { path: ~/.bun/install/cache, key: bun-${{ hashFiles('bun.lock') }} }
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - run: bun run check
   test:
@@ -38,9 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-        with: { bun-version: 1.4.2 }
+        with:
+          bun-version: 1.4.2
       - uses: actions/cache@v4
-        with: { path: ~/.bun/install/cache, key: bun-${{ hashFiles('bun.lock') }} }
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
       - run: sudo apt-get install -y --no-install-recommends tmux sqlite3 >/dev/null
       - run: bun install --frozen-lockfile
       - name: bun test (${{ matrix.pkg }})
@@ -52,4 +58,7 @@ jobs:
           bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml"
       - if: always()
         uses: actions/upload-artifact@v4
-        with: { name: junit-${{ matrix.pkg }}, path: "${{ runner.temp }}/junit-${{ matrix.pkg }}.xml", if-no-files-found: ignore }
+        with:
+          name: junit-${{ matrix.pkg }}
+          path: ${{ runner.temp }}/junit-${{ matrix.pkg }}.xml
+          if-no-files-found: ignore
