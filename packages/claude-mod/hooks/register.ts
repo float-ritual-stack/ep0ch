@@ -201,6 +201,9 @@ const BINDING_WAIT_MS = WHERE_WAIT_MS
  */
 export function register(on: On, options: PluginOptions): void {
   const option = options
+  // A registration is one session: the folder it started in is read anew, never the last registration's (a test file
+  // registers once per case, each in a folder of its own).
+  sessionCwd = null
   // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
   // outline's own mentions.list, each press opened by openNote like every other click.
   // The band above the prompt: the binding card (at the start and after /clear, until hidden) over Recent mentions.

@@ -146,7 +146,10 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     const pty = D().pane("shell");
     const focus = get().focus;
     await expect(act("tile.group", { with: "shell" }, focus)).rejects.toThrow(/has the person's keys/);
-    const others = get().tiles.filter((x: any) => x.name !== focus && x.name !== "shell" && x.kind !== "screen" && !x.float).map((x: any) => x.name);
+    // The group needs a reader to take the open below: its own, not the focused one (the person's keys) and not the
+    // desk's side tiles (the replies are a backlinks tile since the links model).
+    await act("tile.open", { kind: "reader", name: "grouped-reader" }, focus);
+    const others = ["grouped-reader"];
     const g = await act("tile.group", { with: "shell", where: "down" }, others[0]);
     expect(g.grouped).toEqual([others[0], "shell"]);
     render();
