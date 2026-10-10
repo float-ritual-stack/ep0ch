@@ -153,8 +153,8 @@ async function setup(extra: Record<string, unknown> = {}) {
 }
 
 /** A publisher for one outline, connected as `publish serve` is: it tells the service where it is opened. */
-async function publisherFor(socket: string, outline: string, url: string) {
-  const publisher = new Publisher({ client: createOutlinerClient({ socket, mode: "host", outline }), url });
+async function publisherFor(socket: string, outline: string, url: string, publicUrl?: string) {
+  const publisher = new Publisher({ client: createOutlinerClient({ socket, mode: "host", outline }), url, ...(publicUrl ? { publicUrl } : {}) });
   await publisher.start();
   cleanups.push(() => publisher.stop());
   return publisher;
@@ -163,7 +163,7 @@ async function publisherFor(socket: string, outline: string, url: string) {
 const NOTE = "Pond notes [type::journal]\n\nThe heron came back on Tuesday and stood very still.\n\nMoss grows on the north side of the shed.";
 
 test("send saves a note and the notes under it to Reader as one document that links back; sending again says it's there", async () => {
-  const { fake, act, create } = await setup();
+  const { fake, act, create } = await setup({ publish: false });
   const note = await create("garden", NOTE);
   await create("garden", "Later: the heron left at dusk.", note.id);
   const sent = await act("garden", "send", note.id);
@@ -293,17 +293,50 @@ test("once per host: the pull's schedule is one outline's; pulls asked in two ou
   expect(holders[0]).toBe(holders[1]);
 });
 
-test("a published note's link in Reader is its permalink, and a highlight on it comes back to it", async () => {
+test("sending publishes the note, and its public page is the URL Reader gets; a highlight on it comes back", async () => {
   const { fake, socket, call, act, create, threads } = await setup();
-  await publisherFor(socket, "garden", "https://pub.example.invalid/pub");
-  const note = await create("garden", "Shed notes [publish::shed]\n\nThe shed door sticks in the rain.");
-  const address = await call<{ outline: string; machine: string; uri: string; published: { slug: string; url: string; permalink: string } }>("garden", { action: "notes.address", blockId: note.id });
-  expect(address.published).toEqual({ slug: "shed", public: false, url: "https://pub.example.invalid/pub/p/shed", permalink: `https://pub.example.invalid/pub/p/${note.id}` } as never);
-  await act("garden", "send", note.id);
-  expect(fake.saved[0]!.url).toBe(`https://pub.example.invalid/pub/p/${note.id}?ep0ch=garden@${MACHINE}`);
+  await publisherFor(socket, "garden", "https://pub.example.invalid/pub", "https://share.example.invalid");
+  const note = await create("garden", "Shed notes\n\nThe shed door sticks in the rain.");
+  const sent = await act("garden", "send", note.id);
+  expect(sent.message).toContain("published it (unlisted, by link)");
+  expect(fake.saved[0]!.url).toBe(`https://share.example.invalid/share/p/${note.id}?ep0ch=garden@${MACHINE}`);
+  const now = await call<Block>("garden", { action: "get", blockId: note.id });
+  expect(now.text.split("\n")[0]).toBe("Shed notes [publish::public]");
+  const address = await call<{ published: { public: boolean; publicUrl: string } }>("garden", { action: "notes.address", blockId: note.id });
+  expect(address.published).toMatchObject({ public: true });
   fake.state.pages = [[{ user_book_id: 11, title: "Shed notes", source_url: String(fake.saved[0]!.url), highlights: [{ id: 501, text: "sticks in the rain", note: "plane the edge" }] }]];
   expect((await act("garden", "pull")).message).toBe("pulled: 1 new, 0 changed (1 on notes, 0 on the readwise board)");
   expect((await threads("garden", note.id)).map((thread) => thread.body)).toEqual(["plane the edge"]);
+});
+
+test("a note with a slug keeps it when sending makes it public", async () => {
+  const { fake, socket, act, create, call } = await setup();
+  await publisherFor(socket, "garden", "https://pub.example.invalid/pub", "https://share.example.invalid");
+  const note = await create("garden", "Shed notes [publish::shed]\n\nBody.");
+  await act("garden", "send", note.id);
+  expect((await call<Block>("garden", { action: "get", blockId: note.id })).text.split("\n")[0]).toBe("Shed notes [publish::public:shed]");
+  expect(fake.saved[0]!.url).toBe(`https://share.example.invalid/share/p/${note.id}?ep0ch=garden@${MACHINE}`);
+});
+
+test("an outline no publisher serves publicly is sent with the placeholder, the note untouched, and the answer says what publishes it", async () => {
+  const { fake, act, create, call } = await setup();
+  const note = await create("garden", "Shed notes\n\nBody.");
+  const sent = await act("garden", "send", note.id);
+  expect(fake.saved[0]!.url).toBe(`https://ep0ch.invalid/garden@${MACHINE}/b/${note.id}`);
+  expect(sent.message).toContain("ep0ch publish serve --ws garden");
+  expect((await call<Block>("garden", { action: "get", blockId: note.id })).text).toBe("Shed notes\n\nBody.");
+});
+
+test("config publish:false sends without publishing; an already published note still gets its permalink", async () => {
+  const { fake, socket, act, create, call } = await setup({ publish: false });
+  await publisherFor(socket, "garden", "https://pub.example.invalid/pub", "https://share.example.invalid");
+  const plain = await create("garden", "Plain\n\nBody.");
+  await act("garden", "send", plain.id);
+  expect(fake.saved[0]!.url).toBe(`https://ep0ch.invalid/garden@${MACHINE}/b/${plain.id}`);
+  expect((await call<Block>("garden", { action: "get", blockId: plain.id })).text).toBe("Plain\n\nBody.");
+  const shed = await create("garden", "Shed [publish::shed]\n\nBody.");
+  await act("garden", "send", shed.id);
+  expect(fake.saved[1]!.url).toBe(`https://pub.example.invalid/pub/p/${shed.id}?ep0ch=garden@${MACHINE}`);
 });
 
 test("a [publish::never] note isn't sent", async () => {

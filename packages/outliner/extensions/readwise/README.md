@@ -17,7 +17,15 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
 - **`send`** (on a block): saves the note, and the notes under it, to Reader as one document, tagged `ep0ch`. It is
   the note as its published page reads (`notes.render`, the publisher's renderer, published or not): properties left
   out, links as their labels or web URLs. The document's URL is the note's link, and its first line is the note's
-  `ep0ch://` URI, so a highlight made on it in Reader comes back to that note. A `[publish::never]` note isn't sent.
+  `ep0ch://` URI, so a highlight made on it in Reader comes back to that note.
+  - **Sending publishes the note.** It gets `[publish::public]` (an edit by `ext:readwise`, on behalf of whoever asked),
+    so it has a public page by its id: unlisted, reachable by link, in no index. That page is the URL Reader gets, so the
+    document opens as a real page. Unpublish it by removing the token; set config `publish` to `false` to send without
+    publishing.
+  - **`[publish::never]` wins.** A note locked that way, or under one, is not published and not sent: the answer says so.
+  - **No public address, no publishing.** A publisher serves one outline (`publish serve --ws <name>`) and needs a public
+    URL (`--public-url`, or `OUTLINER_PUBLIC_URL`). For an outline without one the note is sent with the placeholder URL
+    (below), the token is taken back off, and the answer names the command to start one.
   Sending again says it's already there: Reader keeps the first copy (delete it in Reader to send a newer one).
 - **`pull`** (on the outline, every hour): Readwise's export of the highlights changed since the last pull. Reader's
   highlights reach Readwise too, so this one feed has both.
@@ -104,7 +112,8 @@ new.
 |---|---|---|
 | `board` | `readwise` | The outline other highlights land in (on this host) |
 | `page` | `readwise` | The page in it they land under |
-| `link` | the note's published permalink, else `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--url` or `--public-url`) with `?ep0ch=<outline>@<machine>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{outline}` and `{id}`: the pull reads the note back out of it |
+| `publish` | `true` | Sending publishes the note (`[publish::public]`, unlisted) so Reader gets its public page. `false` sends without publishing: a note already published still gets its permalink |
+| `link` | the note's public permalink, else `https://ep0ch.invalid/{outline}@{machine}/b/{id}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--public-url`) with `?ep0ch=<outline>@<machine>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{outline}` and `{id}`: the pull reads the note back out of it |
 | `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
