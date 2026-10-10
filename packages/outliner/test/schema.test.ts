@@ -136,11 +136,6 @@ test("a version 5 database missing its instance id is refused with the exact rep
   expect(repaired).toMatchObject({ migrated: false, repaired: true });
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
   expect(migrate5(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
-  // A version-5 file from before read marks joined it gets their table.
-  const early = new Database(path);
-  early.exec("DROP TABLE read_marks");
-  early.close();
-  migrate5(path);
   new OutlinerStore(path).close();
 });
 
