@@ -144,7 +144,7 @@ test("the web draws it: a grid of the sections read as Blockdown, the Markdown e
   const { client, create, projection } = await setup({ install: ["columns"] });
   const block = await create("Compare\ncolumns:: 2");
   await create("Concept\n## Why\n- ideas *sit* beside code", block.id, PERSON);
-  await create("Build\nA row of boxes.", block.id, PERSON);
+  await create("Build\nA row of boxes.\n\n> [!warning] Mind the gap\n> narrow screens stack", block.id, PERSON);
   await projection(block.id, "component", (p) => p.status === "ready" && !p.output?.inputsChanged && p.output?.markdown.includes("Build") === true);
   const render = async (format: "html" | "markdown", blockId = block.id) =>
     (await client.request<{ text: string }>({ action: "notes.render", blockId, format })).text;
@@ -154,6 +154,8 @@ test("the web draws it: a grid of the sections read as Blockdown, the Markdown e
   expect(html).toContain('<div class="ext-blockdown ext-read"><h2>Why</h2>');
   expect(html).toContain("<li>ideas <em>sit</em> beside code</li>");
   expect(html).not.toContain("");
+  // A callout in a section is a callout, as on the rest of the page.
+  expect(html).toContain('data-callout="warning"');
   const markdown = await render("markdown");
   expect(markdown.indexOf("**Concept**")).toBeGreaterThan(0);
   expect(markdown.indexOf("**Concept**")).toBeLessThan(markdown.indexOf("**Build**"));

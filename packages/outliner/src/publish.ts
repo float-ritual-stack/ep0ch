@@ -8,13 +8,15 @@ import type { OutlinerClient, OutlinerWatcher } from "./client";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { getProperty, stripPropertyTokens } from "./properties";
+import { getProperty, parsePropertyRecords, stripPropertyTokens } from "./properties";
 import {
   canonicalPublishRoots,
   checkAttachment,
   type AttachmentPolicy,
   type PublishedFileType,
 } from "./publish-attachments";
+import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./publish-callouts";
+import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
@@ -278,8 +280,10 @@ function escapeHtml(text: string): string {
 const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
 
 /** Markdown to HTML with authored raw HTML shown as text and only safe link schemes. */
-const markdownRenderer = new Marked({
+const markdownRenderer: Marked = new Marked({
   gfm: true,
+  // A callout (`> [!type] Title`) is a box; any other quote stays a quote.
+  extensions: [calloutExtension(() => activeCallouts)],
   renderer: {
     html({ text }) {
       return escapeHtml(text);
@@ -296,8 +300,14 @@ const markdownRenderer = new Marked({
   },
 });
 
-export function renderMarkdownHtml(markdown: string): string {
-  return markdownRenderer.parse(markdown, { async: false }) as string;
+/** The callout types the render in progress draws with (parsing is synchronous, so one at a time). */
+let activeCallouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY;
+
+/** Markdown as the page's HTML; `callouts` are the outline's types (the built-ins when none are given). */
+export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
+  const before = activeCallouts;
+  activeCallouts = callouts;
+  try { return markdownRenderer.parse(markdown, { async: false }) as string; } finally { activeCallouts = before; }
 }
 
 const PAGE_STYLE = `
@@ -317,7 +327,7 @@ th{color:var(--dim);font-weight:normal}
 img{max-width:100%}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
-${COMPONENT_STYLE}${MARGINALIA_STYLE}`;
+${CALLOUT_STYLE}${COMPONENT_STYLE}${MARGINALIA_STYLE}`;
 
 /**
  * A tailnet page (PIE-782): phone first, a reading measure, targets a thumb can hit, and dark throughout. Evan is
@@ -512,6 +522,7 @@ export class Publisher {
   private policy: AttachmentPolicy | null = null;
   private readonly compiler: ArtifactCompiler | null;
   private index: { value: PublishedIndex; at: number } | null = null;
+  private calloutCache: { value: CalloutRegistry; at: number } | null = null;
   private building: Promise<PublishedIndex> | null = null;
   private watcher: OutlinerWatcher | null = null;
   private connected = false;
@@ -699,13 +710,27 @@ export class Publisher {
     };
     const { markdown, marks, components } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
     const text = format === "markdown" ? markdown
-      : htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(markdown), components), marks), index, base ?? "");
+      : htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(markdown, await this.callouts()), components), marks), index, base ?? "");
     return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
+  }
+
+  /** The outline's callout types (`callouts.types`), kept a few seconds; the built-ins when the service can't answer. */
+  private async callouts(): Promise<CalloutRegistry> {
+    if (this.calloutCache && Date.now() - this.calloutCache.at < INDEX_MAX_AGE_MS) return this.calloutCache.value;
+    let value: CalloutRegistry;
+    try {
+      value = publishedCalloutRegistry((await this.client.request<{ types: CalloutType[] }>({ action: "callouts.types" })).types);
+    } catch {
+      value = BUILTIN_CALLOUT_REGISTRY;
+    }
+    this.calloutCache = { value, at: Date.now() };
+    return value;
   }
 
   private invalidate(): void {
     this.generation += 1;
     this.index = null;
+    this.calloutCache = null;
     for (const wake of [...this.waiting]) wake();
   }
 
@@ -899,7 +924,7 @@ export class Publisher {
       }
       if (check.type === "react") return this.serveReact(entry, contents.text, extname(check.path).toLowerCase() === ".tsx" ? ".tsx" : ".jsx", audience);
       if (check.type === "markdown") {
-        if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience)), index, this.basePathFor(audience)), audience));
+        if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience), await this.callouts()), index, this.basePathFor(audience)), audience));
         // Raw, the public audience gets the file with its links and embeds resolved, so the ids
         // of notes that aren't public never leave in `((…))` as written.
         if (audience === "public") {
@@ -916,7 +941,7 @@ export class Publisher {
       const browse = audience === "tailnet";
       const rendered = await this.blockMarkdown(entry, index, audience, true, { browse });
       const base = this.basePathFor(audience);
-      const article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown), rendered.components), rendered.marks, browse), rendered.index, base);
+      const article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
       const crumbs = await this.crumbs(entry, index, true);
       return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true)}`, crumbs, { reader: this.readerTag(entry, true) }), 200, READER_CSP);
@@ -938,7 +963,7 @@ export class Publisher {
       const whole = await this.noteWithAnnotations(entry.blockId);
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", true, { whole, browse: true });
-      article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown), rendered.components), rendered.marks, true), rendered.index, base);
+      article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.index, base);
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     const listed = children.slice(0, MAX_LISTED_CHILDREN);
@@ -1294,6 +1319,8 @@ export class Publisher {
     components: string[], context: TextContext,
   ): Promise<Map<string, Map<number, string>>> {
     const out = new Map<string, Map<number, string>>();
+    // A section's callouts draw as the page's do.
+    const callouts = lines.size && format === "html" ? await this.callouts() : BUILTIN_CALLOUT_REGISTRY;
     for (const [blockId, projections] of lines) {
       const html = format === "html" && projections.some((projection) => projection.kind === "component" && hasResult(projection))
         ? await this.client.request<{ results: { line: number; rendered: { body: string } }[] }>({ action: "extensions.render", blockId, target: "html" })
@@ -1305,7 +1332,7 @@ export class Publisher {
         const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
         const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
-          components.push(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context))));
+          components.push(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)));
           shown.set(line, componentSentinel(components.length - 1));
         } else if (output?.markdown.trim()) shown.set(line, output.markdown);
         else shown.set(line, lineSource(text[line] ?? projection.propertyKey));
@@ -1462,7 +1489,7 @@ const EMBED_SENTINEL = /[ \t]*\u0000(\d+)\u0000[ \t]*/g;
  * note's text as a quote, published or not (a locked note shows "locked
  * note"). Links and embeds written in code stay as written.
  */
-function publishedText(text: string, context: TextContext, options: { keepProperties?: boolean } = {}, source?: EmbedSource): string {
+function publishedText(text: string, context: TextContext, options: { keepProperties?: boolean; title?: boolean } = {}, source?: EmbedSource): string {
   const { index, basePath, pages, embeds } = context;
   let body = text;
   // Embeds first, in order, so each takes the projection read for its place.
@@ -1473,6 +1500,16 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   for (let at = matches.length - 1; at >= 0; at--) {
     const match = matches[at]!;
     body = body.slice(0, match.index) + `\u0000${at}\u0000` + body.slice(match.index + match[0].length);
+  }
+  // A `[file::path]` is a file on the note: shown by its name, never its path, and a link when the note it belongs to is
+  // published as that file. (Taken out before the property tokens go, which would drop it without a word.)
+  const files: string[] = [];
+  if (!options.keepProperties) {
+    const found = parsePropertyRecords(body).filter((record) => record.key === "file" && record.syntax !== "hashtag" && !(options.title && record.line === 0)).reverse();
+    for (const record of found) {
+      files.unshift(record.value);
+      body = body.slice(0, record.start) + `\u0003${found.length - files.length}\u0003` + body.slice(record.end);
+    }
   }
   if (!options.keepProperties) {
     body = stripPropertyTokens(body).split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n");
@@ -1503,8 +1540,16 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const replacement = link(reference.label ?? reference.displayAddress, blockId ? byId.get(blockId) : undefined);
     body = body.slice(0, reference.start) + replacement + body.slice(reference.end);
   }
+  body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
   body = body.replace(EMBED_SENTINEL, (_, at: string) => `\n\n${quote(rendered[Number(at)] ?? "")}\n\n`);
   return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+}
+
+/** A `[file::path]` as Markdown: its name in code (the path stays where it is), linked when a published note serves that file. */
+function fileChip(source: string, index: PublishedIndex, basePath: string): string {
+  const name = source.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.replace(/`/g, "'") || "file";
+  const served = index.entries.find((entry) => entry.attachment?.source === source && !entry.attachment.refused);
+  return served && !index.labelsOnly ? `[\`${name}\`](${basePath}${served.path})` : `\`${name}\``;
 }
 
 /** A block id as an address (`/p/<id>`), told from a page name before anything is asked. */
@@ -1710,7 +1755,7 @@ export function renderSubtreeMarkdown(
     order.push(...list);
     return placeMarkSentinels(text, list, first);
   };
-  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id)), context));
+  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id)), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
