@@ -297,7 +297,7 @@ export type FragmentRead =
 export interface FragmentCandidate {
   blockId: string; title: string; revision: number; kind: FragmentKind; label: string; lineIndex: number;
   fragmentId?: string;
-  /** A heading without an anchor: the anchor it would get, and its line with it. */
+  /** A heading, paragraph or list item without an anchor: the anchor it would get, and its line with it. */
   anchor?: { fragmentId: string; line: string };
 }
 
@@ -1331,14 +1331,14 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * `((note#…` / `((note^…` completion over every note, by the service's fragment rules (PIE-424): each
-   * match with its note and, for a heading without an anchor, the anchor it would get.
+   * `((note#…` / `((note^…` completion over every note, or only `blockIds` (PIE-762), by the service's fragment rules
+   * (PIE-424): each match with its note and, for one without an anchor, the anchor it would get; each note's anchors first.
    */
-  fragmentCandidates(query: { noteQuery?: string; fragmentQuery: string; mode: "heading" | "id"; limit: number; draft?: { blockId: string; text: string } }) {
+  fragmentCandidates(query: { noteQuery?: string; blockIds?: string[]; fragmentQuery: string; mode: "heading" | "id" | "passage"; limit: number; draft?: { blockId: string; text: string } }) {
     return this.request<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", { query });
   }
 
-  /** Give the heading on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
+  /** Give the heading, paragraph or list item on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
   ensureFragment(blockId: string, lineIndex: number, expectedRevision: number, actor: Actor = USER): Promise<{ fragmentId: string; created: boolean }> {
     return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
   }

@@ -493,10 +493,11 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${ids.compost}))`);
-    // Another note's anchor.
+    // Another note's anchor: inside the notes ((seed lists (PIE-762), its anchor first, then a passage that would get one.
     e.type(" ((seed^be");
     p = await e.settled();
-    expect(p.items.map(i => i.insertion)).toEqual([`((${ids.seeds}^beans))`]);
+    expect(p.items[0]).toMatchObject({ insertion: `((${ids.seeds}^beans))`, label: "^beans  Seed list » # Beans" });
+    expect(p.items[1]).toMatchObject({ insertion: `((${ids.seeds}^runner-beans))`, label: "Seed list » runner beans · adds ^runner-beans" });
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${ids.compost})) ((${ids.seeds}^beans))`);
@@ -520,7 +521,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("((#winter squ");
     const p = await e.settled();
     expect(p.message).not.toContain("searched only");
-    expect(p.items).toEqual([expect.objectContaining({ blockId: old, fragmentId: "winter-squash", label: "Seed catalogue » # Winter squash · adds anchor" })]);
+    expect(p.items).toEqual([expect.objectContaining({ blockId: old, fragmentId: "winter-squash", label: "Seed catalogue » # Winter squash · adds ^winter-squash" })]);
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${old}^winter-squash))`);
@@ -528,6 +529,70 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(now.text).toBe("Seed catalogue\n## Winter squash ^winter-squash\nKeep the seed dry.");
     expect(board.sent).toContain("fragments.ensure");
   }, 60_000);
+
+  test("deep links (PIE-762): ((words lists a note's anchors under it, ((id typed whole names an anchor first; ^ in a finished ((id)) searches inside, anchors first; a passage gets its anchor from the service as the person's", async () => {
+    const pond = await create("Pond diary\n\nThe frogs came back\nin March.\n\nWe agreed to net it. ^a10\n\n## Decision\nNo fish this year.");
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("((pond diary");
+    let p = await e.settled();
+    // The note, then its anchor right under it, shown at the front of the row.
+    const at = p.items.findIndex(i => i.insertion === `((${pond}))`);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(p.items[at + 1]).toMatchObject({ insertion: `((${pond}^a10))`, label: "  ^a10  We agreed to net it." });
+    // An anchor's own id, typed: it comes first.
+    for (let i = 0; i < "pond diary".length; i++) e.press({ kind: "backspace" });
+    e.type("a10");
+    await until(() => e.pop()?.target.query === "a10" && !e.pop()!.loading, "the a10 lookup");
+    expect(e.pop()!.items[0]).toMatchObject({ insertion: `((${pond}^a10))`, label: `^a10  Pond diary » We agreed to net it.` });
+    // Back to the note itself, inserted whole; then ^ just after its )) opens it again inside that note.
+    for (let i = 0; i < 3; i++) e.press({ kind: "backspace" });
+    e.type("pond diary");
+    p = await e.settled();
+    for (let i = 0; i < p.items.findIndex(i => i.insertion === `((${pond}))`); i++) e.press(K("down"));
+    e.press(K("enter"));
+    await until(() => e.d.lines.at(-1) === `((${pond}))`, "the note inserted");
+    e.type("^");
+    expect(e.d.lines.at(-1)).toBe(`((${pond}^))`);
+    p = await e.settled();
+    expect(p.heading).toBe("in Pond diary");
+    expect(p.items.map(i => i.label)).toEqual([
+      "^a10  We agreed to net it.",
+      "The frogs came back in March. · adds ^the-frogs-came",
+      "# Decision · adds ^decision",
+      "No fish this year. · adds ^no-fish-this",
+    ]);
+    // Words narrow it; the passage with no anchor is chosen: the service adds the anchor, then the reference lands.
+    e.type("frogs");
+    await until(() => !!e.pop()?.target.query.endsWith("frogs") && !e.pop()!.loading, "the frogs lookup");
+    expect(e.pop()!.items.map(i => i.insertion)).toEqual([`((${pond}^the-frogs-came))`]);
+    e.press(K("enter"));
+    await until(() => e.d.lines.at(-1) === `((${pond}^the-frogs-came))`, "the refined reference");
+    expect((await board.get(pond))!.text).toContain("in March. ^the-frogs-came");
+    const history = await board.request("block.revisions", { blockId: pond }) as { revisions: { author?: string }[] };
+    expect(history.revisions[0]!.author).toBe("user");
+    // The cursor back inside the id (a click, or arrows) and # searches the same note's headings.
+    e.d.col = e.d.lines.at(-1)!.indexOf(pond) + 6;
+    e.type("#");
+    expect(e.d.lines.at(-1)).toBe(`((${pond}#))`);
+    p = await e.settled();
+    expect(p.items.map(i => i.label)).toEqual(["^the-frogs-came  The frogs came back in March.", "^a10  We agreed to net it.", "# Decision · adds ^decision"]);
+    e.press(K("esc"));
+    // ctrl+z gives back the reference as it was.
+    e.press({ kind: "char", ch: "z", ctrl: true });
+    expect(e.d.lines.at(-1)).toBe(`((${pond}^the-frogs-came))`);
+  }, 30_000);
+
+  test("deep links: ^ and # are text outside a finished reference, in a labelled one, and in code (PIE-762, PIE-764)", async () => {
+    const e = await editing(ids.compost!);
+    const line = `x ((${ids.seeds}|seed list)) \`((${ids.seeds}))\` 2^3`;
+    e.press(K("enter")); e.type(line);
+    for (const [col, ch] of [[line.indexOf("|") - 2, "^"], [line.indexOf("`((") + 6, "#"], [line.length - 1, "^"]] as const) {
+      e.d.col = col;
+      const before = e.d.lines.at(-1)!;
+      e.type(ch);
+      expect(e.d.lines.at(-1)).toBe(before.slice(0, col) + ch + before.slice(col));
+    }
+  });
 
   test("[file:: completes workspace paths: a folder keeps the token open, a file closes it", async () => {
     const e = await editing(ids.compost!);

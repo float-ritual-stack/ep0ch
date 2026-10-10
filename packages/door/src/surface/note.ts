@@ -57,7 +57,7 @@ import { passageActions, runExtensionAction, threadAgents } from "../extensions"
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
-import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
+import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -5554,24 +5554,32 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.redo": forwardDraft("draft.redo"),
   "draft.copy": forwardDraft("draft.copy"),
   "complete": def({
-    summary: "completion, as typing [[, ((, [file::, > [!, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile). Property keys and values come from the component schemas (PIE-618)",
-    keys: "[[ (( [file:: > [! [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
+    summary: "completion, as typing [[, ((, [file::, > [!, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
+    keys: "[[ (( [file:: > [! [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc · ^ or # in a ((reference))",
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
-    touchesWith: ({ insert }) => (insert === undefined ? "nothing" : "draft"),
+    touchesWith: ({ insert, refine }) => (insert === undefined && refine === undefined ? "nothing" : "draft"),
     args: {
       text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
       key: { type: "string", optional: true, about: "with text=: complete text as the value of this property (the property panel's field: the outline's values for it, then the schemas'); a [[ or (( in it still offers pages and blocks" },
       insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
+      refine: { type: "string", optional: true, about: "^ or #: open the finished ((reference)) at the draft's cursor again, to search inside its note (^ every passage, its anchors first; # its headings); then insert=n" },
       expect: { type: "string", optional: true, about: "with insert=: the nth candidate's insertion as listed; refused when the list has changed since (a pause can have Jev re-order it)" },
       invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up only when it lands); not for a draft of the agent's own" },
     },
-    async run({ text, key, insert, invitation, expect }, { surface, host }, actor) {
+    async run({ text, key, insert, invitation, expect, refine }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
       const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
-      if (insert !== undefined && text !== undefined) throw new ActionRefused("insert completes at the draft's cursor; leave text out");
+      if ((insert !== undefined || refine !== undefined) && text !== undefined) throw new ActionRefused(`${insert !== undefined ? "insert" : "refine"} completes at the draft's cursor; leave text out`);
+      if (refine !== undefined) {
+        if (refine !== "^" && refine !== "#") throw new ActionRefused(`refine is ^ (every passage) or # (headings), not ${JSON.stringify(refine)}`);
+        if (!d) throw new ActionRefused("nothing is being written here; open an edit or a comment first");
+        if (d.busy) throw new ActionRefused("the save is still landing");
+        if (!reopenReference(d, refine, actor)) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't in a finished ((reference)) without a label; put it inside one, or just after its ))`);
+        surface.noteAgent(actor, `opened a ((reference)) to refine it with ${refine}`, d);
+      }
       let target: CompletionTarget | null;
       if (text !== undefined) {
         const lines = text.split("\n"), line = lines.at(-1)!;

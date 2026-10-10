@@ -6,7 +6,7 @@ import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
 import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
-import { ensureHeadingFragment } from "./fragments";
+import { ensureFragmentAnchor } from "./fragments";
 import { readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
@@ -1801,7 +1801,7 @@ export class OutlinerStore {
   }
 
   /**
-   * Give the heading on `lineIndex` its anchor, as completion offered it: refused when the note moved past
+   * Give the fragment on `lineIndex` (a heading, or a paragraph or list item, PIE-762) its anchor, as completion offered it: refused when the note moved past
    * `expectedRevision` (the offer was for other text), a no-op when it already has one.
    */
   ensureFragment(id: string, lineIndex: number, expectedRevision: number, mutation: MutationProvenance): { blockId: string; fragmentId: string; created: boolean; block: Block } {
@@ -1810,7 +1810,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const before = this.requireActive(id);
       if (before.revision !== expectedRevision) throw new Error("The note changed since the fragment was offered; search again");
-      const anchored = ensureHeadingFragment(before.text, lineIndex);
+      const anchored = ensureFragmentAnchor(before.text, lineIndex);
       const block = anchored.created ? this.update(id, anchored.text, before.revision, mutation) : before;
       return { blockId: id, fragmentId: anchored.fragmentId, created: anchored.created, block };
     })();

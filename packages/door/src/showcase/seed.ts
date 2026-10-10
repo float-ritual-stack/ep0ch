@@ -67,6 +67,8 @@ export const SEED = {
   marginalia: "Greenhouse plan for the spring",
   marginaliaNotebook: "Marginalia notebook",
   race: "Seed sowing guide",
+  deepLinks: "Deep links, by hand",
+  meeting: "Greenhouse meeting, October",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -547,6 +549,36 @@ const ERRAND = [
   "- [x] measure the bed",
 ].join("\n");
 
+/**
+ * The deep links section (PIE-762): a meeting with two anchors already (`^a10` on a paragraph, `^decision` on a
+ * heading) and passages with none, and the guide a comment is written on.
+ */
+export const MEETING = [
+  SEED.meeting,
+  "",
+  "Present: Ana, Bo and Cy, in the greenhouse at ten.",
+  "",
+  "We agreed to water the seedlings every morning, before the glass warms. ^a10",
+  "",
+  "## Decision ^decision",
+  "Buy a second water butt for the north side.",
+  "",
+  "## Actions",
+  "- Ana mends the vent hinge",
+  "- Bo orders the shade netting",
+].join("\n");
+const DEEP_LINKS = [
+  SEED.deepLinks,
+  "",
+  `A comment is open on this note, with the ${SEED.meeting.split(",")[0]} beside it. Type \`((Gree\` in the comment: the meeting is listed with its anchors (\`^a10\`, \`^decision\`) right under it, each at the front of its row.`,
+  "",
+  "- **Refine a reference:** choose the meeting itself, then type `^` straight after its `))`: the popup searches inside the meeting, its anchors first. Choose `^a10`.",
+  "- **A passage with no anchor:** type `^` after another reference and choose a line that says `adds ^…`: the anchor is added to the meeting (the reader beside shows it) and the reference points at it, in one choice.",
+  "- **Reopen one later:** click inside a finished `((…))` and type `^` (every passage) or `#` (headings).",
+  "- **Mistakes land:** an unclosed `((` or a title in place of an id is sent as written, with a warning and a did-you-mean.",
+  "- **The mouse:** drag across words and press backspace; ctrl+z undoes.",
+].join("\n");
+
 const RECIPE = [
   `${SEED.recipe} [serves::4]`,
   "",
@@ -1023,6 +1055,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.society = await board.update(notes.society.id, societyText(society.slice(0, SOCIETY_LINKED_BACK)), notes.society.revision!);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
+  notes.meeting = await make(notes.root.id, MEETING);
+  notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
