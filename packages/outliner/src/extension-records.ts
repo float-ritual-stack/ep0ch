@@ -76,6 +76,14 @@ export function isExtensionActor(actorId: string | undefined | null): boolean {
  * stay, and so do line breaks when `lines` (markdown, a body); a label or a
  * message is one line, its line breaks read as spaces so words stay apart.
  */
+/**
+ * A call's `context.ancestors`: every ancestor of the block, the outline's top first and the block's parent last,
+ * each its id and its first line (200 characters at most).
+ */
+export function contextAncestors(ancestors: readonly { readonly id: string; readonly text: string }[]): { id: string; title: string }[] {
+  return ancestors.map((ancestor) => ({ id: ancestor.id, title: ancestor.text.split("\n", 1)[0]!.trim().slice(0, 200) }));
+}
+
 export function cleanExtensionText(text: string, lines = false): string {
   const normalized = text.replace(/\r\n?/g, "\n");
   const source = lines ? normalized : normalized.replaceAll("\n", " ");

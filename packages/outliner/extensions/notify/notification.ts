@@ -21,7 +21,7 @@ export interface Notification {
 
 /** A source: given its settings and the time of its last pull, the notifications changed since. */
 export interface Source {
-  fetch(options: { since: string; days: number; home?: string }): Promise<Notification[]>;
+  fetch(options: { since: string; days: number }): Promise<Notification[]>;
 }
 
 export const KEY = "notify.key";

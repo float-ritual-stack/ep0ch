@@ -16,7 +16,7 @@ import {
 } from "@ep0ch/outline-core/rules";
 import { ComponentError, renderComponent, validatePrimitive, type Primitive } from "./component-primitives";
 import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionRule, type LoadedExtension } from "./extension-manifest";
-import { cleanExtensionText, inertBlockdown, isExtensionActor } from "./extension-records";
+import { cleanExtensionText, contextAncestors, inertBlockdown, isExtensionActor } from "./extension-records";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import type { ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
@@ -483,7 +483,7 @@ export class ExtensionRules {
       block: { id: block.id, text: block.text.slice(0, 16_000), revision: block.revision,
         properties: parsePropertyRecords(block.text).filter((property) => property.scope === "block").map((property) => ({ key: property.key, value: property.value })) },
       children: context.children.slice(0, 50).map((child) => ({ id: child.id, text: child.text.slice(0, 2_000) })),
-      ancestors: context.ancestors.slice(-8).map((ancestor) => ({ id: ancestor.id, title: title(ancestor.text) })),
+      ancestors: contextAncestors(context.ancestors),
       now: new Date(this.now).toISOString(),
     };
   }

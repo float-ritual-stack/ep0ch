@@ -1,3 +1,4 @@
+import type { ExtensionRunStatus } from "./resource-extensions";
 import type { ScheduleListEntry } from "./extension-schedule";
 import type { ExtensionBarSource } from "@ep0ch/outline-core/protocol";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -145,6 +146,8 @@ export interface ExtensionEntry {
   readonly bar: readonly ExtensionBarEntry[];
   /** Its schedules (PIE-754): when each runs next and what its last run did. Added by the service; absent when none. */
   readonly schedules?: readonly ScheduleListEntry[];
+  /** Its last call of any kind since the service started (wave 2): when, which, and why it failed. Added by the service. */
+  readonly lastRun?: ExtensionRunStatus;
 }
 
 export interface ExtensionsListResult {

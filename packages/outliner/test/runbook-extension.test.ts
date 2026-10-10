@@ -17,7 +17,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 async function setup(timeoutSeconds = 20) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-runbook-")));
-  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
+  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS, secrets: process.env.WITH_SECRETS_DIR };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
   process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-legacy-registry.json");
   const outline = join(root, "outline");
@@ -27,7 +27,9 @@ async function setup(timeoutSeconds = 20) {
   writeFileSync(join(secrets, "widget-demo.env"), `WIDGET_TOKEN=${TOKEN}\n`);
   chmodSync(join(secrets, "widget-demo.env"), 0o600);
   cpSync(join(import.meta.dir, "..", "extensions", "runbook"), join(outline, "extensions", "runbook"), { recursive: true });
-  writeFileSync(join(outline, "extensions", "runbook", "config.json"), JSON.stringify({ config: { secretsDir: secrets, timeoutSeconds } }));
+  // The service reads groups where with-secrets does; this scratch service, from a scratch folder.
+  process.env.WITH_SECRETS_DIR = secrets;
+  writeFileSync(join(outline, "extensions", "runbook", "config.json"), JSON.stringify({ config: { timeoutSeconds } }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state"), scheduleTickMs: 3_600_000 });
@@ -36,7 +38,7 @@ async function setup(timeoutSeconds = 20) {
   const client = new OutlinerClient(socket, 60_000);
   cleanups.push(async () => {
     await server.close(); store.close();
-    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry], ["WITH_SECRETS_DIR", previous.secrets]] as const) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     rmSync(root, { recursive: true, force: true });
   });
   await client.request({ action: "extensions.list", reload: true });
@@ -47,7 +49,7 @@ async function setup(timeoutSeconds = 20) {
   const publish = await create(`Stage the widget\nrun:: --mode=dry --secrets=widget-demo\n${fence('echo "token is $WIDGET_TOKEN"; echo "b64 $(printf %s "$WIDGET_TOKEN" | base64)"; echo staged')}`, book.id);
   const apply = await create(`Apply the widget\nrun:: --mode=apply --secrets=widget-demo --confirm=ship\n${fence("echo applying to {{env}}; echo broke >&2; exit 3")}`, book.id);
   const after = await create(`Verify the widget\nrun:: --mode=dry\n${fence("echo verified")}`, book.id);
-  const act = (blockId: string, extensionAction: string, mutation: object, args?: Record<string, string>) =>
+  const act = (blockId: string, extensionAction: string, mutation: { author: "user" | "agent"; actorId?: string }, args?: Record<string, string>) =>
     client.request<{ message?: string }>({ action: "extensions.act", extension: "runbook", extensionAction, blockId, line: extensionAction === "run-step" ? 1 : undefined, mutation, ...(args ? { args } : {}) });
   const kids = async (id: string) => (await client.request<Block[]>({ action: "children", parentId: id })).map((block) => block.text);
   return { client, create, book, check, publish, apply, after, act, kids, root };
@@ -71,8 +73,8 @@ test("a secrets group joins the step by name, and its value never reaches the ou
   const done = await act(publish.id, "run-step", LOKI);
   expect(done.message).toContain("ok");
   const [record] = await kids(publish.id);
-  expect(record).toContain("token is [secret]");
-  expect(record).toContain("b64 [secret]");
+  expect(record).toContain("token is [redacted]");
+  expect(record).toContain("b64 [redacted]");
   expect(record).toContain("[run.by::agent:loki-test]");
   expect(record).toContain("staged");
   const everything = JSON.stringify([await client.request({ action: "changes.since", sequence: 0, limit: 1000 }), done, await client.request({ action: "children", parentId: null })]);
@@ -120,7 +122,7 @@ test("a handler line draws the step: its filled command and its last run", async
   const { check, act, client } = await setup();
   await act(check.id, "run-step", PERSON);
   await client.request({ action: "resources.projection.refresh", blockId: check.id });
-  const read = await client.request<{ projections?: Array<{ provider: string; output?: { component?: { view: { badge: { label: string } } } } }> }>({ action: "resources.projection.read", blockId: check.id, refresh: true });
+  const read = await client.request<{ projections?: Array<{ provider: string; output?: { component?: { view: { badge: { label: string } } } } }> }>({ action: "resources.projection.read", blockId: check.id });
   const view = read.projections?.find((p) => p.provider === "runbook")?.output?.component?.view;
   expect(view?.badge.label).toBe("ok");
 });

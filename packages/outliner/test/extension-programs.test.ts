@@ -89,17 +89,21 @@ async function setup(options: { now?: () => number; secrets?: string } = {}) {
 
 // ── A connection to the service ──────────────────────────────────────────
 
-test("every extension process gets its connection and nothing else of the host's: PATH, LANG, the socket, the outline and a grant", async () => {
+test("every extension process gets its connection, HOME, WITH_SECRETS_DIR and the host variables its manifest names, nothing else", async () => {
   const { socket, client, install } = await setup();
   process.env.OUTLINER_TEST_HOST_SECRET = "not-for-extensions";
-  cleanups.push(() => { delete process.env.OUTLINER_TEST_HOST_SECRET; });
-  const listed = await install("envy", { actions: [{ id: "show", label: "Show", on: "outline" }] },
+  process.env.OUTLINER_TEST_PASSED = "named-in-env";
+  cleanups.push(() => { delete process.env.OUTLINER_TEST_HOST_SECRET; delete process.env.OUTLINER_TEST_PASSED; });
+  const listed = await install("envy", { env: ["OUTLINER_TEST_PASSED"], actions: [{ id: "show", label: "Show", on: "outline" }] },
     `${CALL}say({ message: JSON.stringify({ keys: Object.keys(process.env).filter((k) => !k.startsWith("BUN_")).sort(), socket: process.env.EP0CH_SOCKET, ws: process.env.EP0CH_WS, ext: process.env.OUTLINER_EXTENSION, grant: (process.env.EP0CH_EXT_GRANT ?? "").length }) });`);
   expect(listed.extensions.find((entry) => entry.id === "envy")?.state).toBe("active");
   const done = await client.request<{ message: string }>({ action: "extensions.act", extension: "envy", extensionAction: "show" });
   const seen = JSON.parse(done.message) as { keys: string[]; socket: string; ws: string; ext: string; grant: number };
-  expect(seen.keys).toEqual(["EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS", "LANG", "OUTLINER_EXTENSION", "PATH"]);
+  expect(seen.keys).toEqual(["EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS", "HOME", "LANG", "OUTLINER_EXTENSION", "OUTLINER_TEST_PASSED", "PATH", "WITH_SECRETS_DIR"]);
   expect(seen).toMatchObject({ socket, ws: "garden-scratch", ext: "envy", grant: 48 });
+  // A variable the service sets itself can't be named.
+  const refused = await install("envy", { env: ["EP0CH_EXT_GRANT"], actions: [{ id: "show", label: "Show", on: "outline" }] }, "");
+  expect(refused.extensions.find((entry) => entry.id === "envy")?.error).toContain("env/0 EP0CH_EXT_GRANT is set by the service for every call");
   // The grant lived only while the process ran.
   expect(liveGrants()).toBe(0);
 });
@@ -167,7 +171,7 @@ test("over its connection an extension reads, writes and comments, and is refuse
   const note = await create("Pond notes\nThe heron came back on Tuesday.");
   await install("margin", { actions: [{ id: "mark", label: "Mark", on: "outline", effects: "write" }, { id: "wander", label: "Wander", on: "outline" }] }, `${CALL}
 if (input.action === "wander") {
-  try { await call({ action: "delete", blockId: input.args.note }); say({ message: "deleted" }); }
+  try { await call({ action: "trash.purge", blockId: input.args.note }); say({ message: "purged" }); }
   catch (error) { say({ message: String(error.message) }); }
 } else {
   const block = await call({ action: "get", blockId: input.args.note });
@@ -188,7 +192,7 @@ if (input.action === "wander") {
     input: { blockId: note.id, expectedRevision: store.get(note.id)!.revision, body: "x", source: "user", properties: { "annotation-status": "resolved" } } }] }))
     .rejects.toThrow("annotation-status is the annotation store's own");
   const said = (await client.request<{ message: string }>({ action: "extensions.act", extension: "margin", extensionAction: "wander", args: { note: note.id } })).message;
-  expect(said).toContain("ext:margin can read, create, update, comment and annotate over its connection; delete isn't one of them");
+  expect(said).toContain("ext:margin can read, create, update, move, trash, comment and annotate over its connection; trash.purge isn't one of them");
   expect(store.get(note.id)!.effectiveDeletedRootId ?? null).toBeNull();
 });
 
@@ -412,4 +416,125 @@ if (input.action === "peek") {
   expect(cronProblem("0 0 31 2 *")).toContain("never matches");
   // A stepped wildcard is unrestricted for the day rule: Mondays only.
   expect(new Date(nextCron("0 0 */1 * 1", new Date(2026, 9, 9, 12).getTime())).getDay()).toBe(1);
+});
+
+// ── Wave 2: who asked, redraws, secrets at run time, crashes, moves and trash ─────────────────────────
+
+test("an action's input says who asked, its ancestors are all there, top first, and a connection write under its line redraws it", async () => {
+  const { store, client, install, create } = await setup();
+  await install("tally", {
+    handlers: [{ key: "tally", kind: "output", effects: "read" }],
+    actions: [{ id: "tick", label: "Tick", on: "handler:tally", effects: "write" }],
+  }, `${CALL}
+if (operation === "run") say({ markdown: "ticks: " + input.context.children.length + "; path: " + input.context.ancestors.map((a) => a.title).join(" > ") });
+else {
+  await call({ action: "create", parentId: input.target.blockId, text: "tick" });
+  say({ message: JSON.stringify(input.requestedBy ?? null) });
+}`);
+  // Ten levels deep: more than the eight a call used to see.
+  let parent: string | undefined;
+  for (let level = 1; level <= 10; level += 1) parent = (await create(`Level ${level}`, parent)).id;
+  const counter = await create("Pond counter\ntally:: herons", parent);
+  const markdown = () => (store.extensionOutputs(counter.id)[0]?.result as { markdown?: string } | undefined)?.markdown ?? "";
+  await until("the first run", () => markdown().startsWith("ticks: 0"));
+  expect(markdown()).toBe(`ticks: 0; path: ${Array.from({ length: 10 }, (_, index) => `Level ${index + 1}`).join(" > ")}`);
+  const byAgent = await client.request<{ message: string; written: string[] }>({ action: "extensions.act", extension: "tally", extensionAction: "tick", blockId: counter.id, mutation: LOKI });
+  expect(JSON.parse(byAgent.message)).toEqual(LOKI);
+  // The child it wrote over its connection counts as written, and the line ran again before the answer came back.
+  expect(byAgent.written).toHaveLength(1);
+  expect(store.get(byAgent.written[0]!)).toMatchObject({ parentId: counter.id, actorId: "ext:tally" });
+  expect(markdown()).toStartWith("ticks: 1;");
+  const byPerson = await client.request<{ message: string }>({ action: "extensions.act", extension: "tally", extensionAction: "tick", blockId: counter.id, mutation: { author: "user" } });
+  expect(JSON.parse(byPerson.message)).toEqual({ author: "user" });
+  expect(markdown()).toStartWith("ticks: 2;");
+});
+
+test("a secret group chosen at run time: only one the manifest allows, scrubbed in every form from what the call writes, answers and prints when it crashes", async () => {
+  const secrets = realpathSync(mkdtempSync(join(tmpdir(), "outliner-secrets-")));
+  cleanups.push(() => rmSync(secrets, { recursive: true, force: true }));
+  const VALUE = "sluice/key+made up=42";
+  writeFileSync(join(secrets, "sluice.env"), `SLUICE_KEY=${VALUE}\nSLUICE_USER=gatekeeper-made-up\n`, { mode: 0o600 });
+  writeFileSync(join(secrets, "vault.env"), "VAULT_KEY=never-asked-for\n", { mode: 0o600 });
+  const { store, client, install, create } = await setup({ secrets });
+  const log = await create("Sluice log");
+  await install("sluice", { secretGroups: ["sluice"], actions: [{ id: "open", label: "Open", on: "outline", effects: "write" }] }, `${CALL}
+const group = input.args.group;
+let values;
+try { values = (await call({ action: "secrets.group", group })).values; }
+catch (error) { say({ message: String(error.message) }); process.exit(0); }
+const key = values.SLUICE_KEY;
+const split = key.slice(0, 5) + "\\x1b[0m" + key.slice(5);
+if (input.args.flood) { process.stderr.write(key + "\\n".repeat(16_380)); process.exit(4); }
+if (input.args.crash) { process.stderr.write("opening the sluice\\nfailed with " + key + " (" + split + ")\\n"); process.exit(3); }
+await call({ action: "create", parentId: input.args.log, text: ["plain " + key, "b64 " + Buffer.from(key).toString("base64"), "url " + encodeURIComponent(key), "split " + split].join("\\n") });
+say({ message: "opened with " + key + " as " + Object.keys(values).sort().join(",") });`);
+  const opened = await client.request<{ message: string }>({ action: "extensions.act", extension: "sluice", extensionAction: "open", args: { group: "sluice", log: log.id } });
+  expect(opened.message).toBe("opened with [redacted] as SLUICE_KEY,SLUICE_USER");
+  expect(store.children(log.id)[0]!.text).toBe("plain [redacted]\nb64 [redacted]\nurl [redacted]\nsplit [redacted]");
+  // A group the manifest doesn't name is refused, saying how to allow it.
+  const vault = await client.request<{ message: string }>({ action: "extensions.act", extension: "sluice", extensionAction: "open", args: { group: "vault", log: log.id } });
+  expect(vault.message).toContain(`ext:sluice may not ask for the secret group vault: its extension.json's secretGroups names sluice; add "vault" (or "*")`);
+  // A crash says why: its last stderr lines, scrubbed, in the refusal and in the extension's last run.
+  const crash = await client.request({ action: "extensions.act", extension: "sluice", extensionAction: "open", args: { group: "sluice", log: log.id, crash: "yes" } })
+    .then(() => "", (error: Error) => error.message);
+  expect(crash).toContain("command exited with code 3: opening the sluice | failed with [redacted] ([redacted])");
+  expect(crash).not.toContain("made up");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list" });
+  const lastRun = (listed.extensions.find((entry) => entry.id === "sluice") as { lastRun?: { ok: boolean; call: string; error?: string } }).lastRun;
+  expect(lastRun).toMatchObject({ ok: false, call: "ext.sluice.open" });
+  expect(lastRun!.error).toContain("failed with [redacted]");
+  // Stderr longer than what is kept: a value cut through by the cut doesn't survive in pieces.
+  const flood = await client.request({ action: "extensions.act", extension: "sluice", extensionAction: "open", args: { group: "sluice", log: log.id, flood: "yes" } })
+    .then(() => "", (error: Error) => error.message);
+  expect(flood).toContain("command exited with code 4");
+  expect(flood).not.toContain("=42");
+  // Without secretGroups no group is anyone's.
+  await install("dry", { actions: [{ id: "open", label: "Open", on: "outline", effects: "write" }] }, `${CALL}
+try { await call({ action: "secrets.group", group: "sluice" }); say({ message: "got it" }); } catch (error) { say({ message: String(error.message) }); }`);
+  expect((await client.request<{ message: string }>({ action: "extensions.act", extension: "dry", extensionAction: "open" })).message).toContain("secretGroups is empty");
+  // A client that isn't an extension's process can't ask at all.
+  await expect(client.request({ action: "secrets.group", group: "sluice" } as never)).rejects.toThrow();
+});
+
+test("over its connection an extension moves and trashes blocks, revision-checked, as ext:<id>, never one a person has a draft open in", async () => {
+  const { store, client, install, create } = await setup();
+  const inbox = await create("Inbox");
+  const done = await create("Done");
+  const sorted = await create("Return the trowel", inbox.id);
+  const stale = await create("Old flyer", inbox.id);
+  const typing = await create("Seed list", inbox.id);
+  await install("sorter", { actions: [{ id: "sort", label: "Sort", on: "outline", effects: "write" }] }, `${CALL}
+const step = async (request) => { try { await call(request); return "ok"; } catch (error) { return String(error.message).replace(/[0-9a-f-]{36}/g, "<id>").slice(0, 70); } };
+const read = async (id) => (await call({ action: "get", blockId: id })).revision;
+const said = {
+  moved: await step({ action: "move", blockId: input.args.sorted, parentId: input.args.done, expectedRevision: await read(input.args.sorted) }),
+  unchecked: await step({ action: "delete", blockId: input.args.stale }),
+  late: await step({ action: "delete", blockId: input.args.stale, expectedRevision: 0 }),
+  trashed: await step({ action: "delete", blockId: input.args.stale, expectedRevision: await read(input.args.stale) }),
+  held: await step({ action: "move", blockId: input.args.typing, parentId: input.args.done, expectedRevision: await read(input.args.typing) }),
+  heldUnder: await step({ action: "delete", blockId: input.args.inbox, expectedRevision: await read(input.args.inbox) }),
+};
+say({ message: JSON.stringify(said) });`);
+  const connected = Promise.withResolvers<void>();
+  const watcher = client.watch({ client: { clientId: "door-sorting", role: "observer", contextId: "door-sorting" }, onConnect: connected.resolve, onEvent: () => {} });
+  cleanups.push(() => watcher.stop());
+  await connected.promise;
+  await client.request({ action: "drafts.hold", blockId: typing.id, clientId: "door-sorting", revision: typing.revision });
+  const result = await client.request<{ message: string; written: string[] }>({ action: "extensions.act", extension: "sorter", extensionAction: "sort",
+    args: { inbox: inbox.id, done: done.id, sorted: sorted.id, stale: stale.id, typing: typing.id }, mutation: LOKI });
+  const said = JSON.parse(result.message) as Record<string, string>;
+  expect(said.moved).toBe("ok");
+  expect(said.unchecked).toContain("delete needs blockId and expectedRevision");
+  expect(said.late).toContain("was saved since it was read (revision 0, now 1)");
+  expect(said.trashed).toBe("ok");
+  expect(said.held).toContain("<id> has a draft open in a door");
+  expect(said.heldUnder).toContain("a block under <id> has a draft open in a door");
+  expect(store.get(sorted.id)!.parentId).toBe(done.id);
+  expect(store.get(stale.id)!.effectiveDeletedRootId).toBe(stale.id);
+  expect(store.get(typing.id)!.parentId).toBe(inbox.id);
+  expect(store.get(inbox.id)!.effectiveDeletedRootId ?? null).toBeNull();
+  const changes = store.changes.since(0, 1000);
+  const mine = (changes.kind === "changes" ? changes.changes : []).filter((change) => change.actor?.actorId === "ext:sorter");
+  expect(mine.map((change) => change.kind)).toEqual(["move", "delete"]);
+  for (const change of mine) expect(change).toMatchObject({ action: "ext.sorter.sort", requestedBy: LOKI });
 });

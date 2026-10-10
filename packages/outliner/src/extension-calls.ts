@@ -14,11 +14,11 @@ import { DEFAULT_DEADLINE_MS, durationMs, type LoadedExtension } from "./extensi
 import { requestLines } from "./agent-requests";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import { cleanExtensionText, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
+import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
 import type { ResourceProjection } from "./resource-projection";
-import type { ResourceExtensionRuntime } from "./resource-extensions";
+import type { ExtensionCallFor, ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
 import { checkPassage, isMiss, missMessage, type Passage } from "@ep0ch/outline-core/passage";
@@ -335,6 +335,15 @@ function validateBar(value: unknown, actionOk: (id: string) => boolean, blockOk:
   });
 }
 
+/**
+ * Who asked for an action, as its input's `requestedBy`: `{ author: "user" }` (the person) or `{ author: "agent",
+ * actorId }`. None for a scheduled run, or a request that named no one. An extension gates person-only steps on it.
+ */
+function asker(requestedBy: MutationProvenance | undefined): { requestedBy?: { author: string; actorId?: string } } {
+  if (!requestedBy) return {};
+  return { requestedBy: { author: requestedBy.author, ...(requestedBy.actorId ? { actorId: requestedBy.actorId } : {}) } };
+}
+
 /** Host-wide actions' runs (`once: "host"`), across every outline the host process serves: one at a time. */
 const HOST_OUTLINE_RUNS = new Map<string, Promise<ExtensionActResult>>();
 
@@ -560,7 +569,7 @@ export class ExtensionCalls {
         properties: parsePropertyRecords(block.text).filter((record) => record.scope === "block").map((record) => ({ key: record.key, value: record.value })) },
       ...(line !== undefined ? { line: { index: line, text: lines[line] ?? "" } } : {}),
       children: context.children.slice(0, MAX_CHILDREN).map((child) => ({ id: child.id, text: child.text.slice(0, MAX_CHILD_TEXT) })),
-      ancestors: context.ancestors.slice(-8).map((ancestor) => ({ id: ancestor.id, title: title(ancestor.text) })),
+      ancestors: contextAncestors(context.ancestors),
       now: new Date(this.now).toISOString(),
     };
   }
@@ -854,15 +863,17 @@ export class ExtensionCalls {
     const call = block ? this.callFor(block, action, request.line) : undefined;
     if (action.builtIn) return this.keep(extension, action, block!, call!, request.requestedBy);
     const declared = extension.manifest.actions?.find((candidate) => candidate.id === action.id);
+    const wrote: NonNullable<ExtensionCallFor["wrote"]> = [];
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
       ...(request.args ? { args: request.args } : {}),
+      ...asker(request.requestedBy),
       ...(block ? { target: { blockId: block.id, revision: block.revision, ...(call ? { line: call.line, argument: call.argument, options: call.options } : {}) } } : {}),
       // No block (an outline action, a scheduled run): the call still knows when it is.
       context: block ? this.context(block, call?.line ?? request.line) : { now: request.scheduled?.at ?? new Date(this.now).toISOString() },
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
-    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
@@ -872,12 +883,16 @@ export class ExtensionCalls {
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
     if (parsed.writes.some((write) => write.op === "annotate")) throw new Error(`${action.name} returned an annotation, but it acts on ${action.on ?? "a block"}: only an action on a passage annotates`);
     const applied = parsed.writes.length ? await this.apply(extension, action, parsed.writes as BlockWrite[], request.requestedBy) : { written: [] };
-    const written = applied.written;
+    // What its process wrote over its connection counts as written too; a write to the acted-on block or a child of
+    // it redraws the line as a returned write does.
+    const written = [...new Set([...applied.written, ...wrote.flatMap((change) => change.blockId ? [change.blockId] : [])])];
+    const touched = applied.written.length > 0 || (!!block && wrote.some((change) =>
+      change.blockId === block.id || change.parentId === block.id || change.previousParentId === block.id));
     // An action's writes change what a read handler's line reads: run that line again (found again by its
     // call, in case the writes moved it) before answering. A spend or write line waits for r.
-    const again = written.length && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
+    const again = touched && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
     if (again) await this.materialize(block!.id, "refresh", { line: again.line });
-    else if (block && (written.length || applied.proposalId)) this.options.changed?.(block.id);
+    else if (block && (touched || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
@@ -930,15 +945,17 @@ export class ExtensionCalls {
     const checked = this.checkPassage(request.passage);
     const host = checked.block ?? (request.blockId ? this.store.get(request.blockId) : null);
     if (request.blockId && !checked.block && (!host || host.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
+    const wrote: NonNullable<ExtensionCallFor["wrote"]> = [];
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
       ...(request.args ? { args: request.args } : {}),
+      ...asker(request.requestedBy),
       // The subject's text, so an action can read around the passage (a glossary, the paragraph, a fragment anchor).
       target: { passage: checked.passage, text: this.passageSubject(checked.passage.subject).text.slice(0, MAX_PASSAGE_TEXT),
         ...(checked.block ? { blockId: checked.block.id, revision: checked.block.revision } : {}),
         ...(checked.resourceId ? { resourceId: checked.resourceId } : {}) },
       ...(host ? { context: this.context(host, undefined) } : {}),
-    }, this.deadline(extension), { label: action.name, writes: action.effects === "write", ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+    }, this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
@@ -959,7 +976,7 @@ export class ExtensionCalls {
       const unwritten = annotations.length ? `; its ${annotations.length === 1 ? "annotation wasn't" : `${annotations.length} annotations weren't`} written` : "";
       return { extension: extension.id, action: action.id, message: `${applied.proposed}${unwritten}`, written: [], proposalId: applied.proposalId, passage: checked.passage };
     }
-    const written = [...applied.written];
+    const written = [...new Set([...applied.written, ...wrote.flatMap((change) => change.blockId ? [change.blockId] : [])])];
     let passage = now.passage;
     if (annotations.length) {
       const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
@@ -977,7 +994,8 @@ export class ExtensionCalls {
       const receipt = this.store.changes.run(attribution, () => this.store.createAnnotationBatch(crypto.randomUUID(), operations, "agent", { actorId: actor.actorId! }));
       written.push(...receipt.annotations.map((record) => record.block.id));
       this.options.changed?.(checked.block?.id ?? host?.id ?? passage.subject);
-    } else if (written.length && host) this.options.changed?.(host.id);
+    } else if (host && (applied.written.length || wrote.some((change) =>
+      change.blockId === host.id || change.parentId === host.id || change.previousParentId === host.id))) this.options.changed?.(host.id);
     return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}), passage };
   }

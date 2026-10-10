@@ -37,7 +37,8 @@ import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime, scrubCredentials } from "./resource-extensions";
+import { ResourceExtensionRuntime, keychainItem, scrubCredentials } from "./resource-extensions";
+import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { extensionActorId, isExtensionActor } from "./extension-records";
@@ -260,7 +261,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
  * to act) is refused, so an extension can't set another one off.
  */
-const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "annotations.create", "annotations.reply", "annotations.batch"]);
+const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
@@ -308,6 +309,7 @@ export class OutlinerServer {
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
+  private extensionRuntime!: ResourceExtensionRuntime;
   private readonly holderAnswers = new Map<string, { clientId: string; resolve: (answer: DraftHolderAnswer) => void; reject: (error: Error) => void; timer: Timer }>();
   /** Holds whose door missed an answer's deadline and hasn't been heard from since: asked again, they fail at once. */
   private readonly stalledHolds = new Set<string>();
@@ -411,6 +413,7 @@ export class OutlinerServer {
     }
     const extensionRuntime = new ResourceExtensionRuntime(undefined, 15_000, roots.map((root) => root.path));
     extensionRuntime.useConnection(connection);
+    this.extensionRuntime = extensionRuntime;
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),
@@ -1719,7 +1722,9 @@ export class OutlinerServer {
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
           const extensions = listed.extensions.map((entry) => {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
-            return schedules.length ? { ...entry, schedules } : entry;
+            // Its last call (any kind): when, which, and why it failed (a crash's last stderr lines, scrubbed).
+            const lastRun = this.extensionRuntime.lastRun(entry.id);
+            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}) };
           });
           result = { ...listed, extensions, ...this.extensionRules.list() };
         } else if (request.action === "extensions.schedule.run") {
@@ -3373,8 +3378,8 @@ export class OutlinerServer {
     // What it writes never carries a secret it was given (its answers are scrubbed the same way).
     const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
     if (!EXTENSION_WRITES.has(action)) {
-      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action)) return rest as OutlinerRequest;
-      throw new Error(`${actor.actorId} can read, create, update, comment and annotate over its connection; ${action} isn't one of them` +
+      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
+      throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
         (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
     }
     if (!grant.writes) {
@@ -3386,6 +3391,9 @@ export class OutlinerServer {
         return { ...as, author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
+      case "move":
+      case "delete":
+        return this.extensionStructureWrite(action, as, actor);
       case "annotations.create":
       case "annotations.reply":
         return { ...as, input: asAgentSource(as.input), author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
@@ -3416,12 +3424,61 @@ export class OutlinerServer {
     }
   }
 
+  /**
+   * A move or a trash over an extension's connection: revision-checked (`expectedRevision`, the block as it read it),
+   * refused on a block a person has a draft open in (or one under it), and on a record another extension keeps.
+   */
+  private extensionStructureWrite(action: "move" | "delete", as: Record<string, unknown>, actor: MutationProvenance): OutlinerRequest {
+    const verb = action === "move" ? "move" : "trash";
+    if (typeof as.blockId !== "string" || !Number.isSafeInteger(as.expectedRevision)) {
+      throw new Error(`${action} needs blockId and expectedRevision (the revision you read): an extension ${verb}s only the block as it read it`);
+    }
+    const block = this.store.require(as.blockId);
+    if (block.effectiveDeletedRootId) throw new Error(`${block.id} is in Trash`);
+    if (block.revision !== as.expectedRevision) {
+      throw new Error(`${block.id} was saved since it was read (revision ${String(as.expectedRevision)}, now ${block.revision}); read it again`);
+    }
+    const owner = this.store.extensionOwner(block.id);
+    if (owner) throw new Error(`${block.id} is a record ${owner.extensionId} keeps: only its sync ${verb}s it`);
+    // A draft open in the block or under it: the person is writing there, so it stays where it is.
+    const held = this.draftHolds.list().find((hold) => {
+      for (let at: string | null = hold.blockId, depth = 0; at && depth < 10_000; depth += 1) {
+        if (at === block.id) return true;
+        at = this.store.get(at)?.parentId ?? null;
+      }
+      return false;
+    });
+    if (held) throw new Error(`${held.blockId === block.id ? block.id : `a block under ${block.id}`} has a draft open in a door; ${verb} it once the person has saved or closed it`);
+    if (action === "move" && as.parentId !== null && typeof as.parentId !== "string") throw new Error("move needs parentId (a block id, or null for the top level)");
+    return { ...as, mutation: actor } as unknown as OutlinerRequest;
+  }
+
+  /**
+   * `secrets.group` over an extension's connection: a `with-secrets` group its manifest's `secretGroups` names (or
+   * `*`), read now, answered as `{ group, values }`. The values join the call's secrets, so its answer, its writes
+   * and its stderr are scrubbed of them; nothing else gets them, and they are never logged or stored.
+   */
+  private async grantSecrets(request: OutlinerRequest, grant: ExtensionGrant): Promise<{ group: string; values: Record<string, string> }> {
+    const { group, keys } = request as unknown as { group?: unknown; keys?: unknown };
+    const who = extensionActorId(grant.extensionId);
+    if (typeof group !== "string") throw new Error("secrets.group needs group (a with-secrets group's name)");
+    if (keys !== undefined && (!Array.isArray(keys) || keys.some((key) => typeof key !== "string"))) throw new Error("keys must be a list of variable names");
+    if (!secretGroupAllowed(grant.secretGroups, group)) {
+      throw new Error(`${who} may not ask for the secret group ${group}: its extension.json's secretGroups ${grant.secretGroups?.length ? `names ${grant.secretGroups.join(", ")}` : "is empty"}; add "${group}" (or "*")`);
+    }
+    // On macOS a group with no file is read from the Keychain, as with-secrets reads it.
+    const values = await readGroupSecrets(group, `${who}'s secret group`, keys as string[] | undefined, process.platform === "darwin" ? keychainItem : undefined);
+    for (const value of Object.values(values)) if (!grant.secrets.includes(value)) grant.secrets.push(value);
+    return { group, values };
+  }
+
   private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
     const started = performance.now();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
     let loopMs: number | undefined;
+    let grant: ExtensionGrant | undefined;
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
@@ -3434,7 +3491,7 @@ export class OutlinerServer {
       }
       // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.
       const grantToken = (request as { grant?: unknown }).grant;
-      const grant = grantToken === undefined ? undefined : grantOf(grantToken);
+      grant = grantToken === undefined ? undefined : grantOf(grantToken);
       if (grantToken !== undefined && !grant) {
         throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
       }
@@ -3448,6 +3505,11 @@ export class OutlinerServer {
         ? this.registerSubscriber(socket, request.client)
         : undefined;
       const current = request;
+      if (grant && String(current.action) === "secrets.group") {
+        response = { id: request.id, ok: true, result: await this.grantSecrets(current, grant), sequence: this.store.sequence } as OutlinerResponse;
+        socket.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
       attribution = this.store.changes.attribution({
         action: grant ? grant.label : String(current.action),
         actor: declaredActor(current),
@@ -3471,6 +3533,8 @@ export class OutlinerServer {
     }
     // Changes are already durable in the feed; a failure below only costs the live event.
     const changes = attribution ? this.store.changes.committed(attribution) : [];
+    // What an extension's process wrote, for the action that started it: its line redraws as after returned writes.
+    if (grant?.wrote) for (const change of changes) grant.wrote.push({ blockId: change.blockId, parentId: change.parentId, previousParentId: change.previousParentId });
     socket.write(`${JSON.stringify(response)}\n`);
     const answered = performance.now();
     try {

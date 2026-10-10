@@ -25,8 +25,18 @@ export interface ExtensionGrant {
    * (a read action, a read or spend handler, a rule's decorate, a bar source) reads only, as its answer may.
    */
   readonly writes: boolean;
-  /** The secret values this process was given: scrubbed from what it writes, as from what it answers. */
-  readonly secrets: readonly string[];
+  /**
+   * The secret values this process was given: scrubbed from what it writes, as from what it answers. The runtime's
+   * own list, so a group the process asks for while it runs (`secrets.group`) is scrubbed from its answer too.
+   */
+  readonly secrets: string[];
+  /** The `with-secrets` groups it may ask for while it runs (its manifest's `secretGroups`; `*` is any). */
+  readonly secretGroups?: readonly string[];
+  /**
+   * What it wrote over its connection (the change feed's blocks, with their parents), so an action's line redraws
+   * after a connection write as it does after a returned one. The service adds to it as each write commits.
+   */
+  readonly wrote?: { blockId?: string; parentId?: string | null; previousParentId?: string | null }[];
 }
 
 const grants = new Map<string, ExtensionGrant>();

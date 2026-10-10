@@ -36,17 +36,18 @@ ep0ch ext add notify --outline-folder ~/outlines/<name>      # or `ep0ch ext add
 Config (`config.json` in the installed folder), all optional:
 
 ```json
-{ "config": { "sources": ["github"], "page": "notifications", "days": 14, "home": "/home/you" } }
+{ "config": { "sources": ["github"], "page": "notifications", "days": 14 } }
 ```
 
-- **GitHub** runs `gh api notifications` (read-only). `gh` must be on the service's PATH and logged in. A call's
-  environment has no `HOME`, so `sources.ts` hands `gh` the service user's (`os.homedir()`; config `home` overrides).
+- **GitHub** runs `gh api notifications` (read-only). `gh` must be on the service's PATH and logged in as the service
+  user: a call gets the service's `HOME`, and the manifest's `env` passes `GH_CONFIG_DIR` and `XDG_CONFIG_HOME` when
+  the service has them, so `gh` finds its login where it keeps it.
 - **Gmail, Jira, Slack** need `"fixtures": { "gmail": "fixtures/gmail.json", … }` in config to run (made-up data), and
   list the source in `sources`. Without a fixture or a real source a pull says so and carries on with the others.
 
 ## Plugging in a real source
 
-A source is `{ fetch({ since, days, home }): Promise<Notification[]> }` (`notification.ts`): the notifications changed
+A source is `{ fetch({ since, days }): Promise<Notification[]> }` (`notification.ts`): the notifications changed
 since an ISO time, in the one shape (`id`, `kind`, `from`, `title`, `url?`, `unread`, `received`, `snippet?`). To add
 Gmail: in `sources.ts` write `gmail: Source` that calls the Gmail API (`users.messages.list` with
 `q=in:inbox after:<epoch>`, then `messages.get?format=metadata`), maps each message (`id` the message id, `from` the
