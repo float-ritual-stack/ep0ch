@@ -62,6 +62,8 @@ export const SEED = {
   swap: "Seed swap thread",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  marginalia: "Greenhouse plan for the spring",
+  marginaliaNotebook: "Marginalia notebook",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -455,6 +457,34 @@ export const RECENT_FILES = (dir = SHOWCASE_ASSETS) => [
   { file: join(dir, "seed-list.txt"), shown: "seed-list.txt", touches: 1, at: "2026-03-11T09:31:00.000Z", added: 4, removed: 0 },
 ];
 export const RECENT_SESSION = "7c1e2f30-5a4b-4c3d-9e8f-0a1b2c3d4e5f";
+
+/** The file marginalia reads beside the plan (a made-up leaflet): a Resource, highlighted and asked about like a note. */
+export const MARGINALIA_FILE = (dir = SHOWCASE_ASSETS) => join(dir, "cold-frame-guide.md");
+
+/**
+ * Marginalia's plan note (ADR 0004 contracts 5 and 6, PIE-751, PIE-753): a made-up greenhouse plan with a glossary (what
+ * marginalia's Define reads), a fragment anchor (what Cite cites) and the leaflet it's read beside.
+ */
+export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
+  SEED.marginalia,
+  "",
+  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M changes how the margin reads.",
+  "",
+  "Water the tomatoes at dawn, before the glass warms. ^water",
+  "Keep the soil pH near 6.5 for the peppers; the chillies want it a touch lower.",
+  "Move the leeks to the cold frame in the second week of March, and harden them off for ten days.",
+  "Sow the basil only once the nights stay above ten degrees.",
+  "",
+  `Read beside it: [file::${file}]`,
+  "",
+  "## Glossary",
+  "- **soil pH**: how acid or sweet the soil is, from 0 to 14; 7 is neutral.",
+  "- cold frame — a low glass box that hardens seedlings off.",
+  "- harden off: get a seedling used to the weather a little more each day.",
+].join("\n");
+
+/** The notebook: a saved query over every annotation (properties are open: kind, tags, colour as written), in outline order, so each note's sit together. */
+export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
 const FINDING = [
@@ -954,6 +984,19 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, RULE_EXAMPLES).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
+  }
+  // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
+    const end = Date.now() + 10_000;
+    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
+  }
+  notes.marginalia = await make(notes.root.id, MARGINALIA_PLAN());
+  notes.marginaliaNotebook = await make(notes.root.id, MARGINALIA_NOTEBOOK);
+  {
+    const plan = notes.marginalia, q = (words: string) => ({ quote: words, start: plan.text.indexOf(words) });
+    await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
+    const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
+    await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
   }
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);

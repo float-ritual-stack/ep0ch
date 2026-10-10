@@ -175,7 +175,7 @@ test("a comment read at an older revision lands where its words are when it says
 
 test("annotation properties are checked: a raw colour or the store's own key is refused", async () => {
   const { client, note } = await setup();
-  const op = (properties: Record<string, unknown>) => client.request({
+  const op = (properties: Record<string, string>) => client.request({
     action: "annotations.batch", requestId: crypto.randomUUID(), author: "user",
     operations: [{ operationId: "c", type: "block-comment", input: { blockId: note.id, expectedRevision: note.revision, body: "", source: "user", passage: { quote: "6.5" }, properties } }],
   });

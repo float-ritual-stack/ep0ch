@@ -547,6 +547,8 @@ export class NoteSurface {
   marginMode: MarginMode = "trim";
   /** `a` was pressed with text selected: the passage toolbar has the next key. */
   passageMenu = false;
+  /** The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. */
+  writeNext: { props: Record<string, string> | null; text: string } | null = null;
   /**
    * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
    * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
@@ -2090,6 +2092,17 @@ export class NoteSurface {
     if (r >= 0) { this.session.replyTo(r); this.session.inline = true; }
     const p = this.session.passage;
     if (p && picked && fresh.text === m.text && picked.to > picked.from) { p.from = picked.from; p.to = picked.to; this.selection = null; }
+    // From the passage toolbar (passage.act's Comment, Ask): straight to writing on the passage, with what it starts with.
+    const ask = mine && mode === "select" ? this.writeNext : null;
+    this.writeNext = null;
+    if (ask && p && picked && fresh.text === m.text) {
+      this.session.props = ask.props;
+      if (!this.session.write(USER) && ask.text) {
+        this.session.writing?.replace(ask.text, USER);
+        const d = this.session.composer;
+        if (d) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
+      }
+    }
     host.redraw();
   }
 
@@ -3500,7 +3513,7 @@ export class NoteSurface {
     }
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
-    if (h && "passage" in h) { this.passageMenu = false; void this.runKey("passage.act", { action: h.passage }, host); return true; }
+    if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) void this.runKey("select.clear", {}, host);
     if (!h) return this.clickFold(x, y, host);
@@ -4421,19 +4434,21 @@ export class NoteSurface {
     const s = this.selection, rows = s && this.selRows();
     if (!s || !rows || d.top < 1) return;
     const n = [...s.text(rows)].length, copy = "[y copy]", source = "[Y source]";
-    const lead = `── ${n} chars `;
-    const at = d.top - 1, wide = lead.length + copy.length + 1 + source.length <= w, fits = lead.length + copy.length <= w;
+    // With the passage toolbar on the line, the count and [Y source] give it their room (Y still copies the source).
+    const bar = this.msg && !this.msg.partial && s.text(rows).trim() ? this.passageChoices() : [];
+    const lead = bar.length ? "" : `── ${n} chars `;
+    const at = d.top - 1, wide = !bar.length && lead.length + copy.length + 1 + source.length <= w, fits = !!lead && lead.length + copy.length <= w;
     const from = fits ? lead.length : 0;
     if (copy.length > w) return;
     this.hits.push({ row: at, from, to: from + copy.length, copy: "visible" });
     if (wide) this.hits.push({ row: at, from: from + copy.length + 1, to: from + copy.length + 1 + source.length, copy: "source" });
     let shown = (fits ? fg(C.blue) + "── " + fg(C.white) + `${n} chars ` : "") + fg(C.lcyan) + copy + (wide ? " " + source : "");
     // The passage toolbar (ADR 0004 contract 5): what can be done with these words, each a click, and after `a` a key.
-    if (this.msg && !this.msg.partial && s.text(rows).trim()) {
-      const left = width(shown) + 3, bar = toolbarRow(this.passageChoices(), this.passageMenu, w - left);
-      if (bar.hits.length) {
-        shown += fg(C.blue) + " │ " + bar.text;
-        for (const x of bar.hits) this.hits.push({ row: at, from: left + x.from, to: left + x.to, passage: x.action });
+    if (bar.length) {
+      const left = width(shown) + 3, row = toolbarRow(bar, this.passageMenu, w - left);
+      if (row.hits.length) {
+        shown += fg(C.blue) + " │ " + row.text;
+        for (const x of row.hits) this.hits.push({ row: at, from: left + x.from, to: left + x.to, passage: x.action });
       }
     }
     d.head[at] = pad(shown + fg(C.blue) + "─".repeat(Math.max(0, w - width(shown))), w) + RESET;
@@ -4527,7 +4542,7 @@ export class NoteSurface {
     if (this.passageMenu) {
       this.passageMenu = false;
       const pick = this.passageChoices().find(x => x.key === c);
-      if (pick) void this.runKey("passage.act", { action: pick.action }, host);
+      if (pick) this.passagePick(pick.action, host);
       else if (k.kind !== "esc") host.ctx.flash(`a then ${this.passageChoices().filter(x => x.key).map(x => `${x.key} ${x.label.toLowerCase()}`).join(" · ")}`);
       host.redraw();
       return true;
@@ -4700,6 +4715,22 @@ export class NoteSurface {
     if (at === null || from < at) throw new ActionRefused("this Resource isn't drawn as its text here, so a passage of it can't be placed: open it as a file");
     const text = m.text.slice(at);
     return { target: passageAt(text, from - at, to - at, `resource:${m.resource.id}`, m.revision), note: { quote: note.quote, start: from } };
+  }
+
+  /**
+   * The person's pick on the passage toolbar (its key after `a`, or a click on its chip): Comment and Ask open the
+   * comment on the selection as C does (their session, entered as it opens), already writing (Ask with `@agent`);
+   * the rest run passage.act at once.
+   */
+  private passagePick(action: string, host: SurfaceHost) {
+    const agent = threadAgents()[0];
+    if ((action === "comment" || (action === "ask" && agent)) && host.startSession && this.selection) {
+      try { this.passageFor(USER); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); return; }
+      this.writeNext = { props: action === "ask" ? { kind: "question" } : null, text: action === "ask" ? `@${agent!.name} ` : "" };
+      host.startSession("select");
+      return;
+    }
+    void this.runKey("passage.act", { action }, host);
   }
 
   /** What the passage toolbar offers: Comment, Ask and Explain (with an agent that answers in threads), and each extension's passage action. */
@@ -5890,6 +5921,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ quote, near }, { surface, host }, actor) {
       // The person's C starts from their selected text (the quote) and their put-aside comment; an agent's never.
       const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select", actor);
+      // From the passage toolbar (Comment, Ask): already writing on the selected words.
+      if (s.mode === "compose" && s.target?.kind === "quote" && quote === undefined) { host.redraw(); return { revision: s.msg.revision, quote: s.target.passage.quote, start: s.target.passage.start, writing: true }; }
       // Picking reads the note again; when that fails the session stays where it was, with the reason.
       const p = s.mode === "select" ? s.passage : null;
       if (!p) throw new ActionRefused(s.error ?? "the passage couldn't be picked: the note's current text wasn't read");
@@ -5999,12 +6032,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         }
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
-        const s = await personComments(surface, host, "select");
-        if (s.passage) { s.passage.from = p.note.start; s.passage.to = p.note.start + p.note.quote.length; }
-        s.props = props ?? null;
-        const why = s.write(actor);
-        if (why) throw new ActionRefused(why);
-        if (agent) s.writing?.replace(`@${agent.name} `, actor);
+        // As the person's C opens it (their session, entered as it opens), straight to writing on the selected words.
+        surface.writeNext = { props: props ?? null, text: agent ? `@${agent.name} ` : "" };
+        if (host.startSession) host.startSession("select");
+        else await personComments(surface, host, "select");
         host.redraw();
         return { writing: action, passage: p.target };
       }
