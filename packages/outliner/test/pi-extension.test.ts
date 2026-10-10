@@ -158,8 +158,9 @@ test("checklist tools preserve item evidence, caller provenance and explicit who
   const fixture = new OutlinerClient(join(root, "service.sock"));
   const originalRequest = OutlinerClient.prototype.request;
   // Retarget the installed adapter's transport; requests still cross a real service.
-  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, timeout?: number): Promise<T> {
-    return originalRequest.call(fixture, input, timeout) as Promise<T>;
+  const transport = spyOn(OutlinerClient.prototype, "request").mockImplementation(function<T>(input: RequestInput, _timeout?: number): Promise<T> {
+    // The extension pings with a 300 ms budget; a loaded machine can miss it, so the fixture is given no limit.
+    return originalRequest.call(fixture, input, undefined) as Promise<T>;
   });
   type Tool = {name: string; parameters: TSchema; prepareArguments?(args: unknown): unknown; execute(id: string, params: unknown, signal: undefined,
     update: undefined, context: ExtensionContext): Promise<{details: unknown}>};

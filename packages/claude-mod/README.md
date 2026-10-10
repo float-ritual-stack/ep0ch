@@ -124,7 +124,11 @@ A click, `show` and `door_open` share one open (`openNote` in
 So nobody has to ask which outline Claude's tools reach (PIE-546), the mod says it three ways, from one set of facts:
 
 - **A card** in the band above the prompt, at the start and again after `/clear`, until `h` (or its
-  hide button) puts it away; `/outline` shows it again and prints it. It says, in plain words:
+  hide button) puts it away; `/outline` shows it again and prints it, and `/outline <name> [machine]` binds the
+  session to that outline (PIE-756). Which outline the tools use, first match wins: that call (or `outline_bind`),
+  then `EP0CH_WS` (with `EP0CH_MACHINE`; the door passes both to every tile program, the drawer agent and the Herdr
+  launcher's pane), then, in a door tile, the door's outline, then the `.ep0ch` of the folder the session started in.
+  A shell `cd` moves none of them. It says, in plain words:
   - **outline:** the one the outline, workboard and mention tools use, and its machine (`harbor, on far
     (another machine)`, or `garden, on this machine (near-box)`); or "none: the … tools are off";
   - **why:** the `.ep0ch` that names it, or that nothing names one here, with the exact command that binds the
@@ -333,6 +337,7 @@ comes back as the tool's error with the reason.
 | `outline_reply` | `thread`, `body` | the `reply` id |
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_components` | `components?` (ids; all when left out) | `ep0ch library --brief` for this session's outline: per component its purpose, where it goes, each property as `key: values (default) — meaning`, a minimal example. Run from the bound folder, so the outline's own styles and types and its extensions' components appear |
+| `outline_bind` | `name`, `machine?` | Binds this session's outline, workboard and mention tools to the outline `name` for the rest of the session (`/outline <name> [machine]` is the same call). It beats `EP0CH_WS` and every folder; an outline that does not exist is refused with the ones that do. Every "not bound" refusal names this call with a real name |
 | `outline_changes` | `since` (an ISO time or a returned `cursor`), `author?`, `actor?`, `limit?`, `before?` | each changed block once, newest first, with who changed it; `complete`, with `before` for the older page when it is false; the next `cursor` |
 | `view_order` | `ref` (the view: id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
 | `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |

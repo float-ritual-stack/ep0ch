@@ -78,7 +78,32 @@ export function mentionsModeOf(option: unknown, environment: string | undefined,
  * Claude's environment says. A strict-mode folder is the CLI's to resolve, as
  * before folder mode.
  */
-export type Workspace = { root: string; outline?: string; machine?: string; pinned?: true }
+export type Workspace = { root: string; outline?: string; machine?: string; pinned?: true; via?: 'env' | 'call' }
+
+/** An outline's name (outline-core's OUTLINE_NAME_PATTERN; a hooks module imports no application code) and an ssh config name. */
+export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/
+export const MACHINE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+/**
+ * The workspace a session is told to work in by name (PIE-756): `call` (`/outline <name>`, outline_bind) beats `ws`
+ * (EP0CH_WS, with EP0CH_MACHINE for an outline on another machine), and either beats any folder. `root` is the folder
+ * the session started in, only where the CLI runs; it never picks the outline. Null: nothing names one. Throws
+ * when EP0CH_WS or EP0CH_MACHINE is set to something that is not a name.
+ */
+export function namedWorkspaceOf(
+  root: string,
+  call: { outline: string; machine?: string } | null,
+  ws: string | undefined,
+  machine: string | undefined,
+): Workspace | null {
+  if (call) return { root, outline: call.outline, ...(call.machine ? { machine: call.machine } : {}), pinned: true, via: 'call' }
+  const name = ws?.trim()
+  if (!name) return null
+  if (!OUTLINE_NAME.test(name)) throw Error(`EP0CH_WS=${JSON.stringify(name)} isn't an outline name (lowercase letters, digits and hyphens, up to 32)`)
+  const on = machine?.trim()
+  if (on && !MACHINE_NAME.test(on)) throw Error(`EP0CH_MACHINE=${JSON.stringify(on)} isn't an ssh config name`)
+  return { root, outline: name, ...(on ? { machine: on } : {}), pinned: true, via: 'env' }
+}
 
 /**
  * The environment an Outliner CLI run gets for a workspace: its folder and,

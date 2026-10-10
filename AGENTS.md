@@ -163,6 +163,8 @@ the door's home base offers the choices (the one here, create it there, cancel).
 or the home base's "new outline on <machine>" makes one there. The rule is outline-core's `mayCreate`; `--here`
 names this machine over `EP0CH_MACHINE` and a `.ep0ch`'s machine.
 
+A session's outline is named (flag, `EP0CH_WS`, the folder it started in), never inferred from where its shell is now. The door passes `EP0CH_WS` (and `EP0CH_MACHINE` for another machine) to every program it starts; a session that loses its binding gets it back with `/outline <name>` or the mod's `outline_bind`.
+
 ## Schema and protocol: one version
 
 This is a weeks-old project with one user and two databases that matter (pie on float-2, float-hub on the

@@ -488,7 +488,7 @@ describe('register', () => {
     expect(registered).toEqual([
       'show', 'work_create', 'work_stage', 'work_set', 'work_deliver', 'work_complete', 'work_body', 'note_section',
       'outline_read', 'outline_find', 'outline_resolve', 'outline_edit', 'outline_create', 'outline_comment',
-      'outline_reply', 'outline_resolve_thread', 'view_order', 'outline_changes', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_components',
+      'outline_reply', 'outline_resolve_thread', 'view_order', 'outline_changes', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_components', 'outline_bind',
     ])
 
     const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
@@ -962,8 +962,8 @@ describe('register', () => {
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
-    // Nothing reached an outline: only the CLI's discovery ran.
-    expect(session.runs.map(run => run.argv[0])).toEqual(['herdr'])
+    // Nothing reached an outline: only the CLI's discovery ran, and `ep0ch outline list` for the call the refusal names.
+    expect(session.runs.filter(run => run.argv[1] !== 'outline').map(run => run.argv[0])).toEqual(['herdr'])
   })
 
   test('a not-bound answer is never sticky: the next call reads the folder again and finds it bound (PIE-755)', async ($, on) => {
@@ -1004,5 +1004,90 @@ describe('register', () => {
     })
     expect(await drawn.find({ key: 'outliner-references' })).toBeUndefined()
     expect((await drawn.find({ key: 'engine' }))?.text).toBe('See PIE-7.')
+  })
+})
+
+describe('a session names its outline, and the shell\'s folder never picks it (PIE-756)', () => {
+  /** `ep0ch outline list --all --lines`: gurgle here, garden on far-box. */
+  const listing = (run: Run): ProcessRunResult | null =>
+    run.argv[0] === 'ep0ch' && run.argv[1] === 'outline' ? result(0, 'gurgle\t\t\ngarden\tfar-box\t\n', '') : null
+  const answering = (run: Run) => listing(run) ?? succeeding(run)
+  const stage = { tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' }
+  const stageRuns = (runs: readonly Run[]) => runs.filter(run => run.argv.includes('work'))
+
+  test('with EP0CH_WS set and the shell in /tmp, the session stays bound: no folder lookup, the run lands on that outline', async ($, on) => {
+    let cwd = '/tmp'
+    const session = sessionIn(on, () => cwd, answering, '', { EP0CH_WS: 'gurgle', EP0CH_CONTROL: '/run/door.sock' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
+    cwd = '/opt/elsewhere'
+    const allowed = await $.tool.call(stage)
+    expect(allowed.deny).toBeUndefined()
+    const ran = stageRuns(session.runs).at(-1)!
+    expect(ran.init?.env).toMatchObject({ EP0CH_WS: 'gurgle', EP0CH_MACHINE: '' })
+    expect(ran.init?.cwd).toBe('/tmp')
+    // EP0CH_WS wins over the folder's .ep0ch: it was never asked.
+    expect(session.bindings).toEqual([])
+  })
+
+  test('EP0CH_MACHINE goes with EP0CH_WS; a name that is not one is said, with the call that fixes it', async ($, on) => {
+    const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
+    await $.tool.call(stage)
+    expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
+  })
+
+  test('after a lost binding every refusal names the call, and outline_bind brings it back (a shell cd does not matter)', async ($, on) => {
+    let cwd = '/elsewhere'
+    const session = sessionIn(on, () => cwd, answering)
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
+    const denied = await $.tool.call(stage)
+    expect(denied.deny).toContain('not bound to an Outliner outline')
+    expect(denied.deny).toContain('outline_bind {"name":"gurgle"}')
+    expect(denied.deny).toContain('/outline gurgle')
+
+    const typo = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'gurgel' })
+    expect(typo.deny).toContain('there is no outline "gurgel"')
+    expect(typo.deny).toContain('outline_bind {"name":"gurgle"}')
+    expect((await $.tool.call(stage)).deny).toContain('not bound')
+
+    const bound = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'gurgle' })
+    expect(bound.deny).toBeUndefined()
+    cwd = '/tmp'
+    const allowed = await $.tool.call(stage)
+    expect(allowed.deny).toBeUndefined()
+    expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'gurgle', EP0CH_MACHINE: '' })
+
+    // An outline on another machine is bound with its machine, and only if it is there.
+    const wrong = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'garden' })
+    expect(wrong.deny).toContain('outline_bind {"name":"garden","machine":"far-box"}')
+    expect((await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'garden', machine: 'far-box' })).deny).toBeUndefined()
+    await $.tool.call(stage)
+    expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
+  })
+
+  test('/outline <name> is the same call and beats EP0CH_WS, which itself beats an opted-out folder', async ($, on) => {
+    const session = sessionIn(on, '/tmp', answering, '/tmp', { EP0CH_WS: 'garden', PI_OUTLINER_MENTIONS_MODE: 'folder' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
+    expect((await $.tool.call(stage)).deny).toBeUndefined()
+    expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
+    const said = await $.command.run({ command: 'outline', args: 'gurgle' } as any)
+    expect(JSON.stringify(said)).toContain('now use gurgle')
+    await $.tool.call(stage)
+    expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'gurgle' })
+    const refused = await $.command.run({ command: 'outline', args: 'nothere' } as any)
+    expect(JSON.stringify(refused)).toContain('there is no outline')
+  })
+
+  test('an EP0CH_WS that is not a name is refused saying so, with the call that fixes it', async ($, on) => {
+    const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'Not A Name' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
+    const denied = await $.tool.call(stage)
+    expect(denied.deny).toContain("isn't an outline name")
+    expect(denied.deny).toContain('outline_bind {"name":"gurgle"}')
   })
 })
