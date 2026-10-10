@@ -264,33 +264,27 @@ export function protectedCodeRanges(text: string): SourceRange[] {
  */
 export function codeSpanRanges(text: string): SourceRange[] {
   const ranges: SourceRange[] = [];
-  let lineStart = 0;
-  while (lineStart <= text.length) {
-    const newline = text.indexOf("\n", lineStart);
-    const lineEnd = newline < 0 ? text.length : newline;
-    let at = text.indexOf("`", lineStart);
-    while (at >= 0 && at < lineEnd) {
-      let runEnd = at + 1;
-      while (runEnd < lineEnd && text[runEnd] === "`") runEnd += 1;
-      const length = runEnd - at;
-      // The closing run: the next run of exactly `length` backticks on this line.
-      let close = -1;
-      for (let c = text.indexOf("`", runEnd); c >= 0 && c < lineEnd;) {
-        let e = c + 1;
-        while (e < lineEnd && text[e] === "`") e += 1;
-        if (e - c === length) { close = c; break; }
-        c = text.indexOf("`", e);
-      }
-      if (close >= 0) {
-        ranges.push({ start: at, end: close + length });
-        at = text.indexOf("`", close + length);
-      } else {
-        // Unclosed: the run is text; a later, different run may still open a span.
-        at = text.indexOf("`", runEnd);
-      }
+  if (!text.includes("`")) return ranges;
+  // One pass for the backtick runs and their lines, then pairing within each line: linear in the text.
+  const runs: { start: number; end: number; line: number }[] = [];
+  for (let i = 0, line = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 10) line++;
+    else if (c === 96) {
+      let e = i + 1;
+      while (e < text.length && text.charCodeAt(e) === 96) e++;
+      runs.push({ start: i, end: e, line });
+      i = e - 1;
     }
-    if (newline < 0) break;
-    lineStart = newline + 1;
+  }
+  for (let a = 0; a < runs.length;) {
+    const open = runs[a]!, length = open.end - open.start;
+    let b = a + 1;
+    while (b < runs.length && runs[b]!.line === open.line && runs[b]!.end - runs[b]!.start !== length) b++;
+    if (b < runs.length && runs[b]!.line === open.line) {
+      ranges.push({ start: open.start, end: runs[b]!.end });
+      a = b + 1;
+    } else a++; // unclosed: the run is text; a later, different run may still open a span
   }
   return ranges;
 }
