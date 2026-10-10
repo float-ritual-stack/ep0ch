@@ -106,6 +106,17 @@ export function namedWorkspaceOf(
 }
 
 /**
+ * Whether EP0CH_SOCKET (when set) is a host on this machine that EP0CH_WS can name an outline on: an absolute socket
+ * that isn't a forward to another machine (`<outlines>/.remote/<ssh-name>.sock`), with no EP0CH_MACHINE beside it.
+ * Unset is fine too.
+ */
+export function sameHostSocket(socket: string | undefined, machine: string | undefined): boolean {
+  const path = socket?.trim()
+  if (!path) return true
+  return path.startsWith('/') && !/\/\.remote\//.test(path) && !machine?.trim()
+}
+
+/**
  * The environment an Outliner CLI run gets for a workspace: its folder and,
  * when pinned, the outline its `.ep0ch` names and its machine (empty for this
  * one), over an inherited EP0CH_WS or EP0CH_MACHINE, so the write lands where

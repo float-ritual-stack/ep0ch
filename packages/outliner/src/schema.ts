@@ -76,6 +76,22 @@ export const EXTENSION_PROVIDER_SQL = "(provider GLOB 'ext:[a-z0-9]*' AND provid
 export const RESOURCE_PROVIDER_CHECK = `CHECK (provider IN ('filesystem', 'web', 'github', 'application', 'linear', 'computed') OR ${EXTENSION_PROVIDER_SQL})`;
 export const REMOTE_ENTITY_PROVIDER_CHECK = `CHECK (provider = 'linear' OR ${EXTENSION_PROVIDER_SQL})`;
 
+/**
+ * What each reader has read (PIE-708): one row per actor and block, the revision they read it at. Unread is no row;
+ * updated since read is a row at a lower revision. `actor` is `user` for the person, else the agent's actor id. New in
+ * version 5 (0005's migration adds it).
+ */
+export const READ_MARKS_SQL = `
+  -- Read state per actor (read-marks.ts).
+  CREATE TABLE IF NOT EXISTS read_marks (
+    actor TEXT NOT NULL,
+    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    read_at TEXT NOT NULL,
+    PRIMARY KEY (actor, block_id)
+  ) WITHOUT ROWID;
+`;
+
 export const SCHEMA_SQL = `
   -- The outline: blocks, their derived properties, selection and history, views, work ids, page addresses, capture, extensions and agent requests (store.ts).
   CREATE TABLE IF NOT EXISTS blocks (
@@ -791,7 +807,7 @@ export const SCHEMA_SQL = `
         state TEXT NOT NULL, input_hash TEXT NOT NULL, payload TEXT NOT NULL,
         updated_at TEXT NOT NULL
       ); CREATE INDEX IF NOT EXISTS edit_recovery_block ON edit_recovery(block_id,state,updated_at);
-
+${READ_MARKS_SQL}
 `;
 
 const userVersion = (database: Database) => (database.query("PRAGMA user_version").get() as { user_version: number }).user_version;

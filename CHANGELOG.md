@@ -10,6 +10,27 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Conversations in the margin: a thread is a conversation, and replies come back to you
+
+- **New:** a margin thread is one conversation. The first `@margin` starts the agent's session and keeps its id on the
+  thread (`[margin-session::<id>]`); a later `@margin` in a reply there resumes it, so it remembers the earlier turns.
+  A reply without `@margin` is a note to self: never sent, never answered. Every ask sees the whole thread and the
+  page's other comments. An answer that writes `[query::]`, `[sort::]` or `[group::]` has them checked by the outline,
+  and one that doesn't work is marked under it.
+- **New:** Recent replies. The web client's `/replies` page (bookmark it on the phone) lists every reply on a thread
+  you started or wrote in, newest first, the unread marked; opening one goes to its thread, and opening a thread (from
+  there, tapping it, replying, or expanding it in the door) marks it read. In the outline it's a saved view:
+  `Recent replies [type::virtual-branch] [query::type=annotation-reply AND thread:me AND NOT annotation-source=user] [sort::created] [direction::desc] [limit::50]`.
+- **New:** query atoms `unread:me` and `thread:me` (or an agent's actor id), over read marks per reader (PIE-708's
+  core: `id@revision`, set by `annotations.read`); and a counted `child>=N:`: `child>=2:type=virtual-branch` lists
+  every hub.
+- **Fixed:** wide tables on the web client scroll sideways instead of crushing their columns.
+- **Fixed:** `@margin`'s Claude session had its outline tools off when the host handed it `EP0CH_SOCKET` with
+  `EP0CH_WS`; the mod now takes that pair (a host on this machine and the outline on it) and still refuses a forward to
+  another machine.
+- Protocol 139. Schema stays 5: the read marks table joins version 5 before it ships (0005's migration creates it, and
+  adds it to a version-5 scratch file that lacks it).
+
 ### Any extension can provide Resources, as Jira does
 
 - **New:** an extension with a `kind: "resource"` handler is a provider of remote entities (`ext:<id>`): its keys are

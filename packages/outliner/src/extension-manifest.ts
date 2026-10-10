@@ -235,7 +235,10 @@ const Agent = Type.Object(
     deadline: Type.Optional(Duration),
     /**
      * It answers in comment threads too: `@name …` in a comment on a passage (or a reply in its thread) runs `respond`
-     * with the passage, and its reply lands in that thread (the margin's, ADR 0004 contract 6). A client's Ask offers it.
+     * with the passage, the whole thread and the page's other comments (`comments`), and its reply lands in that thread
+     * (the margin's, ADR 0004 contract 6). A client's Ask offers it. A thread is one conversation: `respond` may return
+     * a `session` id, kept on the thread as `[<name>-session::<id>]` and handed back as `session` on the next ask there.
+     * A reply without `@name` is never sent.
      */
     threads: Type.Optional(Type.Boolean()),
   },

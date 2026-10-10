@@ -192,3 +192,31 @@ test("writes come only from the tailnet page itself; the public listener stays r
   expect(open.headers.get("content-security-policy")).not.toContain("script-src");
   expect(await open.text()).not.toContain("<script");
 });
+
+test("Recent replies: a page of the replies on his threads, the unread marked, each linking to its thread; opening it there reads it", async () => {
+  const seeds = store.create("Seed tray log\nThe basil came up in four days.", hub.id, "user");
+  const asked = await (await write({ page: seeds.id, action: "comment", quote: "four days", body: "Is four days quick?", requestId: "replies-ask-1" })).json();
+  await client.request({ action: "annotations.reply", requestId: "replies-fern-1", author: "agent", provenance: { actorId: "fern" }, input: { annotationId: asked.thread, body: "Quick for basil: it likes the warm sill.", source: "agent" } });
+  const listed = await page("/pub/replies");
+  // The answer, unread, on the note it's about, linking to the thread there; his own comment isn't a reply to him.
+  expect(listed).toContain("Quick for basil: it likes the warm sill.");
+  expect(listed).toMatch(/<li class="new"><a href="[^"]+"><span class="t"><span class="dot" aria-label="unread">●<\/span> Quick for basil/);
+  expect(listed).toContain("on Seed tray log");
+  expect(listed).toContain("“four days”");
+  expect(hrefs(listed)).toContain(`/pub/p/${seeds.id}#thread=${asked.thread}`);
+  expect(listed).not.toContain("Is four days quick?");
+  // Opening it there (the reader script's read) marks the thread read: no longer new.
+  expect(await (await write({ page: seeds.id, action: "read", thread: asked.thread })).json()).toMatchObject({ ok: true, thread: asked.thread, marked: 2 });
+  const after = await page("/pub/replies");
+  expect(after).toMatch(/<li><a href="[^"]+"><span class="t">Quick for basil/);
+  // Only on the tailnet.
+  expect((await get("/share/replies", browser, "public")).status).toBe(404);
+});
+
+test("wide tables scroll sideways on the page instead of crushing their columns", async () => {
+  const wide = store.create("Plot rota by week\n\n| week | bed 1 | bed 2 | bed 3 | bed 4 | bed 5 | bed 6 |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | dig | sow | water | weed | net | harvest |", hub.id, "user");
+  const html = await page(`/pub/p/${wide.id}`);
+  expect(html).toContain("<table>");
+  expect(html).toMatch(/table\{[^}]*display:block;max-width:100%;overflow-x:auto/);
+  expect(html).toMatch(/th,td\{[^}]*min-width:7em/);
+});

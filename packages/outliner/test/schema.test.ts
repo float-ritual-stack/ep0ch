@@ -102,7 +102,7 @@ function version4(path: string, change?: (database: Database) => void): { noteId
   const database = new Database(path);
   const v4 = new Database(":memory:");
   v4.exec(SCHEMA_SQL_4);
-  database.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;");
+  database.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON; DROP TABLE read_marks;");
   for (const table of REBUILT_TABLES) {
     const rows = v4.query("SELECT type, sql FROM sqlite_master WHERE tbl_name = ? AND sql IS NOT NULL").all(table) as Array<{ type: string; sql: string }>;
     database.exec(`ALTER TABLE ${table} RENAME TO ${table}__v5; ${rows.find(row => row.type === "table")!.sql}; INSERT INTO ${table} SELECT * FROM ${table}__v5; DROP TABLE ${table}__v5;`);
@@ -136,6 +136,11 @@ test("a version 5 database missing its instance id is refused with the exact rep
   expect(repaired).toMatchObject({ migrated: false, repaired: true });
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
   expect(migrate5(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
+  // A version-5 file from before read marks joined it gets their table.
+  const early = new Database(path);
+  early.exec("DROP TABLE read_marks");
+  early.close();
+  migrate5(path);
   new OutlinerStore(path).close();
 });
 
@@ -148,6 +153,7 @@ test("the version 5 migration moves Jira onto the extension providers as ext:jir
   expect(userVersion(path)).toBe(5);
   const store = new OutlinerStore(path);
   expect(store.get(noteId)?.text).toBe("Kept through the migration");
+  expect(store.readMarks.mark("user", [noteId])).toBe(1);
   expect(store.resources.require(resourceId)).toMatchObject({ provider: "ext:jira", address: { kind: "ext:jira", entityId: "10007", key: "FIC-7" } });
   // The check takes any extension's provider now, and still refuses a name that isn't one.
   store.database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, version, created_at, updated_at) VALUES ('s2', 'x', 'ext:kanboard', '{}', '{}', 1, 'a', 'a')").run();

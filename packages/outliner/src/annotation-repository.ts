@@ -1041,6 +1041,28 @@ export class AnnotationRepository {
     };
   }
 
+  /** Sets (or with an empty list, removes) properties on a comment, keeping its body, lifecycle and the rest. */
+  setProperties(annotationIdValue: string, properties: Readonly<Record<string, readonly string[]>>, mutation: MutationProvenance): AnnotationRecord {
+    const annotationId = text(annotationIdValue, "Annotation ID");
+    const record = this.get(annotationId);
+    const merged: Record<string, string[]> = Object.fromEntries(Object.entries(record.properties ?? {}).map(([key, values]) => [key, [...values]]));
+    for (const [key, values] of Object.entries(properties)) {
+      if (values.length) merged[key] = [...values];
+      else delete merged[key];
+    }
+    const updated = this.blocks.update(
+      annotationId,
+      formatAnnotationBlock(
+        { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source, ...(Object.keys(merged).length ? { properties: merged } : {}) },
+        record.parentAnnotationId,
+        { lifecycle: record.lifecycle, promotedBlockIds: record.promotedBlockIds ?? [], allowLegacy: true },
+      ),
+      record.block.revision,
+      mutation,
+    );
+    return this.materialize(parseAnnotationBlockContent(updated), this.targetRow(annotationId));
+  }
+
   setLifecycle(input: AnnotationLifecycleInput, mutation: MutationProvenance): AnnotationRecord {
     if (!input || typeof input !== "object") throw new Error("Annotation lifecycle input must be an object");
     const annotationId = text(input.annotationId, "Annotation ID");

@@ -12,6 +12,7 @@ import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
+import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
 import { DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
@@ -67,6 +68,7 @@ export const SEED = {
   society: "Allotment society",
   marginalia: "Greenhouse plan for the spring",
   marginaliaNotebook: "Marginalia notebook",
+  recentReplies: "Recent replies",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
@@ -516,6 +518,9 @@ export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
 ].join("\n");
 
 /** The notebook: a saved query over every annotation (properties are open: kind, tags, colour as written), in outline order, so each note's sit together. */
+/** Recent replies (Conversations in the margin): the saved view, the same question the web client's /replies page asks. */
+export const RECENT_REPLIES = `${recentRepliesView(SEED.recentReplies)}\nEvery reply on a thread you started or wrote in, newest first. Opening a thread (a click on its card or mark, or the web client's link) marks it read; unread:me narrows to the new ones.`;
+
 export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
@@ -1175,7 +1180,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
     const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
     await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
+    // A note to self in the same thread: no @margin, so nothing answers it.
+    await board.reply("showcase-ask-aside", asked.id, "Try the lid half open on day one and see.", { kind: "user" });
   }
+  notes.recentReplies = await make(notes.root.id, RECENT_REPLIES);
   // Extensions that ship demo notes (each one's page under the Extensions hub): the notifications hub on its made-up
   // sources, pulled once so its demo boards have cards, and the runbook with its demo runbook.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, DEMO_EXAMPLES).length) {

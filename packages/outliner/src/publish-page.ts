@@ -5,7 +5,9 @@
 // - comment, ask and explain: `annotations.batch` (a `block-comment` on the passage). Ask and explain are a comment
 //   starting `@<agent>` for the agent that answers in threads (marginalia's `@margin`), which the service sets off;
 // - an extension's passage action (marginalia's highlight, define): `extensions.act` with the passage;
-// - reply: `annotations.reply`; resolve: `annotations.lifecycle`.
+// - reply: `annotations.reply`; resolve: `annotations.lifecycle`;
+// - read: `annotations.read`, the thread read by the person (he opened it from Recent replies, tapped it or replied),
+//   which clears its replies from `unread:me` (the `/replies` page's marks).
 //
 // Being on the tailnet is the sign-in (Evan, Oct 10: "tailnet access is good enough to verify it's me"): the tailnet
 // listener takes these writes with no token, and the public listener has none of these routes. A write comes from the
@@ -250,9 +252,13 @@ export class PageMarginalia {
     if (!view) return refused(404, "this note isn't here now (moved to Trash, or locked)");
     const said = (status: number, body: Record<string, unknown>) => json(status, { ...body, generation: this.host.generation() });
     try {
-      if (action === "reply" || action === "resolve") {
+      if (action === "reply" || action === "resolve" || action === "read") {
         const thread = text(input.thread);
         if (!view.annotations.has(thread)) return refused(404, "that thread isn't on this page");
+        if (action === "read") {
+          const read = await this.host.request<{ thread: string; marked: number }>({ action: "annotations.read", annotationId: thread });
+          return said(200, { ok: true, thread: read.thread, marked: read.marked });
+        }
         if (action === "reply") {
           const body = text(input.body).trim() ? text(input.body) : "";
           if (!body) return refused(400, "write a reply first");
@@ -268,7 +274,7 @@ export class PageMarginalia {
       // An extension's action by its own id (`highlight`) as the toolbar offers it, or by its full name.
       const extensionAction = kit.actions.find((candidate) => candidate.id === action) ?? kit.actions.find((candidate) => candidate.name === action);
       if (action !== "comment" && action !== "ask" && action !== "explain" && !extensionAction) {
-        return refused(400, `no action ${action || "(none)"} here: it's comment${kit.agent ? ", ask, explain" : ""}, reply, resolve${kit.actions.length ? `, or ${kit.actions.map((candidate) => candidate.id).join(", ")}` : ""}`);
+        return refused(400, `no action ${action || "(none)"} here: it's comment${kit.agent ? ", ask, explain" : ""}, reply, resolve, read${kit.actions.length ? `, or ${kit.actions.map((candidate) => candidate.id).join(", ")}` : ""}`);
       }
       if ((action === "ask" || action === "explain") && !kit.agent) return refused(409, "no agent here answers in threads: add marginalia to this outline (its @margin agent)");
       const found = findDrawnPassage(view.blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });

@@ -1795,7 +1795,8 @@ created < 2026-09-01T12:00Z
   children, never deeper. A move into a view patches the block's own
   properties, never its children: `views.planWrite` checks `child:` clauses
   against the children as they are and refuses a move they don't allow, and a
-  new block (which has no children) never satisfies a positive one.
+  new block (which has no children) never satisfies a positive one. A count asks for at least that many children:
+  `child>=2:type=virtual-branch` is every hub (a block with two or more views under it), whatever it's tagged.
 - **Atoms** (outline-core `query-atoms.ts` parses them, the service evaluates them; each combines with `AND`, `OR`,
   `NOT` and parentheses like any clause, and works in saved views, live figures, board lanes, `ep0ch find --query`
   and MCP `outline_query` alike):
@@ -1809,6 +1810,8 @@ created < 2026-09-01T12:00Z
   | `parent:[[page]]`, `parent:((id))` | the target's direct children |
   | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
   | `text~text` | blocks whose whole text contains the text, ignoring case |
+  | `unread:me`, `unread:<actor id>` | blocks the reader hasn't read at their current revision (never opened, or changed since; PIE-708's read marks, set by `annotations.read` when a thread is opened). `me` is the person; an agent names its own actor id |
+  | `thread:me`, `thread:<actor id>` | comments and replies in the threads the reader started or wrote in. Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user` (outline-core `recent-replies.ts`) |
 
   Quote text with spaces (`title~"weekly review"`). A target that names no block fails the query with the atom and a
   working example; a malformed atom does too (`links:` alone says `links: needs a target after the colon, like

@@ -1400,9 +1400,9 @@ export type QueryExpression =
    * block with what sits under it (a ticket page's `[status::]` with its
    * Jira record's `jira.status`).
    */
-  | { kind: "property"; key: string; value?: string; relation?: "child" }
+  | { kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
-  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~` and `call:` (outline-core `query-atoms.ts`); the service evaluates them. */
+  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~`, `call:`, `unread:` and `thread:` (outline-core `query-atoms.ts`); the service evaluates them. */
   | QueryAtom
   | { kind: "not"; operand: QueryExpression }
   | { kind: "and" | "or"; operands: QueryExpression[] };
@@ -2237,6 +2237,16 @@ export type OutlinerRequestAction =
       id: string;
       action: "annotations.agent-evidence";
       limit?: number;
+    }
+  /**
+   * A thread read (PIE-708): its comment and replies marked read by `reader` (`user`, the person, when left out; an
+   * agent passes its actor id). Clears its replies from `unread:` views.
+   */
+  | {
+      id: string;
+      action: "annotations.read";
+      annotationId: string;
+      reader?: string;
     }
   | {
       id: string;

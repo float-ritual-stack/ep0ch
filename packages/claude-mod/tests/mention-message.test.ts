@@ -6,6 +6,7 @@ import {
   failureReasonOf,
   mentionsModeOf,
   namedWorkspaceOf,
+  sameHostSocket,
   sessionWorkspaceOf,
   workspaceEnvOf,
   workspacesOf,
@@ -106,5 +107,13 @@ describe('mention-message', () => {
     expect(() => namedWorkspaceOf('/tmp', null, 'Not A Name', undefined)).toThrow('isn\'t an outline name')
     expect(() => namedWorkspaceOf('/tmp', null, 'garden', 'a b')).toThrow('isn\'t an ssh config name')
     expect(workspaceEnvOf(namedWorkspaceOf('/tmp', null, 'garden', 'far')!)).toEqual({ OUTLINER_WORKSPACE_ROOT: '/tmp', EP0CH_WS: 'garden', EP0CH_MACHINE: 'far' })
+  })
+
+  test('EP0CH_SOCKET beside EP0CH_WS is a host here naming that outline (what an outline host gives @margin), unless it is a forward', async () => {
+    expect(sameHostSocket(undefined, undefined)).toBe(true)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', '')).toBe(true)
+    expect(sameHostSocket('/home/someone/outlines/.remote/far.sock', '')).toBe(false)
+    expect(sameHostSocket('/home/someone/outlines/.host/host.sock', 'far')).toBe(false)
+    expect(sameHostSocket('host.sock', undefined)).toBe(false)
   })
 })

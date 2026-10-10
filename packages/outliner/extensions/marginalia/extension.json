@@ -10,7 +10,14 @@
     "type": "object",
     "properties": {
       "color": { "type": "string", "description": "the highlight's theme tone: default, good, warn, bad, dim or accent" },
-      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that answers @margin: the prompt on its stdin, the answer on its stdout (for example [\"claude\", \"-p\"]). Left out, @margin answers from the note itself, and says so" }
+      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that answers @margin: the prompt on its stdin, the answer on its stdout (for example [\"claude\", \"-p\"]). Left out, @margin answers from the note itself, and says so" },
+      "session": {
+        "type": "object",
+        "description": "how the answer command starts and resumes a thread's session, {id} for its id (claude needs none: --session-id {id}, --resume {id})",
+        "properties": { "start": { "type": "array", "items": { "type": "string" } }, "resume": { "type": "array", "items": { "type": "string" } } },
+        "required": ["start", "resume"],
+        "additionalProperties": false
+      }
     },
     "additionalProperties": false
   },
@@ -20,6 +27,6 @@
     { "id": "cite", "label": "Cite", "key": "k", "on": "passage", "effects": "read", "description": "Copy the passage with a citation: the quote, then where it's from (((id^fragment)) when its line has one)" }
   ],
   "agents": [
-    { "name": "margin", "description": "Answers a question about a passage, in its margin thread: @margin what does this mean?", "effects": "spend", "deadline": "2m", "threads": true }
+    { "name": "margin", "description": "Answers a question about a passage, in its margin thread: @margin what does this mean? A thread is one conversation: a later @margin there resumes it; a reply without @margin is never sent", "effects": "spend", "deadline": "2m", "threads": true }
   ]
 }

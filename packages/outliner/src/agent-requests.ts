@@ -8,8 +8,9 @@ import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
-import type { AnnotationRecord, Block, MutationProvenance } from "./types";
+import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } from "./types";
 import { resourceCommentSource } from "./resource-comments";
+import { parsePropertyRecords } from "./properties";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -99,7 +100,18 @@ interface RespondValue {
   message?: string;
   reply?: string;
   patches: DraftPatchSpan[];
+  /** In a thread: the agent's session, kept on the thread (`[<agent>-session::<id>]`) and handed back next time. */
+  session?: string;
 }
+
+/** A session id an agent keeps on its thread: a property value, no spaces or brackets. */
+const SESSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+/** The property a thread keeps its agent's session in: `[margin-session::<id>]` for `@margin`. */
+export const sessionKey = (agent: string) => `${agent}-session`;
+
+/** At most this much of the page's other comments goes with a question (the newest threads first are kept). */
+const MAX_PAGE_COMMENTS = 24 * 1024;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -111,8 +123,10 @@ function validateRespond(value: unknown): RespondValue {
   if (value.reply !== undefined && (typeof value.reply !== "string" || Buffer.byteLength(value.reply) > MAX_REPLY)) throw new Error("reply must be markdown up to 64 KiB");
   const patches = value.patches ?? [];
   if (!Array.isArray(patches) || patches.length > MAX_PATCHES) throw new Error(`patches must be a list of at most ${MAX_PATCHES}`);
+  if (value.session !== undefined && (typeof value.session !== "string" || !SESSION.test(value.session))) throw new Error("session must be an id: letters, digits and . _ : - (up to 128)");
   // Kept clean: no terminal escapes or control characters reach a reader.
   return {
+    ...(typeof value.session === "string" ? { session: value.session } : {}),
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.reply === "string" ? { reply: cleanExtensionText(value.reply, true) } : {}),
     patches: patches.map((patch, index) => {
@@ -126,6 +140,26 @@ function validateRespond(value: unknown): RespondValue {
       };
     }),
   };
+}
+
+/**
+ * A page's other threads as an answer reads them: the words each is on, what was said, and its replies, newest thread
+ * first, cut at MAX_PAGE_COMMENTS.
+ */
+function pageComments(threads: readonly AnnotationThread[], author: (r: AnnotationRecord) => string): { id: string; quote: string; thread: { author: string; body: string }[] }[] {
+  const at = (t: AnnotationThread) => t.block.createdAt;
+  const out: { id: string; quote: string; thread: { author: string; body: string }[] }[] = [];
+  let size = 0;
+  for (const t of [...threads].sort((a, b) => at(b).localeCompare(at(a)))) {
+    const anchor = (t.resolvedTarget ?? t.originalTarget).anchor;
+    const quote = (anchor.kind === "text-quote" || anchor.kind === "pdf-page-region") && anchor.exact ? anchor.exact : "";
+    const entry = { id: t.block.id, quote, thread: [t, ...t.replies].filter((r) => r.body.trim()).map((r) => ({ author: author(r), body: r.body })) };
+    if (!entry.thread.length && !quote) continue;
+    size += JSON.stringify(entry).length;
+    if (size > MAX_PAGE_COMMENTS) break;
+    out.push(entry);
+  }
+  return out;
 }
 
 /** Who asked, as a request row says it: `user`, `agent:<actorId>` or `system`. */
@@ -521,11 +555,22 @@ export class AgentRequests {
     }
   }
 
-  private async answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
-    const bound = this.registry.agent(line.agent);
-    if (!bound) return;
-    const { extension, agent } = bound;
+  /** Each thread's answers, one at a time: a second `@margin` waits for the first, so it resumes the same session. */
+  private readonly threadTurns = new Map<string, Promise<void>>();
+
+  private answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
     const rootId = record.parentAnnotationId ?? record.block.id;
+    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, record.block.id, line)).catch(() => {});
+    this.threadTurns.set(rootId, turn);
+    void turn.finally(() => { if (this.threadTurns.get(rootId) === turn) this.threadTurns.delete(rootId); });
+    return turn;
+  }
+
+  /** One ask answered: `asked` is the comment or reply that asked (a later turn may have landed after it). */
+  private async answerTurn(rootId: string, asked: string, line: RequestLine): Promise<void> {
+    const bound = this.registry.agent(line.agent);
+    if (!bound || this.stopped) return;
+    const { extension, agent } = bound;
     const root = this.store.getAnnotation(rootId);
     const target = root.resolvedTarget ?? root.originalTarget;
     const subject = target.representation.subject;
@@ -541,11 +586,18 @@ export class AgentRequests {
     const passage = (anchor.kind === "text-quote" || anchor.kind === "pdf-page-region") && anchor.exact
       ? { subject: note?.id ?? "", quote: anchor.exact, start: anchor.start ?? null, end: anchor.end ?? null, prefix: anchor.prefix ?? "", suffix: anchor.suffix ?? "" }
       : null;
-    const thread = [root, ...this.store.listAnnotationThreads({ subject: subject.kind === "resource" ? { kind: "resource", resourceId: subject.resourceId } : { kind: "block", blockId: (subject as { blockId: string }).blockId }, includeResolved: true })
-      .find((t) => t.block.id === rootId)?.replies ?? []]
-      .map((r) => ({ id: r.block.id, author: r.block.author === "agent" ? r.block.actorId ?? "agent" : "user", body: r.body }));
+    const author = (r: AnnotationRecord) => r.block.author === "agent" ? r.block.actorId ?? "agent" : "user";
+    const threads = this.store.listAnnotationThreads({ subject: subject.kind === "resource" ? { kind: "resource", resourceId: subject.resourceId } : { kind: "block", blockId: (subject as { blockId: string }).blockId }, includeResolved: true });
+    // The whole thread, every turn: the notes to self between two asks too, so a resumed session sees what it missed.
+    const thread = [root, ...threads.find((t) => t.block.id === rootId)?.replies ?? []]
+      .map((r) => ({ id: r.block.id, author: author(r), body: r.body }));
+    // The page's other comments, every time (the capability's finding: an answer once said it had none).
+    const comments = pageComments(threads.filter((t) => t.block.id !== rootId), author);
+    const key = sessionKey(line.agent);
+    const session = root.properties?.[key]?.[0];
     const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
     let reply: string;
+    let next: string | undefined;
     try {
       const result = await this.runtime.invokeLoaded(extension, "respond", {
         agent: line.agent,
@@ -554,21 +606,58 @@ export class AgentRequests {
         ...(note ? { note: { ...note, text: note.text.slice(0, MAX_NOTE_TEXT) } } : {}),
         ...(passage ? { passage } : {}),
         thread,
+        asked,
+        comments,
+        ...(session ? { session } : {}),
         properties: root.properties ?? {},
         context: { now: new Date(this.now).toISOString() },
       }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
       const respond = validateRespond(result.value);
       if (respond.patches.length) throw new Error("an answer in a thread can't edit the note: reply only");
-      reply = respond.reply?.trim() || respond.message?.trim() || "(no answer)";
+      reply = this.checkedQueries(respond.reply?.trim() || respond.message?.trim() || "(no answer)");
+      next = respond.session;
     } catch (error) {
       reply = `@${line.agent} couldn't answer: ${message(error)}`;
     }
     if (this.stopped) return;
-    this.store.changes.run(
-      this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-      () => this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent" }, "agent", { actorId: actor.actorId! }),
-    );
+    const attribution = this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor });
+    this.store.changes.run(attribution, () => {
+      // Its session goes on the thread first, so the next @margin resumes it even if this reply is read at once.
+      if (next && next !== session) {
+        try {
+          this.store.setAnnotationProperties(rootId, { [key]: [next] }, actor);
+        } catch { /* the thread changed or went: the answer still lands, and the next ask starts afresh */ }
+      }
+      this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent" }, "agent", { actorId: actor.actorId! });
+    });
     this.deps.changed(note?.id && !note.id.startsWith("resource:") ? note.id : rootId);
+  }
+
+  /**
+   * An answer that suggests a saved query (`[query::…]`, `[where::…]`, with its `[sort::…]` and `[group::…]`) has it
+   * asked of the service before it lands: one that wouldn't parse, or names a property no note has, is marked under
+   * the answer with why. The answer itself is never refused.
+   */
+  private checkedQueries(reply: string): string {
+    // The property grammar reads them (a page link inside a query too), in code spans as well as in prose.
+    const records = parsePropertyRecords(reply.replace(/`/g, ""));
+    const found = (key: string) => records.filter((record) => record.key === key).map((record) => record.value.trim()).filter(Boolean);
+    const wheres = [...found("query"), ...found("where")];
+    const sorts = found("sort"), groups = found("group");
+    if (!wheres.length && !sorts.length && !groups.length) return reply;
+    const notes: string[] = [];
+    const ask = (said: string, query: Record<string, unknown>) => {
+      try {
+        const answer = this.store.queryBlocks({ ...query, limit: 1 } as never) as { hint?: string };
+        if (answer.hint) notes.push(`${said}: ${answer.hint}`);
+      } catch (error) {
+        notes.push(`${said} doesn't work: ${message(error)}`);
+      }
+    };
+    for (const where of wheres) ask(`[query::${where}]`, { where });
+    for (const sort of sorts) ask(`[sort::${sort}]`, { sort });
+    for (const group of groups) ask(`[group::${group}]`, { group });
+    return notes.length ? `${reply}\n\n⚠ checked with the outline: ${notes.join("; ")}` : reply;
   }
 
   /**

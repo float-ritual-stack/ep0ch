@@ -9,6 +9,8 @@
 //   Resolve. A highlight alone has no card until its words are tapped.
 // - The page waits on the threads route for the next change (a long poll), so an answer lands on the page soon after
 //   it lands in the outline; the note itself is fetched again then, so new marks show.
+// - Opening a thread marks it read (the `/replies` page's unread marks clear): arriving at `#thread=<id>` from Recent
+//   replies (its card opens and comes into view), tapping its words, or replying in it.
 //
 // Dark throughout, no animation, nothing that flashes (Evan is photosensitive). Plain DOM, no build, no eval: text is
 // set as text, never as HTML.
@@ -249,7 +251,11 @@
     for (const reply of thread.replies) {
       node.append(el("div", { class: "reply" }, el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}` }), el("div", { class: "b", text: reply.body })));
     }
-    const asked = /^@\S+/.test(thread.body) && !thread.replies.some((reply) => reply.by !== "you");
+    // Waiting while the last ask (the comment, or a reply of his starting @…) has no answer after it. A reply without
+    // an @ is a note to himself: nothing waits on it.
+    const turns = [{ by: thread.by, body: thread.body }, ...thread.replies];
+    const ask = turns.map((turn, at) => (turn.by === "you" && /^@\S+/.test(turn.body) ? at : -1)).reduce((a, b) => Math.max(a, b), -1);
+    const asked = ask >= 0 && !turns.slice(ask + 1).some((turn) => turn.by !== "you");
     if (asked) node.append(el("div", { class: "who", text: "waiting for the answer…" }));
     const row = el("div", { class: "mg-row" });
     row.append(
@@ -260,8 +266,35 @@
     return node;
   }
 
+  /** The thread read by the person, quietly (a failure only means it stays unread); one request at a time per thread. */
+  const reading = new Set();
+  function markRead(id) {
+    if (!id || reading.has(id)) return;
+    reading.add(id);
+    fetch(`${api}/write`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ page, ...(full ? { view: "full" } : {}), action: "read", thread: id }) })
+      .catch(() => {}).finally(() => reading.delete(id));
+  }
+
+  /** `#thread=<id>` (a link from Recent replies): its card opened and brought into view, and the thread marked read. */
+  let arrived = false;
+  function arrive() {
+    const wanted = /^#thread=([0-9a-f-]{36})$/i.exec(location.hash)?.[1];
+    if (!wanted || arrived) return;
+    const node = document.querySelector(`.mg-card[data-thread="${CSS.escape(wanted)}"]`);
+    if (!node) return;
+    arrived = true;
+    for (const on of document.querySelectorAll(".on")) on.classList.remove("on");
+    node.classList.add("open", "on");
+    markOf(wanted)?.classList.add("on");
+    place();
+    node.scrollIntoView({ block: "center" });
+    markRead(wanted);
+  }
+  window.addEventListener("hashchange", () => { arrived = false; arrive(); });
+
   function replyIn(node, thread, row) {
     if (!opening()) return;
+    markRead(thread.id);
     const id = requestId();
     const input = el("textarea", { class: "mg-in", placeholder: "Reply" });
     editor = input;
@@ -309,6 +342,7 @@
     }
     host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }))));
     place();
+    arrive();
   }
 
   /** Wide: each card level with its words, pushed down past the one above. */
@@ -338,6 +372,7 @@
     mark.classList.add("on");
     place();
     node.scrollIntoView({ block: "nearest" });
+    markRead(mark.dataset.ann);
   });
   wide.addEventListener("change", draw);
   let resizeTimer = 0;
