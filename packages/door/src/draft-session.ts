@@ -212,7 +212,9 @@ export class DraftSession {
     }
     if (r.stale && this.open) {
       d.conflict = r.why;
-      d.note = `your draft is kept and copied to ${d.copyOut(this.target.label)}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`;
+      // (A target that already copied it and said so, the comment's, isn't copied twice.)
+      const copied = d.savedCopy && r.why.includes(tidy(d.savedCopy)) ? d.savedCopy : d.copyOut(this.target.label);
+      d.note = `your draft is kept and copied to ${copied}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`;
     }
     return r;
   }
@@ -724,7 +726,7 @@ export function commentTarget(o: {
   note: Msg;
   board(): Pick<SocketBoard, "comment" | "commentOnResource" | "reply">;
   out: Outgoing;
-  landed(r: { id: string; deduplicated?: boolean }, where: CommentWhere): Promise<void>;
+  landed(r: { id: string; deduplicated?: boolean }, where: CommentWhere, body: string): Promise<void>;
   /** Not sent, and why (said by the host at once, before the outcome reaches whoever asked). */
   refused?(why: string, stale: boolean): void;
   relocate?(): Promise<void>;
@@ -733,10 +735,11 @@ export function commentTarget(o: {
   let confirmNew = false;
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
   const key = (t: CommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
+  const back = w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back";
+  const label = `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`;
   return {
     place: w0.kind === "quote" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
-    back: w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back",
-    label: `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`,
+    back, label,
     what: `the ${w0.kind === "quote" ? "comment" : "reply"} on ${title}`,
     verb: "send", leaveWrites: false,
     async submit(s, by) {
@@ -758,7 +761,7 @@ export function commentTarget(o: {
           : await b.comment(requestId, t.blockId, t.revision, body, t.passage, by);
         o.out.done();
         d.saving = false;
-        await o.landed(r, t);
+        await o.landed(r, t, body);
         return { ok: true, result: r };
       } catch (e) {
         d.saving = false;
@@ -766,13 +769,15 @@ export function commentTarget(o: {
         if (e instanceof Refused) {
           o.out.refused();
           const stale = t.kind === "quote" && /revision is stale|was not found|ambiguous/i.test(msg);
-          const why = /revision is stale/i.test(msg) ? "the note changed since you picked the passage · not sent · ctrl+r finds the quote in the current text"
-            : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent · ctrl+r picks it again"
-            : `refused, not sent: ${msg}`;
+          // A refusal never strands the text (PIE-761): it stays open here, and a copy is on disk, said with what to do next.
+          const kept = `your text is kept here and copied to ${tidy(d.copyOut(label))}`;
+          const why = /revision is stale/i.test(msg) ? `the note changed since you picked the passage · not sent · ${kept} · ctrl+r finds the quote in the current text`
+            : /was not found/i.test(msg) ? `the quote isn't in the note's current text · not sent · ${kept} · ctrl+r picks it again`
+            : `refused, not sent: ${msg} · ${kept} · ctrl+s tries again, esc esc puts it aside (${back})`;
           return no(why, { stale });
         }
         o.out.unsure();
-        return no(`no answer from the outline (${msg}) · it may be saved · ctrl+s retries with the same request id, so it can't land twice`);
+        return no(`no answer from the outline (${msg}) · it may be saved · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s retries with the same request id, so it can't land twice`);
       }
     },
     ...(o.relocate ? { reload: () => o.relocate!() } : {}),

@@ -31,7 +31,8 @@ Before a PR claims a change works:
      The default is float-box (Evan's dedicated server, 20 threads, usually idle) when `ssh float-box true` answers,
      else boxd (`--on` or `EP0CH_BOX_TARGET` picks). On float-box the run gets a private dir
      (`/tmp/ep0ch-box-<user>-<id>`, mode 700) with a clone of your commit (unpushed goes up as a bundle) and its
-     own `TMPDIR`, runs niced with `TEST_EACH_JOBS` files at once (default 8) under a `timeout`, streams the output,
+     own `TMPDIR`, runs niced with `TEST_EACH_JOBS` files at once (default 8; the door's suite as `bun test --parallel`)
+     under a `timeout`, streams the output,
      exits with the first failing suite's code and removes the dir on exit, Ctrl-C and TERM (a run whose ssh was
      killed -9 removes it itself when its timeout ends). It touches nothing else there. The cost logged is 0.
    - **On boxd** (PIE-597) the script
@@ -42,8 +43,9 @@ Before a PR claims a change works:
      rebuilds the golden boxd box (after a `bun.lock` change it saves the install). Boxd needs its CLI, signed in.
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
-     foreground, never `--parallel`: five agents' parallel runs once froze float-2. The door's `parity-screens`
-     takes more than ten minutes whole; run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
+     foreground, never `--parallel`: five agents' parallel runs once froze float-2. Each door `parity-*` file takes
+     about four minutes whole and more than the 3 GB cap's memory; run it in parts with `PARITY_ONLY` (see the
+     ep0ch-core skill), or in a box.
      Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the root, the root
      `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`), which Bun otherwise reads
      only from the folder it starts in.
@@ -60,6 +62,22 @@ Before a PR claims a change works:
 4. Tests defend observable contracts: canonical graph and cycle invariants, optimistic conflicts, query
    completeness, virtual occurrence behavior, terminal width and security, cursor and selection transitions,
    restart reconstruction. Avoid tests that merely inspect source text or implementation plumbing.
+
+   **What a test must earn** (PIE-760). It is what to test, not how many:
+   - It fails when something a person would notice breaks, or when a guard the code can't check itself breaks
+     (the protocol version, a copied module, a flag the binary reads). A test that fails only when wording or the
+     implementation changes, and passes when the behaviour breaks, costs more than it catches.
+   - A workflow test with real input beats twenty tidy unit tests of the parts: write the comment, make the syntax
+     mistake, save, and check nothing was lost ([Capture is more reliable than interpretation](AGENTS.md#capture-is-more-reliable-than-interpretation)).
+     A malformed reference refused a bug report on Oct 9 while every parser unit was green. Tests that only pin a
+     parser helper's internals, or repeat a ranking case an interaction test already drives, are merged or go.
+   - It doesn't boot a host to test a pure function. A file that needs a host starts one in `beforeAll` and shares
+     it (and the showcase seed) across its tests.
+   - It doesn't get a new file when an existing file already drives that action: add the case there, or to the
+     action's showcase section.
+   - A second copy of a module doesn't get a second grid. The copy goes (then the grid that compared them).
+   - A count is not a result. A run whose number only went up is not a report: say what it catches now that it
+     didn't.
 5. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` (in the door) writes PNGs to
    `out/`; open them. A snapshot nobody looked at is not evidence.
 6. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, under

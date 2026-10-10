@@ -987,7 +987,7 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.dispatch({ type: "buffer.insert", text: "Human reply\nsecond line" }, viewport);
     await harness.controller.dispatch({ type: "buffer.save" }, viewport);
     expect(harness.controller.state.mode).toBe("comment");
-    expect(harness.controller.state.status).toBe("Reply transport failed");
+    expect(harness.controller.state.status).toBe("Not sent · Reply transport failed · your text stays here; save tries again");
     expect(harness.controller.state.buffer.text).toBe("Human reply\nsecond line");
     await harness.controller.dispatch({ type: "buffer.save" }, viewport);
     expect(submissions.map(input => input.requestId)).toEqual([requestId, requestId]);

@@ -10,6 +10,7 @@ import {
   mentionsModeOf,
   sessionWorkspaceOf,
   type Workspace,
+  doorWorkspaceOf,
   workspaceEnvOf,
   workspaceForCwd,
 } from './mention-message'
@@ -200,6 +201,9 @@ const BINDING_WAIT_MS = WHERE_WAIT_MS
  */
 export function register(on: On, options: PluginOptions): void {
   const option = options
+  // A registration is one session: the folder it started in is read anew, never the last registration's (a test file
+  // registers once per case, each in a folder of its own).
+  sessionCwd = null
   // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
   // outline's own mentions.list, each press opened by openNote like every other click.
   // The band above the prompt: the binding card (at the start and after /clear, until hidden) over Recent mentions.
@@ -275,7 +279,7 @@ export function register(on: On, options: PluginOptions): void {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     reportStatus($, sessionStarted())
-    if (typeof e.cwd === 'string' && e.cwd) sessionCwd = e.cwd
+    sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
     $.clock.after(0, () => void startMentionsOnce($, option))
@@ -359,7 +363,7 @@ export function register(on: On, options: PluginOptions): void {
       if (typeof checked === 'string') return { deny: checked }
       const command = tool.command(checked.input)
       if (typeof command === 'string') return { deny: command }
-      if (!references) await loadReferences($, option)
+      if (!references?.workspace) await loadReferences($, option)
       const workspace = references?.workspace
       if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
       try {
@@ -377,7 +381,7 @@ export function register(on: On, options: PluginOptions): void {
       const input = checked.input
       const command = tool.command(input)
       if (typeof command === 'string') return { deny: command }
-      if (!references) await loadReferences($, option)
+      if (!references?.workspace) await loadReferences($, option)
       const workspace = references?.workspace
       if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
@@ -396,7 +400,7 @@ export function register(on: On, options: PluginOptions): void {
     if (typeof checked === 'string') return { deny: checked }
     const command = componentsArgv(checked.input)
     if (typeof command === 'string') return { deny: command }
-    if (!references) await loadReferences($, option)
+    if (!references?.workspace) await loadReferences($, option)
     const workspace = references?.workspace
     if (!workspace) return { deny: references?.why ? `No Outliner outline for this session: ${references.why}` : NOT_BOUND }
     const ran = await $.process.run(command.argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 })
@@ -427,7 +431,7 @@ export function register(on: On, options: PluginOptions): void {
     const reference: unknown = checked.input.ref
     const uri = typeof reference === 'string' ? outlinerUriFor(reference) : null
     if (!uri) return { deny: 'Give the ref: a Work ID, [[page]], ((block-uuid)) or pi-outliner:// URI to show.' }
-    if (!references) await loadReferences($, option)
+    if (!references?.workspace) await loadReferences($, option)
     try {
       return { result: shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, {})), String(reference)) }
     } catch (error) {
@@ -635,7 +639,7 @@ async function doorEnvOf($: EngineInterface): Promise<DoorEnv> {
  */
 async function runWhere($: EngineInterface): Promise<WhereRun> {
   try {
-    const ran = await $.process.run(['ep0ch', 'where', '--json'], { cwd: await $.session.cwd(), timeoutMs: WHERE_TIMEOUT_MS })
+    const ran = await $.process.run(['ep0ch', 'where', '--json'], { cwd: await startFolderOf($), timeoutMs: WHERE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return { summary: null, facts: null, why: failureReasonOf(ran.stderr) || '`ep0ch where` failed' }
     return { summary: whereSummaryOf(ran.stdout), facts: whereFactsOf(ran.stdout) }
   } catch {
@@ -732,7 +736,7 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
     $.env.get('PI_OUTLINER_MENTIONS_WORKSPACES'),
     $.env.get('PI_OUTLINER_MENTIONS_MODE'),
     $.env.get('HOME'),
-    $.session.cwd(),
+    startFolderOf($),
   ])
   const listed = effectiveWorkspaces(options.workspaces, listedEnv, home)
   const mode = mentionsModeOf(options.mode, modeEnv, listed)
@@ -759,7 +763,21 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
       : `bound-folder failed${reason ? `: ${reason}` : ''}`)
   }
   const bound = boundWorkspaceOf(ran.stdout, cwd)
-  return mode === 'allowlist' ? bound : sessionWorkspaceOf(cwd, mode, listed, bound)
+  if (mode === 'allowlist') return bound
+  const folderWorkspace = sessionWorkspaceOf(cwd, mode, listed, bound)
+  // In a door tile the door's outline is the binding (PIE-755), whatever the folder says; opted-out folders stay off.
+  if (purpose === 'tools' && (await $.env.get('EP0CH_CONTROL'))?.trim()) {
+    return doorWorkspaceOf((await (whereLoad ?? runWhere($))).facts?.door, cwd, folderWorkspace)
+  }
+  return folderWorkspace
+}
+
+/**
+ * The folder this session started in: the one its outline binding follows. A shell `cd` never moves it
+ * (PIE-755); a new session, a /clear and `/outline` read it anew.
+ */
+async function startFolderOf($: EngineInterface): Promise<string> {
+  return sessionCwd ?? (sessionCwd = await $.session.cwd())
 }
 
 /**
@@ -910,7 +928,7 @@ async function runDoorTool(
       const ref = typeof input.ref === 'string' ? input.ref.trim() : ''
       const uri = ref ? outlinerUriFor(ref) : null
       if (!uri) throw Error('Give the ref of the note to open: its id, ((id)), [[page]] or Work ID.')
-      if (!references) await loadReferences($, option)
+      if (!references?.workspace) await loadReferences($, option)
       try {
         return shownText(await openNote($, references?.workspace ?? null, uri, await doorActorFor($, input), control), ref)
       } catch (error) {
@@ -1320,7 +1338,7 @@ async function chooseMentions($: EngineInterface, change: (p: MentionsPrefs) => 
  * the rows shown and says why.
  */
 async function refreshMentions($: EngineInterface, option: PluginOptions): Promise<void> {
-  if (!references) await loadReferences($, option)
+  if (!references?.workspace) await loadReferences($, option)
   const workspace = references?.workspace
   if (!workspace) {
     await $.state.set(MENTIONS_LIST, { rows: [], loaded: true, why: "this session's folder names no outline" })
@@ -1510,9 +1528,10 @@ async function holdForThreads($: EngineInterface, option: PluginOptions, e: { to
     const path = threadedPathOf(e.tool, e)
     if (!path || threadChecked.has(path)) return null
     threadChecked.add(path)
-    if (!references) await loadReferences($, option)
+    if (!references?.workspace) await loadReferences($, option)
     const workspace = references?.workspace
-    if (!workspace) return null
+    // Not bound now: asked again next time, once it is (a not-bound answer is never sticky, PIE-755).
+    if (!workspace) { threadChecked.delete(path); return null }
     const out = await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', await actorFor($, {})], JSON.stringify({ ref: fileRefOf(path) }))
     return threadsHeldNote(path, JSON.parse(out))
   } catch {
@@ -1545,7 +1564,7 @@ let sessionCwd: string | null = null
  * a folder bound to an outline; a failure is said once a session, never thrown into the call.
  */
 async function recordTouch($: EngineInterface, option: PluginOptions, touch: ReturnType<typeof touchOf> & {}): Promise<void> {
-  if (!references) await loadReferences($, option)
+  if (!references?.workspace) await loadReferences($, option)
   const workspace = references?.workspace
   if (!workspace) return
   const cwd = sessionCwd ?? (sessionCwd = await $.session.cwd())

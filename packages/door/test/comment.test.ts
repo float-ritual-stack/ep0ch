@@ -169,6 +169,22 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 open comment (m)");
   });
 
+  // Capture is more reliable than interpretation (AGENTS.md): a comment that quotes a broken reference lands as written,
+  // never refused for it. Evan's bug report about reference handling (Oct 9) was refused for the reference it quoted.
+  test("a comment with malformed references lands as written: C, write, ctrl+s, and the thread holds every character", async () => {
+    const bodies = ["See ((not-a-block)) and ((abc| cut off", "An ((id|label with no close, a bare [[", "Gone ((00000000-0000-4000-8000-000000000000)), ((PIE-99999)) and [[No such page]]", "Embed {{embed ((nothing))}} and ((PIE-1^no-such-anchor)) and ((note^))"];
+    for (const body of bodies) {
+      const b = await create(NOTE);
+      const { pane, d } = await open(b.id);
+      pane.key({ kind: "enter" }, d);
+      keys(pane, body, d);
+      pane.key(ctrl("s"), d);
+      await until(() => pane.session?.mode === "threads", `the comment to land: ${body}`);
+      expect((await threads(b.id)).map(t => t.body)).toEqual([body]);
+      expect(flashes.at(-1)).toBe("comment added");
+    }
+  });
+
   test("m, r: a reply lands on the thread; x resolves and x again reopens", async () => {
     const b = await create(NOTE);
     await board.comment(`seed-${b.id}`, b.id, b.revision, "Seeded comment", { quote: "Ship", start: NOTE.indexOf("Ship") });
@@ -268,7 +284,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await idle(pane);
     expect(pane.session!.mode).toBe("compose");
-    expect(pane.session!.error).toBe("the note changed since you picked the passage · not sent · ctrl+r finds the quote in the current text");
+    expect(pane.session!.error).toMatch(/^the note changed since you picked the passage · not sent · your text is kept here and copied to .+-comment-.+\.md · ctrl\+r finds the quote in the current text$/);
     expect(pane.session!.composer!.text).toBe("Friday is tight.");
     expect(await threads(b.id)).toHaveLength(0);
 

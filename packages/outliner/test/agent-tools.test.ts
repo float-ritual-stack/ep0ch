@@ -492,3 +492,44 @@ test("agent operations take ref and its aliases; two aliases for different notes
   // view-order keeps its old name for the view.
   expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
 });
+
+// PIE-761: what's written always lands. A broken `((id`, an anchor the note doesn't have and a `((` round words are
+// saved as written, by MCP's tools and the CLI alike; each is said afterwards as a warning with a did-you-mean.
+test("a bad or unresolved reference never blocks a save: edit, create, comment, reply, patch and the CLI save and warn", async () => {
+  const { store, agent, cli } = await setup();
+  const target = store.create("Meeting notes, for real\n## Monday ^a10");
+  const note = store.create("Seed swap");
+  const broken = `see ((${target.id} and ((${target.id}^a1)) and ((Meeting notes))`;
+
+  const edit = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: `Seed swap\n${broken}` });
+  expect(edit.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toBe(`Seed swap\n${broken}`);
+  expect(edit.json.warnings).toEqual([
+    `((${target.id}^a1)) points at ^a1, which “Meeting notes, for real” doesn't have · did you mean ((${target.id}^a10)) “Meeting notes, for real”?`,
+    `((${target.id} and isn't closed with )) · did you mean ((${target.id})) “Meeting notes, for real”?`,
+    `((Meeting notes)) isn't a reference (a note's id goes inside (( )) · did you mean ((${target.id})) “Meeting notes, for real”?`,
+  ]);
+
+  const created = await agent("create", { parent: "root", text: `A new note with ((${target.id}` });
+  expect(created.exitCode).toBe(0);
+  expect(created.json.warnings).toHaveLength(1);
+
+  const comment = await agent("comment", { ref: note.id, whole: true, body: `about ((${target.id}^a1))` });
+  expect(comment.exitCode).toBe(0);
+  expect(comment.json.warnings[0]).toContain(`did you mean ((${target.id}^a10))`);
+  const reply = await agent("reply", { thread: comment.json.thread, body: "and ((Meeting" });
+  expect(reply.exitCode).toBe(0);
+  expect(reply.json.warnings[0]).toStartWith("((Meeting isn't closed with ))");
+
+  const now = store.get(note.id)!;
+  const patch = await agent("patch", { ref: note.id, revision: now.revision, patches: [{ observed: "Seed swap\n", replacement: `Seed swap ((${target.id}^zz))\n` }] });
+  expect(patch.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toStartWith(`Seed swap ((${target.id}^zz))`);
+  expect(patch.json.warnings).toHaveLength(1);
+
+  const update = await cli(["update", "--id", note.id, "--expected", String(store.get(note.id)!.revision), "--text", `Seed swap ((${target.id}`]);
+  expect(update.exitCode).toBe(0);
+  expect(update.stderr).toContain(`warning: ((${target.id} isn't closed with ))`);
+  const plain = await cli(["comment", "--id", note.id, "--expected", String(store.get(note.id)!.revision), "--request-id", "c-761", "--whole", "--text", "no references at all"]);
+  expect([plain.exitCode, plain.stderr]).toEqual([0, ""]);
+});

@@ -6,6 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
+import { savedReferenceWarning } from "../reference-warnings";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
@@ -1929,6 +1930,13 @@ export class NoteSurface {
     this.notice = change ? `properties changed: ${change}` : "";
     const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
     host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
+    // Saved first; then a reference that leads nowhere is said, with what it may have meant (PIE-761), never refused.
+    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(w => {
+      if (!w || this.msg?.id !== m.id || this.msg.revision !== m.revision) return;
+      this.notice = [this.notice, w].filter(Boolean).join(" · ");
+      host.ctx.flash(w, 12000);
+      host.redraw();
+    });
   }
 
   /**
