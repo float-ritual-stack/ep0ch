@@ -17,6 +17,7 @@
       "link": { "type": "string", "minLength": 1, "description": "The URL a sent note gets in Reader, with {outline}, {machine} and {id} (default: its published permalink, else https://ep0ch.invalid/{outline}@{machine}/b/{id})" },
       "machine": { "type": "string", "minLength": 1, "description": "This machine's name in ep0ch:// links (default the service's, from notes.address)" },
       "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags a sent document gets in Reader (default [\"ep0ch\"])" },
+      "readerPage": { "type": "string", "minLength": 1, "description": "The page in the board outline the Reader library lands under (default reader)" },
       "api": { "type": "string", "minLength": 1, "description": "Readwise's address (default https://readwise.io); a test points it at a fake" },
       "minutes": { "type": "integer", "minimum": 1, "maximum": 4, "description": "How long one pull may work before it stops and leaves the rest for the next (default 4)" }
     },
@@ -30,6 +31,11 @@
     {
       "id": "pull", "label": "Pull Readwise highlights", "on": "outline", "effects": "write",
       "description": "Fetches highlights changed since the last pull: one on a note you sent becomes an annotation at its passage; the rest land on the readwise board",
+      "schedule": { "every": "1h", "once": "host" }
+    },
+    {
+      "id": "library", "label": "Pull the Reader library", "on": "outline", "effects": "write",
+      "description": "Mirrors your Reader documents updated since the last run: a block each on the Reader page of the readwise board, with location, progress, tags and the link to its highlights",
       "schedule": { "every": "1h", "once": "host" }
     }
   ]

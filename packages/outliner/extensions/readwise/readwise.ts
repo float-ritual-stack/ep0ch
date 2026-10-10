@@ -10,12 +10,19 @@
 //   nothing new, and a changed note on a highlight updates what's there. Its schedule says `once: "host"`, so the
 //   hourly pull runs in one outline of the host, not in each.
 //
+// - `library` (on the outline, every hour): the Reader library itself, not just its highlights. Reader's document list
+//   (`/api/v3/list/`) since the last run becomes a block per document under the "Reader" page of the readwise board,
+//   matched by `reader.id` and kept in step (a document moved from later to archive is updated, not duplicated; one
+//   Reader reports deleted gets `reader.deleted::true`). Highlights and notes are documents too (`parent_id`): skipped,
+//   because the export path brings the highlights. A highlight of a Reader document carries `reader.doc`, and the
+//   document's block links to its book's highlights, so one note shows the document with its highlights.
+//
 // It writes over its own connection (outline.ts), as ext:readwise. The token comes from the `with-secrets` group
 // `readwise` (key READWISE_TOKEN) on stdin, and is never written anywhere.
 import { outline } from "./outline";
 
 interface Block { id: string; text: string; revision: number }
-interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number }
+interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string }
 interface Request {
   operation: string;
   input: { action: string; target?: { blockId: string }; context: { now: string }; scheduled?: { at: string } };
@@ -35,6 +42,12 @@ interface Book {
   cover_image_url?: string | null; asin?: string | null; summary?: string | null; external_id?: string | null;
   document_note?: string | null; book_tags?: Tag[]; highlights: Highlight[];
 }
+interface ReaderDoc {
+  id: string; url?: string | null; source_url?: string | null; title?: string | null; author?: string | null; category?: string | null;
+  location?: string | null; tags?: Record<string, { name?: string }> | Tag[] | null; site_name?: string | null; word_count?: number | null;
+  notes?: string | null; summary?: string | null; published_date?: string | null; saved_at?: string | null; created_at?: string | null;
+  reading_progress?: number | null; parent_id?: string | null; deleted?: boolean; is_deleted?: boolean; deleted_at?: string | null;
+}
 interface Thread { block: Block; body: string; properties?: Record<string, string[]> }
 /** `notes.address`'s answer (PIE-767): the outline, this machine's name, the note's ep0ch:// URI, where it's published. */
 interface Address { outline?: string; machine: string; uri?: string; published?: { url?: string; publicUrl?: string; permalink?: string } }
@@ -53,6 +66,7 @@ const FALLBACK_LINK = "https://ep0ch.invalid/{outline}@{machine}/b/{id}";
 const LINK = config.link ?? FALLBACK_LINK;
 const BOARD = config.board ?? "readwise";
 const PAGE = config.page ?? "readwise";
+const READER_PAGE = config.readerPage ?? "reader";
 const STARTED = Date.now();
 const UNTIL = STARTED + (config.minutes ?? 4) * 60_000;
 
@@ -259,6 +273,8 @@ function highlightEntries(highlight: Highlight, book: Book): Entry[] {
     ["readwise.has-note", (highlight.note ?? "").trim() ? "true" : null],
     ["readwise.location", highlight.location], ["readwise.location-type", highlight.location_type], ["readwise.end-location", highlight.end_location],
     ["readwise.url", highlight.readwise_url], ["readwise.external-id", highlight.external_id], ["readwise.source-url", highlight.url],
+    // A Reader document's book is known by the document's id (the export's `external_id`): the highlight says which.
+    ["reader.doc", book.source === "reader" ? book.external_id : null],
     ...names(highlight.tags).map((name): Entry => ["tags", name]),
     ...bookIdentity(book),
   ];
@@ -353,7 +369,7 @@ const annotationProperties = (highlight: Highlight, book: Book): Record<string, 
 const MANAGED = [
   "readwise.highlight", "readwise.color", "color", "highlighted", "highlighted-year", "highlighted-month", "readwise.created", "readwise.updated",
   "favorite", "readwise.discard", "readwise.has-note", "readwise.location", "readwise.location-type", "readwise.end-location", "readwise.url",
-  "readwise.external-id", "readwise.source-url", "tags", "readwise.book", "title", "author", "category", "source", "url", "book-tags",
+  "readwise.external-id", "readwise.source-url", "reader.doc", "tags", "readwise.book", "title", "author", "category", "source", "url", "book-tags",
 ];
 
 /** An annotation block's text with its managed properties (on the line holding `[type::annotation]`) replaced. */
@@ -399,6 +415,7 @@ async function ontoBoard(page: Block, book: Book, highlights: Highlight[], tally
   } else {
     home = await outline<Block>({ action: "create", parentId: page.id, text }, BOARD);
   }
+  if (book.source === "reader" && book.external_id) await linkDocument(book.external_id, home.id);
   const children = await outline<Block[]>({ action: "children", parentId: home.id }, BOARD);
   // A thread (a tweets book of more than one highlight, now or already on the board) reads as a thread.
   const thread = book.category === "tweets" && (highlights.length > 1 || children.some((child) => headerPropsAnywhere(child.text)["readwise.highlight"]));
@@ -481,16 +498,21 @@ function headerPropsAnywhere(text: string): Record<string, string> {
   return { ...headerProps(second), ...headerProps(first) };
 }
 
-async function boardPage(): Promise<Block> {
+/** A page of the board by address, or null when there is none yet. */
+async function findPage(address: string): Promise<Block | null> {
   let resolved: { status: string; block?: Block };
   try {
-    resolved = await outline<{ status: string; block?: Block }>({ action: "pages.resolve", address: PAGE }, BOARD);
+    resolved = await outline<{ status: string; block?: Block }>({ action: "pages.resolve", address }, BOARD);
   } catch (error) {
     const said = error instanceof Error ? error.message : String(error);
     throw new Error(/No outline named/.test(said) ? `there's no ${BOARD} outline yet: run \`ep0ch init ${BOARD}\` (or set config.board)` : said);
   }
-  if (resolved.status === "resolved" && resolved.block) return outline<Block>({ action: "get", blockId: resolved.block.id }, BOARD);
-  return outline<Block>({ action: "create", text: `Readwise [page::${PAGE}]\n\nHighlights from Readwise and Reader, a block per book. The readwise extension keeps them here.` }, BOARD);
+  return resolved.status === "resolved" && resolved.block ? outline<Block>({ action: "get", blockId: resolved.block.id }, BOARD) : null;
+}
+
+async function boardPage(): Promise<Block> {
+  return (await findPage(PAGE))
+    ?? outline<Block>({ action: "create", text: `Readwise [page::${PAGE}]\n\nHighlights from Readwise and Reader, a block per book. The readwise extension keeps them here.` }, BOARD);
 }
 
 async function pull(): Promise<void> {
@@ -545,6 +567,126 @@ async function pull(): Promise<void> {
   answer({ message: `pulled: ${what}${complete ? "" : "; more next time"}` });
 }
 
+// ── library ──────────────────────────────────────────────────────────────
+//
+// Reader's documents, a block per document under the Reader page. Properties (empty ones left out): `title`, `author`,
+// `url` (the source), `category`, `location` (new, later, shortlist, archive, feed), `tags`, `reading-progress` (0-100),
+// `saved` and `published` (days), `words`, `site`, and Reader's own `reader.id`, `reader.url`, `reader.deleted`. The
+// body is the summary, then your note on the document. A line `Highlights: ((book))` links to the book block of its
+// highlights on the board (found by the book's `readwise.external-id`, which is the document's id), so the block
+// reads as the document with its highlights; the pull puts the same line there when the book arrives after the document.
+
+const HIGHLIGHTS_LINE = /^Highlights: \(\(/;
+const isDeleted = (doc: ReaderDoc) => Boolean(doc.deleted || doc.is_deleted || doc.deleted_at);
+const tagNames = (tags: ReaderDoc["tags"]) =>
+  (Array.isArray(tags) ? tags.map((tag) => tag.name) : Object.entries(tags ?? {}).map(([key, tag]) => tag?.name ?? key)).map((name) => value(name ?? "")).filter(Boolean);
+
+function documentText(doc: ReaderDoc, book?: string): string {
+  const progress = typeof doc.reading_progress === "number" ? Math.round(Math.min(1, Math.max(0, doc.reading_progress)) * 100) : null;
+  const entries: Entry[] = [
+    ["reader.id", doc.id], ["title", value(doc.title || "")], ["author", doc.author], ["url", doc.source_url], ["category", doc.category], ["location", doc.location],
+    ...tagNames(doc.tags).map((name): Entry => ["tags", name]),
+    ["reading-progress", progress], ["saved", day(doc.saved_at ?? doc.created_at)], ["published", day(doc.published_date)], ["words", doc.word_count],
+    ["site", doc.site_name], ["reader.url", doc.url], ["reader.deleted", isDeleted(doc) ? "true" : null],
+  ];
+  const header = value(doc.title || "(untitled)").replace(/\((?=\()/g, "(\\");
+  const body = [(doc.summary ?? "").trim(), (doc.notes ?? "").trim()].filter(Boolean).map(inert).join("\n\n");
+  return [header, tokensOf(entries), ...(book ? [highlightsLine(book)] : []), ...(body ? ["", body] : [])].join("\n");
+}
+const highlightsLine = (book: string) => `Highlights: ((${book}|its highlights))`;
+
+/** A document block's text with its highlights line set to this book (or taken out). */
+function withHighlightsLine(text: string, book: string | null): string {
+  const lines = text.split("\n").filter((line, index) => index < 2 || !HIGHLIGHTS_LINE.test(line));
+  if (book) lines.splice(2, 0, highlightsLine(book));
+  return lines.join("\n");
+}
+
+async function readerPage(): Promise<Block> {
+  return (await findPage(READER_PAGE))
+    ?? outline<Block>({ action: "create", text: `Reader [page::${READER_PAGE}]\n\nThe Reader library, a block per document. The readwise extension keeps them here.` }, BOARD);
+}
+
+/** A document's block on the Reader page, by Reader's id. */
+async function documentBlock(page: Block, id: string): Promise<Block | undefined> {
+  const found = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `reader.id="${id.replace(/"/g, "")}"`, subtreeRootId: page.id, limit: 1 } }, BOARD);
+  return found.blocks[0];
+}
+
+/** The block of the book whose highlights belong to a Reader document, on the readwise board. */
+async function bookOf(id: string): Promise<Block | undefined> {
+  const page = await findPage(PAGE);
+  if (!page) return undefined;
+  const found = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: {
+    where: `readwise.external-id="${id.replace(/"/g, "")}" AND readwise.book AND NOT readwise.highlight`, subtreeRootId: page.id, limit: 1 } }, BOARD);
+  return found.blocks[0];
+}
+
+/** The pull found a Reader document's book: the document's block, if it is there, links to it. */
+async function linkDocument(id: string, bookId: string): Promise<void> {
+  const page = await findPage(READER_PAGE);
+  const block = page && await documentBlock(page, id);
+  if (!block) return;
+  const current = await outline<Block>({ action: "get", blockId: block.id }, BOARD);
+  await update(current, withHighlightsLine(current.text, bookId), BOARD);
+}
+
+interface Counts { seen: number; created: number; updated: number; skipped: number }
+
+async function library(): Promise<void> {
+  let page = await readerPage();
+  const props = headerProps(page.text);
+  const synced = props["reader.synced"];
+  const save = async (changes: Record<string, string | null>) => {
+    page = await outline<Block>({ action: "get", blockId: page.id }, BOARD);
+    await update(page, withHeaderProps(page.text, changes), BOARD);
+  };
+  const sweep = props["reader.sweep"] ?? new Date(STARTED).toISOString();
+  let cursor: string | null = props["reader.next-page"] ?? null;
+  const counts: Counts = { seen: 0, created: 0, updated: 0, skipped: 0 };
+  let complete = false;
+  try {
+    for (;;) {
+      const query = new URLSearchParams({ limit: "100" });
+      if (synced) query.set("updatedAfter", synced);
+      if (cursor) query.set("pageCursor", cursor);
+      const { body } = await readwise<{ results: ReaderDoc[]; nextPageCursor?: string | null }>(`/api/v3/list/?${query}`);
+      let finished = true;
+      for (const doc of body.results ?? []) {
+        if (Date.now() > UNTIL - 30_000) { finished = false; break; }
+        // A highlight or a note is a document with a parent: the export brings those.
+        if (doc.parent_id || doc.category === "highlight" || doc.category === "note" || !doc.id) { counts.skipped++; continue; }
+        counts.seen++;
+        const have = await documentBlock(page, doc.id);
+        const book = await bookOf(doc.id);
+        const text = documentText(doc, book?.id);
+        if (!have) {
+          await outline({ action: "create", parentId: page.id, text }, BOARD);
+          counts.created++;
+        } else if (have.text !== text) {
+          await update(have, text, BOARD);
+          counts.updated++;
+        }
+      }
+      if (!finished) break;
+      cursor = body.nextPageCursor ?? null;
+      if (!cursor) { complete = true; break; }
+      if (Date.now() > UNTIL - 30_000) break;
+      await save({ "reader.sweep": sweep, "reader.next-page": cursor });
+    }
+  } catch (error) {
+    if (cursor) await save({ "reader.sweep": sweep, "reader.next-page": cursor }).catch(() => {});
+    throw error;
+  }
+  await save(complete
+    ? { "reader.synced": sweep, "reader.sweep": null, "reader.next-page": null }
+    : { "reader.sweep": sweep, "reader.next-page": cursor });
+  const what = counts.created + counts.updated === 0
+    ? `nothing new in ${counts.seen} document${counts.seen === 1 ? "" : "s"}`
+    : `${counts.created} new, ${counts.updated} changed (of ${counts.seen} documents)`;
+  answer({ message: `library: ${what}${counts.skipped ? `, ${counts.skipped} highlights and notes skipped` : ""}${complete ? "" : "; more next time"}` });
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 
 try {
@@ -554,6 +696,7 @@ try {
     if (!request.input.target?.blockId) answer({ message: "send acts on a note: pick one first" });
     else await send(request.input.target.blockId);
   } else if (request.input.action === "pull") await pull();
+  else if (request.input.action === "library") await library();
   else refuse("invalid-config");
 } catch (error) {
   if (error instanceof Stop) refuse(error.code);

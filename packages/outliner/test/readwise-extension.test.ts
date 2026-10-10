@@ -34,11 +34,19 @@ interface FakeBook {
   asin?: string; highlights: FakeHighlight[];
 }
 
+/** Reader's v3 /list/ document (fictional values). */
+interface FakeDoc {
+  id: string; title?: string; author?: string; source_url?: string; url?: string; category?: string; location?: string; tags?: Record<string, { name: string }>;
+  site_name?: string; word_count?: number; notes?: string; summary?: string; published_date?: string; saved_at?: string; reading_progress?: number;
+  parent_id?: string | null; deleted?: boolean;
+}
+
 /** A made-up Readwise: Reader's save and Readwise's export, as their docs describe them, with a bearer check. */
 function fakeReadwise() {
   const saved: Array<Record<string, unknown>> = [];
   const exports: string[] = [];
-  const state = { pages: [] as FakeBook[][], status: 0, limited: 0 };
+  const lists: string[] = [];
+  const state = { pages: [] as FakeBook[][], docs: [] as FakeDoc[][], status: 0, limited: 0 };
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -52,6 +60,16 @@ function fakeReadwise() {
         if (!already) saved.push(body);
         const id = `doc-${saved.findIndex((doc) => doc.url === body.url) + 1}`;
         return Response.json({ id, url: `https://read.example.invalid/read/${id}` }, { status: already ? 200 : 201 });
+      }
+      if (url.pathname === "/api/v3/list/") {
+        lists.push(url.search);
+        if (state.limited > 0) {
+          state.limited--;
+          return new Response("{}", { status: 429, headers: { "Retry-After": "1" } });
+        }
+        const page = Number(url.searchParams.get("pageCursor") ?? "0");
+        const results = state.docs[page] ?? [];
+        return Response.json({ count: results.length, nextPageCursor: page + 1 < state.docs.length ? String(page + 1) : null, results });
       }
       if (url.pathname === "/api/v2/export/") {
         exports.push(url.search);
@@ -68,7 +86,7 @@ function fakeReadwise() {
     },
   });
   cleanups.push(() => server.stop(true));
-  return { api: `http://127.0.0.1:${server.port}`, saved, exports, state };
+  return { api: `http://127.0.0.1:${server.port}`, saved, exports, lists, state };
 }
 
 /** One request on its own connection, as clients send it. */
@@ -471,4 +489,114 @@ test("a tweet thread reads as a thread: the first tweet under the book, the rest
   const [again] = await find("readwise.compiled=40");
   expect(again!.text.match(/!\(\(/g)).toHaveLength(4);
   expect(await find("readwise.compiled")).toHaveLength(1);
+});
+
+// ── The Reader library ────────────────────────────────────────────────────
+
+const doc = (id: string, extra: Partial<FakeDoc> = {}): FakeDoc => ({
+  id, title: `Doc ${id}`, author: "Cy Placeholder", source_url: `https://blog.example.invalid/${id}`, url: `https://read.example.invalid/${id}`, category: "article",
+  location: "later", tags: { moss: { name: "moss" } }, site_name: "Pond Blog", word_count: 1200, summary: "A made-up summary.", notes: "", published_date: "2026-02-03",
+  saved_at: "2026-03-04T05:06:07+00:00", reading_progress: 0, parent_id: null, ...extra,
+});
+
+test("library: a block per Reader document under the Reader page, with its fields as properties; highlights are skipped; a re-run writes nothing", async () => {
+  const { fake, call, act } = await setup();
+  fake.state.docs = [
+    [doc("d1", { title: "Pond Weather", reading_progress: 0.4, notes: "Read again in spring." }), doc("h1", { category: "highlight", parent_id: "d1", title: "a highlight" })],
+    [doc("d2", { location: "archive", tags: {}, category: "pdf", site_name: undefined }), doc("n1", { category: "note", parent_id: "d1" })],
+  ];
+  fake.state.limited = 1;
+  const first = await act("readwise", "library");
+  expect(first.message).toBe("library: 2 new, 0 changed (of 2 documents), 2 highlights and notes skipped");
+  expect(fake.lists).toHaveLength(3);
+  expect(fake.lists[1]).toContain("limit=100");
+  expect(fake.lists.at(-1)).toContain("pageCursor=1");
+
+  const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks;
+  const [d1] = await find('reader.id="d1"');
+  expect(d1!.text.split("\n")[0]).toBe("Pond Weather");
+  expect(d1!.text.split("\n")[1]).toBe([
+    "[reader.id::d1] [title::Pond Weather] [author::Cy Placeholder] [url::https://blog.example.invalid/d1] [category::article] [location::later] [tags::moss]",
+    "[reading-progress::40] [saved::2026-03-04] [published::2026-02-03] [words::1200] [site::Pond Blog] [reader.url::https://read.example.invalid/d1]",
+  ].join(" "));
+  expect(d1!.text).toEndWith("\n\nA made-up summary.\n\nRead again in spring.");
+  expect(await find("reader.id=h1")).toHaveLength(0);
+  // Finding them, as the README says.
+  expect((await find("location=later")).map((block) => block.text.split("\n")[0])).toEqual(["Pond Weather"]);
+  expect((await find("reading-progress AND NOT location=archive")).map((block) => block.text.split("\n")[0])).toEqual(["Pond Weather"]);
+  expect((await find("site=\"Pond Blog\"")).length).toBe(1);
+  expect((await find("reader.id AND tags=moss")).length).toBe(1);
+
+  // The cursor is on the Reader page, and a second run starts from it and writes nothing.
+  const [page] = await find("page=reader");
+  expect(page!.text).toMatch(/\[reader\.synced::\d{4}-\d\d-\d\dT/);
+  expect(page!.text).not.toContain("reader.next-page");
+  const before = (await find("reader.id")).map((block) => `${block.id}@${block.revision}`).sort();
+  const again = await act("readwise", "library");
+  expect(again.message).toBe("library: nothing new in 2 documents, 2 highlights and notes skipped");
+  expect(fake.lists.at(-1)).toContain("updatedAfter=");
+  fake.state.docs = [[doc("d1", { title: "Pond Weather", reading_progress: 0.4, notes: "Read again in spring." })]];
+  expect((await act("readwise", "library")).message).toBe("library: nothing new in 1 document");
+  expect((await find("reader.id")).map((block) => `${block.id}@${block.revision}`).sort()).toEqual(before);
+});
+
+test("library: a document that moves is updated in place, a deleted one is marked, not removed", async () => {
+  const { fake, call, act } = await setup();
+  fake.state.docs = [[doc("d1", { location: "later" }), doc("d2")]];
+  await act("readwise", "library");
+  const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks;
+  const [before] = await find('reader.id="d1"');
+  fake.state.docs = [[doc("d1", { location: "archive", reading_progress: 1 }), doc("d2", { deleted: true })]];
+  expect((await act("readwise", "library")).message).toBe("library: 0 new, 2 changed (of 2 documents)");
+  expect(await find("reader.id")).toHaveLength(2);
+  const [after] = await find('reader.id="d1"');
+  expect(after!.id).toBe(before!.id);
+  expect(after!.text).toContain("[location::archive]");
+  expect(after!.text).toContain("[reading-progress::100]");
+  expect(after!.text).not.toContain("location::later");
+  expect((await find("reader.deleted=true")).map((block) => block.text.split("\n")[0])).toEqual(["Doc d2"]);
+  expect((await find('reader.id="d2"'))[0]!.text).toContain("[title::Doc d2]");
+});
+
+test("a Reader highlight carries reader.doc, and the document's block links to its book, whichever arrives first", async () => {
+  const { fake, call, act, children } = await setup();
+  const book = (external_id: string): FakeBook => ({
+    user_book_id: 40, title: "Pond Weather", author: "Cy Placeholder", category: "articles", source: "reader", external_id,
+    highlights: [{ id: 901, text: "Rain makes rings." }],
+  });
+  const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks;
+
+  // Highlights first, then the document.
+  fake.state.pages = [[book("d1")]];
+  await act("readwise", "pull");
+  const [highlight] = await find("readwise.highlight=901");
+  expect(highlight!.text).toContain("[reader.doc::d1]");
+  const [home] = await find("readwise.book=40 AND NOT readwise.highlight");
+  fake.state.docs = [[doc("d1", { title: "Pond Weather" })]];
+  await act("readwise", "library");
+  const [d1] = await find('reader.id="d1"');
+  expect(d1!.text.split("\n")[2]).toBe(`Highlights: ((${home!.id}|its highlights))`);
+  expect(d1!.text).toContain("A made-up summary.");
+  expect(await children("readwise", home!.id)).toHaveLength(1);
+
+  // The document first, then its highlights.
+  fake.state.docs = [[doc("d2", { title: "Moss Notes" })]];
+  await act("readwise", "library");
+  const [d2] = await find('reader.id="d2"');
+  expect(d2!.text).not.toContain("Highlights:");
+  fake.state.pages = [[{ ...book("d2"), user_book_id: 41, title: "Moss Notes", highlights: [{ id: 902, text: "Moss is slow." }] }]];
+  await act("readwise", "pull");
+  const [home2] = await find("readwise.book=41 AND NOT readwise.highlight");
+  const [linked2] = await find('reader.id="d2"');
+  expect(linked2!.text.split("\n")[2]).toBe(`Highlights: ((${home2!.id}|its highlights))`);
+  // And the next library run keeps it.
+  fake.state.docs = [[doc("d2", { title: "Moss Notes" })]];
+  expect((await act("readwise", "library")).message).toBe("library: nothing new in 1 document");
+});
+
+test("library: a refused token is refused, not a silent empty library", async () => {
+  const { fake, act } = await setup();
+  fake.state.docs = [[doc("d1")]];
+  fake.state.status = 401;
+  await expect(act("readwise", "library")).rejects.toThrow();
 });
