@@ -20,8 +20,8 @@ The canonical examples ship in [`extensions/`](../../extensions): [moon](../../e
 [jira](../../extensions/jira) (data), [horoscope](../../extensions/horoscope) (inline output),
 [fancy-horror](../../extensions/fancy-horror) (rich component) and [tarot](../../extensions/tarot)
 (a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates), [glyphs](../../extensions/glyphs) (a bar source),
-[done-stamp](../../extensions/done-stamp) (a rule that runs) and [shout](../../extensions/shout) (a rule on a
-text pattern). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
+[done-stamp](../../extensions/done-stamp) (a rule that runs), [shout](../../extensions/shout) (a rule on a
+text pattern) and [runbook](../../extensions/runbook) (actions that run a note's command blocks with a secrets group and record each run). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
 is yours to edit.
 
 Extensions are **trusted code, not a sandbox**, like nvim or Claude Code plugins. They run as the
