@@ -16,6 +16,8 @@ import {
 } from "./publish-attachments";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
+import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
+import { PageAuth, type PageAuthOptions, type PageSite } from "./publish-page-auth";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE } from "./annotations";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
@@ -35,9 +37,11 @@ import type {
 } from "./types";
 
 /**
- * Outline as server: a read-only HTTP publisher for blocks carrying
- * `[publish::…]`. It is a client of the service (blocks.query, files.read, the
- * content event feed) and never writes. See README "Publishing blocks".
+ * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`. It is
+ * a client of the service (blocks.query, files.read, the content event feed). It
+ * writes only one way: marginalia from a rendered page, signed in as the owner
+ * (`<base>/_marginalia/write`, publish-page.ts), through the service's own
+ * annotation and passage-action paths. See README "Publishing blocks".
  */
 
 export const PUBLISH_PROPERTY = "publish";
@@ -130,6 +134,13 @@ export interface PublisherOptions {
    */
   url?: string;
   log?: (line: string) => void;
+  /**
+   * Signing in to mark up a page (PIE-774): Clerk, one allowlisted account (publish-page-auth.ts). Without it pages
+   * still draw their marks and threads, and take no writes.
+   */
+  pageAuth?: Omit<PageAuthOptions, "log">;
+  /** How a person's (the owner's) comments are signed on a page: `OUTLINER_PAGE_NAME`. */
+  personName?: string;
 }
 
 /** What a block's `[publish::…]` asks for: not published, locked, or published (public or tailnet only), maybe at a slug. */
@@ -311,11 +322,16 @@ input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
 ${MARGINALIA_STYLE}`;
 
-function htmlPage(title: string, body: string, nav: string): string {
+/** The reader script on a rendered note's page: where it is, where it reads and writes, and which page this is. */
+interface ReaderTag { src: string; api: string; page: string }
+
+function htmlPage(title: string, body: string, nav: string, reader?: ReaderTag): string {
+  const script = reader ? `<script src="${escapeHtml(reader.src)}" defer></script>` : "";
+  const main = reader ? `<main data-marginalia="${escapeHtml(reader.api)}" data-page="${escapeHtml(reader.page)}">` : "<main>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)}</title><style>${PAGE_STYLE}</style></head>
-<body><main><header class="bar">${nav}</header>
+<title>${escapeHtml(title)}</title><style>${PAGE_STYLE}</style>${script}</head>
+<body>${main}<header class="bar">${nav}</header>
 ${body}
 </main></body></html>
 `;
@@ -329,6 +345,14 @@ const COMMON_HEADERS = {
 /** Pages the publisher renders itself run no script and embed nothing but images. */
 const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 /**
+ * A rendered note's page runs one script, the publisher's own marginalia reader (PIE-774): named by its full URL where
+ * the listener's origin is known (else `'self'`, this origin, where every other response is a document or text sent
+ * with nosniff, never script), and it talks only to this origin. No inline script, no eval, nothing from elsewhere.
+ */
+export function readerCsp(scriptSource: string): string {
+  return `default-src 'none'; script-src ${scriptSource}; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+}
+/**
  * An attached `.html` file runs as authored, but in a sandbox without
  * `allow-same-origin`: its scripts get an opaque origin, so they cannot read
  * other pages on the same host (the tailnet name also serves other mounts) or
@@ -340,8 +364,8 @@ function respond(body: string, contentType: string, status = 200, extra: Record<
   return new Response(body, { status, headers: { ...COMMON_HEADERS, "content-type": contentType, ...extra } });
 }
 
-function renderedHtml(body: string, status = 200): Response {
-  return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": RENDERED_CSP });
+function renderedHtml(body: string, status = 200, csp = RENDERED_CSP): Response {
+  return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": csp });
 }
 
 function notFound(): Response {
@@ -438,6 +462,9 @@ export class Publisher {
   private connected = false;
   /** Advanced by every content change; an index built across a change is not cached. */
   private generation = 0;
+  /** Pages' script polls waiting for the next change. */
+  private waiting = new Set<() => void>();
+  private readonly marginalia: PageMarginalia;
 
   constructor(private readonly options: PublisherOptions) {
     this.client = options.client;
@@ -451,6 +478,56 @@ export class Publisher {
     this.compiler = options.artifactCacheDirectory
       ? new ArtifactCompiler({ cacheDirectory: options.artifactCacheDirectory, log: this.log })
       : null;
+    const auth = options.pageAuth ? new PageAuth({ ...options.pageAuth, log: this.log }) : null;
+    this.marginalia = new PageMarginalia({
+      request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
+      site: (audience) => this.site(audience),
+      view: (slug, audience) => this.view(slug, audience),
+      generation: () => this.generation,
+      changed: (since, ms) => this.changed(since, ms),
+      log: this.log,
+    }, auth, options.personName);
+  }
+
+  /** Where a listener is opened, when the publisher was told (`--public-url` with its origin, `--url`). */
+  site(audience: PublishAudience): PageSite | undefined {
+    if (audience === "public") return this.publicBase.origin ? { origin: this.publicBase.origin, basePath: this.publicBase.basePath, audience } : undefined;
+    const url = this.options.url?.trim();
+    return url ? { origin: new URL(url).origin, basePath: this.basePath, audience } : undefined;
+  }
+
+  /** Resolves at the next content change after `since`, or after `ms`. */
+  private changed(since: number, ms: number): Promise<void> {
+    if (this.generation !== since) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(timer); this.waiting.delete(done); resolve(); };
+      const timer = setTimeout(done, ms);
+      this.waiting.add(done);
+    });
+  }
+
+  /**
+   * A rendered note's page as its marginalia routes need it (publish-page.ts): published for this audience now
+   * (locks and `public` read now), its rows in page order, and the annotations it may show.
+   */
+  private async view(slug: string, audience: PublishAudience): Promise<PageView | undefined> {
+    if (!slug) return undefined;
+    const index = audienceIndex(await this.readIndex(), audience);
+    const entry = index.entries.find((candidate) => candidate.slug === slug) ?? index.entries.find((candidate) => candidate.blockId === slug);
+    if (!entry || entry.type !== "block") return undefined;
+    if ((await this.lockedIds([entry.blockId])).size) return undefined;
+    if (audience === "public" && !(await this.stillPublic(entry.blockId))) return undefined;
+    const whole = await this.client.request<ProjectedBlockCollection>({
+      action: "blocks.query", query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT }, fields: ["text", "parent", "properties", "revision"],
+    });
+    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !isAnnotationBlock(block)) }).filter((row) => !row.locked);
+    const shown = new Set(rows.map((row) => row.block.id));
+    const annotations = new Map(shownSubtree(whole)
+      .filter((row) => !row.locked && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
+      .map((row) => [row.block.id, row.block.parentId!] as const));
+    const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
+    if (!blocks[0]) return undefined;
+    return { root: blocks[0], blocks, annotations };
   }
 
   /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
@@ -578,6 +655,7 @@ export class Publisher {
   private invalidate(): void {
     this.generation += 1;
     this.index = null;
+    for (const wake of [...this.waiting]) wake();
   }
 
   async stop(): Promise<void> {
@@ -650,8 +728,9 @@ export class Publisher {
   }
 
   /**
-   * Answers one HTTP request. Only GET and HEAD; only the index and published
-   * entries. The public audience has no index and sees only public notes.
+   * Answers one HTTP request: GET and HEAD of the index and published entries,
+   * and a page's marginalia routes (`/_marginalia/…`, whose one write needs the
+   * owner's sign-in). The public audience has no index and sees only public notes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet"): Promise<Response> {
     const response = await this.answer(request, audience);
@@ -659,9 +738,6 @@ export class Publisher {
   }
 
   private async answer(request: Request, audience: PublishAudience): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
-    }
     if (!this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
       return respond("Host not allowed\n", "text/plain; charset=utf-8", 421);
     }
@@ -670,6 +746,18 @@ export class Publisher {
     let path = url.pathname;
     if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
       path = path.slice(basePath.length) || "/";
+    }
+    // A page's marginalia: its script, its threads, signing in and the one write route (publish-page.ts).
+    if (path.startsWith(`${PAGE_ROUTE}/`)) {
+      try {
+        return await this.marginalia.handle(request, audience, path.slice(PAGE_ROUTE.length));
+      } catch (error) {
+        this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+        return respond(`${JSON.stringify({ ok: false, error: "the outline could not be reached; try again" })}\n`, "application/json; charset=utf-8", 502);
+      }
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     }
     try {
       // The public listener has no index: a public note is reached by its link alone.
@@ -748,7 +836,13 @@ export class Publisher {
     }
     if (asHtml) {
       const { markdown, marks } = await this.blockMarkdown(entry, index, audience, true);
-      return renderedHtml(this.page(entry, htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks), index, this.basePathFor(audience)), audience));
+      // The marginalia reader: marks and threads for anyone, and the toolbar once the owner signs in (PIE-774).
+      const base = this.basePathFor(audience);
+      const site = this.site(audience);
+      const src = readerScriptPath(base);
+      const reader = { src, api: `${base}${PAGE_ROUTE}`, page: entry.slug };
+      const scriptSource = site ? `${site.origin}${src.replace(/\?.*$/, "")}` : "'self'";
+      return renderedHtml(this.page(entry, htmlViewLinks(drawMarginalia(renderMarkdownHtml(markdown), marks, true), index, base), audience, reader), 200, readerCsp(scriptSource));
     }
     const { markdown } = await this.blockMarkdown(entry, index, audience, false);
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
@@ -774,11 +868,11 @@ export class Publisher {
     return renderedHtml(this.page(entry, body, audience), status);
   }
 
-  private page(entry: PublishedEntry, body: string, audience: PublishAudience): string {
+  private page(entry: PublishedEntry, body: string, audience: PublishAudience, reader?: ReaderTag): string {
     const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
-    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav);
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, reader);
   }
 
   /** Whether the block still says `[publish::public…]` now, not just when the index was built. */
@@ -1402,5 +1496,6 @@ export function renderIndexHtml(index: PublishedIndex, basePath = "", publicHref
  * (Caddy for a custom domain).
  */
 export function servePublisher(publisher: Publisher, port: number, audience: PublishAudience = "tailnet", hostname = "127.0.0.1"): ReturnType<typeof Bun.serve> {
-  return Bun.serve({ hostname, port, fetch: (request) => publisher.handle(request, audience) });
+  // A page's threads wait up to 20 s for a change (publish-page.ts): the idle limit leaves room for that.
+  return Bun.serve({ hostname, port, idleTimeout: 30, fetch: (request) => publisher.handle(request, audience) });
 }

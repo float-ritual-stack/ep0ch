@@ -46,6 +46,7 @@
         "callscript": "^0.1.0",
         "diff": "8.0.4",
         "entities": "8.1.0",
+        "jose": "6.2.12",
         "marked": "18.0.5",
         "pdfjs-dist": "^6.3.289",
         "typebox": "^1.0.44",
