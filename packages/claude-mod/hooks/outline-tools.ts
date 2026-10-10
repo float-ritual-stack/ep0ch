@@ -266,7 +266,9 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       'default) has outline_edit\'s guard (allowStructural likewise); `prose` keeps every link, anchor and property. ' +
       'If the note was saved since you read it, the patch applies on the newer text when every observed span is still there ' +
       'once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it becomes one proposal for the ' +
-      'person (outcome: proposed) when a span is gone, changed or ambiguous, when the note is open in a draft, or when prose refuses.',
+      'person (outcome: proposed) when a span is gone, changed or ambiguous, when the note is open in a draft, or when prose refuses. ' +
+      'A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open ' +
+      'returns that proposal (deduped: true) instead of a second copy.',
     inputSchema: schema({
       ref: REF,
       revision: EXPECTED,

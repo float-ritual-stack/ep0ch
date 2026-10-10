@@ -212,6 +212,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "proposals", need: "show what an agent proposed when its patch lost a race, beside the note it targets, and apply or dismiss it", part: "the proposal beside its note (PIE-725): a patch that doesn't apply is a proposal block under the note, never a line in its text, so the note's revision stays and the next writer doesn't lose too; the service lists the open ones with the line each follows (draft.proposals.list), the reader draws each as an embed of it there (proposalsBeside, the embed's [apply] [dismiss], A, X: proposal.apply, proposal.dismiss), and the same open patch from the same agent is returned again (deduped: true)", files: "outliner src/draft-patch-router.ts (propose, proposalsBeside), src/embeds.ts (proposalsBeside), src/surface/note.ts (besideRegions), outliner src/detail-embeds.ts",
+    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's is the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway or X dismisses it (an agent dismisses only its own) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts)",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · proposals", panes: [r], names: ["guide"] }, show, [[r, n.race]]);
+    },
+  },
+  {
     key: "undo", need: "copy text out of a draft; undo and redo anything typed or pasted, a big paste in one step", part: "the draft's one history (Draft.undos and redos behind draft.undo, ctrl+z, and draft.redo, ctrl+y or ctrl+shift+z: typing a word at a time, a paste or an agent's patch one step each, carried past a save when the note is opened again unchanged) and its copy (draft.copy: copy on select, a double click's word, shift+click and shift+arrows, cmd+c, alt+c, the frame's [copy]; OSC 52 through App.copy)", files: "src/edit.ts, src/surface/editor.ts, src/surface/note.ts, src/draft-session.ts, src/term.ts",
     aside: "the edit has a whole pantry list pasted into it by mistake: one step, said on the status line (pasted 42 lines · ctrl+z undoes) · ctrl+z takes it back, ctrl+y puts it back · the first line's [page::…] is selected: let go of a drag (or double-click a word, shift+click, shift+arrows then cmd+c or alt+c, or the frame's [copy]) and it's on your clipboard, \"copied N chars\" · an agent's draft.copy only returns the text, never your clipboard · the note has an earlier revision: the tile menu's \"an earlier revision\" (revision.restore) puts it in the edit, ctrl+s saves it, ctrl+z takes it back; `ep0ch revisions <id>` lists them from a shell",
     stage(n, show) {

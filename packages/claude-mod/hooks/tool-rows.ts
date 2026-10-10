@@ -213,7 +213,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       const change = [`patched ${patches.length === 1 ? quoted(String(patches[0]!.observed ?? '')) : `${patches.length} spans`}`]
       let warning: string | undefined
       if (out?.outcome === 'applied') change.push(Array.isArray(out.edits) && recordOf(out.edits[0])?.route === 'draft' ? 'applied to the live draft' : 'applied')
-      if (out?.outcome === 'proposed') warning = `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
+      if (out?.outcome === 'proposed') warning = out.deduped === true ? 'already proposed: your same patch is still open beside the note' : `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
       const detail = fenced(patches.map(p => [...lines(String(p.observed ?? '')).map(l => `-${l}`), ...lines(String(p.replacement ?? '')).map(l => `+${l}`)].join('\n')).join('\n'), 'diff')
       return { kind: 'write', glyph: '✎', target, change, ...(warning ? { warning } : {}), detail }
     }
@@ -224,7 +224,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       let warning: string | undefined
       if (out?.outcome === 'unchanged') change.push('(no change)')
       if (out?.outcome === 'applied') change.push(Array.isArray(out.edits) && recordOf(out.edits[0])?.route === 'draft' ? 'applied to the live draft' : 'applied')
-      if (out?.outcome === 'proposed') warning = `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
+      if (out?.outcome === 'proposed') warning = out.deduped === true ? 'already proposed: your same patch is still open beside the note' : `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
       return { kind: 'write', glyph: '✎', target, change, ...(warning ? { warning } : {}) }
     }
     case 'outline_assign_id': {
@@ -449,7 +449,7 @@ export function toolResultLineOf(tool: string, output: unknown, isErrored: boole
   if ((READ_TOOLS as readonly string[]).includes(name)) return ''
   const out = outputJsonOf(output)
   if (!out) return null
-  if (out.outcome === 'proposed') return `proposed: ${clip(String(out.reason ?? ''), 80)}`
+  if (out.outcome === 'proposed') return out.deduped === true ? 'already proposed (deduped)' : `proposed: ${clip(String(out.reason ?? ''), 80)}`
   if (out.outcome === 'applied') return '✓ applied'
   if (typeof out.revision === 'number') return `✓ rev ${out.revision}`
   if (typeof out.reply === 'string') return '✓ replied'

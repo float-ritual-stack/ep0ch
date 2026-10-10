@@ -1665,13 +1665,19 @@ drafts already patched.
 
 **Proposals.** Only a failed compare (the note changed, the passage isn't there,
 the cursor is in it) or a `prose` refusal becomes a proposal: one reply block,
-however many changes it holds, embedded under the mark (the `@request` line) or
-the note, with its payload in a hidden, capped `[draft-patch::…]` property
+however many changes it holds, a child of the note it targets (PIE-725). It is
+never written into the note's text, so the note's text and revision stay and a
+later edit near there doesn't lose too; `draft.proposals.list` names the open
+ones beside a note and the line each is drawn after (the mark, the `@request`
+line, else the last), and the door's reader and Detail draw each as an embed
+there. The same open patch from the same actor (same notes, passages,
+replacements and mark) returns that proposal with `deduped: true` instead of a
+second one. Its payload is in a hidden, capped `[draft-patch::…]` property
 (`proposalText`). `draft.proposal.apply` applies it anyway: forced for the
 person, the same compare as a patch for an agent, and only what the proposal's
 text shows. Writes are `author: agent` with the agent's actor id.
-`draft.proposal.dismiss` takes the proposal's embed line out of the note (or the
-live draft), marks it `[proposal-status::dismissed]` and trashes it; an agent
+`draft.proposal.dismiss` marks it `[proposal-status::dismissed]` and trashes it
+(and takes an older proposal's embed line out of the note, or the live draft); an agent
 dismisses only its own. A proposal is applied or dismissed once (a claim), and
 one whose passage was already gone or sits at or below the mark carries
 `[proposal-applies::no]`, so clients offer only dismiss. An `@name` request's

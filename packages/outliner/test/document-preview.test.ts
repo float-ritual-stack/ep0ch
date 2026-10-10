@@ -94,7 +94,8 @@ test('Preview follows rendered links without writes, restores history and opens 
  await reader.action('preview.back',open);expect(reader.state?.offset).toBe(3);expect(reader.state?.target).toEqual({kind:'block',blockId:a});
  await reader.key({name:'right',meta:true},60,17,open);expect(reader.state?.target).toEqual({kind:'block',blockId:b});
  await reader.load({kind:'block',blockId:a});await reader.action('preview.back',open);expect(reader.state?.target).toEqual({kind:'block',blockId:a});
- expect(requests.every(action=>action==='get'||action==='references.resolve'||action==='annotations.list')).toBe(true);
+ // Reads only: the note, its links, its threads and the proposals beside it (PIE-725, after the protocol check).
+ expect(requests.every(action=>action==='get'||action==='references.resolve'||action==='annotations.list'||action==='ping'||action==='draft.proposals.list')).toBe(true);
 });
 
 test('Preview link labels use their own display columns, including wide and combining glyphs',async()=>{

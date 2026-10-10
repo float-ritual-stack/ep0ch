@@ -643,11 +643,13 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   lit for a moment (`@tidy · just now`) and is one step of the draft's one history (`draft.undo`, ctrl+z; `draft.redo`, ctrl+y). The draft's writers
   gain the agent, so the person's save names it. `peek` shows it: `editing.held`, `editing.cursor`,
   `editing.patches`, `editing.lit`.
-- **A failed compare changes nothing.** The service keeps the proposal as a reply block under the note,
-  attributed to the agent, and embeds it (`!((id))`) under the mark, in the draft when one is held;
+- **A failed compare changes nothing.** The service keeps the proposal as a block beside the note (a child of it),
+  attributed to the agent, never in the note's text or the draft (PIE-725); the reader draws it under the mark, or
+  after the note's last line (`draft.proposals.list`). The same open patch sent again by the same agent returns
+  that proposal (`deduped: true`), not a second one;
   `proposal.apply` (`A`, `[apply]`) applies it anyway, as an ordinary edit by whoever runs it;
-  `proposal.dismiss` (`X`, `[dismiss]`) asks the service (`draft.proposal.dismiss`) to take its embed line out of
-  the note (or the draft of it being written), mark it dismissed and put it in Trash. A proposal whose passage was
+  `proposal.dismiss` (`X`, `[dismiss]`) asks the service (`draft.proposal.dismiss`) to mark it dismissed and put it
+  in Trash (and to take an older proposal's embed line out of the note, or the draft of it being written). A proposal whose passage was
   already gone, or reached the mark, when it was proposed carries `[proposal-applies::no]`: it offers only
   `[dismiss]`, and `A` says why. The person's apply is forced (placed by its passage wherever it is now, still
   above the mark; a changed passage is refused, never guessed); an agent's is held to the same compare as a patch, under the policy its
