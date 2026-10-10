@@ -1771,8 +1771,10 @@ export interface ComputedExecutionResult {
 /**
  * Any request may name its outline: the outline host routes the connection by
  * its first line's `outline`, and a later line naming another outline is refused.
+ * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
+ * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string };
 
 export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
@@ -2212,6 +2214,8 @@ export type OutlinerRequestAction =
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
    */
   | { id: string; action: "extensions.bar"; extension: string; source: string; query: string; near?: string; limit?: number }
+  /** Runs one of an extension's schedules now (PIE-754): `entry` is `action:<id>` or `handler:<key>`; recorded as any run. */
+  | { id: string; action: "extensions.schedule.run"; extension: string; entry: string }
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */

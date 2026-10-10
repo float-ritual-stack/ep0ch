@@ -27,8 +27,10 @@ is yours to edit.
 Extensions are **trusted code, not a sandbox**, like nvim or Claude Code plugins. They run as the
 service user. What keeps the outline safe is the contract below: a call gets a bounded, read-only
 view of the outline and no database handle; every write it makes goes back through the service,
-which checks revisions, keeps it inside the block it acts on, and attributes it
-(`author: agent`, `actorId: ext:<id>`), so every surface shows who wrote it.
+which checks revisions, routes an edit through a door's live draft (a proposal while the person types), and
+attributes it (`author: agent`, `actorId: ext:<id>`), so every surface shows who wrote it. Since PIE-754 the
+limit is attribution, not place: an extension may write anywhere in the outlines its host serves
+([Extensions as programs](#extensions-as-programs)).
 
 `ext:<id>` is reserved: only the service's extension runtime writes as an extension. A client's
 write that names an `ext:` actor anywhere it says who writes (`mutation`, `provenance`) is refused,
@@ -147,15 +149,20 @@ extensions/horoscope/
 ```
 
 Secrets are references, resolved on the service host at call time: `{"env": "NAME"}`,
-`{"keychainService": "…"}` (macOS) or `{"file": "~/.config/…/token"}` (mode 0600). The values reach
-the program only on stdin, and are scrubbed from what it returns. `"enabled": false` keeps the folder
+`{"keychainService": "…"}` (macOS), `{"file": "~/.config/…/token"}` (mode 0600), or a `with-secrets`
+group's key, `{"group": "readwise", "key": "READWISE_TOKEN"}` (PIE-754, [below](#secrets-by-with-secrets-group)).
+A manifest's `secrets` may name the group itself (`"token": { "group": "readwise", "key": "READWISE_TOKEN",
+"description": "…" }`), so a fresh install needs no `config.json`. The values reach the program on stdin
+(`credentials`; a group key also as its own variable), and are scrubbed from what it returns. `"enabled": false` keeps the folder
 but serves nothing.
 
 ## The wire
 
 One process per call. The service writes one JSON request to stdin and reads one JSON response
 from stdout, then the process exits (its whole process group is killed at the deadline). The
-environment is only `PATH` and `LANG`; the working directory is the extension's folder.
+environment is `PATH`, `LANG`, `OUTLINER_EXTENSION` (its id), its connection to the service (`EP0CH_SOCKET`,
+`EP0CH_WS`, `EP0CH_EXT_GRANT`: [Extensions as programs](#a-connection-to-the-service)) and the with-secrets keys its
+manifest names, nothing else of the host's; the working directory is the extension's folder.
 
 ```json
 { "contract": 2, "operation": "run", "input": { … }, "config": { … }, "credentials": { … } }
@@ -172,12 +179,12 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 
 | Operation | Called for | `input` | `value` |
 |---|---|---|---|
-| `read` | a data handler | `{ handler, key, options, context }` | `{ record: { title, fields: [{ key, value }], body } }` |
+| `read` | a data handler | `{ handler, key, options, context }` | `{ record: { title, fields: [{ key, value }], body } }`, or a collection: `{ record?, records: [{ key, title, fields, body }], complete? }` |
 | `run` | an output or component handler | `{ handler, argument, options, context }` | output: `{ markdown, title? }`; component: `{ data, view, targets?, title? }` |
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
-| `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context?, output? }` | `{ message?, writes?: [...] }` |
-| `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }` |
+| `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
+| `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }` |
 | `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -393,10 +400,10 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `badge` | `label`, `tone?` |
 | `stat` | `label`, `value` (number or text), `unit?`, `tone?` |
 | `bar` | `label`, `value`, `max`, `tone?` |
-| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id per row, or null: Enter or a click opens it) |
+| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id or a [Resource ref](#opening-a-resource) per row, or null: Enter or a click opens it) |
 | `checklist` | `items: [{ label, done }]` |
 | `sparkline` | `label?`, `values` |
-| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id), `children?` |
+| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)), `children?` |
 | `box` | `title?`, `children` |
 | `stack`, `row` | `children` (top to bottom; side by side) |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
@@ -587,7 +594,9 @@ actions yet; `r` is its path today.
 
 - `on`: `block` (any block; the default), `handler:<key>` (a line of that handler: the request
   names the block, and the line when there are several), `tile:<kind>` (needs no block), `bar` (a
-  bar source's row runs it: no block, the row's `args`), or `passage` (below).
+  bar source's row runs it: no block, the row's `args`), `outline` (no block: the outline as a whole, what a
+  [schedule](#a-schedule) runs; `ext act <id> <action>` and the door's `act ext.<id>.<action>` need no `block=`), or
+  `passage` (below).
 - **`on: "passage"`** (ADR 0004 contract 5): it acts on an exact span of a block's or a Resource's text. The request
   carries `passage: { subject, revision, quote, start, end, prefix, suffix }` (`subject` a block id or
   `resource:<id>`; outline-core `passage.ts` builds one: `passageAt`, `findPassage`). The service checks it before
@@ -601,13 +610,17 @@ actions yet; `r` is its path today.
   only blocks.
 - `act` may also return `copy`: text for the person's clipboard (copy with a citation). A client copies it for the
   person; an agent gets it back and the person's clipboard is untouched.
+- `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
+  `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
+  it must be); `outliner ext act` prints `open <ref>`.
 - `effects`: `read` (the default) answers only; `write` may return writes.
 - `act` returns `{ message?, writes? }`. Writes are
   `{ "op": "create", "parentId", "text" }` or `{ "op": "update", "blockId", "expectedRevision", "text" }`,
   at most 20; an action on a passage may also write `{ "op": "annotate", "body"?, "properties"? }`, an annotation on
   the passage (ADR 0004 contract 6): no body is a highlight; `properties` are open (`kind`, `tags`, `color` as a theme
-  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They must stay inside the block the action acts on; they apply together or not at
-  all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
+  tone: `default`, `good`, `warn`, `bad`, `dim`, `accent`, never a raw colour, or any key). They may land anywhere in
+  the outline (PIE-754; a record an extension keeps is its sync's alone, so an update to one is refused); they apply
+  together or not at all; each is `author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed.
   After an action on a `read` handler's line writes, that line runs again before the answer comes back.
 - **An update is an agent's edit.** It is revision-checked against the saved note, then applied
   through `draft.patch` with the `edit` policy, as an `@agent`'s edit is: only the changed lines are
@@ -616,7 +629,8 @@ actions yet; `r` is its path today.
   error says what it would drop). When the person is typing in that passage it becomes a proposal
   (`proposalId` in the answer) and the action's other writes aren't made; its `message` says so.
 - **A created block's text is inert BlockDown**: a `key::` line or `[key::value]` in it stays words,
-  not a property, and terminal escapes go. No write may add an `@name` request line (extensions
+  not a property, and terminal escapes go. (A block the extension's process creates over its
+  [connection](#a-connection-to-the-service) is a normal write, properties and all, as an agent's is.) No write may add an `@name` request line (extensions
   can't ask agents).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
@@ -646,7 +660,8 @@ already has.
   calls it, so only a quick source should.
 - **The `bar` operation** gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
   front of the person as `context` (bounded and read-only, as an action's). It returns `{ rows }`, at most 50:
-  `{ id, label, detail?, preview?, block?, action?, args?, copy? }`.
+  `{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }` (`resource`: a
+  [Resource ref](#opening-a-resource), opened in place of a block).
   - `preview` is Markdown the client draws with its own renderer beside the list;
   - picking a row opens its `block` where opens land, runs its `action` through `extensions.act` (one of the
     extension's own, `on: bar` or `on: block` with the row's `block`; its `args` passed on, its writes attributed
@@ -801,6 +816,166 @@ same action with no tile open.
 [tarot](../../extensions/tarot) is the canonical one; its README shows the program's key loop and
 socket call.
 
+## Extensions as programs
+
+An extension is a program (PIE-754), not only something a line or a key calls: it can run on a schedule, reach the
+outline over its own connection, write anywhere its host serves, read a `with-secrets` key, and keep a collection.
+[almanac](../../extensions/almanac) is the example: every morning it writes a dated note under the `almanac` page.
+
+### A schedule
+
+A handler or an action may declare `schedule`: `{ "every": "15m" }` (at least `1m`) or `{ "cron": "5 6 * * *" }`
+(five fields, the host's local time). The service runs it and records every run.
+
+```json
+"actions": [{ "id": "write-day", "label": "Write today's almanac", "on": "outline", "effects": "write",
+              "schedule": { "cron": "5 6 * * *" } }]
+```
+
+- **A scheduled action** acts on the outline (`"on": "outline"`, no block; a schedule on any other action is refused
+  when the folder loads). It runs through `extensions.act` with `scheduled: { at, every | cron }` in its input and
+  `context: { now }`. No one asked, so its writes carry no `requestedBy`.
+- **A scheduled data handler** fetches again every key the outline asks it for (Jira's `pollEvery`, for any data
+  handler). **An output or component handler** runs again every line of it in the outline.
+- **When.** An `every` schedule first runs one interval after it's first seen; a cron at its next match (a cron that
+  never matches, `0 0 31 2 *`, is refused when the folder loads). A run missed while the host was down runs once when
+  it comes back, not once per miss. One run of an entry at a time, and an action on the outline runs one at a time
+  whoever asks (its schedule, a person, an agent), so "is today's note there? then write it" never races itself.
+- **Per outline.** Runs are per outline, like everything an extension does. A folder in an outline's `extensions/`
+  runs there; one in the user folder serves every outline the host opens, so its schedule runs in each (`EP0CH_WS`
+  says which). Put a scheduled extension in the outline it belongs to.
+- **The record.** Each run's time, result and message (or error) is kept beside the outline
+  (`extension-schedules.json` in its folder), so a restart keeps it. `extensions.list` gives each extension's
+  `schedules: [{ entry: "action:write-day", cron, next, running?, last?: { at, ok, message?, error?, ms } }]`;
+  `ep0ch ext ls` prints `schedule action:write-day (cron 5 6 * * *): next … ; last … ok: …`; the door's
+  extensions list (the showcase's `extensions` section) shows the same.
+- **Run it now:** `ep0ch ext run almanac action:write-day` (`extensions.schedule.run { extension, entry }`), recorded
+  like any run. A scheduled action is also an ordinary action: `ep0ch ext act almanac write-day`, or the door's
+  `act ext.almanac.write-day`.
+
+### A connection to the service
+
+Every process the service starts for an extension (a handler, an action, a rule, a bar source, an agent) gets:
+
+| Variable | What |
+|---|---|
+| `EP0CH_SOCKET` | where the service listens (the outline host's socket) |
+| `EP0CH_WS` | the outline it runs for |
+| `EP0CH_EXT_GRANT` | who it is: a token valid while this process runs, revoked when it ends |
+| `OUTLINER_EXTENSION` | its id |
+
+A request that carries the grant (`"grant": "<EP0CH_EXT_GRANT>"`) is the extension's: what it writes is
+`author: agent`, `actorId: ext:<id>`, under `ext.<id>.<action>` in the change feed, with `requestedBy` the person or
+agent who asked for the run (none for a scheduled one). Without the grant `ext:<id>` stays reserved, and a grant from
+a process that ended is refused. Copy [almanac's `outline.ts`](../../extensions/almanac/outline.ts) into your folder:
+
+```ts
+import { outline } from "./outline";
+const home = await outline<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: "almanac" });
+const note = await outline({ action: "create", parentId: home.block!.id, text: "Almanac for 2026-10-09 [type::almanac]" });
+await outline({ action: "get", blockId: "…" }, "another-outline");   // any outline the host serves, by name
+```
+
+One request per connection: a JSON line out (`{ id, outline?, grant, action, … }`), a JSON line back
+(`{ ok, result | error }`).
+
+### Writes anywhere, through the normal paths
+
+Over its connection an extension may **read** (`get`, `children`, `pages.resolve`, `blocks.query`, `tree.search`,
+`annotations.list`, `changes.since`, …) and **write** through the paths a person's or an agent's writes take:
+
+| Write | Request | What holds |
+|---|---|---|
+| create | `create { parentId, text }` | a normal block: properties and all, as an agent's |
+| update | `update { blockId, expectedRevision, text }` | revision-checked, then a `draft.patch` under the `edit` policy: a door's live draft gets it, and while the person types in that passage it becomes a proposal (the answer is `draft.patch`'s: `{ outcome: "applied" \| "proposed", proposalId? }`); the guard refuses one that drops a `[page::…]` or a linked `^anchor` |
+| edit | `draft.patch { edits \| blockId, revision, patches }` | the same guard |
+| comment, annotate | `annotations.batch` (a `block-comment` on a `passage`), `annotations.create`, `annotations.reply` | an annotation with `properties` (`kind`, `tags`, `color`, any key), its source an agent's |
+
+- **Only a call that may write writes**: an action with `effects: "write"` (or a handler with `effects: "write"`).
+  Every other call's connection reads only, as its answer may, and a write from it is refused saying so.
+- **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
+- **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
+  it writes waits for a person's `r`.
+- Anything else (moving, deleting, settings, `extensions.act`) is refused with what it may do.
+- An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
+  host serves (name it with `outline`).
+
+### Secrets by with-secrets group
+
+```json
+"secrets": { "token": { "group": "readwise", "key": "READWISE_TOKEN", "description": "Readwise access token" } }
+```
+
+When a call starts the service reads `~/.config/secrets/readwise.env` (`WITH_SECRETS_DIR` moves the folder, as for
+`with-secrets`; on macOS a group with no file falls back to the Keychain the way `with-secrets` does) and passes that
+one key to that extension's process only: as `credentials.token` on stdin and as `READWISE_TOKEN` in its environment.
+The rest of the group never reaches it, no other extension gets it, it's never logged, stored in the outline or
+returned (the answer is scrubbed). A group file others can read is refused (`run: chmod 600 …`); a missing key says
+`with-secrets --add readwise READWISE_TOKEN`. The service itself never runs under `with-secrets`.
+
+### Collections
+
+A data handler's `read` may answer many records, keyed by the extension's own ids (a library of highlights):
+
+```json
+{ "record": { "title": "Readwise highlights", "fields": [], "body": "" },
+  "records": [{ "key": "hl-1043", "title": "On herons", "fields": [{ "key": "book", "value": "Pond Days" }], "body": "…" }],
+  "complete": false }
+```
+
+- The line's record (`readwise:: highlights`) is the collection's block; each record is a block under it the
+  extension owns, `[readwise.key::hl-1043]` and its fields as properties, queryable like any.
+- **Idempotent.** A key written again updates its own block, and an unchanged one isn't written. New keys go last.
+- `complete: true` says the list is the whole collection: a member it no longer names goes to Trash (restorable, and
+  back with what's on it when named again). Without it, members are only added and updated, for a sync that fetches
+  what changed since.
+- At most 500 records an answer; two with one key refuse the whole answer. A scheduled handler (above) keeps it
+  fresh.
+
+### Opening a Resource
+
+Where a view, a bar row or an action answer names something to open, it may name a Resource instead of a block, by a
+**Resource ref** (outline-core `resource-ref.ts`): `file:/absolute/path`, `web:https://…` or `resource:<id>`.
+
+- A bar row's `resource`; a table's `links` and a card's `link`; an action's `open`.
+- The door opens it the way the links tile opens a Resource row: registered first when it isn't yet, then its
+  stored text shown as a note, where opens land (`act open resource=<ref>`).
+- A bad ref is refused with why (`file: takes an absolute path`). A `[file::…]` token in a block an action returns is
+  inert words; write it over the connection, or link it from a view, to make it something to open.
+
+## ADR 0004: what has shipped
+
+The kernel contracts of [ADR 0004](../../../../docs/adr/0004-kernel-contracts.md), kept current with each slice.
+
+| Contract | Slice | State | Where |
+|---|---|---|---|
+| 1. A component's query input: `this`, `linkedfrom:`, `parent:`, groups, facets, watched questions | PIE-745 | shipped | `blocks.query`, `queries.changed` |
+| 1. `::links` answered whole (`components.answer`) | PIE-746 | not yet | |
+| 2. Presets | PIE-746 | not yet | |
+| 3. The `list` primitive, component ids | PIE-747 | not yet | |
+| 1. A handler declares a question | PIE-748 | not yet | this README's first "Not yet" |
+| 1. Live figures' data from the service, `expand` on reads | PIE-749 | not yet | |
+| 4. One source row contract, `sources[]`, contract 3 | PIE-750 | not yet (manifests are contract 2) | |
+| 5. The passage target | PIE-751 | shipped | [`on: "passage"`](#actions) |
+| 6. Highlights and margin notes, annotation properties | PIE-753 | shipped | `annotate` writes, `properties` on annotations |
+| Extensions as programs (not in 0004: schedule, connection, writes anywhere, group secrets, collections, Resource refs) | PIE-754 | shipped | [above](#extensions-as-programs) |
+
+### The cold-start gap list
+
+The first fresh agent to build a real extension from these docs (the Readwise extension, PIE-743, Oct 9) stopped on
+these. Each is closed here or tracked:
+
+| Gap | Now |
+|---|---|
+| Annotation properties on the wire (`kind=highlight`, `source=readwise`) | shipped, PIE-753: `properties` on `annotations.*` and `annotate` writes |
+| The passage target: an extension can't write an annotation at a passage | shipped, PIE-751: `on: "passage"`, and over the connection a `block-comment` with a `passage` |
+| Action writes only inside the acted block | gone, PIE-754: [anywhere](#writes-anywhere-through-the-normal-paths) |
+| The process gets only `PATH` and `LANG`, no socket | PIE-754: [a connection](#a-connection-to-the-service) |
+| No schedule (`pollEvery` is Jira's) | PIE-754: [`schedule`](#a-schedule) on any handler or action |
+| No writes to the notes documents came from, or to another outline | PIE-754: by `outline` over the connection |
+| `with-secrets` groups as a secret reference | PIE-754: [`{ group, key }`](#secrets-by-with-secrets-group) |
+| (kitty, lego night) A Resource can be listed but not opened; an action can't say what to open | PIE-754: [Resource refs](#opening-a-resource) and `open` |
+
 ## `extensions.list`
 
 ```json
@@ -813,7 +988,8 @@ socket call.
     "handlers": [{ "key": "horoscope", "kind": "output", "effects": "read", "argument": { … }, "options": { … }, "staleAfter": "1h" }],
     "actions": [{ "id": "keep", "name": "ext.horoscope.keep", "builtIn": true, … }],
     "tiles": [],
-    "bar": []
+    "bar": [],
+    "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }]
   }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],

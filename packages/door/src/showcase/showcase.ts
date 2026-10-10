@@ -502,7 +502,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "extensions", need: "bind an extension the service runs, and draw a rich component's view", part: "the extension binding: extensions.list read at start and on every extensions event; handler lines and @name requests drawn by extensionRegion (a component through primitiveLines), their actions ext.* in EXT_ACTIONS (the line's key, a click on its control, act), tile kinds through serviceKind (^W o T for tarot)", files: "src/extensions.ts, src/components.ts, src/projection.ts, src/desk/tile-kinds.ts",
-    aside: "the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
+    aside: "the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy, and almanac: a scheduled program whose ext.almanac.write-day, by act or at 06:05, writes a dated note under the Almanac page over its own connection, as ext:almanac), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
     stage(n, show) {
       // What the service's list bound, drawn the way a service tile is: each extension, what it answers, its actions' keys.
       const list = serviceKind({
@@ -515,6 +515,9 @@ export const SECTIONS: Section[] = [
               ...e.handlers.map(h => `  ${fg(C.grey)}${h.key}:: ${fg(C.dark)}${h.kind}${RESET}`),
               ...(e.agents ?? []).map(a => `  ${fg(C.grey)}@${a.name} ${fg(C.dark)}agent${RESET}`),
               ...e.actions.map(a => `  ${fg(C.white)}${a.name}${RESET}${a.key ? ` ${fg(C.dark)}${a.key}${RESET}` : ""}`),
+              // Its schedules (PIE-754): when each runs, when next, and what the last run did.
+              ...(e.schedules ?? []).flatMap(x => [`  ${fg(C.grey)}schedule ${x.entry} ${fg(C.dark)}${x.every ? `every ${x.every}` : `cron ${x.cron}`}${RESET}`,
+                `    ${fg(C.dark)}${x.running ? "running · " : ""}${x.last ? `last ${x.last.ok ? x.last.message ?? "ok" : `failed: ${x.last.error ?? ""}`}` : "not run yet"} · next ${x.next.slice(0, 16).replace("T", " ")}${RESET}`]),
             ]).concat(l.tileKinds.map(t => `${fg(C.lcyan)}${t.kind}${RESET} ${fg(C.dark)}tile kind${RESET}`));
           return { title: "extensions", lines: rows.map(x => x.slice(0, req.cols + 40)) };
         },

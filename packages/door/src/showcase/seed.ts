@@ -11,7 +11,7 @@ import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { installExamples, installTickets, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -35,6 +35,7 @@ export const SEED = {
   errand: "Seed order for the plot",
   tickets: "Depot supplier call about ACME-12",
   omens: "Omens for the allotment week",
+  almanac: "Almanac",
   brief: "Daily brief — 2026-03-11",
   briefBefore: "Daily brief — 2026-03-10",
   callouts: "Callouts, as Obsidian writes them",
@@ -863,6 +864,14 @@ const OMENS = [
  * `## ` headings drawn as bands by a rule note under it (no code), and a line `shout` draws as a band in its place.
  * Under it, the rule note and a job `done-stamp` stamps when its status becomes done.
  */
+/** Where the almanac extension writes each morning's note (ext.almanac.write-day, by act or on its 06:05 schedule). */
+const ALMANAC = [
+  `${SEED.almanac} [page::almanac]`,
+  "",
+  "Each morning at 06:05 the almanac extension writes a dated note here, as ext:almanac, over its own connection to the",
+  "service. Run it now: act ext.almanac.write-day (once a day; again says it's there).",
+].join("\n");
+
 const RULES_NOTE = [
   `${SEED.rules} [type::meeting] [when::Sat 10:00] [where::the shed] [attendees::Ann, Bo, Cy]`,
   "",
@@ -1069,6 +1078,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const examples = !!opts.ticketsConfig && !!opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length > 0;
   if (examples) await board.listExtensions(true);
   notes.omens = await make(notes.root.id, OMENS);
+  // The page almanac (a scheduled program, PIE-754) writes its dated notes under: somewhere other than any note it's asked about.
+  notes.almanac = await make(notes.root.id, ALMANAC);
   // @tidy answers once the note is quiet: wait for it (10 s at most), so the door opens on the tidied note.
   if (examples) {
     const end = Date.now() + 10_000;
@@ -1083,7 +1094,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, RULE_EXAMPLES).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
   }

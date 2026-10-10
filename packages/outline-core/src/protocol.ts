@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 129;
+export const PROTOCOL = 130;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -307,6 +307,8 @@ export interface ExtensionBarRow {
   readonly detail?: string;
   readonly preview?: string;
   readonly block?: string;
+  /** A Resource to open when picked (PIE-754): `file:/path`, `web:https://…` or `resource:<id>` (outline-core resource-ref.ts). */
+  readonly resource?: string;
   readonly action?: string;
   readonly args?: Readonly<Record<string, string>>;
   readonly copy?: string;

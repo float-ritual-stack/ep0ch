@@ -186,6 +186,11 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
     ];
     lines.push(`${entry.id}\t${entry.state}\t${entry.origin}${entry.version !== undefined ? `\tv${entry.version}` : ""}\t${entry.directory}`);
     if (what.length) lines.push(`  serves ${what.join(", ")}`);
+    // Its schedules (PIE-754): when each runs, when next, and what the last run did.
+    for (const schedule of entry.schedules ?? []) {
+      const last = schedule.last ? `; last ${schedule.last.at} ${schedule.last.ok ? `ok${schedule.last.message ? `: ${schedule.last.message}` : ""}` : `failed: ${schedule.last.error ?? ""}`}` : "; not run yet";
+      lines.push(`  schedule ${schedule.entry} (${schedule.every ? `every ${schedule.every}` : `cron ${schedule.cron}`}): next ${schedule.next}${schedule.running ? ", running now" : ""}${last}`);
+    }
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
   lines.push(list.trust);
@@ -219,6 +224,7 @@ const USAGE = `usage: outliner ext ls
        outliner ext add <name|path> [--outline-folder <outline root>]
        outliner ext remove <name> [--outline-folder <outline root>]
        outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
+       outliner ext run <name> <action:id|handler:key>   runs one of its schedules now, recorded as any run
   An action on a passage (on: passage) takes --block and --quote: the words, exact, in the note's text now (--near picks among repeats).
   ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked.
   Folders are watched: add and remove apply without a restart.
@@ -280,6 +286,17 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       for (const line of lines) print(line);
       return 0;
     }
+    if (operation === "run") {
+      const { values, positionals } = parseArgs({ args: [...rest], allowPositionals: true, strict: true, options: { json: { type: "boolean" } } });
+      const [extension, entry, ...extra] = positionals;
+      if (!extension || !entry || extra.length) throw new Error(USAGE);
+      const client = await connect();
+      if (!client) throw new Error("No outline service answers here (start the outline host, or name an outline with EP0CH_WS or a .ep0ch)");
+      const run = await client.request<{ at: string; ok: boolean; message?: string; error?: string }>({ action: "extensions.schedule.run", extension, entry });
+      if (values.json) console.log(JSON.stringify(run));
+      else print(run.ok ? `${extension} ${entry}: ${run.message ?? "ran"}` : `${extension} ${entry} failed: ${run.error ?? ""}`);
+      return run.ok ? 0 : 1;
+    }
     if (operation === "act") {
       const { values, positionals } = parseArgs({
         args: [...rest], allowPositionals: true, strict: true,
@@ -303,7 +320,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (isMiss(at)) throw new Error(missMessage(at));
         passage = passageAt(block.text, at.start, at.end, block.id, block.revision);
       }
-      const result = await client.request<{ message?: string; written: string[]; copy?: string }>({
+      const result = await client.request<{ message?: string; written: string[]; copy?: string; open?: string }>({
         action: "extensions.act", extension, extensionAction: action,
         ...(passage ? { passage } : values.block ? { blockId: values.block } : {}),
         ...(values.line !== undefined ? { line: Number(values.line) } : {}),
@@ -316,6 +333,8 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         if (result.message) print(result.message);
         for (const id of result.written) print(`wrote ${id}`);
         if (result.copy !== undefined) console.log(result.copy);
+        // What it asks a client to open (a shell has none to open it in): said, for the person or agent to open.
+        if (result.open !== undefined) print(`open ${result.open}`);
       }
       return 0;
     }

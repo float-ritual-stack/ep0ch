@@ -19,7 +19,7 @@ import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import {
   ATTENTION_MAX_SUPPORTING_MARKS,
   attentionClientState,
@@ -32,13 +32,15 @@ import { readBlockRecords } from "./block-records";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSync } from "./extension-sync";
 import { ExtensionRules } from "./extension-rules";
-import { ExtensionCalls } from "./extension-calls";
+import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
+import { grantOf, type ExtensionGrant } from "./extension-grants";
+import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime } from "./resource-extensions";
+import { ResourceExtensionRuntime, scrubCredentials } from "./resource-extensions";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
-import { isExtensionActor } from "./extension-records";
+import { extensionActorId, isExtensionActor } from "./extension-records";
 import { normalizeAnnotationReferenceContext } from "./annotations";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import { isFragmentId, resolveFragment } from "./fragments";
@@ -247,6 +249,29 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * `OutlineHost` with `readOnly`): the reads the MCP server makes (a note’s comment threads among them). Every other action is refused, so nothing a client
  * sends can change the copy or start work from it.
  */
+/**
+ * What an extension's own process may ask over its connection (PIE-754): the reads, and the normal write paths
+ * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
+ * to act) is refused, so an extension can't set another one off.
+ */
+const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "annotations.create", "annotations.reply", "annotations.batch"]);
+const EXTENSION_READS: ReadonlySet<string> = new Set([
+  "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
+  "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
+  "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
+  "extensions.list", "work-ids.status",
+]);
+
+/** A grant's actor: the extension (`ext:<id>`), as an agent. */
+function grantActor(grant: ExtensionGrant): MutationProvenance {
+  return { author: "agent", actorId: extensionActorId(grant.extensionId) };
+}
+
+/** A request annotation input as the extension's own: its source is an agent's. */
+function asAgentSource<T>(input: T): T {
+  return input && typeof input === "object" ? { ...input, source: "agent" } as T : input;
+}
+
 /** A request answered later than this is logged by a watched host (PIE-625). */
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
@@ -291,6 +316,8 @@ export class OutlinerServer {
   readonly agentRequests: AgentRequests;
   /** User-land rules: match, decorate, and change triggers (src/extension-rules.ts, PIE-600). */
   readonly extensionRules: ExtensionRules;
+  /** Handlers and actions an extension runs on a schedule, and what each run did (src/extension-schedule.ts, PIE-754). */
+  readonly extensionSchedules: ExtensionSchedules;
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
   private readonly turns = new Turns();
@@ -302,7 +329,9 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean } = {},
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean;
+      /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
+      scheduleTickMs?: number; scheduleNow?: () => number } = {},
   ) {
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
@@ -355,8 +384,14 @@ export class OutlinerServer {
     });
     // Jira's Resource path reads the same folders, so a jira folder in the outline works like the user's.
     const catalogClient = store.resources.remoteEntityProviderClient;
-    if (catalogClient instanceof InstalledResourceProviderClient) catalogClient.runtime.useFolders(roots.map((root) => root.path));
+    // Every extension process reaches the service the way a tile program does (PIE-754): this socket, this outline.
+    const connection = () => ({ socket: this.socketPath, ...(this.outline?.name ? { outline: this.outline.name } : {}) });
+    if (catalogClient instanceof InstalledResourceProviderClient) {
+      catalogClient.runtime.useFolders(roots.map((root) => root.path));
+      catalogClient.runtime.useConnection(connection);
+    }
     const extensionRuntime = new ResourceExtensionRuntime(undefined, 15_000, roots.map((root) => root.path));
+    extensionRuntime.useConnection(connection);
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),
@@ -381,6 +416,15 @@ export class OutlinerServer {
       // A rule note written: readers read the rules (extensions.list) and draw every note again.
       rulesChanged: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
       ...(options.ruleQuietMs !== undefined ? { quietMs: options.ruleQuietMs } : {}),
+    });
+    this.extensionSchedules = new ExtensionSchedules({
+      serving: () => this.extensionRegistry.serving(),
+      run: (entry, at) => this.extensionCalls.runScheduled(entry.extension, entry.entry, entry.schedule, at),
+      file: join(this.stateDirectory, "extension-schedules.json"),
+      ...(options.scheduleTickMs !== undefined ? { tickMs: options.scheduleTickMs } : {}),
+      ...(options.scheduleNow ? { now: options.scheduleNow } : {}),
+      // A run's record is part of what extensions.list says: readers read it again.
+      ran: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
     });
   }
 
@@ -420,6 +464,7 @@ export class OutlinerServer {
     this.agentRequests.start();
     this.extensionSync.start();
     this.extensionRules.start();
+    this.extensionSchedules.start();
     void this.extensionRegistry.watch().catch(() => {});
   }
 
@@ -453,6 +498,7 @@ export class OutlinerServer {
     }
     this.extensionSync.start();
     this.extensionRules.start();
+    if (!this.readOnly) this.extensionSchedules.start();
     await this.extensionRegistry.watch().catch(() => {});
   }
 
@@ -464,6 +510,7 @@ export class OutlinerServer {
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
     this.extensionRules.stop();
+    this.extensionSchedules.stop();
     this.agentRequests.stop();
     const server = this.server;
     if (!server && !this.hosted) return;
@@ -1629,7 +1676,7 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar") {
+    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run") {
       try {
         let result: unknown;
         if (request.action === "extensions.bar") {
@@ -1647,7 +1694,17 @@ export class OutlinerServer {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
           if (request.reload) await this.extensionRegistry.reload();
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
-          result = { ...this.extensionRegistry.list(), ...this.extensionRules.list() };
+          const listed = this.extensionRegistry.list();
+          // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
+          const extensions = listed.extensions.map((entry) => {
+            const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
+            return schedules.length ? { ...entry, schedules } : entry;
+          });
+          result = { ...listed, extensions, ...this.extensionRules.list() };
+        } else if (request.action === "extensions.schedule.run") {
+          // Run a schedule now (PIE-754), recorded like any run of it.
+          if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
+          result = await this.extensionSchedules.runNow(request.extension, request.entry);
         } else {
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.act needs extension and extensionAction");
           if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
@@ -2086,6 +2143,7 @@ export class OutlinerServer {
         case "extensions.list":
         case "extensions.act":
         case "extensions.bar":
+        case "extensions.schedule.run":
         case "computed.execute":
         case "resources.open":
         case "resources.refresh":
@@ -3221,6 +3279,63 @@ export class OutlinerServer {
     }
   }
 
+  /**
+   * A request from an extension's own process, made the extension's (PIE-754): a read as it is, a write through
+   * its normal path with every actor field it carries set to `ext:<id>` (an annotation's source an agent's). An
+   * `update` becomes a `draft.patch` under the `edit` policy, as an action's update is: a door's live draft gets it,
+   * the guard refuses one that drops linked structure, and while the person types in that passage it is a
+   * proposal (the answer is draft.patch's). Anything else is refused with what it may do.
+   */
+  private asExtension(request: OutlinerRequest, grant: ExtensionGrant): OutlinerRequest {
+    const action = String(request.action);
+    const actor = grantActor(grant);
+    const { grant: _grant, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown };
+    // What it writes never carries a secret it was given (its answers are scrubbed the same way).
+    const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
+    if (!EXTENSION_WRITES.has(action)) {
+      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action)) return rest as OutlinerRequest;
+      throw new Error(`${actor.actorId} can read, create, update, comment and annotate over its connection; ${action} isn't one of them` +
+        (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
+    }
+    if (!grant.writes) {
+      throw new Error(`${actor.actorId}'s call only reads (an action with effects: read, a read handler, a rule's or a bar source's call): ${action} is a write; declare the action effects: "write"`);
+    }
+    const as = rest as Record<string, unknown>;
+    switch (action) {
+      case "create":
+        return { ...as, author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
+      case "draft.patch":
+        return { ...as, mutation: actor } as OutlinerRequest;
+      case "annotations.create":
+      case "annotations.reply":
+        return { ...as, input: asAgentSource(as.input), author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
+      case "annotations.batch":
+        return {
+          ...as, author: "agent", provenance: { actorId: actor.actorId },
+          operations: Array.isArray(as.operations) ? as.operations.map((operation: Record<string, unknown>) => ({ ...operation, input: asAgentSource(operation?.input) })) : as.operations,
+        } as OutlinerRequest;
+      default: {
+        // update: through draft.patch, revision-checked against the saved note.
+        const update = as as { id: string; blockId?: unknown; text?: unknown; expectedRevision?: unknown; outline?: string };
+        if (typeof update.blockId !== "string" || typeof update.text !== "string" || !Number.isSafeInteger(update.expectedRevision)) {
+          throw new Error("update needs blockId, text and expectedRevision");
+        }
+        const current = this.store.require(update.blockId);
+        if (current.revision !== update.expectedRevision) {
+          throw new Error(`${update.blockId} was saved since it was read (revision ${String(update.expectedRevision)}, now ${current.revision}); read it again`);
+        }
+        const span = wholeTextSpan(current.text, update.text);
+        const outline = update.outline !== undefined ? { outline: update.outline } : {};
+        // Nothing changed: answered with the block as it is.
+        if (!span) return { id: update.id, action: "get", blockId: current.id, ...outline } as OutlinerRequest;
+        return {
+          id: update.id, action: "draft.patch", ...outline,
+          edits: [{ blockId: current.id, revision: current.revision, patches: [span] }], mutation: actor, policy: "edit",
+        } as unknown as OutlinerRequest;
+      }
+    }
+  }
+
   private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
     const started = performance.now();
     let request: OutlinerRequest | undefined;
@@ -3237,7 +3352,14 @@ export class OutlinerServer {
       if (this.readOnly && !READ_ONLY_ACTIONS.has(String(request.action))) {
         throw new Error(`"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
       }
-      const claimed = claimedExtensionActor(request);
+      // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.
+      const grantToken = (request as { grant?: unknown }).grant;
+      const grant = grantToken === undefined ? undefined : grantOf(grantToken);
+      if (grantToken !== undefined && !grant) {
+        throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
+      }
+      if (grant) request = this.asExtension(request, grant);
+      const claimed = grant ? undefined : claimedExtensionActor(request);
       if (claimed) {
         throw new Error(`${claimed} is an extension's own actor id: only the service writes as an extension. ` +
           "Write as yourself (author: agent with your own actorId); to have an extension write, ask it with extensions.act");
@@ -3247,8 +3369,9 @@ export class OutlinerServer {
         : undefined;
       const current = request;
       attribution = this.store.changes.attribution({
-        action: String(current.action),
+        action: grant ? grant.label : String(current.action),
         actor: declaredActor(current),
+        ...(grant?.requestedBy ? { requestedBy: grant.requestedBy } : {}),
         kind: requestChangeKind(current.action),
         collect: true,
       });

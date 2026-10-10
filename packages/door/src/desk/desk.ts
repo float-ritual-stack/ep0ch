@@ -49,6 +49,7 @@ import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
+import { openResource, resourceRefTarget } from "../authored";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
@@ -5622,8 +5623,18 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
       file: { type: "string", optional: true, about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },
-      against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" } },
-    async run({ id, from, fresh, fragment, file, diff, against }, ctx, actor) {
+      against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
+      resource: { type: "string", optional: true, about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" } },
+    async run({ id, from, fresh, fragment, file, diff, against, resource }, ctx, actor) {
+      // A Resource an extension named (a bar row, a view's link, an action's open): registered if it must be, then shown.
+      if (resource !== undefined) {
+        const board = ctx.d.ctx?.board;
+        if (!board) throw new ActionRefused("there's no outline open to read a Resource through yet");
+        const to = resourceRefTarget(resource);
+        if ("refused" in to) throw new ActionRefused(to.refused);
+        const shown = await openResource(board, to, actor).catch((e: Error) => { throw new ActionRefused(`couldn't show ${resource}: ${e.message}`); });
+        return ctx.d.landNote(shown.note, actor);
+      }
       // A file lands where an agent's open lands (`ep0ch open file:<path>`): it is no block, so it has no tile's link to follow.
       if (file !== undefined) {
         const board = ctx.d.ctx?.board;

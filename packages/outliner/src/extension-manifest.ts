@@ -5,6 +5,8 @@ import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
+import { cronProblem } from "./extension-schedule";
+import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
 /**
  * What an extension folder is (contract 2): `extension.json` plus an optional
@@ -33,6 +35,9 @@ import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
  * (run an action when a block starts or stops matching, or changes while it
  * matches). A handler's `key` is the oldest case of match: a `key::` line.
  *
+ * `schedule` (PIE-754) on a handler or an action: the service runs it every N or on a cron, and records each
+ * run (src/extension-schedule.ts). A scheduled action acts on the outline (`on: "outline"`, no block).
+ *
  * `components[]` (PIE-618) describe the properties its lines or notes take, as
  * outline-core's component schemas: the door completes their keys and values
  * and draws each a page in its library, with no code of the extension's.
@@ -51,8 +56,24 @@ const Credential = Type.Union([
   ),
 ]);
 const FileCredential = Type.Object({ file: Type.String({ minLength: 1, maxLength: 4096 }) }, { additionalProperties: false });
+/** A `with-secrets` group's key (PIE-754): `~/.config/secrets/<group>.env`'s `KEY=value` line, read at spawn. */
+const GroupCredential = Type.Object(
+  { group: Type.String({ pattern: SECRET_GROUP_PATTERN }), key: Type.String({ pattern: SECRET_KEY_PATTERN }) },
+  { additionalProperties: false },
+);
 export const CredentialSchema = Credential;
-export type CredentialReference = Static<typeof Credential> | Static<typeof FileCredential>;
+export type GroupCredentialReference = Static<typeof GroupCredential>;
+export type CredentialReference = Static<typeof Credential> | Static<typeof FileCredential> | GroupCredentialReference;
+
+/**
+ * When the service runs a handler or an action by itself (PIE-754): `every` a duration (at least 1m), or `cron`
+ * (five fields, the host's local time). Each run is recorded (last, next, result) in `extensions.list`.
+ */
+const ScheduleSchema = Type.Object(
+  { every: Type.Optional(Duration), cron: Type.Optional(Type.String({ minLength: 9, maxLength: 100 })) },
+  { additionalProperties: false },
+);
+export type ExtensionSchedule = Static<typeof ScheduleSchema>;
 
 const OptionSpec = Type.Object(
   {
@@ -94,6 +115,8 @@ const Handler = Type.Object(
     pollEvery: Type.Optional(Duration),
     record: Type.Optional(Type.Boolean()),
     deadline: Type.Optional(Duration),
+    /** Run every line of it (a data handler: every key the outline asks for) on this schedule (PIE-754). */
+    schedule: Type.Optional(ScheduleSchema),
   },
   { additionalProperties: false },
 );
@@ -106,14 +129,18 @@ const Action = Type.Object(
     description: Type.Optional(Type.String({ maxLength: 300 })),
     /**
      * What it acts on: `block` (any block), `handler:<key>` (a line of that handler), `tile:<kind>`, `bar` (a row of
-     * one of its bar sources: no block, the row's `args`), or `passage` (ADR 0004 contract 5: an exact span of a block's
-     * or a Resource's text, `target.passage`, checked by the service before it runs). Default `block`.
+     * one of its bar sources: no block, the row's `args`), `passage` (ADR 0004 contract 5: an exact span of a block's
+     * or a Resource's text, `target.passage`, checked by the service before it runs), or `outline` (no block: the
+     * outline as a whole, what a scheduled action acts on, PIE-754). Default `block`.
      */
-    on: Type.Optional(Type.String({ pattern: "^(block|bar|passage|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
+    on: Type.Optional(Type.String({ pattern: "^(block|bar|passage|outline|handler:[a-z][a-z0-9-]{0,31}|tile:[a-z][a-z0-9-]{0,31})$" })),
     /** A suggested key for clients that bind one (the door's `ActionDef`). */
     key: Type.Optional(Type.String({ minLength: 1, maxLength: 12 })),
     /** `write`: it may return writes. `read` (default): it only answers. */
     effects: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("write")])),
+    /** Run it on this schedule (PIE-754); it then acts on the outline (`on: "outline"`). */
+    schedule: Type.Optional(ScheduleSchema),
+    deadline: Type.Optional(Duration),
   },
   { additionalProperties: false },
 );
@@ -270,7 +297,18 @@ const ManifestV2 = Type.Object(
     /** How long one call may take: default 15s, at most 5m. A handler may set its own. */
     deadline: Type.Optional(Duration),
     configSchema: Type.Optional(Type.Unknown()),
-    secrets: Type.Optional(Type.Record(Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,31}$" }), Type.String({ maxLength: 200 }), { maxProperties: 16 })),
+    /**
+     * The secrets it needs, by name: the words that describe one, or (PIE-754) where it is, a `with-secrets` group
+     * and key: `{ "group": "readwise", "key": "READWISE_TOKEN", "description": "…" }`. config.json may point a
+     * name somewhere else.
+     */
+    secrets: Type.Optional(Type.Record(Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,31}$" }), Type.Union([
+      Type.String({ maxLength: 200 }),
+      Type.Object({
+        group: Type.String({ pattern: SECRET_GROUP_PATTERN }), key: Type.String({ pattern: SECRET_KEY_PATTERN }),
+        description: Type.Optional(Type.String({ maxLength: 200 })),
+      }, { additionalProperties: false }),
+    ]), { maxProperties: 16 })),
     handlers: Type.Optional(Type.Array(Handler, { maxItems: 16 })),
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
@@ -288,7 +326,7 @@ export type ExtensionManifest = Static<typeof ManifestV2>;
 const FolderConfig = Type.Object(
   {
     config: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    secrets: Type.Optional(Type.Record(Type.String(), Type.Union([Credential, FileCredential]), { maxProperties: 16 })),
+    secrets: Type.Optional(Type.Record(Type.String(), Type.Union([Credential, FileCredential, GroupCredential]), { maxProperties: 16 })),
     sources: Type.Optional(Type.Array(
       Type.Object({ origin: Type.String({ minLength: 1, maxLength: 2048 }), project: Type.String({ pattern: "^[A-Z][A-Z0-9_]*$" }) },
         { additionalProperties: false }),
@@ -406,10 +444,21 @@ function cleanShown(value: unknown, key = ""): unknown {
     return Object.fromEntries(Object.entries(value).map(([name, item]) =>
       // configSchema is the extension's own JSON schema; secrets map a name to the words that describe it.
       [name, name === "configSchema" ? item : name === "secrets" && item && typeof item === "object"
-        ? Object.fromEntries(Object.entries(item).map(([secret, words]) => [secret, cleanShown(words, "description")]))
+        ? Object.fromEntries(Object.entries(item).map(([secret, words]) => [secret, typeof words === "string" ? cleanShown(words, "description") : cleanShown(words)]))
         : cleanShown(item, name)]));
   }
   return value;
+}
+
+/** A schedule names exactly one of `every` (at least 1m) and `cron` (five fields that parse). */
+function checkSchedule(schedule: ExtensionSchedule, where: string): void {
+  if ((schedule.every === undefined) === (schedule.cron === undefined)) throw new ExtensionLoadError(`extension.json: ${where} needs one of every or cron`);
+  const every = durationMs(schedule.every);
+  if (schedule.every !== undefined && (every === undefined || every < 60_000)) throw new ExtensionLoadError(`extension.json: ${where}/every is shorter than 1m`);
+  if (schedule.cron !== undefined) {
+    const problem = cronProblem(schedule.cron);
+    if (problem) throw new ExtensionLoadError(`extension.json: ${where}/cron: ${problem}`);
+  }
 }
 
 /** The manifest's own rules beyond its schema: what needs a `run`, which keys are free, which patterns compile. */
@@ -429,6 +478,10 @@ function checkManifest(manifest: ExtensionManifest): void {
     for (const [name, option] of Object.entries(handler.options ?? {})) checkPattern(option.pattern, `handlers/${index}/options/${name}/pattern`);
     const deadline = durationMs(handler.deadline);
     if (deadline !== undefined && deadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: handlers/${index}/deadline is longer than 5m`);
+    if (handler.schedule) {
+      if (handler.kind === "resource") throw new ExtensionLoadError(`extension.json: handlers/${index}/schedule: a resource handler polls with pollEvery`);
+      checkSchedule(handler.schedule, `handlers/${index}/schedule`);
+    }
   }
   const deadline = durationMs(manifest.deadline);
   if (deadline !== undefined && deadline > MAX_DEADLINE_MS) throw new ExtensionLoadError("extension.json: deadline is longer than 5m");
@@ -439,6 +492,12 @@ function checkManifest(manifest: ExtensionManifest): void {
     if (action.on?.startsWith("handler:") && !keys.has(action.on.slice(8))) {
       throw new ExtensionLoadError(`extension.json: actions/${index}/on names handler ${action.on.slice(8)}, which this extension doesn't declare`);
     }
+    if (action.schedule) {
+      if (action.on !== "outline") throw new ExtensionLoadError(`extension.json: actions/${index}/schedule: a scheduled action acts on the outline; give it "on": "outline"`);
+      checkSchedule(action.schedule, `actions/${index}/schedule`);
+    }
+    const actionDeadline = durationMs(action.deadline);
+    if (actionDeadline !== undefined && actionDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: actions/${index}/deadline is longer than 5m`);
   }
   const tileKinds = new Set<string>();
   for (const [index, tile] of (manifest.tiles ?? []).entries()) {
@@ -613,6 +672,12 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   for (const name of Object.keys(folder.secrets ?? {})) {
     if (!manifest.secrets?.[name]) throw new ExtensionLoadError(`config.json: secrets/${name} isn't a secret extension.json declares`);
   }
+  // A manifest secret that names its with-secrets group is found there unless config.json points it elsewhere.
+  const credentials: Record<string, CredentialReference> = {};
+  for (const [name, declared] of Object.entries(manifest.secrets ?? {})) {
+    if (typeof declared === "object") credentials[name] = { group: declared.group, key: declared.key };
+  }
+  Object.assign(credentials, folder.secrets ?? {});
   return {
     id: manifest.id,
     name: manifest.name,
@@ -622,7 +687,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
     directory,
     manifest,
     config,
-    credentials: folder.secrets ?? {},
+    credentials,
     sources: folder.sources ?? [],
     enabled: folder.enabled !== false,
     command: manifest.run ? resolveArgv(manifest.run) : null,

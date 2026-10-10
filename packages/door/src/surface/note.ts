@@ -28,7 +28,8 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
-import { alignComments, isOutlineNote, openResource, RESOURCE_NOTE, rereadResource, resourceTarget, UNSENT_NOTE } from "../authored";
+import { alignComments, isOutlineNote, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
+import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
@@ -1348,7 +1349,8 @@ export class NoteSurface {
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
         ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false,
       }).lines,
-      row: (block: string, text: string) => tagged(drawn, { block, role: "row" }, text),
+      // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
+      row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
     };
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
@@ -3653,6 +3655,16 @@ export class NoteSurface {
       if (!shown) return null;
       this.track(() => host.navigate(shown.note, how));
       if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);
+      return shown.note;
+    }
+    // A Resource an extension's view links to (PIE-754): opened as a resource token's is.
+    if (l.resourceRef) {
+      const to = resourceRefTarget(l.resourceRef);
+      if ("refused" in to) { host.ctx.flash(to.refused); return null; }
+      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resourceRef}: ${e.message}`); return null; });
+      if (!shown) return null;
+      this.track(() => host.navigate(shown.note, how));
+      if (shown.registered) host.ctx.flash(`${l.resourceRef} registered and shown`);
       return shown.note;
     }
     // A ticket's age refreshes it (PIE-445), as r does.

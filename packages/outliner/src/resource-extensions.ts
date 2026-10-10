@@ -6,6 +6,9 @@ import { Type, IsSchema } from "typebox";
 import { Parse } from "typebox/value";
 import { Compile } from "typebox/compile";
 import { ResourceCatalogError } from "./resources";
+import { issueGrant, revokeGrant } from "./extension-grants";
+import { readGroupSecret } from "./extension-secrets";
+import type { MutationProvenance } from "./types";
 import {
   CredentialSchema,
   ExtensionLoadError,
@@ -109,6 +112,16 @@ async function boundedFile(path: string): Promise<string> {
   return file.text();
 }
 
+/** What every extension process gets besides its request (PIE-754): no more than this, and no host secrets. */
+export interface ExtensionProcessEnv {
+  readonly [name: string]: string;
+}
+
+/** The base environment: a PATH and a locale. The connection and secrets are added per call. */
+function baseEnv(): Record<string, string> {
+  return { PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C.UTF-8" };
+}
+
 /** Process isolation provides deadlines and fresh code, not a sandbox. Only trusted installs may run. */
 async function runCommand(
   command: readonly string[],
@@ -116,6 +129,7 @@ async function runCommand(
   input: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  env: Record<string, string> = baseEnv(),
 ): Promise<string> {
   if (Buffer.byteLength(input) > MAX_REQUEST_BYTES)
     throw failure("request exceeds 256 KiB");
@@ -130,7 +144,7 @@ async function runCommand(
       cwd,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "ignore"],
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C.UTF-8" },
+      env,
     });
     const chunks: Buffer[] = [];
     let length = 0,
@@ -185,7 +199,7 @@ async function runCommand(
   });
 }
 
-function scrubCredentials(
+export function scrubCredentials(
   value: unknown,
   secrets: readonly string[],
   depth = 0,
@@ -220,6 +234,21 @@ export interface ExtensionResult {
   readonly adapter: { id: string; version: number };
   readonly manifestHash: string;
 }
+
+/** Where an extension's process reaches the service (PIE-754): the socket, and the outline it runs for. */
+export interface ExtensionConnection {
+  readonly socket?: string;
+  readonly outline?: string;
+}
+
+/** Who a call is for: the change feed's label for what its process writes, and who asked for it. */
+export interface ExtensionCallFor {
+  /** `ext.<id>.<action>`; default `ext.<id>.<operation>`. */
+  readonly label?: string;
+  /** Whether its process may write over its connection (default: no, it only reads). */
+  readonly writes?: boolean;
+  readonly requestedBy?: MutationProvenance;
+}
 export class ResourceExtensionRuntime {
   constructor(
     readonly configPath = defaultRegistryPath(),
@@ -233,6 +262,11 @@ export class ResourceExtensionRuntime {
   }
   /** Where contract 2 folders are looked up, nearest first (the outline's, then the user's). Empty: only the legacy registry. */
   folders: readonly string[];
+  /** The service's socket and outline, given to every process this runtime starts (`EP0CH_SOCKET`, `EP0CH_WS`). */
+  private connection: () => ExtensionConnection = () => ({});
+  useConnection(connection: () => ExtensionConnection): void {
+    this.connection = connection;
+  }
   /**
    * Looks extensions up in these folders from now on, nearest first. The
    * service passes its registry's roots (`src/extension-registry.ts`), so a
@@ -333,7 +367,7 @@ export class ResourceExtensionRuntime {
   ): Promise<ExtensionResult> {
     const installed = await this.installation(provider);
     // Disable/config changes during a call invalidate its result before the catalog can commit it.
-    return this.invokeInstalled(provider, installed, operation, input, signal, deadlineMs,
+    return this.invokeInstalled(provider, installed, operation, input, signal, deadlineMs, {},
       async () => (await this.installation(provider)).stamp === installed.stamp);
   }
 
@@ -350,6 +384,7 @@ export class ResourceExtensionRuntime {
     operation: "read" | "run" | "act" | "respond" | "decorate" | "bar",
     input: unknown,
     deadlineMs?: number,
+    callFor: ExtensionCallFor = {},
   ): Promise<ExtensionResult> {
     if (!extension.command) throw failure(`${extension.name} runs no code (its extension.json has no run)`);
     if (!extension.enabled) throw failure(`${extension.name} is disabled in ${join(extension.directory, "config.json")}`);
@@ -359,7 +394,7 @@ export class ResourceExtensionRuntime {
       manifest: { contract: 2 as const, id: extension.id, version: extension.version, command: extension.command, name: extension.name },
       directory: extension.directory,
       stamp: extension.stamp,
-    }, operation, input, undefined, deadlineMs, async () => {
+    }, operation, input, undefined, deadlineMs, callFor, async () => {
       const after = await folderStamp(extension.directory);
       // Removed, or edited while it ran.
       if (after === null || after !== before) return false;
@@ -377,7 +412,7 @@ export class ResourceExtensionRuntime {
   private async invokeInstalled(
     provider: string,
     loaded: {
-      install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string }> };
+      install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string } | { group: string; key: string }> };
       manifest: { contract: 1 | 2; id: string; version: number; command: readonly string[]; name: string };
       directory: string;
       stamp: string;
@@ -386,6 +421,7 @@ export class ResourceExtensionRuntime {
     input: unknown,
     signal: AbortSignal | undefined,
     deadlineMs: number | undefined,
+    callFor: ExtensionCallFor,
     /** Whether the extension is still the one that was called, asked once it answers. */
     unchanged: () => Promise<boolean>,
   ): Promise<ExtensionResult> {
@@ -395,11 +431,23 @@ export class ResourceExtensionRuntime {
       AbortSignal.timeout(deadline),
     ]);
     const secrets: Record<string, string> = {};
+    // A with-secrets key also reaches the process as its own variable (READWISE_TOKEN), only that one, only here.
+    const secretEnv: Record<string, string> = {};
     for (const [name, reference] of Object.entries(
       loaded.install.credentials,
     )) {
       let value: string | undefined;
-      if ("env" in reference) value = process.env[reference.env];
+      if ("group" in reference) {
+        try {
+          value = await readGroupSecret(reference.group, reference.key, `${loaded.manifest.name}'s ${name} secret`, process.platform === "darwin"
+            ? async (service) => (await runCommand(["/usr/bin/security", "find-generic-password", "-s", service, "-w"], loaded.directory, "", Math.min(this.timeoutMs, 3000), signal).catch(() => "")).trim() || undefined
+            : undefined);
+        } catch (error) {
+          throw failure(error instanceof Error ? error.message : String(error));
+        }
+        secretEnv[reference.key] = value;
+      }
+      else if ("env" in reference) value = process.env[reference.env];
       else if ("file" in reference) {
         // Say what is wrong with the file (where it is, its mode or size), never what is in it.
         const path = reference.file.replace(/^~(?=\/)/, homedir());
@@ -455,13 +503,37 @@ export class ResourceExtensionRuntime {
       config: loaded.install.config,
       credentials: secrets,
     });
-    const output = await runCommand(
-      loaded.manifest.command,
-      loaded.directory,
-      request,
-      deadline,
-      signal,
-    );
+    // Its connection to the service (PIE-754): the socket, the outline, and a grant that makes what it writes there
+    // the extension's own (`ext:<id>`), valid while this process runs.
+    const connection = this.connection();
+    const grant = issueGrant({
+      extensionId: loaded.manifest.id,
+      label: callFor.label ?? `ext.${loaded.manifest.id}.${operation}`,
+      writes: callFor.writes === true,
+      secrets: Object.values(secrets),
+      ...(callFor.requestedBy ? { requestedBy: callFor.requestedBy } : {}),
+    });
+    const env: Record<string, string> = {
+      ...secretEnv,
+      ...baseEnv(),
+      OUTLINER_EXTENSION: loaded.manifest.id,
+      EP0CH_EXT_GRANT: grant,
+      ...(connection.socket ? { EP0CH_SOCKET: connection.socket } : {}),
+      ...(connection.outline ? { EP0CH_WS: connection.outline } : {}),
+    };
+    let output: string;
+    try {
+      output = await runCommand(
+        loaded.manifest.command,
+        loaded.directory,
+        request,
+        deadline,
+        signal,
+        env,
+      );
+    } finally {
+      revokeGrant(grant);
+    }
     if (!(await unchanged()))
       throw failure(`${loaded.manifest.name} was changed, disabled or removed while it ran; its answer was discarded (refresh to retry)`);
     let envelope: unknown;
