@@ -62,7 +62,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // The preview takes the lower half, once there's room for both.
   const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
-  d.frame = { row: top.length, col: 1, rows: room, controls };
+  d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls };
   const below = ph ? previewRows(d, f.preview!, w, ph) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
@@ -114,7 +114,8 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl?.action === "copy") { on?.copy?.(); return true; }
   if (ctl?.action === "place") { on?.place?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
-  if (!extend && (y < f.row || y >= f.row + f.rows)) return false;
+  // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
+  if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
   const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;

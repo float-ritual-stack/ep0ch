@@ -30,6 +30,8 @@ export const nextPlace = (p: ComposerPlace): ComposerPlace => COMPOSER_PLACES[(C
 export const COMPOSER_TEXT_ROWS = 10;
 /** A reader at least this wide splits side by side; a narrower one puts the composer under the note. */
 export const SPLIT_SIDE_MIN = 110;
+/** A reader smaller than this has no room to share: its split composer is drawn as a popup until it grows. */
+export const SPLIT_MIN_W = 30, SPLIT_MIN_H = 12;
 
 /** A composer drawn in a box: its rows, and where its text, controls and completion popup are in the box's cells. */
 export interface ComposerBox {
@@ -44,9 +46,14 @@ export interface ComposerBox {
  * the context the placement wants, the text) and the closing line. Its height follows the text, from two rows up to
  * COMPOSER_TEXT_ROWS (and the completion popup's, the preview's), within `rows`; `fill` takes all of `rows` (split).
  */
-export function composerBox(d: Draft, f: EditFrame, W: number, rows: number, fill = false): ComposerBox {
-  const iw = Math.max(8, W - 2);
-  const top = 1 + f.status.length + (f.by ? 1 : 0) + (f.context?.length ?? 0) + 1;
+export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false): ComposerBox {
+  const iw = Math.max(4, W - 2), avail = Math.max(2, rows - 2);
+  const topOf = (x: EditFrame) => 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
+  // A short reader keeps the text's rows: the quote goes first, then the status line.
+  let f = frame0;
+  if (topOf(f) + 1 > avail) f = { ...f, context: [] };
+  if (topOf(f) + 1 > avail) f = { ...f, status: [] };
+  const top = topOf(f);
   const textRows = Math.max(1, d.layout(Math.max(4, iw - 2)).length);
   // Room for every row of text with the cursor's scroll-off below the last, so the view never scrolls while it fits.
   let room = Math.max(2, textRows + 1);
@@ -54,7 +61,7 @@ export function composerBox(d: Draft, f: EditFrame, W: number, rows: number, fil
   room = Math.min(room, COMPOSER_TEXT_ROWS);
   if (completionOf(d)) room += COMPLETION_ROWS;
   const want = top + (d.preview && f.preview ? Math.max(3, room) * 2 : room);
-  const h = Math.max(top + 1, fill ? rows - 2 : Math.min(want, rows - 2));
+  const h = Math.max(top + 1, fill ? avail : Math.min(want, avail));
   const body = renderEditor(d, f, iw, h);
   // The rows under the text stay the box's, a place to keep writing.
   while (body.length < h) body.push("");

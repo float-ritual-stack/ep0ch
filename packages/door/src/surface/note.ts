@@ -51,7 +51,7 @@ import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type Acti
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy, type EditFrame } from "./editor";
-import { COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, nextPlace, overlayBox, placeBox, SPLIT_SIDE_MIN, type ComposerBox } from "./composer";
+import { COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { passageActions, runExtensionAction, threadAgents } from "../extensions";
@@ -896,7 +896,7 @@ export class NoteSurface {
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing();
-    if (writing?.cs.place === "split" && w >= 30 && h >= 12) return this.renderSplit(w, h, host, writing);
+    if (writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H) return this.renderSplit(w, h, host, writing);
     return this.renderReading(w, h, host, writing);
   }
 
@@ -906,7 +906,8 @@ export class NoteSurface {
     this.hero = hero && { line: hero.line, full: hero.box.rows };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
-    if (writing && (writing.cs.place === "floating" || writing.cs.place === "popup")) v = this.overComposer(v, w, h - shown, writing);
+    // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
+    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" ? "popup" : writing.cs.place);
     if (!hero || !shown) return v;
     const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
@@ -919,10 +920,10 @@ export class NoteSurface {
    * reader with the passage quoted: laid over the note's rows `v`, in the reader's `w` × `h` cells under its header
    * image. A picture under the box isn't drawn while it's there.
    */
-  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>): SurfaceView {
+  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup"): SurfaceView {
     const lines = [...v.lines], room = Math.max(lines.length, h);
     let box: ComposerBox, row: number, col: number;
-    if (c.cs.place === "popup") {
+    if (place === "popup") {
       box = composerBox(c.d, c.f, Math.min(w - 2, 80), Math.max(6, room - 2));
       row = Math.max(0, Math.floor((room - box.lines.length) / 2));
       col = Math.max(0, Math.floor((w - box.width) / 2));
@@ -2545,6 +2546,9 @@ export class NoteSurface {
   /** A click in text being written (an edit's or a comment's): a completion candidate, the preview control, or the cursor placed. */
   private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
     if (d.busy) return false;
+    // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
+    const f = d.frame;
+    if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
     this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true) });
