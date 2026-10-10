@@ -340,6 +340,8 @@ export class OutlinerServer {
   /** The resource providers served here: the folders' and the legacy registry's. */
   private resourceProviders: readonly ResourceProviderEntry[] = [];
   private providerRefreshes = 0;
+  /** Set when close() starts: work that finishes after it (a reload's refresh) writes and announces nothing. */
+  private stopping = false;
   private readonly fixtureProviders: readonly ResourceProviderEntry[];
   /** The extension folders this outline reads, watched (src/extension-registry.ts). */
   readonly extensionRegistry: ExtensionRegistry;
@@ -420,8 +422,9 @@ export class OutlinerServer {
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
         // Clients read the list again on the event: its resource providers are current by then.
-        void this.refreshResourceProviders().finally(() =>
-          this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }));
+        void this.refreshResourceProviders().finally(() => {
+          if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+        });
       },
       // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
       onReload: () => { if (!this.readOnly) void this.syncExtensionPages(false); },
@@ -482,6 +485,8 @@ export class OutlinerServer {
   private async syncExtensionPages(force: boolean): Promise<void> {
     if (this.readOnly) return;
     await (force ? this.extensionPages.sync() : this.extensionPages.syncIfChanged());
+    // Closed while it wrote: nothing to announce, and the store is gone.
+    if (this.stopping) return;
     const said = JSON.stringify([this.extensionPages.hub(), this.extensionPages.pages(), this.extensionPages.availableNow().map((entry) => entry.id)]);
     if (said === this.pagesSaid) return;
     this.pagesSaid = said;
@@ -582,7 +587,7 @@ export class OutlinerServer {
     const legacy = (await runtime?.legacyProviders().catch(() => []) ?? [])
       .filter((id) => !folders.some((entry) => entry.provider === `ext:${id}`))
       .map((id): ResourceProviderEntry => ({ provider: `ext:${id}`, key: id, label: id.charAt(0).toUpperCase() + id.slice(1) }));
-    if (asked !== this.providerRefreshes) return;
+    if (asked !== this.providerRefreshes || this.stopping) return;
     this.resourceProviders = [...folders, ...legacy];
     // This outline reads its own `key::` lines with its own providers; the process-wide table is for the rest.
     this.store.resourceProviders = directiveProvidersOf(this.resourceProviders);
@@ -643,6 +648,7 @@ export class OutlinerServer {
   }
 
   async close(): Promise<void> {
+    this.stopping = true;
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.watches.stop();
