@@ -515,6 +515,13 @@ export class OutlinerServer {
     if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : {}));
     else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id]) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
     await this.extensionRegistry.reload();
+    // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.
+    const still = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    if (still) {
+      lines.push(`${id} is still installed from ${still.directory} (another copy): ${demo === "remove" ? "its demo notes stay. Remove that copy too to take them out" : "its demo notes stay"}`);
+      await this.syncExtensionPages(true);
+      return { id, lines, removed: !!entry, demo: { trashed: 0, kept: [], left: this.extensionPages.demoCount(id) } };
+    }
     const removal = demo === "remove" ? this.extensionPages.removeDemo(id, requestedBy) : { trashed: 0, kept: [] };
     await this.syncExtensionPages(true);
     const left = this.extensionPages.demoCount(id);

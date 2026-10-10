@@ -60,7 +60,8 @@ export function readDemo(directory: string, folder: string | undefined): Demo {
   if (!folder) return { notes: [] };
   const root = join(directory, folder);
   if (!existsSync(root) || !statSync(root).isDirectory()) return { notes: [], problem: `demo folder ${folder}/ isn't there` };
-  const notes: DemoNote[] = [];
+  // `named`: its parent is an id from front matter (else a folder's key).
+  const notes: (DemoNote & { named?: true })[] = [];
   try {
     const walk = (dir: string, parentKey: string | undefined): void => {
       const names = readdirSync(dir).filter((name) => !name.startsWith(".")).sort();
@@ -75,7 +76,7 @@ export function readDemo(directory: string, folder: string | undefined): Demo {
         const id = fields.id ?? key;
         if (!ID.test(id)) throw new Error(`${file}: id ${id} is lowercase letters, digits, . _ / and -`);
         if (!text.trim()) throw new Error(`${file} has no text`);
-        notes.push({ key, id, ...(fields.parent ? { parent: fields.parent } : parentKey ? { parent: parentKey } : {}), text: text.replace(/\n+$/, "") });
+        notes.push({ key, id, ...(fields.parent ? { parent: fields.parent, named: true } : parentKey ? { parent: parentKey } : {}), text: text.replace(/\n+$/, "") });
         if (notes.length > MAX_DEMO_NOTES) throw new Error(`more than ${MAX_DEMO_NOTES} notes`);
         // Its folder (board/ beside board.md) holds its children.
         const own = names.find((other) => other !== name && strip(other) === strip(name) && statSync(join(dir, other)).isDirectory());
@@ -95,10 +96,10 @@ export function readDemo(directory: string, folder: string | undefined): Demo {
       if (byId.has(note.id)) throw new Error(`two notes have the id ${note.id}`);
       byId.set(note.id, note);
     }
-    const keyed = notes.map((note) => {
-      if (!note.parent || notes.some((other) => other.key === note.parent && other.key !== note.key)) return note;
+    const keyed: DemoNote[] = notes.map(({ named, ...note }) => {
+      if (!note.parent || !named) return note;
       const parent = byId.get(note.parent);
-      if (!parent) throw new Error(`${note.key}: parent ${note.parent} is no note in the demo`);
+      if (!parent || parent.key === note.key) throw new Error(`${note.key}: parent ${note.parent} is no other note in the demo`);
       return { ...note, parent: parent.key };
     });
     const ordered: DemoNote[] = [];

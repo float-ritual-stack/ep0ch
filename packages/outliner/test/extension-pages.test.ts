@@ -57,8 +57,14 @@ test("the demo folder: one note per file, nested by folder or parent:, ids from 
     ["intro", "intro", null], ["board", "board", null], ["board/lane", "lane", "board"], ["loose", "loose", "intro"],
   ]);
   expect(rewriteDemoReferences(demo.notes[0]!.text, new Map([["lane", "0000-new"]]))).toBe("Intro\nSee ((0000-new|the lane)) and !((0000-new)).");
+  // An explicit parent is an id, even where another note's path has that name.
+  writeFileSync(join(root, "demo", "04-alpha.md"), "---\nid: board\n---\nAlpha\n");
+  writeFileSync(join(root, "demo", "02-board.md"), "---\nid: gamma\n---\nBoard [page::demo-board]\n");
+  writeFileSync(join(root, "demo", "03-loose.md"), "---\nparent: board\n---\nUnder alpha\n");
+  expect(readDemo(root, "demo").notes.find((note) => note.key === "loose")!.parent).toBe("alpha");
+  rmSync(join(root, "demo", "04-alpha.md"));
   writeFileSync(join(root, "demo", "03-loose.md"), "---\nparent: nowhere\n---\nLost\n");
-  expect(readDemo(root, "demo").problem).toBe("demo: loose: parent nowhere is no note in the demo");
+  expect(readDemo(root, "demo").problem).toBe("demo: loose: parent nowhere is no other note in the demo");
   expect(readDemo(root, "missing").problem).toBe("demo folder missing/ isn't there");
 });
 
@@ -148,8 +154,18 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(store.require(gone.hub!).text).toContain("## Removed, notes kept");
   // Then the demo too: what no one changed goes to Trash; the edited note stays, named; the page stays while it does.
   const removed = await client.request<{ removed: boolean; demo: { trashed: number; kept: string[]; left: number } }>({ action: "extensions.uninstall", extension: "notify", demo: "remove" });
-  expect(removed).toMatchObject({ removed: false, demo: { trashed: 2, kept: ["Start here: your notifications on two boards"], left: 0 } });
+  expect(removed).toMatchObject({ removed: false, demo: { trashed: 2, kept: ["Start here: your notifications on two boards"], left: 1 } });
   expect((await children(gone.pages.notify!)).map((note) => note.id)).toEqual([start!.id]);
+  // Installed again: the boards that went to Trash are written fresh; the note you kept isn't written twice.
+  const back = await client.request<{ page?: string }>({ action: "extensions.install", extension: "notify", where: "outline" });
+  expect((await children(back.page!)).map((note) => note.text.split("\n")[0].replace(/-2\]$/, "]"))).toEqual([
+    "Start here: your notifications on two boards", "Notifications by read state [page::notifications-state]", "Notifications by source [page::notifications-source]",
+  ]);
+  expect((await children(back.page!))[0]!.id).toBe(start!.id);
+  // Its address was taken by the board in Trash: the new one has the next, and nothing failed.
+  expect((await children(back.page!))[1]!.text).toBe("Notifications by read state [page::notifications-state-2]");
+  expect((await list() as { pagesProblem?: string }).pagesProblem).toBeUndefined();
+  await client.request({ action: "extensions.uninstall", extension: "notify", demo: "keep" });
   // The runbook's demo, unchanged: all of it goes, and its page with it.
   const runbookPage = gone.pages.runbook!;
   await client.request({ action: "extensions.uninstall", extension: "runbook", demo: "remove" });
@@ -159,4 +175,16 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   // Back among the available ones.
   expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v2");
   expect(store.require(after.hub!).text).not.toContain("|Runbook))");
+});
+
+test("removing the outline's copy while the user folder has another: still installed, so its demo notes stay", async () => {
+  const { root, list, client } = await setup();
+  cpSync(join(import.meta.dir, "..", "extensions", "notify"), join(root, "user-extensions", "notify"), { recursive: true });
+  const listed = await list();
+  const answer = await client.request<{ lines: string[]; demo: { trashed: number; kept: string[]; left: number } }>({ action: "extensions.uninstall", extension: "notify", demo: "remove" });
+  expect(answer.demo).toEqual({ trashed: 0, kept: [], left: 9 });
+  expect(answer.lines.at(-1)).toStartWith("notify is still installed from ");
+  const after = await list();
+  expect(after.extensions.find((entry) => entry.id === "notify")?.state).toBe("active");
+  expect(after.pages.notify).toBe(listed.pages.notify);
 });

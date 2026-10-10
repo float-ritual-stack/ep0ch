@@ -301,44 +301,75 @@ export class ExtensionPages {
     // An outline with no extension, and no hub yet, gets none.
     if (!installed.length && !this.live(state.hub) && !Object.keys(state.pages).length) return;
     const now = (this.options.now?.() ?? new Date()).toISOString();
+    // One extension's page or demo that can't be written never stops the others: each is tried, and what failed is said.
+    const problems: string[] = [];
+    const each = (what: string, work: () => void) => {
+      try { work(); } catch (error) { problems.push(`${what}: ${error instanceof Error ? error.message : String(error)}`); }
+    };
     try {
       this.store.changes.run(this.store.changes.attribution({ action: "extensions.pages", actor: SYSTEM }), () => {
         let hub = this.live(state.hub);
         if (!hub) {
-          hub = this.store.create("Extensions [page::extensions]", null, "system");
+          hub = this.createAddressed("Extensions [page::extensions]", null, "system");
           state.hub = hub.id;
         }
         const hubId = hub.id;
-        for (const { entry, loaded } of installed) {
+        for (const { entry, loaded } of installed) each(entry.id, () => {
           const demo = loaded ? readDemo(loaded.directory, loaded.manifest.demo) : { notes: [] };
-          const text = this.pageText(entry, loaded, demo);
           let page = this.live(state.pages[entry.id]?.block);
-          if (!page) page = this.store.create(text, hubId, "system");
+          const text = this.keepAddress(page, this.pageText(entry, loaded, demo));
+          if (!page) page = this.createAddressed(text, hubId, "system");
           else if (page.text !== text) page = this.store.update(page.id, text, page.revision, SYSTEM);
           state.pages[entry.id] = { block: page.id, name: loaded?.name ?? entry.name ?? entry.id };
           if (demo.notes.length) this.seed(state, entry.id, page.id, demo, now);
-        }
+        });
         // An extension gone: its page stays while something is under it (demo notes kept, or the person's), else it goes.
         const present = new Set(installed.map(({ entry }) => entry.id));
         for (const [id, page] of Object.entries(state.pages)) {
           if (present.has(id)) continue;
-          const block = this.live(page.block);
-          if (block && this.store.children(block.id).length) {
-            const text = this.removedText(id, page.name);
-            if (block.text !== text) this.store.update(block.id, text, block.revision, SYSTEM);
-            continue;
-          }
-          if (block) this.store.delete(block.id, SYSTEM);
-          delete state.pages[id];
+          each(id, () => {
+            const block = this.live(page.block);
+            if (block && this.store.children(block.id).length) {
+              const text = this.keepAddress(block, this.removedText(id, page.name));
+              if (block.text !== text) this.store.update(block.id, text, block.revision, SYSTEM);
+              return;
+            }
+            if (block) this.store.delete(block.id, SYSTEM);
+            delete state.pages[id];
+          });
         }
-        const hubText = this.hubText(state, installed.map(({ entry, loaded }) => ({ entry, loaded })));
         const current = this.store.require(hubId);
+        const hubText = this.keepAddress(current, this.hubText(state, installed.map(({ entry, loaded }) => ({ entry, loaded }))));
         if (current.text !== hubText) this.store.update(hubId, hubText, current.revision, SYSTEM);
       });
     } finally {
       this.write(state);
     }
+    if (problems.length) throw new Error(problems.join("; "));
   }
+
+  /**
+   * Creates a block; a `[page::x]` in it that another block holds (one in Trash too) becomes `x-2`, `x-3`…, so what the
+   * service writes always lands (a person's own page named `extensions`, a demo board written again after its first
+   * went to Trash).
+   */
+  private createAddressed(text: string, parentId: string | null, author: "system" | "agent", provenance?: { actorId: string }): Block {
+    for (let n = 1; ; n++) {
+      const attempt = n === 1 ? text : text.replace(/\[page::([^\]\n]+)\]/, (_, address: string) => `[page::${address}-${n}]`);
+      try {
+        return this.store.create(attempt, parentId, author, provenance);
+      } catch (error) {
+        if (n >= 9 || !/is already the page of/.test(error instanceof Error ? error.message : String(error))) throw error;
+      }
+    }
+  }
+
+  /** The text with the block's own page address in place of the one it was made with (createAddressed may have changed it). */
+  private keepAddress(block: Block | null, text: string): string {
+    const own = block ? /\[page::[^\]\n]+\]/.exec(block.text.split("\n")[0] ?? "")?.[0] : undefined;
+    return own ? text.replace(/\[page::[^\]\n]+\]/, own) : text;
+  }
+
 
   /** The demo notes not yet written for this extension, under its page, as the extension. */
   private seed(state: PagesState, id: string, pageId: string, demo: Demo, now: string): void {
@@ -351,7 +382,7 @@ export class ExtensionPages {
     this.store.changes.run(this.store.changes.attribution({ action: `ext.${id}.demo`, actor }), () => {
       for (const note of fresh) {
         const parent = note.parent ? this.live(seeded.notes[note.parent]?.id) : null;
-        const block = this.store.create(rewriteDemoReferences(cleanExtensionText(note.text, true), ids), parent?.id ?? pageId, "agent", { actorId: actor.actorId! });
+        const block = this.createAddressed(rewriteDemoReferences(cleanExtensionText(note.text, true), ids), parent?.id ?? pageId, "agent", { actorId: actor.actorId! });
         ids.set(note.id, block.id);
         seeded.notes[note.key] = { id: block.id, revision: block.revision };
       }
@@ -369,7 +400,8 @@ export class ExtensionPages {
   /**
    * Moves an extension's demo notes to Trash (uninstall's "remove its demo notes"): each one no one has changed since it
    * was written, with nothing under it but such notes. One someone edited, or put a note under, stays, and is named.
-   * The page goes too once nothing is left under it (on the next sync).
+   * The page goes too once nothing is left under it (on the next sync). What it wrote is remembered for the notes it
+   * kept, so a reinstall doesn't write them twice; the ones in Trash are forgotten, so a reinstall writes them fresh.
    */
   removeDemo(id: string, requestedBy?: MutationProvenance): DemoRemoval {
     const state = this.read();
@@ -391,6 +423,7 @@ export class ExtensionPages {
     };
     let trashed = 0;
     const kept: string[] = [];
+    const gone = new Set<string>();
     this.store.changes.run(this.store.changes.attribution({ action: "extensions.uninstall", actor: SYSTEM, ...(requestedBy ? { requestedBy } : {}) }), () => {
       for (const { block } of records) {
         if (!clean(block.id)) {
@@ -398,12 +431,15 @@ export class ExtensionPages {
           continue;
         }
         // Only the top of a clean subtree goes to Trash; what's under it goes with it (and comes back with a restore).
-        if (block.parentId && seededIds.has(block.parentId) && clean(block.parentId)) continue;
+        if (block.parentId && seededIds.has(block.parentId) && clean(block.parentId)) { gone.add(block.id); continue; }
         this.store.delete(block.id, SYSTEM);
+        gone.add(block.id);
         trashed++;
       }
     });
-    delete state.demos[id];
+    // Remembered: what is still in the outline (someone changed it). Forgotten: what went to Trash, or was gone already.
+    for (const [key, record] of Object.entries(seeded.notes)) if (gone.has(record.id) || !this.live(record.id)) delete seeded.notes[key];
+    if (!Object.keys(seeded.notes).length) delete state.demos[id];
     this.write(state);
     return { trashed, kept };
   }
