@@ -62,6 +62,7 @@ export const SEED = {
   swap: "Seed swap thread",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  society: "Allotment society",
   marginalia: "Greenhouse plan for the spring",
   marginaliaNotebook: "Marginalia notebook",
   race: "Seed sowing guide",
@@ -549,6 +550,60 @@ const RECIPE = [
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");
 
+/**
+ * The notes that mention the allotment society (PIE-745): each links to its page, carrying a crop and a season (two
+ * properties no code knows); the society page links back to the first `linkedBack`. The page's watched questions list
+ * the rest (`links:this NOT linkedfrom:this`) and group them by either property.
+ */
+export const SOCIETY_NOTES: { title: string; crop: string; season: string }[] = [
+  { title: "Committee minutes, January", crop: "none", season: "winter" },
+  { title: "Water butt rota agreed", crop: "none", season: "spring" },
+  { title: "Rhubarb crowns from the society shop", crop: "rhubarb", season: "winter" },
+  { title: "Seed potato order closes Friday", crop: "potatoes", season: "spring" },
+  { title: "Blight warning for the potato beds", crop: "potatoes", season: "summer" },
+  { title: "Earthing up the second earlies", crop: "potatoes", season: "summer" },
+  { title: "Bean poles from the coppice day", crop: "beans", season: "spring" },
+  { title: "Runner bean trench, plot 14b", crop: "beans", season: "spring" },
+  { title: "Broad bean blackfly tips", crop: "beans", season: "summer" },
+  { title: "Leek trench depth from the show judge", crop: "leeks", season: "summer" },
+  { title: "Leek rust on plot 9", crop: "leeks", season: "autumn" },
+  { title: "Onion sets in the bulk order", crop: "onions", season: "spring" },
+  { title: "Onion fly netting share", crop: "onions", season: "summer" },
+  { title: "Squash for the harvest show", crop: "squash", season: "autumn" },
+  { title: "Squash curing in the shed", crop: "squash", season: "autumn" },
+  { title: "Courgette glut swap table", crop: "squash", season: "summer" },
+  { title: "Brassica collars from the society", crop: "brassicas", season: "spring" },
+  { title: "Pigeon netting over the kale", crop: "brassicas", season: "winter" },
+  { title: "Sprouts for the Christmas stall", crop: "brassicas", season: "winter" },
+  { title: "Strawberry runners to give away", crop: "fruit", season: "summer" },
+  { title: "Fruit cage repair day", crop: "fruit", season: "autumn" },
+  { title: "Gooseberry sawfly on the old bushes", crop: "fruit", season: "spring" },
+  { title: "Compost bay inspection", crop: "none", season: "autumn" },
+  { title: "Manure delivery to the top gate", crop: "none", season: "winter" },
+  { title: "Garlic in before the first frost", crop: "garlic", season: "autumn" },
+  { title: "Shallots split for the show", crop: "onions", season: "autumn" },
+];
+/** How many of the society notes its page links back to (the first ones): the rest are what it hasn't. */
+export const SOCIETY_LINKED_BACK = 6;
+
+function societyText(linkedBack: readonly Msg[]): string {
+  const question = "links:this NOT linkedfrom:this";
+  return [
+    `${SEED.society} [page::${SEED.society}]`,
+    "",
+    `Everything that mentions the society links here. Linked back so far: ${linkedBack.map(m => `((${m.id}))`).join(" ")}`,
+    "",
+    "## Not linked back yet",
+    `::links{query="${question}" title="Not linked back"}`,
+    "::",
+    "",
+    "The same question, grouped by the service: by crop in tabs, by season as a rank. Link one back (or write a new note that mentions the society) and every list here changes on its own: the service says the answer changed.",
+    "",
+    ...fig("tabs", ["title: By crop", `query: "${question}"`, "group: crop", "columns: [title, season]", "sort: title", "direction: asc", "limit: 6"]),
+    ...fig("rank", ["title: By season", `query: "${question}"`, "group: season"]),
+  ].join("\n").trimEnd();
+}
+
 /** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
 const PLOT_JOBS_NOTE = [
   `${SEED.plotJobs} [page::${SEED.plotJobs}]`,
@@ -943,6 +998,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
+  // The society page and the notes that mention it (PIE-745): its page first, so their [[links]] resolve; then its text
+  // once they're there, linking back to the first few.
+  notes.society = await make(notes.root.id, `${SEED.society} [page::${SEED.society}]`);
+  const mentions = await make(notes.root.id, "Society mentions\nNotes that mention the allotment society, one a note.");
+  const society: Msg[] = [];
+  for (const m of SOCIETY_NOTES) society.push(await make(mentions.id, `${m.title} [type::society-note] [crop::${m.crop}] [season::${m.season}]\nFrom the [[${SEED.society}]].`));
+  notes.society = await board.update(notes.society.id, societyText(society.slice(0, SOCIETY_LINKED_BACK)), notes.society.revision!);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);

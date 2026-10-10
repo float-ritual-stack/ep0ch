@@ -10,7 +10,7 @@ import { renderDoc } from "../src/doc";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { embedRegion, invalidateEmbeds, MAX_EMBEDS, shade } from "../src/embeds";
-import { answer, invalidateLive, resolveLive, setLiveSource } from "../src/live";
+import { answer, resolveLive, setLiveSource } from "../src/live";
 import { metadataLines, setUserSummaryKeys, summaryKeys, summarySegments, type Source } from "../src/props";
 import { invalidateReferences, presentLinks, stripMarks } from "../src/refs";
 import { MainMenu } from "../src/screens";
@@ -208,22 +208,25 @@ describe("live figures: the query grammar", () => {
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: {} })),
   });
 
-  test("OR / NOT / dates go to the service as an expression when it has query.expression", async () => {
+  test("OR / NOT / dates go to the service as its where", async () => {
     const seen: any[] = [];
-    setLiveSource(fake(seen), () => {}); invalidateLive();
+    setLiveSource(fake(seen), () => {});
     const p = { query: "type=chore (priority=high OR due) updated > 2026-09-20" };
     answer(p); await until(() => answer(p)?.state === "ready", "the answer");
-    expect(seen[0]).toMatchObject({ expression: p.query });
+    expect(seen[0]).toMatchObject({ where: p.query });
     expect(seen[0].filters).toBeUndefined();
   });
 
   test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
     const asked: [string, string[]][] = [];
-    const b = { ...fake([]), matchQuery: async (e: string, ids: string[]) => { asked.push([e, ids]); return new Set(ids); } };
-    setLiveSource(b, () => {}); invalidateLive();
+    const base = fake([]);
+    // A watched query.matches of its own: it changes when the subset does, even if the results don't.
+    const b = { ...base, request: async (a: string, p: any) => { if (a !== "query.matches") return base.request(a, p); asked.push([p.expression, p.blockIds]); return { blockIds: p.blockIds }; } };
+    setLiveSource(b, () => {});
     const p = { query: "type=chore", done: "stage=done OR stage=dropped" };
     resolveLive("check", p);
-    await until(() => answer(p)?.state === "ready", "the answer");
+    await until(() => answer(p)?.state === "ready" && asked.length > 0, "the answer");
+    await Bun.sleep(5);
     expect(asked).toEqual([["stage=done OR stage=dropped", ["a"]]]);
     expect(resolveLive("check", p)!.props.items[0].done).toBe(true);
   });

@@ -42,7 +42,14 @@ describe("::graph-tabs from the outline", () => {
   ];
   beforeAll(() => {
     setLiveSource({
-      request: async () => ({ blocks: results, completeness: { kind: "complete" } }),
+      // The service groups (`group: stage`): every match counted, in the property's value order, no value last.
+      request: async (_a: string, p: any) => ({
+        blocks: results, completeness: { kind: "complete" },
+        ...(p.query.group === "stage" ? { groups: [
+          { value: "blocked", count: 1, ids: ["c"] }, { value: "doing", count: 1, ids: ["b"] },
+          { value: "queued", count: 3, ids: ["a", "d", "f"] }, { value: null, count: 1, ids: ["e"] },
+        ] } : {}),
+      }),
       toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: Object.fromEntries(b.properties.map((x: any) => [x.key, x.value])) })),
     } as any, () => {});
   });
@@ -50,7 +57,7 @@ describe("::graph-tabs from the outline", () => {
   // A layout makes a fresh FiguresEnv each time (its counts start again): so does each draw here.
   const draw = async (figures?: any) => { renderGraph("tabs", yaml, 70, undefined, figures && { ...figures }); await Bun.sleep(5); return renderGraph("tabs", yaml, 70, undefined, figures && { ...figures }).map(strip); };
 
-  test("order first (empty ones kept), the rest alphabetically, no value last; counts on every label; limit is per tab", async () => {
+  test("order first (empty ones kept), the rest in the service's order, no value last; counts on every label; limit is per tab", async () => {
     const seen: FigureInfo[] = [];
     const out = await draw({ seen: (f: FigureInfo) => seen.push(f) });
     expect(out.join("\n")).toContain("doing 1 · review 0 · blocked 1 · queued 3 · — 1");

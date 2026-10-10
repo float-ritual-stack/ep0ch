@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Questions the service answers and keeps answered: this, linkedfrom:, parent:, groups and facets (PIE-745)
+
+- **New:** in any query (a view, a figure, `::links{query=…}`, `ep0ch find --query`, `outliner_query`): `linkedfrom:<target>`
+  (the blocks the target links to), `parent:<target>` (its children), and `this` as a target, the note the question
+  sits in. `links:this NOT linkedfrom:this` lists what mentions a note that the note doesn't link back.
+- **New:** `blocks.query` groups (`group=` any property, or `created:week` and the like), sorts (`sort="title"`,
+  `work-stage` in the workboard's order) and counts values (`facets`) over every match, and says `no notes have <key>;
+  nearest: …` for a key nobody has written. A `::graph-tabs` or `::graph-rank` draws the service's groups.
+- **Changed:** live figures and `::links` no longer drop every answer on any change and ask again on the next paint: they
+  watch their questions, and the service says when an answer changed (at most every 250 ms, at least once a second
+  under steady writes). *Why it matters:* the door stops polling and stops owning query meaning, so every terminal gets
+  the same answers, and "what haven't I linked back" is one line. The showcase's `questions` section shows it.
+- **Changed (wire):** `blocks.query`'s `expression` is now `where`, and its structured form `predicate`. A rank or tabs
+  figure over a `view:` says to write `query:` instead (the service groups queries). `PROTOCOL` 129: update the outline
+  host and every client together (`ep0ch install --apply`).
+
+
 ### Read with a pen: highlights, margin notes and passage actions (PIE-751, PIE-753)
 
 - **New:** select words in a reader and act on them. A toolbar appears on the selection's line: Comment, Ask, Explain

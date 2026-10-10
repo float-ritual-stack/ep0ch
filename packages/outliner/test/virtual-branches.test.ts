@@ -141,7 +141,7 @@ describe("virtual branch definitions", () => {
       { key: "direction", value: "newest" },
     ]);
     expect(parseVirtualBranchConfig(invalid, [invalid]).configurationErrors).toEqual([
-      "Virtual branch: Sort by rank, not rank::: a sort is created, updated or a property key",
+      "Virtual branch: Sort by rank, not rank::: a sort is created, updated, title or a property key",
       "Virtual branch direction must be asc or desc, not newest: write [direction::asc] or [direction::desc]",
     ]);
 

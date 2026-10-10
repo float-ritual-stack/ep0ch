@@ -1,10 +1,11 @@
 // Live figures: a ::graph-* block that asks the outline instead of restating it.
-// The note stores the question (a query, or a saved view to read); the door answers it on
-// every render from the source data, so status lives in one place and every figure agrees.
+// The note stores the question (a query, or a saved view to read); the service answers it, and says when the
+// answer changed (a watched read, src/watched.ts), so status lives in one place and every figure agrees.
 //
 //   query: "type=outbox-item ticket=PC-762"   ad-hoc filter, same syntax as virtual branches (OR, NOT,
-//                                              parentheses, created/updated ranges), parsed by the service
-//                                              (`query.expression`); the door never parses it
+//                                              parentheses, created/updated ranges, the atoms), parsed by the
+//                                              service (`where`); the door never parses it. `this` in it is the
+//                                              note the figure sits in: `links:this NOT linkedfrom:this`
 //   view: ((5c6cda4c-…))                        read an existing saved virtual branch faithfully
 //   limit: 20   sort: updated|created|<property>   direction: desc|asc
 //                                              a property sorts numbers as numbers, then text, blocks without it
@@ -14,10 +15,11 @@
 // Per kind, what the results become:
 //   check     one row per block; done: "<filter>" marks which are ticked; note: <property>
 //   stat/kpi  items: [{ label, query|view }] → each value is a live count
-//   rank      group: <property> → a bar per value, counted
+//   rank      group: <property> → a bar per value, counted by the service (its `groups`, every match)
 //   table     columns: [title, <property>, updated, author, …]
-//   tabs      group: <property> → one tab per value, each a table of its results (columns: as table);
-//             order: [values…] first (shown even when empty), then the rest alphabetically, no value last;
+//   tabs      group: <property> → one tab per value the service groups, each a table of its results (columns: as
+//             table); order: [values…] first (shown even when empty), then the rest in the service's value
+//             order (numbers, then text; work-stage in the workboard's order), no value last; a tab counts every match;
 //             limit: rows per tab (50); the question itself asks for up to 1000 results
 //   timeline  one event per block, dated by updated/created or date: <property>; now: "<filter>"
 //   meter     value = share of results matching done: "<filter>"
@@ -36,7 +38,9 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 import { subject } from "./board";
-import { readView } from "./views";
+import { viewReadOf } from "./views";
+import { watchedOn, type Watching } from "./watched";
+import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { Row } from "./figures/markdown";
@@ -45,18 +49,25 @@ import { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays } from "./
 import { addCell, type Cells } from "./figures/matrix";
 
 type Props = Record<string, any>;
-/** `done` / `now`: the results the figure's `done:` and `now:` queries hold for, as the service says. */
-interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; done?: Set<string>; now?: Set<string>; error?: string; at: number }
+/**
+ * One figure's answer: its results, the service's `groups` when the figure groups, and which results the figure's
+ * `done:` and `now:` queries hold for (as the service says).
+ */
+interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string }
+type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
 let onChange: () => void = () => {};
-const cache = new Map<string, Entry>();
-let generation = 0;
+let unlisten: () => void = () => {};
 
+/**
+ * The outline live figures ask, and the repaint to run when an answer arrives. Answers are the board's watched reads
+ * (src/watched.ts): the service says when one changed, so nothing is dropped on a change or asked again on paint.
+ */
 export function setLiveSource(b: SocketBoard | null, redraw: () => void) {
-  // Answers are kept by question, not by outline: another outline asks them all again.
-  if (b !== board) generation++;
+  unlisten();
   board = b; onChange = redraw;
+  unlisten = b ? watchedOn(b).listen(changed) : () => {};
 }
 /** The connection and its repaint now, to put back after borrowing it (drawNote). */
 export const liveSource = (): { board: SocketBoard | null; redraw: () => void } => ({ board, redraw: onChange });
@@ -65,79 +76,68 @@ export const liveBoard = (): SocketBoard | null => board;
 /** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
 const listeners = new Set<() => void>();
 export function listenLive(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
-const changed = () => { onChange(); for (const fn of listeners) fn(); };
+function changed() { onChange(); for (const fn of listeners) fn(); }
 
-/** The outline changed somewhere: re-ask every question on the next render (answers stay visible meanwhile). */
-export function invalidateLive() { generation++; }
+/** A figure's `done:` or `now:` answer while a newer one is asked for (its results changed): shown until it comes. */
+const lastSubset = new Map<string, Set<string>>();
 
-
-function sourceKey(p: Props): string | null {
-  const also = `|done:${p.done ?? ""}|now:${p.now ?? ""}`;
-  if (p.view) return `view:${p.view}${also}`;
-  if (p.query) return `query:${p.query}|${p.limit ?? ""}|${p.sort ?? ""}|${p.direction ?? ""}${also}`;
-  return null;
+/**
+ * Which of `items` the figure's `done:` (or `now:`) query holds for: a watched `query.matches` of its own, so it changes
+ * when the subset does even if the results don't (`done: linkedfrom:this`). Undefined when the figure has none.
+ */
+function subset(b: SocketBoard, p: Props, k: "done" | "now", items: readonly Msg[], note: string | undefined): { ids?: Set<string>; error?: string } {
+  if (!p[k]) return {};
+  const held = `${note ?? ""}|${p.view ?? p.query}|${k}|${p[k]}`;
+  const read = watchedOn(b).read("query.matches", { expression: String(p[k]), blockIds: items.map(m => m.id), ...(note ? { this: note } : {}) }, (r: { blockIds: string[] }) => new Set(r.blockIds));
+  if (read.state === "ready") lastSubset.set(held, read.value);
+  if (read.state === "error") return { error: `${k}: ${read.error}` };
+  return { ids: read.value ?? lastSubset.get(held) ?? new Set() };
 }
 
-/** The results, and which of them the figure's `done:` and `now:` queries hold for (asked of the service). */
-async function fetchSource(p: Props): Promise<{ items: Msg[]; truncated: boolean; done?: Set<string>; now?: Set<string> }> {
-  const r = await fetchItems(p);
-  const ids = r.items.map(m => m.id);
-  const subset = async (k: "done" | "now") => {
-    if (!p[k]) return undefined;
-    return board!.matchQuery(String(p[k]), ids).catch((e: Error) => { throw new Error(`${k}: ${e.message}`); });
-  };
-  const [done, now] = [await subset("done"), await subset("now")];
-  return { ...r, ...(done ? { done } : {}), ...(now ? { now } : {}) };
-}
+/** A sort the service refused, said as the figure's own line (`sort:` or `direction:`). */
+const sortProblem = (sort: string, direction: string) => (e: Error) =>
+  /^Sort direction /.test(e.message) ? new Error(`direction: ${direction} · ${e.message}`) : /^Sort /.test(e.message) ? new Error(`sort: ${sort} · ${e.message}`) : e;
 
-async function fetchItems(p: Props): Promise<{ items: Msg[]; truncated: boolean }> {
-  if (!board) throw new Error("no outline connection");
+/**
+ * The figure's question, watched: a saved view read faithfully (`view:`), or a query (`query:`) the service parses,
+ * sorts (unset: updated, newest first) and groups (`group:`, for the figures that group). Null without either. `note`
+ * is the note it sits in: `this` in its queries.
+ */
+function ask(p: Props, note: string | undefined, group?: string): Entry | null {
+  if (!board) return null;
+  const b = board, watched = watchedOn(b);
+  let read: Watching<Answer>;
   if (p.view) {
     const ref = referencedBlock(String(p.view));
-    if (!ref) throw new Error("view: needs a ((block-ref)) or block id");
-    const def = await board.get(ref.blockId);
-    if (!def) throw new Error("view not found");
-    const r = await readView(board, def);
-    if (r.status !== "ready") throw new Error(`view ${r.status}: ${r.errors.join("; ")}`);
-    return { items: r.items, truncated: r.truncated };
-  }
-  const limit = Math.min(1000, Number(p.limit) || 200);
-  const q = String(p.query);
-  // The service checks the sort (unset: updated, newest first) and says what's wrong; the figure names its own lines.
-  const sort = { field: String(p.sort ?? "updated"), direction: String(p.direction ?? "desc") };
-  // The service parses the query (PIE-398).
-  const r = await board.request<{ blocks: any[]; completeness: { kind: string } }>("blocks.query", { query: { expression: q, limit, sort } })
-    .catch((e: Error) => { throw /^Sort direction /.test(e.message) ? new Error(`direction: ${sort.direction} · ${e.message}`) : /^Sort /.test(e.message) ? new Error(`sort: ${sort.field} · ${e.message}`) : e; });
-  return { items: board.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated" };
+    if (!ref) return { state: "error", items: [], truncated: false, error: "view: needs a ((block-ref)) or block id" };
+    read = watched.read("views.read", { viewId: ref.blockId, format: "tree" }, (r: any) => {
+      const view = viewReadOf({ ...r, blocks: b.toMsgs(r.blocks ?? []) });
+      if (view.status !== "ready") throw new Error(`view ${view.status}: ${view.errors.join("; ")}`);
+      return { items: view.items, truncated: view.truncated };
+    });
+  } else if (p.query) {
+    const sort = String(p.sort ?? "updated"), direction = String(p.direction ?? "desc");
+    // `this` in the query is the note the figure sits in (`links:this`).
+    const query = { where: String(p.query), ...(note ? { this: note } : {}), limit: Math.min(1000, Number(p.limit) || 200), sort: `${sort} ${direction}`, ...(group ? { group } : {}) };
+    read = watched.read("blocks.query", { query }, (r: { blocks: any[]; completeness?: { kind: string }; groups?: QuestionGroup[]; hint?: string }) =>
+      ({ items: b.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated", ...(r.groups ? { groups: r.groups } : {}), ...(r.hint ? { hint: r.hint } : {}) }));
+    if (read.state === "error") read = { ...read, error: sortProblem(sort, direction)(new Error(read.error)).message };
+  } else return null;
+  if (read.state === "loading") return { state: "loading", items: [], truncated: false };
+  if (read.state === "error" && !read.value) return { state: "error", items: [], truncated: false, error: read.error };
+  const answer = read.value!;
+  const done = subset(b, p, "done", answer.items, note), now = subset(b, p, "now", answer.items, note);
+  const error = read.state === "error" ? read.error : done.error ?? now.error;
+  if (error) return { state: "error", items: answer.items, truncated: false, error };
+  return { state: "ready", ...answer, ...(done.ids ? { done: done.ids } : {}), ...(now.ids ? { now: now.ids } : {}) };
 }
 
-/** Synchronous for the renderer: the last answer, refreshed in the background when stale. */
-export function answer(p: Props): Entry | null {
-  const key = sourceKey(p);
-  return key ? cached(key, () => fetchSource(p)) : null;
-}
-
-/** The answers being asked for now: `ep0ch export` waits for them before it draws (liveSettled). */
-const asking = new Set<Promise<unknown>>();
-
-/** The entry under `key`, asked again (by `fetch`) when the outline changed since. */
-function cached(key: string, fetch: () => Promise<Omit<Entry, "state" | "at">>): Entry {
-  const hit = cache.get(key);
-  if (!hit || hit.at < generation) {
-    const entry: Entry = hit ? { ...hit, at: generation } : { state: "loading", items: [], truncated: false, at: generation };
-    cache.set(key, entry);
-    // Kept as of when it was asked, and only while the same outline is connected: an answer from the outline before
-    // a swap (drawNote lending the connection) is never this one's.
-    const asked = generation, from = board;
-    // …nor kept over a newer answer.
-    const keep = () => board === from && (cache.get(key)?.at ?? -1) <= asked;
-    const q = fetch().then(r => { if (keep()) { cache.set(key, { state: "ready", ...r, at: asked }); changed(); } },
-      e => { if (keep()) { cache.set(key, { state: "error", items: [], truncated: false, error: String(e.message ?? e), at: asked }); changed(); } });
-    asking.add(q);
-    void q.finally(() => asking.delete(q));
-    return entry;
-  }
-  return hit;
+/**
+ * Synchronous for the renderer: the newest answer to the figure's question, asked once and told when it changes.
+ * `note` is the note the figure sits in: what `this` stands for in its query.
+ */
+export function answer(p: Props, note?: string): Entry | null {
+  return ask(p, note);
 }
 
 /**
@@ -145,26 +145,24 @@ function cached(key: string, fetch: () => Promise<Omit<Entry, "state" | "at">>):
  * outline that never answers leaves those figures asking, it never hangs the caller.
  */
 export async function liveSettled(ms = 10_000): Promise<void> {
-  const end = Date.now() + ms;
-  while (asking.size && Date.now() < end) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([Promise.all([...asking]), new Promise(r => { timer = setTimeout(r, Math.max(0, end - Date.now())); })]);
-    clearTimeout(timer);
-  }
+  if (board) await watchedOn(board).settled(ms);
 }
 
 /**
  * A note's child bullets as figure rows (a figure block's, or a figure's with `rows: children`): each child's first
  * line without its property tokens, read by outline-core's figure grammar, standing for its note. Comment threads
- * (annotation blocks) aren't rows. `waiting` until the first answer.
+ * (annotation blocks) aren't rows. `waiting` until the first answer. The children are a watched question
+ * (`parent:this`), in the note's order.
  */
 export function childRows(note: string): { rows: Row[]; waiting: boolean } | null {
   if (!board) return null;
-  const e = cached(`children:${note}`, async () => ({ items: (await board!.children(note)).filter(m => !m.props.type?.startsWith("annotation")), truncated: false }));
+  const b = board;
+  const read = watchedOn(b).read("blocks.query", { query: { where: "parent:this NOT type=annotation NOT type=annotation-reply", this: note, limit: 1000 } }, (r: { blocks: any[] }) => b.toMsgs(r.blocks));
+  const items = read.value ?? [];
   // Each child's header line without its chips and their ` - ` (outline-core's reading, as its title is made); a
   // child with no text isn't a row.
-  const rows = e.items.flatMap(m => { const prose = headerLine(m.text).prose.trim(); return prose ? [{ ...figureRow(prose), block: m.id }] : []; });
-  return { rows, waiting: e.state === "loading" && !e.items.length };
+  const rows = items.flatMap(m => { const prose = headerLine(m.text).prose.trim(); return prose ? [{ ...figureRow(prose), block: m.id }] : []; });
+  return { rows, waiting: read.state === "loading" };
 }
 
 const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -176,13 +174,6 @@ const field = (m: Msg, key: string): string =>
 export const NONE = "—";
 /** What a tabs figure asks for (the service's most), and its rows per tab unless `limit:` says. */
 const TABS_FETCH = 1000, TABS_PER = 50;
-
-/** Results by their value of property `key`, in the order they came (rank and tabs group the same way). */
-function groupBy(items: readonly Msg[], key: string): Map<string, Msg[]> {
-  const out = new Map<string, Msg[]>();
-  for (const m of items) { const v = m.props[key] ?? NONE; const g = out.get(v); if (g) g.push(m); else out.set(v, [m]); }
-  return out;
-}
 
 /**
  * A table's props from results (a `::graph-table`, or one tab of a `::graph-tabs`): `columns:` (title and updated
@@ -201,12 +192,12 @@ export interface Resolved { props: Props; status: string | null; waiting: boolea
  * for one result (a check item, an event, a table row) carries its note's id (`block`, `blocks`), so the
  * reader can open it (PIE-441).
  */
-export function resolveLive(kind: string, p: Props): Resolved | null {
+export function resolveLive(kind: string, p: Props, note?: string): Resolved | null {
   // stat/kpi: each item can carry its own source.
   if ((kind === "stat" || kind === "kpi") && Array.isArray(p.items) && p.items.some((i: Props) => i?.query || i?.view)) {
     let waiting = false, error: string | undefined;
     const items = p.items.map((i: Props) => {
-      const a = answer(i);
+      const a = answer(i, note);
       if (!a) return i;
       if (a.state === "error") error = a.error;
       if (a.state === "loading" && !a.items.length) { waiting = true; return { ...i, value: "…" }; }
@@ -220,34 +211,46 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
   if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   // A tabs figure groups every result, so it asks for all of them; its `limit:` is per tab.
   // A tabs figure groups every result, and a meter with a budget counts them all: `limit:` is theirs, not the query's.
-  const a = answer(kind === "tabs" || (kind === "meter" && p.limit !== undefined) ? { ...p, limit: TABS_FETCH } : p);
+  // A rank and a tabs figure are grouped by the service (`group:`, every match counted): the figure draws its groups.
+  const grouped = kind === "rank" || kind === "tabs" ? String(p.group ?? "status") : undefined;
+  if (grouped && p.view && !p.query) return { props: p, status: null, waiting: false, error: "group: groups a query's results, and this figure reads a view: write query: with the view's own query" };
+  const a = ask(kind === "tabs" || (kind === "meter" && p.limit !== undefined) ? { ...p, limit: TABS_FETCH } : p, note, grouped);
   if (!a) return null;
   if (a.state === "error") return { props: p, status: null, waiting: false, error: a.error };
   if (a.state === "loading" && !a.items.length) return { props: p, status: null, waiting: true };
   const items = a.items;
   const status = `live · ${items.length}${a.truncated ? "+" : ""} result${items.length === 1 ? "" : "s"}`;
+  // A key nobody has written: the service's hint (with the nearest keys that exist) is said under the figure.
+  if (a.hint) { const r = resolveKind(kind, p, a, items, status); return r && { ...r, error: r.error ?? a.hint }; }
+  return resolveKind(kind, p, a, items, status);
+}
+
+/** A live figure's static props from its answer (`resolveLive`'s per-kind half). */
+function resolveKind(kind: string, p: Props, a: Entry, items: Msg[], status: string): Resolved | null {
   // done: and now: are queries too: the service says which results they hold for.
   const done = a.done, now = a.now;
   const isDone = (m: Msg) => !!done?.has(m.id);
   switch (kind) {
     case "check":
       return { status, waiting: false, props: { ...p, items: items.map(m => ({ label: subject(m), done: isDone(m), note: p.note ? field(m, p.note) || undefined : undefined, block: m.id })) } };
-    case "rank": {
-      const groups = groupBy(items, String(p.group ?? "status"));
-      return { status, waiting: false, props: { ...p, items: [...groups].sort((x, y) => y[1].length - x[1].length).map(([label, ms]) => ({ label, value: ms.length })) } };
-    }
+    case "rank":
+      // The service's groups, most first; a match without the property is the NONE group.
+      return { status, waiting: false, props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count })) } };
     case "table":
       return { status, waiting: false, props: { ...p, ...tableOf(p, items) } };
     case "tabs": {
-      // One tab per value of `group:`, the values `order:` lists first (even with nothing in them), then the rest
-      // alphabetically (a count changing never moves a tab under the person's pointer), results with no value last.
-      const groups = groupBy(items, String(p.group ?? "status"));
+      // One tab per group the service answered for `group:`: the values `order:` lists first (even with nothing in
+      // them), then the rest in the service's order (the property's value order, so a count changing never moves a
+      // tab under the person's pointer), results with no value last. A tab's count is every match's.
+      const byId = new Map(items.map(m => [m.id, m]));
+      const groups = new Map((a.groups ?? []).map(g => [g.value ?? NONE, g]));
       const order: string[] = Array.isArray(p.order) ? p.order.map(String) : [];
-      const rest = [...groups.keys()].filter(v => !order.includes(v)).sort((x, y) => (x === NONE ? 1 : y === NONE ? -1 : x.localeCompare(y)));
+      const rest = [...groups.keys()].filter(v => !order.includes(v));
       const per = Math.max(1, Number(p.limit) || TABS_PER);
       const tabs = [...order, ...rest].map(value => {
-        const ms = groups.get(value) ?? [];
-        return { value, count: ms.length, more: Math.max(0, ms.length - per), ...tableOf(p, ms.slice(0, per)) };
+        const g = groups.get(value);
+        const ms = (g?.ids ?? []).flatMap(id => byId.get(id) ?? []).slice(0, per);
+        return { value, count: g?.count ?? 0, more: Math.max(0, (g?.count ?? 0) - ms.length), ...tableOf(p, ms) };
       });
       return { status, waiting: false, props: { ...p, tabs, truncated: a.truncated } };
     }

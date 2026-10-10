@@ -443,11 +443,11 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     limit,
     ...(filters.length ? { filters } : {}),
     ...(given("text") ? { text: input.text } : {}),
-    ...(given("query") ? { expression: input.query } : {}),
+    ...(given("query") ? { where: input.query } : {}),
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
   };
-  // An older service ignores `expression` and would return unfiltered results.
-  if (query.expression !== undefined) await client.requireCompatibleService();
+  // An older service ignores `where` and would return unfiltered results.
+  if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
   return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete" };
 }
