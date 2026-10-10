@@ -63,9 +63,13 @@ describe('the formatter: one row per tool', () => {
     expect(words(applied)).toBe('✎ ((0f3c2a1b…)) · patched "runner beans" · applied to the live draft')
     expect(applied!.detail).toBe('```diff\n-runner  beans\n+runner beans\n```')
     const proposed = toolRowOf(done('outline_patch', { ...input, patches: [...input.patches, { observed: 'a', replacement: 'b' }] },
-      { outcome: 'proposed', reason: 'the text changed under it', proposalId: THREAD, embedded: null, embeddedIn: NOTE }))
+      { outcome: 'proposed', reason: 'the text changed under it', proposalId: THREAD, beside: NOTE }))
     expect(words(proposed)).toBe('✎ ((0f3c2a1b…)) · patched 2 spans')
     expect(proposed!.warning).toBe('proposed, not applied: the text changed under it')
+    // A retry of the same patch returns the open proposal (PIE-725): said as that, not as a new one.
+    const again = { outcome: 'proposed', reason: 'the text changed under it', proposalId: THREAD, beside: NOTE, deduped: true }
+    expect(toolRowOf(done('outline_patch', input, again))!.warning).toBe('already proposed: your same patch is still open beside the note')
+    expect(toolResultLineOf('mcp__pi-outliner__outline_patch', JSON.stringify(again), false)).toBe('already proposed (deduped)')
   })
 
   test('outline_assign_id: the id given, or already there', () => {

@@ -3063,6 +3063,10 @@ export function createDetailController(
       if (!isBufferMode() && state.refreshPending) await refreshPendingTarget();
     } catch (error) {
       state.status = written ? `Saved; display refresh failed · ${errorMessage(error)}` : errorMessage(error);
+      // A comment or reply that didn't land stays open with its text (PIE-761): said, with what to do next.
+      if (!written && state.mode === "comment" && (state.annotationDraft || state.annotationReplyDraft) && state.buffer.text.trim()) {
+        state.status = `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
+      }
       if (!written && state.mode === "edit" && state.context.selected && effects.recovery) {
         try {
           state.recovery=await effects.recovery.retain(recoveryInput());

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createTextQuoteAnchor,
   formatAnnotationBlock,
+  inertHeadingQuote,
   parseAnnotationBlockContent,
 } from "../src/annotations";
 import { parseProperties } from "../src/properties";
@@ -134,5 +135,27 @@ describe("annotation block content", () => {
     expect(() => formatAnnotationBlock(invalidInput as unknown as AnnotationCreateInput)).toThrow(
       "Unsupported annotation source snapshot: unknown",
     );
+  });
+});
+
+describe("the comment heading never hides its metadata (PIE-761)", () => {
+  test("an unclosed code span in the quote is dropped, a paired one kept", () => {
+    expect(inertHeadingQuote("as `::graph-table` with `columns: \\[title, tl…")).toBe("as `::graph-table` with columns: \\[title, tl…");
+    expect(inertHeadingQuote("``a ` b`` and ``` open")).toBe("``a ` b`` and  open");
+    expect(inertHeadingQuote("no code")).toBe("no code");
+  });
+
+  test("a quote cut inside a code span still reads back as an annotation, whatever the body holds", () => {
+    const source = "Tried: a meetings index as `::graph-table` with `columns: [title, tldr, when, who]` and `density: comfortable`.";
+    const input: AnnotationCreateInput = {
+      target: { ...annotationTarget(), anchor: createTextQuoteAnchor(source, 0, source.length) },
+      body: "a `^a10` and ((0d1e5ba9-8560 and ((0d1e5ba9-8560-4091-b0f0-7ddfaf4ee35f^a10))",
+      source: "user",
+    };
+    for (const parent of [undefined, "33333333-3333-4333-8333-333333333333"]) {
+      const content = parseAnnotationBlockContent(annotationBlock(formatAnnotationBlock(input, parent)));
+      expect(content.body).toBe(input.body);
+      expect(content.parentAnnotationId).toBe(parent);
+    }
   });
 });

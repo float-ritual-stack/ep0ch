@@ -6,6 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
+import { savedReferenceWarning } from "../reference-warnings";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
@@ -21,7 +22,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/ou
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
@@ -290,6 +291,13 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
  * and a comment mark (in the margin).
  */
+/** A body's hooks with the proposals beside the note drawn after their lines, after whatever else follows those lines. */
+function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number) => string[])[]>): Partial<DocEnv> {
+  if (!beside.size) return hooks;
+  const after = hooks.after;
+  return { ...hooks, after: (line, width) => [...(after?.(line, width) ?? []), ...(beside.get(line) ?? []).flatMap(draw => draw(width))] };
+}
+
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
@@ -1371,6 +1379,23 @@ export class NoteSurface {
   }
 
   /**
+   * The open proposals beside the note (PIE-725), by the body line each is drawn after: its mark's line, else the
+   * last, as its embed line was put before proposals moved out of the note's text. Each is drawn as an embed of it
+   * (`preview`), so its `[apply] [dismiss]`, `A` and `X` are the embed's.
+   */
+  private besideRegions(m: Msg, noteLines: readonly number[], src: Source | null, preview: ((id: string, width: number) => string[]) | undefined): Map<number, ((width: number) => string[])[]> {
+    const out = new Map<number, ((width: number) => string[])[]>();
+    if (!preview || !isOutlineNote(m)) return out;
+    for (const p of proposalsBeside(m, src)) {
+      const at = Math.max(noteLines.findLastIndex(n => n <= p.afterLine), Math.min(0, noteLines.length - 1));
+      const g = out.get(at) ?? [];
+      g.push(width => preview(p.id, width));
+      out.set(at, g);
+    }
+    return out;
+  }
+
+  /**
    * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
    * when it doesn't).
    */
@@ -1413,7 +1438,7 @@ export class NoteSurface {
         seen: f => figures.push(f),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
-      ...more?.(text, lines),
+      ...withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview)),
     });
     return { doc, points, lines };
   }
@@ -1905,6 +1930,13 @@ export class NoteSurface {
     this.notice = change ? `properties changed: ${change}` : "";
     const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
     host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
+    // Saved first; then a reference that leads nowhere is said, with what it may have meant (PIE-761), never refused.
+    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(w => {
+      if (!w || this.msg?.id !== m.id || this.msg.revision !== m.revision) return;
+      this.notice = [this.notice, w].filter(Boolean).join(" · ");
+      host.ctx.flash(w, 12000);
+      host.redraw();
+    });
   }
 
   /**
@@ -6529,7 +6561,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "proposal.dismiss": def({
-    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) takes its embed line out of the note it was proposed under (or the draft of it being written), marks it dismissed and puts it in Trash, all recorded as whoever runs this. An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
+    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
     async run({ id }, { surface, host }, actor) {

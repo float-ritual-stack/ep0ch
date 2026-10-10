@@ -190,7 +190,7 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
   const before = store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt;
   await Bun.sleep(10);
   await client.request({ action: "resources.projection.refresh", blockId: record.id });
-  expect(store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt > before || true).toBe(true);
+  expect(store.extensionRecords({ extensionId: "moon", role: "record", itemKey: "2026-10-26" })[0]!.syncedAt > before).toBe(true);
   expect(store.get(record.id)!.effectiveDeletedRootId).toBeFalsy();
 
   // A second line for the same date shares the one record.

@@ -2459,6 +2459,10 @@ export class OutlinerServer {
         case "capture.draft.get":
           result = this.store.quickCaptureDraft();
           break;
+        case "draft.proposals.list":
+          if (typeof request.blockId !== "string" || !request.blockId) throw Error("draft.proposals.list needs blockId");
+          result = this.draftPatches.proposalsBeside(request.blockId);
+          break;
         case "draft.patch":
         case "draft.proposal.apply":
         case "draft.proposal.dismiss":

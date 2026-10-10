@@ -1,12 +1,12 @@
-// PIE-439: the showcase. Its seed (every section's content, written through the service), the
-// `scripts/try-it.sh --showcase --reset` path putting it back, and the screen drawing each reuse-map
-// section with its real part, by keys, mouse and act. Scratch services only; the seed is fictional.
+// PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
+// each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
+// (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
 import { surfaceBg } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -14,7 +14,7 @@ import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -24,17 +24,6 @@ import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
-/**
- * Processes whose environment serves `base`'s state: a scan of `proc`, and none where the host has no
- * /proc (macOS), where only the pidfile is checked.
- */
-function servingState(base: string, proc = "/proc"): string[] {
-  if (!existsSync(proc)) return [];
-  return readdirSync(proc).filter(p => /^\d+$/.test(p)).filter(p => {
-    try { return readFileSync(`${proc}/${p}/environ`, "utf8").split("\0").includes(`EP0CH_OUTLINES=${base}/outlines`); } catch { return false; }
-  });
-}
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -88,7 +77,8 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(now.text).toContain(REMOTE_LINE);
     const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
     expect(proposal?.text).toContain("from @mcp:chat.example.test: not applied, because its writer may propose changes here, not make them");
-    expect(now.text).toContain(`!((${proposal!.id}))`);
+    // Beside the note (PIE-725): its text names no proposal.
+    expect(now.text).not.toContain(proposal!.id);
     expect((await board.comments(note.id))).toEqual([expect.objectContaining({ body: "Was that the peat-free kind?", quote: "two bags of compost", open: true })]);
   });
 
@@ -246,122 +236,6 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   });
 });
 
-describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
-  const home = mkdtempSync(join(tmpdir(), "ep0ch-showcase-home-"));
-  const base = join(home, "ep0ch-door", "showcase");
-  // Without EP0CH_STATE, which the script would put the showcase under: another test file may have left it
-  // set in this process (the order files run in differs between machines; on macOS it broke this one).
-  const env = () => { const e: Record<string, string | undefined> = { ...process.env, XDG_STATE_HOME: home }; delete e.EP0CH_STATE; return e; };
-  const run = (...args: string[]) => Bun.spawnSync(["sh", "scripts/try-it.sh", "--showcase", "--prepare", "--outliner", outliner!, ...args], {
-    cwd: join(import.meta.dir, ".."), env: env(), stdout: "pipe", stderr: "pipe",
-  });
-  afterAll(() => rmSync(home, { recursive: true, force: true }));
-
-  test("seeds on first run, keeps edits across runs, and --reset puts the seed back", async () => {
-    const first = run();
-    expect(first.exitCode).toBe(0);
-    expect(first.stdout.toString()).toContain("seeded the showcase");
-    // An edit on the showcase outline, through its own service on the same state.
-    let svc = new Scratch(base, "showcase");
-    let board = new SocketBoard(await svc.start());
-    let wb = (await loadShowcase(board))!.notes.whiteboard!;
-    const original = wb.text;
-    await board.update(wb.id, `${original}\nBuy more lemons.`, wb.revision!);
-    board.close(); await svc.stop();
-    // Another run keeps it (no reseed)…
-    const again = run();
-    expect(again.exitCode).toBe(0);
-    expect(again.stdout.toString()).not.toContain("seeded");
-    svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
-    expect((await loadShowcase(board))!.notes.whiteboard!.text).toContain("Buy more lemons.");
-    board.close(); await svc.stop();
-    // …and --reset deletes it and reseeds.
-    const reset = run("--reset");
-    expect(reset.exitCode).toBe(0);
-    expect(reset.stdout.toString()).toContain("reset: deleted");
-    svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
-    const back = (await loadShowcase(board))!;
-    expect(back.notes.whiteboard!.text).toBe(original);
-    expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
-    board.close(); await svc.stop();
-    // --prepare leaves no service of its own running: no pidfile, and no process serving that state.
-    expect(existsSync(join(base, "service.pid"))).toBe(false);
-    expect(servingState(base)).toEqual([]);
-  }, 60_000);
-});
-
-test("the process scan finds nothing, rather than failing, on a host without /proc", () => {
-  expect(servingState("/nowhere/showcase", join(tmpdir(), "ep0ch-no-proc-here"))).toEqual([]);
-});
-
-describe.skipIf(!outliner || !existsSync("/proc"))("scripts/try-it.sh --showcase with a stale pidfile", () => {
-  const home = mkdtempSync(join(tmpdir(), "ep0ch-showcase-stale-"));
-  const base = join(home, "ep0ch-door", "showcase");
-  const pidfile = join(base, "service.pid");
-  const run = (args: string[], env: Record<string, string> = {}, checkout = outliner!) => Bun.spawnSync(["sh", "scripts/try-it.sh", "--showcase", "--prepare", "--outliner", checkout, ...args], {
-    cwd: join(import.meta.dir, ".."), env: { ...process.env, XDG_STATE_HOME: home, ...env }, stdout: "pipe", stderr: "pipe",
-  });
-  // An unrelated process of our own, which the script must never signal. Only we stop it.
-  let bystander: ReturnType<typeof Bun.spawn> | null = null;
-  const stale = () => { mkdirSync(base, { recursive: true }); writeFileSync(pidfile, `${bystander!.pid}\n`); };
-  beforeAll(() => { bystander = Bun.spawn(["sleep", "300"], { stdout: "ignore", stderr: "ignore" }); });
-  afterAll(() => { bystander?.kill(); rmSync(home, { recursive: true, force: true }); });
-
-  test("a pidfile naming another process is stale: the script serves and seeds, and leaves that process alone", () => {
-    stale();
-    const r = run([]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout.toString()).toContain("seeded the showcase");
-    expect(r.stderr.toString()).toContain(`named process ${bystander!.pid}, which isn't its service`);
-    expect(alive(bystander!.pid)).toBe(true);
-    expect(existsSync(pidfile)).toBe(false);                 // its own service stopped on exit, and said so
-    expect(servingState(base)).toEqual([]);
-  }, 60_000);
-
-  test("--reset doesn't signal the process a stale pidfile names", () => {
-    stale();
-    const r = run(["--reset"]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout.toString()).not.toContain("stopped the showcase service");
-    expect(r.stdout.toString()).toContain("reset: deleted");
-    expect(alive(bystander!.pid)).toBe(true);
-    expect(servingState(base)).toEqual([]);
-  }, 60_000);
-
-  test("a pidfile naming the showcase's own service is used: no second service, and it keeps running", async () => {
-    const svc = new Scratch(base, "showcase");
-    await svc.start();
-    try {
-      writeFileSync(pidfile, `${svc.pid}\n`);
-      const r = run([]);
-      expect(r.exitCode).toBe(0);
-      expect(r.stderr.toString()).not.toContain("isn't its service");
-      expect(alive(svc.pid!)).toBe(true);
-      expect(servingState(base)).toEqual([String(svc.pid)]);
-      expect(readFileSync(pidfile, "utf8").trim()).toBe(String(svc.pid));   // not its to remove
-    } finally { await svc.stop(); rmSync(pidfile, { force: true }); }
-  }, 60_000);
-
-  test("a service that doesn't start in time is stopped before the script exits, before any pidfile exists", async () => {
-    // A stand-in checkout whose server never opens its socket, and says which process it is.
-    const fake = mkdtempSync(join(tmpdir(), "ep0ch-fake-outliner-"));
-    const started = join(fake, "pid");
-    mkdirSync(join(fake, "src"));
-    writeFileSync(join(fake, "src/host-main.ts"), `require("node:fs").writeFileSync(${JSON.stringify(started)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
-    try {
-      rmSync(base, { recursive: true, force: true });
-      const r = run([], { EP0CH_TRY_START_CHECKS: "10" }, fake);
-      expect(r.exitCode).toBe(1);
-      expect(r.stderr.toString()).toContain("the private host didn't start");
-      const pid = Number(readFileSync(started, "utf8"));
-      await until(() => !alive(pid), "the stand-in service stopped", 3000).catch(() => {});
-      const left = alive(pid);
-      if (left) process.kill(pid);                            // ours: the test started it through the script
-      expect(left).toBe(false);
-      expect(existsSync(pidfile)).toBe(false);
-    } finally { rmSync(fake, { recursive: true, force: true }); }
-  }, 30_000);
-});
 
 describe.skipIf(!outliner)("the showcase screen", () => {
   const scratch = new Scratch();
@@ -409,6 +283,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
     kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
+    // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
+    proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
     // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
     undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
     panes: ["outline", "children", "│ 4 activity", "Kitchen sink"],
@@ -949,6 +825,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     let b = (await blocks())[0];
     expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=letter mail=waiting", groups: ["matches"], entered: false });
     expect(b.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
+    // A query it can't read (PIE-729) shows the service's whole refusal in its frame: the query, what was read, a fix.
+    await until(() => /Invalid property filter key/.test(screen()), "the unreadable query's refusal drawn", 8000);
+    const refused = screen().replace(/\x1b\[[\d;]*m/g, "");
+    expect(refused).toContain("query: type!=letter");
+    expect(refused).toContain("Did you mean NOT type=letter");
+    expect(refused).toContain("Example: type=thread");
+    expect(refused).not.toContain("Invalid property fi…");
     // The first row is selected and previewed beside the list, drawn as an embed of it is.
     const first = b.rows.find((r: any) => r.selected);
     expect(first.n).toBe(1);
@@ -1009,6 +892,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Mulch the roses", "again") + "\\n" }, as: "test-agent" });
     await until(() => copies().length > 1, "the second copy written to the terminal", 8000);
     expect(copies().at(-1)).toBe(osc52("Mulch the roses"));
+    // A drag across the line it printed: the door selects it and copies on release (PIE-716).
+    const line = painted.map(plain).findIndex(l => l.includes("Plant out the courgettes")), x0 = painted.map(plain)[line]!.indexOf("Plant");
+    const n = copies().length;
+    press({ kind: "mouse", action: "down", button: 0, x: x0, y: line }); press({ kind: "mouse", action: "drag", button: 0, x: x0 + 4, y: line }); press({ kind: "mouse", action: "up", button: 0, x: x0 + 4, y: line });
+    await until(() => copies().length > n, "the drag's copy written to the terminal", 5000);
+    expect(copies().at(-1)).toBe(osc52("Plant"));
+    press({ kind: "char", ch: "]", ctrl: true });                // the press went into the tile, as a click does
     press({ kind: "esc" });
   }, 20_000);
 
@@ -1167,6 +1057,87 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 20_000);
 
+  // PIE-761, Evan's workflow by keys and mouse in the real comment box: write, select a phrase with the mouse and delete
+  // it, insert a reference, break it, fix it, send; while it's open nothing moves the reader off its note. Then a comment
+  // with the mistake left in: it's sent anyway, and the reference is said as a warning with a did-you-mean.
+  test("drafts: a comment written by keys and mouse, a reference broken and fixed, held on its note while others navigate, sent; a broken one sends with a warning", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drafts" }, as: "test-agent" });
+    await until(() => marks.drafts!.every(m => screen().includes(m)), "the drafts section");
+    const stage = () => S().stages.get(S().sel).top;
+    const reader = () => stage().pane("reader2");
+    const cs = () => reader().surface.session;
+    const d = () => cs()?.composer;
+    const notebook = seeded.notes.notebook;
+    await until(() => cs()?.mode === "compose" && !!d(), "the comment open");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // A click in the comment's text gives the middle reader the keys and puts the cursor there.
+    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("comment · Allotment notebook")); const x = rows[y]!.indexOf("comment ·"); return { rows, y, x }; };
+    let at = textRow();
+    expect(at.y).toBeGreaterThan(0);
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    const firstText = at.rows.findIndex((l, i) => i > at.y && /─{5,}/.test(l.slice(at.x))) + 1;
+    click(at.x + 2, firstText);
+    await until(() => stage().describe().focusName === "reader2", `the comment has the keys (focus ${stage().describe().focusName})`);
+    for (const c of "Beans look very very good ") ch(c);
+    expect(d()!.text).toBe("Beans look very very good ");
+    // A drag across the doubled "very " and backspace takes it out.
+    at = textRow();
+    const y = at.rows.findIndex((l, i) => i > at.y && l.includes("Beans look very very")), line = at.rows[y] ?? "";
+    expect(y, at.rows.join("\n")).toBeGreaterThan(at.y);
+    const from = line.indexOf("very very") + "very ".length, to = from + "very ".length;
+    press({ kind: "mouse", action: "down", button: 0, x: from, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: from + 2, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: to, y });
+    press({ kind: "mouse", action: "up", button: 0, x: to, y });
+    expect(d()!.selectedText()).toBe("very ");
+    press({ kind: "backspace" });
+    expect(d()!.text).toBe("Beans look very good ");
+    // A reference from the (( popup, then broken (its )) taken out) and fixed again by typing.
+    press({ kind: "end" });
+    for (const c of "see ((alotment notebok") ch(c);
+    const { completionOf } = await import("../src/surface/completer");
+    await until(() => { const p = completionOf(d()!); return !!p && !p.loading && p.items.length > 0; }, "the (( popup", 8000);
+    press({ kind: "enter" });
+    const ref = `((${notebook.id}))`;
+    await until(() => d()!.text.includes(ref), "the reference inserted", 8000);
+    press({ kind: "end" });
+    press({ kind: "backspace" }); press({ kind: "backspace" });
+    expect(d()!.text).toBe(`Beans look very good see ((${notebook.id}`);
+    for (const c of "))") ch(c);
+    await until(() => !completionOf(d()!)?.items.length, "no popup over the fixed reference");
+    expect(d()!.text).toBe(`Beans look very good see ${ref}`);
+    // While it's open: another tile changes the current note, and an agent opens a note. The comment stays put.
+    const shed = seeded.notes.shed;
+    stage().setCurrent(shed, { from: stage().pane("reader3"), reveal: true });
+    await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id }, as: "test-agent" }).catch(() => null);
+    expect([reader().msg?.id, cs()?.mode, d()?.text, stage().describe().focusName]).toEqual([notebook.id, "compose", `Beans look very good see ${ref}`, "reader2"]);
+    // Typed keys still land in the comment.
+    ch(" ");
+    expect(d()!.text).toBe(`Beans look very good see ${ref} `);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => cs()?.mode === "threads" && !cs()?.busy, "the comment sent", 8000);
+    const bodies = async () => (await board.comments(notebook.id)).map(t => t.body);
+    expect(await bodies()).toContain(`Beans look very good see ${ref}`);
+    expect(cs()!.note).toBe("");
+    // Another, with the mistake left in: an unclosed (( and a title for an id. It's sent as written, and warned about.
+    await stage().dispatch.press("passage.select", {}, "reader2");
+    await stage().dispatch.press("comment.write", { body: "" }, "reader2");
+    await until(() => cs()?.mode === "compose" && !!d(), "a second comment open");
+    const broken = `and ((${notebook.id} needs closing, ((alotment notebok too`;
+    for (const c of broken) ch(c);
+    expect(d()!.text).toBe(broken);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => cs()?.mode === "threads" && !!cs()?.note, "the broken comment sent, with its warning", 8000);
+    expect(await bodies()).toContain(broken);
+    expect(cs()!.note).toContain("saved; 2 references lead nowhere");
+    expect(cs()!.note).toContain(`did you mean ${ref}`);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // The two threads go to the Trash: they'd rank in the other sections' searches for the notebook.
+    for (const t of await board.comments(notebook.id)) if ([`Beans look very good see ${ref}`, broken].includes(t.body)) await board.trash(t.id);
+  }, 40_000);
+
   test("undo (PIE-621): a big paste is one step, ctrl+z and ctrl+y by keys; copy by a drag's release and by shift+arrows then alt+c; an agent's undo and redo through act, its own only", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });
@@ -1272,6 +1243,32 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
   }, 20_000);
+
+  test("the proposals section (PIE-725): the race's loser is a proposal beside the guide, a retry is deduped, and its agent dismisses it by act", async () => {
+    const guide = (await board.get(seeded.notes.race.id))!;
+    // @fern won: the guide reads as @fern left it, and @moss's patch wrote nothing into it.
+    expect(guide.text).toContain(RACE_LINE.replace(RACE_PATCH.winner.observed, RACE_PATCH.winner.replacement));
+    expect(guide.text).not.toContain(seeded.race.proposal);
+    const proposal = (await board.get(seeded.race.proposal))!;
+    expect(proposal).toMatchObject({ parentId: guide.id, props: { type: "draft-proposal", "proposal-status": "open" } });
+    expect(seeded.race.retry).toEqual({ proposalId: seeded.race.proposal, deduped: true });
+    expect((await board.proposalsBeside(guide.id)).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
+
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "proposals" }, as: "test-agent" });
+    await until(() => marks.proposals!.every(m => screen().includes(m)), "the proposals section");
+    // Another retry now, at the revision @moss read: the same proposal back, still one beside the guide, the guide untouched.
+    const at = RACE.indexOf(RACE_PATCH.loser.observed);
+    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
+      patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
+    expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
+    expect((await board.get(guide.id))!.revision).toBe(guide.revision);
+    // Through act, in the guide's reader: another agent can't dismiss it; @moss can, and it's gone from beside the guide.
+    await expect(app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.winner })).rejects.toThrow("an agent dismisses only its own");
+    expect(await app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.loser })).toMatchObject({ outcome: "dismissed", embedRemoved: null });
+    await until(() => !screen().includes("proposed edit from @moss"), "the proposal gone from beside the guide");
+    expect((await board.get(guide.id))!).toMatchObject({ text: guide.text, revision: guide.revision });
+  }, 30_000);
 
   test("the refusals section (PIE-727): a key the spine refuses says why on its frame, loud the second time, gone on another key; the status bar keeps its copy", async () => {
     (app as any).lastInput = 0;

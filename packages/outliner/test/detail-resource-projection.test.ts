@@ -137,7 +137,8 @@ test("a failing projection read leaves the note as authored, and notes without p
   calls.length = 0;
   const plain = await projectDetailRead(failing("ping"), "Plain note ACME-1", { hostBlockId: "host-plain", hostRevision: 1 });
   expect(plain.text).toBe("Plain note ACME-1");
-  expect(calls).toEqual([]);
+  // A plain note asks only for the proposals beside it (PIE-725), after the protocol check, never for projections.
+  expect(calls).not.toContain("resources.projection.read");
 });
 
 test("a status this client does not know renders generically with its reason", () => {

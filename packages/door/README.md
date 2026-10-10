@@ -1592,7 +1592,7 @@ The board's new-card composer is the same control too.
 | `Ctrl+Z` | undo the newest change (PIE-621): typing a word at a time (a word and the space after it, or up to a pause), a paste in one step however big, an insert, `$EDITOR`'s text, a reload, an edit an agent patched in (below). Back to where the draft started, and past a save: open the note again unchanged and `Ctrl+Z` goes on back. A paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes` |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | redo what `Ctrl+Z` took back; any new change drops it. `Ctrl+Shift+Z` needs the Kitty keyboard protocol, `Ctrl+Y` works everywhere |
 | `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
-| `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
+| `X`, while reading | dismiss it: the proposal goes to Trash, as an edit by you, and stops showing beside the note (an older one's embed line comes out of the note); or a click on `[dismiss]`. Like `A`, taken only on a proposal |
 
 - **Nested lists** (PIE-496): long lines wrap at spaces, never mid-word, and a list item's continuation
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
@@ -1663,8 +1663,8 @@ The board's new-card composer is the same control too.
   is in), and not around your cursor. Your cursor, selection and view move with it, so nothing on screen
   jumps; the new text is lit for a moment with `@<agent> · just now`, and `Ctrl+Z` takes it back as one
   unit. Your save records it as yours, naming the agent. If the compare fails (you changed that passage),
-  nothing is changed: the proposal lands as a reply block, embedded under the `@request` line (`!((id))`),
-  and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
+  nothing is changed: the proposal lands as a block beside the note, never in your draft or its text, drawn
+  under the `@request` line as an embed of it (PIE-725), and `A` on it applies it anyway, as an ordinary edit by you. A door that quits, or closes the reader or
   screen the draft was in, lets go of its holds, and patches go to the saved note under a revision check; a
   door that is only slow to answer keeps its hold, and the patch becomes a proposal. When two doors hold
   drafts of the same note, a patch goes to neither.
@@ -2480,7 +2480,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `revisions` | none: the note's revisions, the current one then the earlier texts the outline keeps, newest first (when saved, by whom, size, first line) | `ep0ch revisions <id>` |
 | `revision.restore` | `revision` (default: the one before what the edit holds; again goes further back): that revision's text into the edit as one undo step, written on `ctrl+s`. An agent's only in an edit it opened | the tile menu's `an earlier revision`; `ep0ch revisions <id> <n> --restore` from a shell |
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
-| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes its embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
+| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes an older proposal's embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

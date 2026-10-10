@@ -13,7 +13,8 @@
 #             exit, Ctrl-C and TERM (a run whose ssh dies is killed by the timeout, and its dir with it).
 #
 #   package   door, outliner, outline-core, claude-mod or all: `bun run test` in each (claude-mod's needs a
-#             logged-in claude, which boxd injects).
+#             logged-in claude, which boxd injects). The door's files run in parallel (`--parallel`): one per vCPU
+#             on boxd, TEST_EACH_JOBS on float-box.
 #   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
 #   --keep    leave the fork (boxd) or the run dir (float-box) afterwards, and say how to reach and remove it.
 #
@@ -118,7 +119,10 @@ if [ $target = float-box ]; then
   run="ps -o pgid= -p \$\$ | tr -d ' ' > $dir/pid; ${home_line}for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
   run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
   for p in "${pkgs[@]}"; do
-    run+="; echo; echo \"━━ $p: bun run test\"; (cd packages/$p && nice -n 10 bun run test); c=\$?; [ \$code = 0 ] && code=\$c"
+    # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):
+    # the parity parts take minutes each, and one after another they were most of a 30-minute run (PIE-760).
+    par=""; [ "$p" = door ] && par=" --parallel=$jobs"
+    run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && nice -n 10 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
   done
   [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
   run+="; exit \$code"
@@ -210,7 +214,8 @@ inbox "$box" "cd ep0ch && git fetch -q origin && git cat-file -e $sha^{commit}" 
 # The run, detached in the box (one long silent exec drops), writing a log this side reads as it grows.
 run="set -o pipefail; cd ~/ep0ch && git checkout -q --detach $sha && bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
 for p in "${pkgs[@]}"; do
-  run+="; echo; echo \"━━ $p: bun run test\"; (cd packages/$p && timeout 3000 bun run test); c=\$?; [ \$code = 0 ] && code=\$c"
+  par=""; [ "$p" = door ] && par=" --parallel=\$(nproc)"
+  run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && timeout 3000 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
 done
 [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
 run+="; exit \$code"
