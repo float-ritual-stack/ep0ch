@@ -38,7 +38,8 @@ function field(text: string, [name, low, high]: readonly [string, number, number
     if (step < 1 || from < low || to > high || from > to) throw new Error(`${name} "${part}" is outside ${low}-${high}`);
     for (let value = from; value <= to; value += step) values.add(name === "day of week" && value === 7 ? 0 : value);
   }
-  return { values, any: text === "*" };
+  // A field written from `*` (`*`, `*/2`) is unrestricted for cron's day rule, as vixie cron reads it.
+  return { values, any: text.startsWith("*") };
 }
 
 export function parseCron(expression: string): Cron {
@@ -52,6 +53,8 @@ export function parseCron(expression: string): Cron {
 export function cronProblem(expression: string): string | null {
   try {
     parseCron(expression);
+    // One that parses but never matches (`0 0 31 2 *`) is refused too.
+    nextCron(expression, Date.UTC(2026, 0, 1));
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -169,7 +172,7 @@ export class ExtensionSchedules {
 
   start(): void {
     if (this.timer || this.stopped) return;
-    this.timer = setInterval(() => { void this.tick(); }, this.options.tickMs ?? 15_000);
+    this.timer = setInterval(() => { void this.tick().catch(() => {}); }, this.options.tickMs ?? 15_000);
     this.timer.unref?.();
   }
 
@@ -209,7 +212,10 @@ export class ExtensionSchedules {
   /** Runs every entry that is due now (one run each, however many were missed). */
   async tick(): Promise<void> {
     if (this.stopped) return;
-    const due = this.entries().filter((entry) => !this.running.has(this.key(entry)) && Date.parse(this.state(entry).next) <= this.now);
+    // One entry that can't say when it runs next never stops the others.
+    const due = this.entries().filter((entry) => {
+      try { return !this.running.has(this.key(entry)) && Date.parse(this.state(entry).next) <= this.now; } catch { return false; }
+    });
     await Promise.all(due.map((entry) => this.runOne(entry)));
   }
 
@@ -247,16 +253,17 @@ export class ExtensionSchedules {
 
   /** An extension's schedules as `extensions.list` shows them. */
   list(extensionId: string): ScheduleListEntry[] {
-    return this.entries().filter((entry) => entry.extension.id === extensionId).map((entry) => {
-      const state = this.state(entry);
-      return {
+    return this.entries().filter((entry) => entry.extension.id === extensionId).flatMap((entry) => {
+      let state: Kept;
+      try { state = this.state(entry); } catch { return []; }
+      return [{
         entry: entry.entry,
         ...(entry.schedule.every ? { every: entry.schedule.every } : {}),
         ...(entry.schedule.cron ? { cron: entry.schedule.cron } : {}),
         next: state.next,
         ...(this.running.has(this.key(entry)) ? { running: true as const } : {}),
         ...(state.last ? { last: state.last } : {}),
-      };
+      }];
     });
   }
 }

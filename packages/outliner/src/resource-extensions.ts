@@ -199,7 +199,7 @@ async function runCommand(
   });
 }
 
-function scrubCredentials(
+export function scrubCredentials(
   value: unknown,
   secrets: readonly string[],
   depth = 0,
@@ -245,6 +245,8 @@ export interface ExtensionConnection {
 export interface ExtensionCallFor {
   /** `ext.<id>.<action>`; default `ext.<id>.<operation>`. */
   readonly label?: string;
+  /** Whether its process may write over its connection (default: no, it only reads). */
+  readonly writes?: boolean;
   readonly requestedBy?: MutationProvenance;
 }
 export class ResourceExtensionRuntime {
@@ -507,6 +509,8 @@ export class ResourceExtensionRuntime {
     const grant = issueGrant({
       extensionId: loaded.manifest.id,
       label: callFor.label ?? `ext.${loaded.manifest.id}.${operation}`,
+      writes: callFor.writes === true,
+      secrets: Object.values(secrets),
       ...(callFor.requestedBy ? { requestedBy: callFor.requestedBy } : {}),
     });
     const env: Record<string, string> = {

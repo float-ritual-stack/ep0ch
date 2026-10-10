@@ -836,9 +836,11 @@ A handler or an action may declare `schedule`: `{ "every": "15m" }` (at least `1
   when the folder loads). It runs through `extensions.act` with `scheduled: { at, every | cron }` in its input and
   `context: { now }`. No one asked, so its writes carry no `requestedBy`.
 - **A scheduled data handler** fetches again every key the outline asks it for (Jira's `pollEvery`, for any data
-  handler). **An output or component handler** runs again every line of it in the outline (200 notes at most per run).
-- **When.** An `every` schedule first runs one interval after it's first seen; a cron at its next match. A run
-  missed while the host was down runs once when it comes back, not once per miss. One run of an entry at a time.
+  handler). **An output or component handler** runs again every line of it in the outline.
+- **When.** An `every` schedule first runs one interval after it's first seen; a cron at its next match (a cron that
+  never matches, `0 0 31 2 *`, is refused when the folder loads). A run missed while the host was down runs once when
+  it comes back, not once per miss. One run of an entry at a time, and an action on the outline runs one at a time
+  whoever asks (its schedule, a person, an agent), so "is today's note there? then write it" never races itself.
 - **Per outline.** Runs are per outline, like everything an extension does. A folder in an outline's `extensions/`
   runs there; one in the user folder serves every outline the host opens, so its schedule runs in each (`EP0CH_WS`
   says which). Put a scheduled extension in the outline it belongs to.
@@ -889,6 +891,9 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 | edit | `draft.patch { edits \| blockId, revision, patches }` | the same guard |
 | comment, annotate | `annotations.batch` (a `block-comment` on a `passage`), `annotations.create`, `annotations.reply` | an annotation with `properties` (`kind`, `tags`, `color`, any key), its source an agent's |
 
+- **Only a call that may write writes**: an action with `effects: "write"` (or a handler with `effects: "write"`).
+  Every other call's connection reads only, as its answer may, and a write from it is refused saying so.
+- **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
 - **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
   it writes waits for a person's `r`.
 - Anything else (moving, deleting, settings, `extensions.act`) is refused with what it may do.

@@ -574,7 +574,7 @@ export class ExtensionCalls {
     try {
       const answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context: this.context(block, call.line) }, this.deadline(extension, call.handlerKey),
-        { label: `ext.${extension.id}.${call.handlerKey}` });
+        { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
       let result: unknown;
       try {
         result = call.kind === "component"
@@ -601,7 +601,7 @@ export class ExtensionCalls {
     try {
       const answer = await this.runtime.invokeLoaded(extension, "read",
         { handler: call.handlerKey, key: itemKey, options: call.options, context: this.context(block, call.line) },
-        this.deadline(extension, call.handlerKey), { label: `ext.${extension.id}.sync` });
+        this.deadline(extension, call.handlerKey), { label: `ext.${extension.id}.sync`, writes: call.effects === "write" });
       let read: ExtensionReadAnswer;
       try {
         read = validateRecord(answer.value, `${extension.name}: ${itemKey}`);
@@ -682,7 +682,12 @@ export class ExtensionCalls {
     }
     let lines = 0;
     const failed: string[] = [];
-    const blocks = this.store.blocksContaining(`${handlerKey}::`, 200);
+    // Every note with the key in its text, a page at a time (a mention in a fence or code isn't a line: calls() says).
+    const blocks: string[] = [];
+    for (let page: string[]; (page = this.store.blocksContaining(`${handlerKey}::`, 500, blocks.length)).length;) {
+      blocks.push(...page);
+      if (page.length < 500) break;
+    }
     for (const blockId of blocks) {
       const found = this.calls(blockId);
       for (const call of found?.calls.filter((candidate) => candidate.handlerKey === handlerKey && !candidate.problems.length) ?? []) {
@@ -815,7 +820,20 @@ export class ExtensionCalls {
    * and attributed to the extension (`ext.<id>.<action>` in the change feed).
    * An action `on: "outline"` takes no block (a schedule runs it that way).
    */
-  async act(request: ExtensionActRequest): Promise<ExtensionActResult> {
+  act(request: ExtensionActRequest): Promise<ExtensionActResult> {
+    // An action on the outline runs one at a time (its schedule's run and a person's or agent's): a program that checks
+    // and then writes ("is today's note there?") never races itself.
+    if (this.registry.action(request.extension, request.action)?.on !== "outline") return this.actNow(request);
+    const key = `${request.extension}/${request.action}`;
+    const next = (this.outlineRuns.get(key) ?? Promise.resolve()).catch(() => {}).then(() => this.actNow(request));
+    this.outlineRuns.set(key, next);
+    void next.finally(() => { if (this.outlineRuns.get(key) === next) this.outlineRuns.delete(key); }).catch(() => {});
+    return next;
+  }
+
+  private readonly outlineRuns = new Map<string, Promise<ExtensionActResult>>();
+
+  private async actNow(request: ExtensionActRequest): Promise<ExtensionActResult> {
     const extension = this.registry.extension(request.extension);
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
@@ -837,7 +855,7 @@ export class ExtensionCalls {
       context: block ? this.context(block, call?.line ?? request.line) : { now: request.scheduled?.at ?? new Date(this.now).toISOString() },
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
-    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
@@ -913,7 +931,7 @@ export class ExtensionCalls {
         ...(checked.block ? { blockId: checked.block.id, revision: checked.block.revision } : {}),
         ...(checked.resourceId ? { resourceId: checked.resourceId } : {}) },
       ...(host ? { context: this.context(host, undefined) } : {}),
-    }, this.deadline(extension), { label: action.name, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+    }, this.deadline(extension), { label: action.name, writes: action.effects === "write", ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });

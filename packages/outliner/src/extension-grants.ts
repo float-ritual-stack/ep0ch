@@ -20,6 +20,13 @@ export interface ExtensionGrant {
   readonly label: string;
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */
   readonly requestedBy?: MutationProvenance;
+  /**
+   * Whether the call may write: an action with `effects: "write"`, a handler with `effects: "write"`. Every other call
+   * (a read action, a read or spend handler, a rule's decorate, a bar source) reads only, as its answer may.
+   */
+  readonly writes: boolean;
+  /** The secret values this process was given: scrubbed from what it writes, as from what it answers. */
+  readonly secrets: readonly string[];
 }
 
 const grants = new Map<string, ExtensionGrant>();

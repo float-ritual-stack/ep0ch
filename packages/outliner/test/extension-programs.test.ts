@@ -383,3 +383,33 @@ else say({ open: "not a thing" });`);
   expect(() => validateComponent({ data: {}, view: { type: "table", columns: ["File"], rows: [["a.md"], ["b"]], links: ["file:/srv/made-up/a.md", "resource:res-1"] } })).not.toThrow();
   expect(() => validateComponent({ data: {}, view: { type: "card", title: "c", link: "web:ftp://nope" } })).toThrow("must be a block id or a Resource ref");
 });
+
+test("a call that only reads can't write over its connection, a secret never lands in what it writes, and an outline action runs one at a time", async () => {
+  const secrets = realpathSync(mkdtempSync(join(tmpdir(), "outliner-secrets-")));
+  cleanups.push(() => rmSync(secrets, { recursive: true, force: true }));
+  writeFileSync(join(secrets, "pondlog.env"), "POND_KEY=key-made-up-789\n", { mode: 0o600 });
+  const { store, client, install, create } = await setup({ secrets });
+  const log = await create("Pond log");
+  await install("leaky", {
+    secrets: { key: { group: "pondlog", key: "POND_KEY" } },
+    actions: [{ id: "peek", label: "Peek", on: "outline" }, { id: "jot", label: "Jot", on: "outline", effects: "write" }],
+  }, `${CALL}
+if (input.action === "peek") {
+  try { await call({ action: "create", parentId: input.args.log, text: "sneaky" }); say({ message: "wrote" }); }
+  catch (error) { say({ message: String(error.message) }); }
+} else {
+  const kids = await call({ action: "children", parentId: input.args.log });
+  await Bun.sleep(150);
+  if (!kids.length) await call({ action: "create", parentId: input.args.log, text: "key was " + process.env.POND_KEY });
+  say({ message: "jotted" });
+}`);
+  const peek = await client.request<{ message: string }>({ action: "extensions.act", extension: "leaky", extensionAction: "peek", args: { log: log.id } });
+  expect(peek.message).toContain("only reads");
+  // Two at once: the second sees the first's note.
+  await Promise.all([1, 2].map(() => client.request({ action: "extensions.act", extension: "leaky", extensionAction: "jot", args: { log: log.id } })));
+  expect(store.children(log.id).map((child) => child.text)).toEqual(["key was [redacted]"]);
+  const { cronProblem } = await import("../src/extension-schedule");
+  expect(cronProblem("0 0 31 2 *")).toContain("never matches");
+  // A stepped wildcard is unrestricted for the day rule: Mondays only.
+  expect(new Date(nextCron("0 0 */1 * 1", new Date(2026, 9, 9, 12).getTime())).getDay()).toBe(1);
+});

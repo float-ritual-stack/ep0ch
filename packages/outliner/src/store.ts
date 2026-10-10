@@ -2038,11 +2038,11 @@ export class OutlinerStore {
     `).all(extensionId) as Array<{ itemKey: string }>).map((row) => row.itemKey);
   }
 
-  /** Active blocks whose text contains `fragment` (a handler's `key::`), earliest first, at most `limit`. */
-  blocksContaining(fragment: string, limit: number): string[] {
+  /** Active blocks whose text contains `fragment` (a handler's `key::`), earliest first, `limit` from `offset`. */
+  blocksContaining(fragment: string, limit: number, offset = 0): string[] {
     return (this.database.query(`
-      SELECT id FROM blocks WHERE instr(text, ?) > 0 AND effective_deleted_root_id IS NULL ORDER BY created_at, id LIMIT ?
-    `).all(fragment, limit) as Array<{ id: string }>).map((row) => row.id);
+      SELECT id FROM blocks WHERE instr(text, ?) > 0 AND effective_deleted_root_id IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?
+    `).all(fragment, limit, offset) as Array<{ id: string }>).map((row) => row.id);
   }
 
   /** Whether a block has asked an extension for a key (removing its last line still settles the record). */

@@ -37,7 +37,7 @@ import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime } from "./resource-extensions";
+import { ResourceExtensionRuntime, scrubCredentials } from "./resource-extensions";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { extensionActorId, isExtensionActor } from "./extension-records";
@@ -3289,11 +3289,16 @@ export class OutlinerServer {
   private asExtension(request: OutlinerRequest, grant: ExtensionGrant): OutlinerRequest {
     const action = String(request.action);
     const actor = grantActor(grant);
-    const { grant: _grant, ...rest } = request as OutlinerRequest & { grant?: unknown };
+    const { grant: _grant, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown };
+    // What it writes never carries a secret it was given (its answers are scrubbed the same way).
+    const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action)) return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, comment and annotate over its connection; ${action} isn't one of them` +
         (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
+    }
+    if (!grant.writes) {
+      throw new Error(`${actor.actorId}'s call only reads (an action with effects: read, a read handler, a rule's or a bar source's call): ${action} is a write; declare the action effects: "write"`);
     }
     const as = rest as Record<string, unknown>;
     switch (action) {
