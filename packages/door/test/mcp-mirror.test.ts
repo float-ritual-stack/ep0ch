@@ -190,7 +190,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 
-  /** A copy as it was at schema 4 (before extension providers: the provider checks as they were), at `path`. */
+  /** A copy as it was at schema 4 (before extension providers: the provider checks as they were, no read marks), at `path`. */
   const asSchema4 = async (name: string, path: string) => {
     rmSync(path, { force: true });
     const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     v4.exec(SCHEMA_SQL_4);
     const db = new Database(path);
     try {
-      db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;");
+      db.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON; DROP TABLE read_marks;");
       for (const table of REBUILT_TABLES) {
         const rows = v4.query("SELECT type, sql FROM sqlite_master WHERE tbl_name = ? AND sql IS NOT NULL").all(table) as { type: string; sql: string }[];
         db.exec(`ALTER TABLE ${table} RENAME TO ${table}__v5; ${rows.find(row => row.type === "table")!.sql}; INSERT INTO ${table} SELECT * FROM ${table}__v5; DROP TABLE ${table}__v5;`);
