@@ -86,7 +86,7 @@ test("an attached html file is served as html", async () => {
 });
 
 test("URL rules: page address, block id, explicit slug with folders", async () => {
-  const { store, get } = await setup();
+  const { store, get, publisher } = await setup();
   const page = store.create("Moth garden plan [publish::yes] [page::Moth Garden]");
   const plain = store.create("Pollinator census [publish::true]");
   const slugged = store.create("Luna moth sightings [publish::Field Notes/Luna Moths!]");
@@ -98,7 +98,9 @@ test("URL rules: page address, block id, explicit slug with folders", async () =
   // Every published block also answers at its id; an unpublished one never does.
   expect((await get(`/p/${page.id}`)).status).toBe(200);
   expect((await get(`/p/${slugged.id}`)).status).toBe(200);
-  expect((await get(`/p/${off.id}`)).status).toBe(404);
+  // On the tailnet every note is a page (PIE-782); a note not marked public is never on the public listener.
+  expect((await get(`/p/${off.id}`)).status).toBe(200);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${off.id}`), "public")).status).toBe(404);
 });
 
 test("slug collisions resolve by age and show in the index", async () => {
@@ -146,7 +148,8 @@ test("a block without an attachment renders its subtree as markdown, leaving out
   expect(markdown).not.toContain("invoice");
   expect(markdown).not.toContain("::");
 
-  const html = await (await get("/p/moth-garden?view=html")).text();
+  // The whole subtree on one page: `?view=full` on the tailnet, where `?view=html` is the note's folder page.
+  const html = await (await get("/p/moth-garden?view=full")).text();
   expect(html).toContain("<li>Evening primrose</li>");
   expect(html).toContain('href="/p/census?view=html"');
 });
@@ -357,10 +360,10 @@ test("an attachment swapped for an escaping link after indexing is refused at re
 // Review hardening (PR #252): leaks through titles and embeds, attached HTML, remote services, load.
 
 test("titles and links never show an unpublished block's id or text; embeds show the embedded note", async () => {
-  const { store, get } = await setup();
+  const { store, get, publisher } = await setup();
   const hidden = store.create("Neighbour's gate code 4471\nunder the flowerpot");
   const census = store.create("Pollinator census [publish::census]");
-  store.create(`Walk notes ((${hidden.id})) and !((${hidden.id})) and !((${census.id})) [publish::walk]`);
+  store.create(`Walk notes ((${hidden.id})) and !((${hidden.id})) and !((${census.id})) [publish::public:walk]`);
 
   const markdown = await (await get("/p/walk")).text();
   expect(markdown).toBe([
@@ -374,8 +377,10 @@ test("titles and links never show an unpublished block's id or text; embeds show
     "> Pollinator census",
     "",
   ].join("\n"));
-  const html = await (await get("/p/walk?view=html")).text();
-  expect(html).toContain("<title>Walk notes unpublished note and unpublished note and Pollinator census</title>");
+  // On the tailnet every note is a page (PIE-782), so the page's links name notes by id; the public page never does.
+  const html = await (await publisher.handle(new Request("http://127.0.0.1/share/p/walk?view=html"), "public")).text();
+  // (The census is published for the tailnet only, so the public title names it as it names any other note.)
+  expect(html).toContain("<title>Walk notes unpublished note and unpublished note and unpublished note</title>");
   expect(html).toContain("<blockquote>");
   // An embed is never markdown's image syntax.
   expect(html).not.toContain("<img");
@@ -509,9 +514,12 @@ test("rendered pages carry no script: raw html is text, script links are dropped
   const { store, get } = await setup();
   const root = store.create("Moth <script>alert(1)</script> [publish::moths]");
   store.create("[a](javascript:alert(1)) [b](JaVaScRiPt:alert(1)) [c](java&#x73;cript:alert(1)) <img src=x onerror=alert(1)> [d](data:text/html,hi) ![e](javascript:alert(1)) [f](vbscript:x)", root.id);
-  const response = await get("/p/moths?view=html");
+  const response = await get("/p/moths?view=full");
   expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
-  const html = await response.text();
+  const page = await response.text();
+  // The one script a tailnet page runs is the publisher's own marginalia reader; nothing in the note adds another.
+  expect(page.match(/<script[^>]*>/g)).toEqual([expect.stringMatching(/^<script src="\/_marginalia\/reader\.js\?v=[0-9a-f]+" defer>$/)]);
+  const html = page.replace(/<script[^>]*><\/script>/, "");
   expect(html).not.toContain("<script");
   expect(html).not.toContain("<img src=\"x\"");
   expect(html).not.toMatch(/(href|src)="[^"]*(script|data:text)/i);
@@ -957,8 +965,8 @@ test("the public listener binds loopback or one of this machine's own addresses,
 });
 
 test("open highlights and margin notes are drawn read-only on the HTML page; resolved ones and the annotation rows are not", async () => {
-  const { store, get } = await setup();
-  const note = store.create("Greenhouse plan [publish::true]\n\nWater the tomatoes at dawn. Vent the **roof when** warm. Stake the beans.");
+  const { store, get, publisher } = await setup();
+  const note = store.create("Greenhouse plan [publish::public]\n\nWater the tomatoes at dawn. Vent the **roof when** warm. Stake the beans.");
   const comment = (operationId: string, quote: string, body: string, properties?: Record<string, string | string[]>) => ({
     type: "block-comment" as const, operationId,
     input: { blockId: note.id, expectedRevision: note.revision, body, source: "user" as const, passage: { quote }, ...(properties ? { properties } : {}) },
@@ -972,7 +980,8 @@ test("open highlights and margin notes are drawn read-only on the HTML page; res
   store.annotations.batch("greenhouse-reply", [{ type: "reply", operationId: "a", input: { annotationId: question!.block.id, body: "Cooler leaves.", source: "agent" } }]);
   store.annotations.setLifecycle({ annotationId: resolved!.block.id, lifecycle: "resolved" }, { author: "user", actorId: "test" });
 
-  const html = await (await get(`/p/${note.id}?view=html`)).text();
+  // The public page: read-only, no script (a tailnet page also carries each thread's id for its reader script).
+  const html = await (await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}?view=html`), "public")).text();
   expect(html).toContain(`<mark class="ann ann-accent" data-kind="question">tomatoes at dawn</mark>`);
   expect(html).toContain(`<mark class="ann ann-good" data-kind="highlight" data-tags="beans june">Stake the beans</mark>`);
   // After the paragraph holding the passage: kind, the body as text, the reply count.

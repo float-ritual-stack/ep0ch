@@ -143,7 +143,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
     if (drawn) {
       const tags = mark.tags.length ? ` data-tags="${escapeHtml(mark.tags.join(" "))}"` : "";
       edits.push({ at: open, remove: 0, order: 0,
-        insert: `<mark class="ann ann-${escapeHtml(mark.tone)}" ${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>` });
+        insert: `<mark class="ann ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>` });
       edits.push({ at: close, remove: 0, order: 0, insert: "</mark>" });
     }
     if (!mark.body) continue;
