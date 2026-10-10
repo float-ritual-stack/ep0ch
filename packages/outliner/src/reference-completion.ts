@@ -1,7 +1,7 @@
 import type {OutlinerRequester} from "./client-target";
 import {completionTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, type CompletionTarget} from './completion';
 import {rankBlockFocusMatches} from './block-focus';
-import {ensureHeadingFragment, fragmentCandidates, parseFragmentCompletionQuery, resolveFragment} from './fragments';
+import {ensureFragmentAnchor, fragmentCandidates, parseFragmentCompletionQuery, resolveFragment} from './fragments';
 import {blockDisplayTitle} from './references';
 import {propertyInspectorAuthoredText} from './property-inspector';
 import type {ReferencedPathCandidate} from './files';
@@ -94,7 +94,7 @@ export async function lookupReferenceCompletion(provider:ReferenceCompletionProv
         for(const candidate of fragmentCandidates(source,fragment.fragmentQuery,fragment.mode)){
           candidates++;
           if(items.length>=LIMIT)break outer;
-          const anchor=candidate.fragmentId?{text:source,fragmentId:candidate.fragmentId,created:false}:ensureHeadingFragment(source,candidate.lineIndex);
+          const anchor=candidate.fragmentId?{text:source,fragmentId:candidate.fragmentId,created:false}:ensureFragmentAnchor(source,candidate.lineIndex);
           items.push({label:`${blockDisplayTitle(block)} › ${candidate.kind==='heading'?'#':'¶'} ${candidate.label}${candidate.fragmentId?` · ^${candidate.fragmentId}`:' · create anchor'}`,blockId:block.id,fragmentId:anchor.fragmentId,kind:'fragment',context:snippet(source),insertion:`((${block.id}^${anchor.fragmentId}))`,...(anchor.created?{anchor:{blockId:block.id,fragmentId:anchor.fragmentId,lineIndex:candidate.lineIndex,line:anchor.text.split(/\r?\n/)[candidate.lineIndex]!,text:anchor.text,expectedRevision:block.revision}}:{})});
         }
       }

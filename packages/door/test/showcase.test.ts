@@ -286,6 +286,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     edit: ["Kitchen whiteboard", "properties · 6"],
     // The finding note: what / (the power bar's notes scope) finds, typos and all.
     search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
+    // The meeting on the left, a comment being written on the guide on the right (PIE-762).
+    "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "comment · Deep links, by hand"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
@@ -1282,6 +1284,124 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The two threads go to the Trash: they'd rank in the other sections' searches for the notebook.
     for (const t of await board.comments(notebook.id)) if ([`Beans look very good see ${ref}`, broken].includes(t.body)) await board.trash(t.id);
   }, 40_000);
+
+  test("deep links (PIE-762): a comment by keys and mouse; ((Gree lists the meeting with its anchors, ^ refines a reference to one, a passage with none gets one, a click back in a ((id)) and # refines it, a mistake sends with a warning; an agent the same through act", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "deep-links" }, as: "test-agent" });
+    await until(() => marks["deep-links"]!.every(m => screen().includes(m)), "the deep links section");
+    const stage = () => S().stages.get(S().sel).top;
+    const cs = () => stage().pane("guide").surface.session;
+    const d = () => cs()?.composer;
+    const meeting = seeded.notes.meeting.id, guide = seeded.notes.deepLinks.id;
+    const { completionOf } = await import("../src/surface/completer");
+    const pop = () => completionOf(d()!);
+    const settled = async (what: string) => { await until(() => !!pop() && !pop()!.loading && pop()!.items.length > 0, what, 8000); return pop()!; };
+    const type = (s: string) => { for (const c of s) ch(c); };
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    const rows = () => sc.render(app).lines.map(plain);
+    await until(() => cs()?.mode === "compose" && !!d(), "the comment open");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // A click in the comment's text gives the guide's tile the keys.
+    let r = rows(), y = r.findIndex(l => l.includes("comment · Deep links")), x = r[y]!.indexOf("comment ·");
+    click(x + 2, r.findIndex((l, i) => i > y && /─{5,}/.test(l.slice(x))) + 1);
+    await until(() => stage().describe().focusName === "guide", "the comment has the keys");
+    // Typed, then a doubled word dragged across with the mouse and taken out.
+    type("The meeting was very very clear: ");
+    r = rows(); y = r.findIndex(l => l.includes("The meeting was very very"));
+    const from = r[y]!.indexOf("very very") + "very ".length, to = from + "very ".length;
+    press({ kind: "mouse", action: "down", button: 0, x: from, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: to, y });
+    press({ kind: "mouse", action: "up", button: 0, x: to, y });
+    expect(d()!.selectedText()).toBe("very ");
+    press({ kind: "backspace" });
+    expect(d()!.text).toBe("The meeting was very clear: ");
+    press({ kind: "end" });
+    // ((Gree: the meeting, its anchors right under it, each at the front of its row. Choose the meeting.
+    const pickMeeting = async () => {
+      type("((Gree");
+      const p = await settled("the (( popup");
+      const at = p.items.findIndex(i => i.insertion === `((${meeting}))`);
+      expect(at, p.items.map(i => i.label).join("\n")).toBeGreaterThanOrEqual(0);
+      expect(p.items.slice(at + 1, at + 3).map(i => i.label)).toEqual(["  ^a10  We agreed to water the seedlings every morning, before the glass warms.", "  ^decision  # Decision"]);
+      for (let i = 0; i < at; i++) press({ kind: "down" });
+      press({ kind: "enter" });
+      await until(() => d()!.text.endsWith(`((${meeting}))`), "the meeting inserted", 8000);
+    };
+    await pickMeeting();
+    // ^ straight after its )): the meeting's anchors first, then its passages. ⏎ takes ^a10.
+    ch("^");
+    expect(d()!.text).toEndWith(`((${meeting}^))`);
+    let p = await settled("the meeting's passages");
+    expect(p.heading).toBe(`in ${SEED.meeting}`);
+    expect(p.items.slice(0, 3).map(i => i.insertion)).toEqual([`((${meeting}^a10))`, `((${meeting}^decision))`, `((${meeting}^present-ana-bo))`]);
+    expect(p.items[2]!.label).toBe("Present: Ana, Bo and Cy, in the greenhouse at ten. · adds ^present-ana-bo");
+    const drawn = rows().join("\n");
+    expect(drawn).toContain(`in ${SEED.meeting} 1/`);
+    press({ kind: "enter" });
+    await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
+    // Another, refined to a line with no anchor: the meeting gains it, as the person's, and the reference points at it.
+    type(" and ");
+    await pickMeeting();
+    type("^vent");
+    p = await settled("the vent line");
+    await until(() => !!pop()?.target.query.endsWith("vent") && !pop()!.loading, "narrowed to vent", 8000);
+    expect(pop()!.items.map(i => i.label)).toEqual(["Ana mends the vent hinge · adds ^ana-mends-the"]);
+    press({ kind: "enter" });
+    await until(() => d()!.text.endsWith(`((${meeting}^ana-mends-the))`), "refined to the new anchor", 8000);
+    expect((await board.get(meeting))!.text).toContain("- Ana mends the vent hinge ^ana-mends-the");
+    const history = await board.request("block.revisions", { blockId: meeting }) as { revisions: { author?: string }[] };
+    expect(history.revisions[0]!.author).toBe("user");
+    // A third on a line of its own, left whole; then a click back inside it and # refines it to a heading's anchor.
+    press({ kind: "enter" });
+    type("Read ");
+    await pickMeeting();
+    r = rows(); y = r.findIndex(l => l.includes(`Read ((${meeting.slice(0, 8)}`));
+    expect(y, r.join("\n")).toBeGreaterThan(0);
+    click(r[y]!.indexOf(`((${meeting.slice(0, 8)}`) + 8, y);
+    expect(d()!.row).toBe(1);
+    expect(d()!.col).toBe("Read ((".length + 6);
+    ch("#");
+    expect(d()!.lines[1]).toBe(`Read ((${meeting}#))`);
+    p = await settled("the meeting's headings");
+    expect(p.items.map(i => i.insertion)).toContain(`((${meeting}^decision))`);
+    for (let i = 0; i < p.items.findIndex(i => i.insertion === `((${meeting}^decision))`); i++) press({ kind: "down" });
+    press({ kind: "enter" });
+    await until(() => d()!.lines[1] === `Read ((${meeting}^decision))`, "refined by the click and #", 8000);
+    // A mistake: an unclosed (( left in. Sent as written, with a warning.
+    press({ kind: "end" });
+    type(" and ((Greenhouse meeting");
+    await settled("the popup over the mistake");
+    press({ kind: "esc" });
+    expect(pop()).toBeNull();
+    const body = `The meeting was very clear: ((${meeting}^a10)) and ((${meeting}^ana-mends-the))\nRead ((${meeting}^decision)) and ((Greenhouse meeting`;
+    expect(d()!.text).toBe(body);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => cs()?.mode === "threads" && !!cs()?.note, "sent, with its warning", 8000);
+    expect(cs()!.note).toContain("saved; a reference leads nowhere");
+    const bodies = async () => (await board.comments(guide)).map(t => t.body);
+    expect(await bodies()).toContain(body);
+    // The person goes back to the index. An agent, through act, in a comment of its own: complete refine=^ opens the
+    // reference, insert=n takes the anchor.
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+    const as = "test-agent", tile = "guide";
+    await app.act({ action: "passage.select", tile, args: {}, as });
+    await app.act({ action: "comment.write", tile, args: { body: `Agreed, see ((${meeting}))` }, as });
+    await app.act({ action: "draft.place", tile, args: { line: 1 }, as });
+    const listed = await app.act({ action: "complete", tile, args: { refine: "^" }, as }) as any;
+    expect(listed.items[0]).toMatchObject({ n: 1, insertion: `((${meeting}^a10))` });
+    await app.act({ action: "complete", tile, args: { insert: 1, expect: `((${meeting}^a10))` }, as });
+    expect(d()!.text).toBe(`Agreed, see ((${meeting}^a10))`);
+    // Not in a reference: refused with where the cursor is and what to do.
+    await app.act({ action: "draft.place", tile, args: { line: 1, col: 3 }, as });
+    await expect(app.act({ action: "complete", tile, args: { refine: "^" }, as })).rejects.toThrow("isn't in a finished ((reference))");
+    await app.act({ action: "comment.send", tile, args: {}, as });
+    for (const end = Date.now() + 8000; !(await bodies()).includes(`Agreed, see ((${meeting}^a10))`);) { if (Date.now() > end) throw new Error("the agent's comment wasn't sent"); await Bun.sleep(50); }
+    expect(S().focus).toBe("index");
+    // The threads go to the Trash: they'd rank in the other sections' searches for the meeting.
+    for (const t of await board.comments(guide)) await board.trash(t.id);
+  }, 60_000);
 
   test("undo (PIE-621): a big paste is one step, ctrl+z and ctrl+y by keys; copy by a drag's release and by shift+arrows then alt+c; an agent's undo and redo through act, its own only", async () => {
     (app as any).lastInput = 0;

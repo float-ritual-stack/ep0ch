@@ -6,18 +6,28 @@
 // around it. A pause asks Jev to re-order the same candidates; the selected one stays selected. Keep typing
 // to filter, up/down choose, Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup
 // never keeps a key it doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do.
+//
+// Deep links (PIE-762): a reference is refined in place. `((Gree` lists the notes with each top note's `^anchors`
+// right under it; `^` or `#` typed in (or just after) a finished `((id))` opens it again as `((id^`, and the popup
+// searches inside that one note: its anchors first, then its headings, paragraphs and list items, each without an
+// anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
+// and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
+// triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
 import { subject, type Msg } from "../board";
 import {
   completionTargetAtCursor, completionWindow, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
   type CompletionTarget,
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
-import { USER, type Actor, type SocketBoard } from "../socket";
+import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
 import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
 import { keyCandidates, valueCandidates, variation, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
@@ -35,6 +45,8 @@ export const jevOff = new WeakSet<object>();
 /** The popup's tallest: a header, three candidates with the selected one's context, and the footer. */
 export const COMPLETION_ROWS = 8;
 export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inserts · esc dismisses";
+/** A `((` popup's: what a reference does once it's in (PIE-762). */
+export const REFERENCE_HINT = "up/down choose · enter/click inserts · then ^ or # searches inside it · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog">;
@@ -86,6 +98,8 @@ export interface CompletionLookup {
   jev?: "asking" | "ranked";
   /** The service has no Jev configured: don't ask again. */
   jevOff?: boolean;
+  /** What the list is, when it isn't the kind's own word: `in Greenhouse meeting` for a reference being refined. */
+  heading?: string;
 }
 
 /** The note a draft's search asks from: its own note, else the note it's about (a comment's, a new card's view). */
@@ -111,7 +125,7 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
-  let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
+  let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false, heading: string | undefined;
   if (target.kind === "filter-key" || target.kind === "filter-value") {
     items = await filterCandidates(board, target);
     empty = target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}`;
@@ -139,35 +153,113 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else {
     const fragment = parseFragmentCompletionQuery(target.query);
     if (!fragment) {
-      // The one search (`tree.search`), from the draft's note: what Goto, the desk's `/` and Jev rank.
-      const r = await board.searchBlocks(target.query, opts);
-      if (r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated") truncated = COMPLETION_LIMIT;
-      items = r.matches.slice(0, COMPLETION_LIMIT).map(m => ({
-        label: m.title, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
-        context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
-      }));
-      ranked = r.semantic.status === "ranked";
-      off = notConfigured(r.semantic);
+      ({ items, truncated, ranked, off } = await blockCandidates(board, target.query, own, opts));
       empty = "no matching blocks";
     } else {
-      // `((garden#beds` / `((garden^be`: the service searches every note by its own fragment rules
-      // (PIE-424), the draft's own note first as typed. A heading without an anchor comes with the anchor
-      // it would get; choosing it adds that anchor (in the draft, or through the service in another note).
-      const r = await board.fragmentCandidates({ ...(fragment.blockQuery ? { noteQuery: fragment.blockQuery } : {}), fragmentQuery: fragment.fragmentQuery, mode: fragment.mode, limit: COMPLETION_LIMIT, ...(own ? { draft: own } : {}) });
-      items = r.items.map(c => {
-        const id = c.fragmentId ?? c.anchor!.fragmentId;
-        return {
-          label: `${c.title} » ${c.kind === "heading" ? "#" : "^"} ${c.label}${c.fragmentId ? ` · ^${c.fragmentId}` : " · adds anchor"}`,
-          blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
-          ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
-        };
-      });
-      if (r.completeness.kind === "truncated") { truncated = r.completeness.limit ?? COMPLETION_LIMIT; partial = `showing the first ${truncated} fragments`; }
-      empty = "no matching fragments";
+      const r = await fragmentLookup(board, fragment, own, opts);
+      items = r.items; heading = r.heading; empty = r.empty;
+      if (r.truncated) { truncated = r.truncated; partial = `showing the first ${truncated} fragments`; }
     }
   }
   const message = items.length ? partial || (truncated ? `showing the first ${truncated} matches` : "") : [partial && `partial search: ${partial}`, empty].filter(Boolean).join(" · ");
-  return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}) };
+  return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}), ...(heading ? { heading } : {}) };
+}
+
+/** How many of the top notes a `((words` list shows the anchors of, and how many each. */
+const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
+/** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
+const NOTES_SEARCHED = 3;
+
+/**
+ * `((words`: the one search (`tree.search`, from the draft's note: what Goto, the desk's `/` and Jev rank), and
+ * (PIE-762) the anchors that are already valid targets: an anchor whose id starts with what's typed (`((a10`) first,
+ * then each of the top notes followed by its own anchors, then the other notes.
+ */
+async function blockCandidates(board: CompletionBoard, query: string, own: OwnNote | undefined, opts: LookupOptions): Promise<{ items: CompletionItem[]; truncated: number | null; ranked: boolean; off: boolean }> {
+  const q = query.trim(), anchored = q.length >= 2, draft = own ? { draft: own } : {};
+  // The anchors are extra: a lookup of them that fails leaves the notes as the one search answered them.
+  const anchors = (query: Parameters<CompletionBoard["fragmentCandidates"]>[0]) => Promise.resolve().then(() => board.fragmentCandidates(query)).catch(() => null);
+  const [r, named] = await Promise.all([
+    board.searchBlocks(query, opts),
+    anchored && /^[A-Za-z0-9_-]+$/.test(q) ? anchors({ fragmentQuery: q, mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null,
+  ]);
+  const notes: CompletionItem[] = r.matches.slice(0, COMPLETION_LIMIT).map(m => ({
+    label: m.title, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
+    context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
+  }));
+  const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
+  const theirs = anchored && top.length
+    ? await anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null;
+  const items: CompletionItem[] = [], seen = new Set<string>();
+  const add = (it: CompletionItem) => { if (!seen.has(it.insertion)) { seen.add(it.insertion); items.push(it); } };
+  const lower = q.toLowerCase();
+  for (const c of named?.items ?? []) if (c.fragmentId?.toLowerCase().startsWith(lower) && items.length < 3) add(fragmentItem(c, false));
+  for (const n of notes) {
+    add(n);
+    for (const c of (theirs?.items ?? []).filter(c => c.blockId === n.blockId && c.fragmentId).slice(0, ANCHORS_PER_NOTE)) add(fragmentItem(c, false, true));
+  }
+  return {
+    items, truncated: r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated" ? COMPLETION_LIMIT : null,
+    ranked: r.semantic.status === "ranked", off: notConfigured(r.semantic),
+  };
+}
+
+/**
+ * `((note#…` / `((note^…`: the service's fragment rules (PIE-424) answer it. The note part says where: a block id
+ * (a reference being refined, PIE-762) is that one note; words are the notes `((words` listed, in its order; nothing
+ * is every note, the draft's own first. Inside named notes `^` is every passage (anchors first, then headings,
+ * paragraphs and list items with the anchor each would get) and `#` is headings; across every note, `^` is anchors.
+ */
+async function fragmentLookup(board: CompletionBoard, fragment: { blockQuery: string; fragmentQuery: string; mode: "heading" | "id" }, own: OwnNote | undefined, opts: LookupOptions): Promise<{ items: CompletionItem[]; truncated: number | null; empty: string; heading?: string }> {
+  const note = fragment.blockQuery, draft = own ? { draft: own } : {};
+  let blockIds: string[] | undefined;
+  if (BLOCK_ID_PATTERN.test(note)) blockIds = [note];
+  else if (note) {
+    blockIds = (await board.searchBlocks(note, { ...opts, semantic: false })).matches.slice(0, NOTES_SEARCHED).map(m => m.block.id);
+    if (!blockIds.length) return { items: [], truncated: null, empty: `no note matches ${JSON.stringify(note)}` };
+  }
+  const mode = blockIds ? (fragment.mode === "id" ? "passage" : "heading") : fragment.mode;
+  const r = await board.fragmentCandidates({ ...(blockIds ? { blockIds } : {}), fragmentQuery: fragment.fragmentQuery, mode, limit: COMPLETION_LIMIT, ...draft });
+  const one = blockIds?.length === 1;
+  const title = one ? r.items[0]?.title : undefined;
+  return {
+    items: r.items.map(c => fragmentItem(c, one)),
+    truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? COMPLETION_LIMIT : null,
+    empty: one ? `nothing in that note matches ${JSON.stringify(fragment.fragmentQuery)}${mode === "heading" ? "; ^ searches its passages too" : ""}` : "no matching fragments",
+    ...(one ? { heading: title ? `in ${title}` : "in that note" } : {}),
+  };
+}
+
+/**
+ * A fragment as a row: an anchor it has already leads the row (`^a10  Greenhouse meeting » We agreed…`); one without
+ * says the anchor choosing it adds. `under`: listed under its note's own row, so the note's title isn't repeated.
+ */
+function fragmentItem(c: FragmentCandidate, oneNote: boolean, under = false): CompletionItem {
+  const id = c.fragmentId ?? c.anchor!.fragmentId;
+  const what = c.kind === "heading" ? `# ${c.label}` : c.label;
+  const where = oneNote || under ? "" : `${c.title} » `;
+  return {
+    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${where}${what} · adds ^${id}`,
+    blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
+    context: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
+    ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
+  };
+}
+
+/**
+ * `^` or `#` typed with the cursor in a finished `((id))` or `((id^anchor))`, or just after its `))`, opens it again
+ * (PIE-762): it becomes `((id^anchor` (`^` keeps the anchor it had, as what's searched) or `((id#`, with the `))` after
+ * the cursor, and the popup searches inside that note. False (and nothing changed) anywhere else: in code, in a
+ * labelled reference, or outside one. One undo step, by `by`.
+ */
+export function reopenReference(d: CompletionField, ch: string, by: Actor = USER): boolean {
+  if (ch !== "^" && ch !== "#") return false;
+  const line = d.lines[d.row] ?? "";
+  if (cursorInCode(d.lines, d.row, d.col)) return false;
+  const ref = blockReferenceOccurrences(line).find(r => r.label === undefined && d.col >= r.start + 2 && d.col <= r.end);
+  if (!ref) return false;
+  d.splice(ref.start, ref.end - 2, `((${ref.blockId}${ch}${ch === "^" ? ref.fragmentId ?? "" : ""}`, {}, by);
+  return true;
 }
 
 /**
@@ -395,7 +487,8 @@ export class Completer {
   /** The selected candidate's ancestors and first lines, from `blocks.context`. */
   private async enrich(generation = this.generation): Promise<void> {
     const item = this.state?.items[this.state.index];
-    if (!item?.blockId) return;
+    // A fragment's row says where it is in its note already; the note's first lines would hide that.
+    if (!item?.blockId || item.fragmentId) return;
     try {
       const ctx = await this.board.blockContext(item.blockId);
       if (!this.current(generation) || this.state?.items[this.state.index] !== item) return;
@@ -510,6 +603,8 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   // A line break or tab inside a paste is text: it never chooses a candidate.
   if ("pasted" in k || k.kind === "paste") { c.dismiss(); return d.key(k); }
   if (popupKey(d, k, c)) return "keep";
+  // `^` or `#` in a finished ((reference)), or just after it, opens it again to search inside its note (PIE-762).
+  if (k.kind === "char" && !k.ctrl && d.selectedText() === null && reopenReference(d, k.ch)) { void c.refresh(); return "keep"; }
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
   if (a !== "keep" || k.kind === "esc") { c.dismiss(); return a; }
@@ -571,7 +666,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
   const heading = { callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
-  if (header) rows.push(null), out.push(line(` ${heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
+  if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;
     rows.push(i);
@@ -584,7 +679,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   }
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
-  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || COMPLETION_HINT}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
+  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || (s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT)}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
 }

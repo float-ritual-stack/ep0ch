@@ -2,6 +2,7 @@ import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, ty
 
 import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { FragmentKind } from "@ep0ch/outline-core/protocol";
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
@@ -50,6 +51,13 @@ export interface FragmentCompletionQuery {
   fragmentQuery: string;
   mode: "heading" | "id";
 }
+
+/**
+ * What a fragment search offers: `heading`, headings (anchored or not) and the other anchors; `id`, anchors only;
+ * `passage` (PIE-762), everything a reference can point into: the anchors, then headings, paragraphs and list items
+ * that have none yet, each with the anchor it would get.
+ */
+export type FragmentMode = "heading" | "id" | "passage";
 
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ").trim();
@@ -260,14 +268,14 @@ export function resolveFragmentSlice(
 export function fragmentCandidates(
   text: string,
   query = "",
-  mode: "heading" | "id" = "heading",
+  mode: FragmentMode = "heading",
 ): FragmentCandidate[] {
   const lines = text.split(/\r?\n/);
   const anchors = fragmentAnchors(text);
   const anchorsByLine = new Map(anchors.map((anchor) => [anchor.lineIndex, anchor]));
   const candidates: FragmentCandidate[] = [];
 
-  if (mode === "heading") {
+  if (mode !== "id") {
     const codeLines = codeLineSet(text);
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       if (codeLines.has(lineIndex)) continue;
@@ -286,7 +294,7 @@ export function fragmentCandidates(
   }
 
   for (const anchor of anchors) {
-    if (mode === "heading" && anchor.kind === "heading") continue;
+    if (mode !== "id" && anchor.kind === "heading") continue;
     candidates.push({
       kind: anchor.kind,
       label: anchor.label,
@@ -295,12 +303,57 @@ export function fragmentCandidates(
     });
   }
 
+  if (mode === "passage") candidates.push(...passages(text, lines));
+
   const normalizedQuery = normalize(query);
-  return candidates.filter((candidate) =>
-    !normalizedQuery ||
-    normalize(candidate.label).includes(normalizedQuery) ||
-    normalize(candidate.fragmentId ?? "").includes(normalizedQuery)
-  );
+  // The anchors a note already has come first (PIE-762): they are valid targets as they stand. Then the rest, in
+  // reading order, each with the anchor choosing it adds.
+  const order = (c: FragmentCandidate) => (c.fragmentId ? 0 : 1);
+  return candidates
+    .filter((candidate) =>
+      !normalizedQuery ||
+      normalize(candidate.label).includes(normalizedQuery) ||
+      normalize(candidate.fragmentId ?? "").includes(normalizedQuery))
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((a, b) => order(a.candidate) - order(b.candidate) || a.candidate.lineIndex - b.candidate.lineIndex || a.index - b.index)
+    .map(({ candidate }) => candidate);
+}
+
+/**
+ * The paragraphs and list items of `text` with no anchor yet, each on the line its anchor would go on: a list item's
+ * first line, a paragraph's last. Left out: code, component blocks, property-only lines, and a paragraph that runs into
+ * the note's first line (the title: link the note itself).
+ */
+function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
+  const note = parsedNote(text);
+  const offsets = lineOffsets(text);
+  const items = new Map(note.listItems.map(item => [item.span.startLine, item]));
+  const inItem = new Set<number>();
+  for (const item of note.listItems) for (let l = item.span.startLine; l <= item.span.endLine; l++) inItem.add(l);
+  const component = new Set<number>();
+  for (const c of componentBlocks(lines)) for (let l = c.start; l <= c.end + 1; l++) component.add(l);
+  const skip = (i: number) => note.codeLines.has(i) || component.has(i);
+  const heading = (line: string) => HEADING_PATTERN.test(contentBeforeAnchor(line, fragmentAnchorMatch(line)));
+  const out: FragmentCandidate[] = [];
+  for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]!;
+    if (skip(lineIndex) || !line.trim() || fragmentAnchorMatch(line) || heading(line)) continue;
+    if (!withoutPropertyTokens(line).trim()) continue;
+    const item = items.get(lineIndex);
+    if (item) {
+      const label = line.trimEnd().slice(item.span.start - offsets[lineIndex]!).replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "").trim();
+      if (label) out.push({ kind: "list-item", label, lineIndex });
+      continue;
+    }
+    if (inItem.has(lineIndex)) continue;
+    const next = lines[lineIndex + 1];
+    if (next !== undefined && next.trim() && !heading(next) && !items.has(lineIndex + 1) && !skip(lineIndex + 1)) continue;
+    let start = lineIndex;
+    while (start > 0 && lines[start - 1]!.trim() !== "" && !heading(lines[start - 1]!)) start -= 1;
+    if (start === 0) continue;
+    out.push({ kind: "paragraph", label: paragraphLabel(lines, lineIndex, line.trimEnd()), lineIndex });
+  }
+  return out;
 }
 
 function fragmentSlug(label: string): string {
@@ -322,21 +375,29 @@ function uniqueFragmentId(base: string, usedIds: ReadonlySet<string>): string {
   }
 }
 
-export function ensureHeadingFragment(
+/**
+ * Give the fragment on `lineIndex` its anchor: a heading (`## Beds ^beds`), or (PIE-762) a list item's first line or a
+ * paragraph's last, as `fragmentCandidates` offers them in `passage` mode. A line that has one keeps it; anything else
+ * is refused.
+ */
+export function ensureFragmentAnchor(
   text: string,
   lineIndex: number,
 ): { text: string; fragmentId: string; created: boolean } {
   const lines = text.split(/\r?\n/);
   const line = lines[lineIndex];
-  if (line === undefined) throw new Error(`Fragment heading line is unavailable: ${lineIndex + 1}`);
+  if (line === undefined) throw new Error(`Fragment line is unavailable: ${lineIndex + 1}`);
   const existing = fragmentAnchorMatch(line);
   const content = contentBeforeAnchor(line, existing);
   const heading = content.match(HEADING_PATTERN);
-  if (!heading) throw new Error(`Fragment target is not a Markdown heading: line ${lineIndex + 1}`);
+  const passage = heading ? null : passages(text, lines).find(p => p.lineIndex === lineIndex);
+  if (!heading && !passage && !existing) {
+    throw new Error(`Fragment target is not a heading, paragraph or list item that can take an anchor: line ${lineIndex + 1}`);
+  }
   if (existing) return { text, fragmentId: existing[1]!, created: false };
 
   const usedIds = new Set(fragmentAnchors(text).map((anchor) => anchor.id));
-  const fragmentId = uniqueFragmentId(fragmentSlug(heading[2]!), usedIds);
+  const fragmentId = uniqueFragmentId(heading ? fragmentSlug(heading[2]!) : passageSlug(passage!.label), usedIds);
   const start = lineOffsets(text)[lineIndex]!;
   return {
     text: text.slice(0, start) + `${content} ^${fragmentId}` +
@@ -344,6 +405,12 @@ export function ensureHeadingFragment(
     fragmentId,
     created: true,
   };
+}
+
+/** A passage's anchor: its first three words, short enough to type (`^water-the-seedlings`). */
+function passageSlug(label: string): string {
+  const words = label.replace(/^\[[ xX~>-]\]\s*/, "").split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w)).slice(0, 3).join(" ");
+  return fragmentSlug(words).slice(0, 24).replace(/[-_]+$/, "") || "passage";
 }
 
 export function stripFragmentAnchors(text: string): string {

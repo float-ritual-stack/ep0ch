@@ -19,10 +19,11 @@ test("candidates: headings anchored or not (with the anchor they'd get), anchors
   const garden = note("garden01", "Garden\n## Beds ^beds\n## Paths\n```\n## not a heading\n```\n- [ ] Stake the beans ^t-b3a515");
   const shed = note("shed0001", "Shed\n## Paths ^shed-paths", "2026-09-02T00:00:00Z");
   const r = searchFragmentCandidates([garden, shed], { noteQuery: "garden", fragmentQuery: "", mode: "heading" });
+  // The note's anchors first (PIE-762), then what it doesn't have yet.
   expect(r.items.map(i => [i.label, i.fragmentId ?? null, i.anchor ?? null])).toEqual([
     ["Beds", "beds", null],
-    ["Paths", null, { fragmentId: "paths", line: "## Paths ^paths" }],
     ["[ ] Stake the beans", "t-b3a515", null],
+    ["Paths", null, { fragmentId: "paths", line: "## Paths ^paths" }],
   ]);
   expect(searchFragmentCandidates([garden, shed], { fragmentQuery: "b3a", mode: "id" }).items.map(i => i.fragmentId)).toEqual(["t-b3a515"]);
   // Newest first without a note part; the draft's own text (as typed) comes first.
@@ -30,6 +31,40 @@ test("candidates: headings anchored or not (with the anchor they'd get), anchors
   const draft = { blockId: "garden01", text: "Garden\n## Harvest" };
   expect(searchFragmentCandidates([garden, shed], { fragmentQuery: "", draft }).items[0]).toMatchObject({ blockId: "garden01", label: "Harvest", anchor: { fragmentId: "harvest" } });
   expect(() => searchFragmentCandidates([garden], { limit: 0 })).toThrow("between 1 and");
+});
+
+test("passage mode (PIE-762): only the notes named, in their order; anchors first, then headings, paragraphs and list items with the anchor each would get", () => {
+  const meeting = note("meet0001", [
+    "Greenhouse meeting [type::meeting]",
+    "",
+    "We agreed to water the seedlings every morning. ^a10",
+    "",
+    "## Decision",
+    "Buy a second water butt",
+    "before the frost comes.",
+    "",
+    "- Ana brings the hose",
+    "- [ ] Fix the vent ^vent",
+    "```",
+    "a line in code",
+    "```",
+  ].join("\n"));
+  const other = note("other001", "Other\n\nA paragraph about frost. ^frost", "2026-09-05T00:00:00Z");
+  const r = searchFragmentCandidates([other, meeting], { blockIds: ["meet0001"], fragmentQuery: "", mode: "passage" });
+  expect(r.items.map(i => [i.kind, i.label, i.fragmentId ?? null, i.anchor?.fragmentId ?? null])).toEqual([
+    ["paragraph", "We agreed to water the seedlings every morning.", "a10", null],
+    ["list-item", "[ ] Fix the vent", "vent", null],
+    ["heading", "Decision", null, "decision"],
+    ["paragraph", "Buy a second water butt before the frost comes.", null, "buy-a-second"],
+    ["list-item", "Ana brings the hose", null, "ana-brings-the"],
+  ]);
+  // The paragraph's anchor goes on its last line; the list item's on its own.
+  expect(r.items[3]!.anchor!.line).toBe("before the frost comes. ^buy-a-second");
+  expect(r.items[4]!.anchor!.line).toBe("- Ana brings the hose ^ana-brings-the");
+  // Words narrow it; blockIds keeps the other note out even when it matches.
+  expect(searchFragmentCandidates([other, meeting], { blockIds: ["meet0001"], fragmentQuery: "frost", mode: "passage" }).items.map(i => i.blockId)).toEqual(["meet0001"]);
+  expect(searchFragmentCandidates([other, meeting], { blockIds: ["other001", "meet0001"], fragmentQuery: "frost", mode: "passage" }).items.map(i => i.blockId)).toEqual(["other001", "meet0001"]);
+  expect(() => searchFragmentCandidates([meeting], { blockIds: "meet0001" as any })).toThrow("blockIds");
 });
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -60,6 +95,25 @@ test("fragments.candidates finds a fragment past the first 500 notes; fragments.
   await expect(client.request({ action: "fragments.ensure", blockId: target.id, lineIndex: 1, expectedRevision: target.revision, mutation: { author: "user", actorId: "fixture" } }))
     .rejects.toThrow("changed since the fragment was offered");
 }, 60_000);
+
+test("fragments.ensure anchors a paragraph's last line and a list item, as passage mode offered them, attributed to who asked (PIE-762)", async () => {
+  const { client } = await service();
+  const target = await client.request<Block>({ action: "create", text: "Pond notes\n\nThe frogs came back\nin March.\n\n- Net the pond" });
+  const found = await client.request<FragmentCandidateCollection>({ action: "fragments.candidates", query: { blockIds: [target.id], fragmentQuery: "", mode: "passage" } });
+  expect(found.items.map(i => [i.label, i.lineIndex, i.anchor?.fragmentId])).toEqual([["The frogs came back in March.", 3, "the-frogs-came"], ["Net the pond", 5, "net-the-pond"]]);
+  const written = await client.request<{ fragmentId: string; created: boolean; block: Block }>({
+    action: "fragments.ensure", blockId: target.id, lineIndex: 3, expectedRevision: target.revision, mutation: { author: "agent", actorId: "pond-agent" },
+  });
+  expect(written).toMatchObject({ fragmentId: "the-frogs-came", created: true });
+  expect(written.block.text).toBe("Pond notes\n\nThe frogs came back\nin March. ^the-frogs-came\n\n- Net the pond");
+  const history = await client.request<{ revisions: { revision: number; author?: string; actorId?: string }[] }>({ action: "block.revisions", blockId: target.id });
+  expect(history.revisions[0]).toMatchObject({ revision: written.block.revision, author: "agent", actorId: "pond-agent" });
+  // A line inside a paragraph, a blank line or the title can't take one.
+  for (const lineIndex of [0, 1, 2]) {
+    await expect(client.request({ action: "fragments.ensure", blockId: target.id, lineIndex, expectedRevision: written.block.revision, mutation: { author: "user", actorId: "fixture" } }))
+      .rejects.toThrow("can take an anchor");
+  }
+}, 30_000);
 
 test("Detail's completion (the shared session) finds a heading in a 600+ note outline and adds its anchor through the service", async () => {
   const { client } = await service();

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ensureHeadingFragment,
+  ensureFragmentAnchor,
   fragmentAnchors,
   fragmentCandidates,
   parseFragmentCompletionQuery,
@@ -144,20 +144,20 @@ test("offers headings and anchored chunks while exact-id mode excludes unanchore
 });
 
 test("creates a stable unique heading anchor only when explicitly requested", () => {
-  const first = ensureHeadingFragment(document, 8);
+  const first = ensureFragmentAnchor(document, 8);
   expect(first).toEqual({
     text: `${document} ^heading-without-an-anchor`,
     fragmentId: "heading-without-an-anchor",
     created: true,
   });
-  expect(ensureHeadingFragment(first.text, 8)).toEqual({
+  expect(ensureFragmentAnchor(first.text, 8)).toEqual({
     text: first.text,
     fragmentId: first.fragmentId,
     created: false,
   });
 
   const duplicateHeading = `${document}\n\n## Durable heading`;
-  expect(ensureHeadingFragment(duplicateHeading, 10)).toMatchObject({
+  expect(ensureFragmentAnchor(duplicateHeading, 10)).toMatchObject({
     fragmentId: "durable-heading-2",
     created: true,
   });
@@ -165,7 +165,7 @@ test("creates a stable unique heading anchor only when explicitly requested", ()
 
 test("creates alphanumeric IDs without changing authored line separators", () => {
   const source = "# First\r\n\r\n## _Private\nTail\r\n";
-  const created = ensureHeadingFragment(source, 2);
+  const created = ensureFragmentAnchor(source, 2);
 
   expect(created.fragmentId).toBe("private");
   expect(created.text).toBe("# First\r\n\r\n## _Private ^private\nTail\r\n");
@@ -191,7 +191,8 @@ test("parses heading-search and durable fragment completion queries", () => {
 test("a `#` line inside a code fence is code: it neither ends a heading's section nor is offered as a heading (PIE-424)", () => {
   const source = ["# Notes", "## Setup ^setup", "Run this:", "```sh", "# comment, not a heading", "```", "Then restart.", "## Next"].join("\n");
   expect(resolveFragmentSlice(source, "setup")).toMatchObject({ status: "resolved", slice: { startLine: 1, endLine: 6 } });
-  expect(fragmentCandidates(source, "", "heading").map(candidate => candidate.label)).toEqual(["Notes", "Setup", "Next"]);
+  // The anchored heading first (PIE-762), then the others in reading order.
+  expect(fragmentCandidates(source, "", "heading").map(candidate => candidate.label)).toEqual(["Setup", "Notes", "Next"]);
 });
 
 describe("component anchors (PIE-580)", () => {

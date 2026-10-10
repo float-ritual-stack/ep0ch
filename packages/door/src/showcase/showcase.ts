@@ -206,6 +206,18 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "deep-links", need: "link to a passage of a note: a ((reference)) refined to an anchor, adding one where there is none", part: "the completer (PIE-762): ((words lists the top notes with their ^anchors under them; ^ or # typed in a finished ((id)), or just after it, opens it again (reopenReference) and the popup searches inside that note (fragments.candidates with blockIds, mode passage: its anchors first, then headings, paragraphs and list items); choosing one with no anchor adds it through fragments.ensure, attributed, and links it as one choice; agents: complete refine=^ then insert=n",
+    files: "src/surface/completer.ts, outliner src/fragment-search.ts, outliner src/fragments.ts",
+    aside: "go in (⏎): the right reader is writing a comment on the guide, the left one shows the Greenhouse meeting · type ((Gree: the meeting, with ^a10 and ^decision under it · choose the meeting, then ^ right after its )): the meeting's anchors first, then its passages, each saying the anchor it would get · choose one of those and the meeting gains it (left), the comment gets ((id^anchor)) · click inside a finished ((…)) and type ^ or # to refine it again · an unclosed (( sends with a warning, never lost (PIE-761) · the triggers stay in the completer until ADR 0004's source contract (PIE-750) moves them to outline-core",
+    stage(n, show) {
+      const a = detailPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · deep links", panes: [a, b], names: ["meeting", "guide"] }, show, [[a, n.meeting], [b, n.deepLinks]], d => {
+        // The person's own keys would do this: a comment on the guide, through the stage's dispatcher, in the guide's tile.
+        void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));
+      });
+    },
+  },
+  {
     key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts, src/reference-warnings.ts",
     aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts) · what you write always lands (PIE-761): a ((reference left unclosed or naming nothing is sent as written and said after, with a did-you-mean (outline-core reference-warnings.ts); a refused send keeps the comment open with a copy on disk; and a reader with a comment open stays on its note whatever else opens",
     stage(n, show) {
