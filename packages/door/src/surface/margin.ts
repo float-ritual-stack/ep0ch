@@ -66,7 +66,7 @@ export function cardRows(c: Comment, w: number, mode: MarginMode): string[] {
   const rows = [edge + " " + ink + pad(head, inner) + RESET];
   const body = printable(c.body.replace(/\t/g, " "), "", { lines: true });
   if (mode === "trim") {
-    const first = (c.replies.at(-1)?.body ?? body).replace(/\s+/g, " ").trim();
+    const first = printable((c.replies.at(-1)?.body ?? c.body).replace(/\s+/g, " ")).trim();
     const who = c.replies.length ? `${printable(c.replies.at(-1)!.author)}: ` : "";
     if (first || who) rows.push(edge + " " + fg(C.grey) + pad(ellipsize(who + first, inner), inner) + RESET);
     const tags = tagsOf(c);
@@ -75,7 +75,7 @@ export function cardRows(c: Comment, w: number, mode: MarginMode): string[] {
   }
   for (const l of body.split("\n").flatMap(l => (l ? wrap(l, inner) : [""])).slice(0, 12)) rows.push(edge + " " + fg(C.white) + pad(l, inner) + RESET);
   for (const r of c.replies) {
-    wrap(`${printable(r.author)}: ${printable(r.body).replace(/\s+/g, " ")}`, Math.max(2, inner - 2)).slice(0, 6)
+    wrap(`${printable(r.author)}: ${printable(r.body.replace(/\s+/g, " "))}`, Math.max(2, inner - 2)).slice(0, 6)
       .forEach((l, j) => rows.push(edge + " " + fg(C.cyan) + pad((j ? "  " : "↳ ") + l, inner) + RESET));
   }
   const tags = tagsOf(c);

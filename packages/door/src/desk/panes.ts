@@ -131,6 +131,8 @@ export interface Pane {
    * terminal or a whole screen fills its tile.
    */
   readonly measured?: boolean;
+  /** Columns its content keeps beside the measured text (a reader's margin cards): the measure grows by them. */
+  beside?(): number;
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
   title(): string;
@@ -245,6 +247,8 @@ export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   readonly surface = new NoteSurface();
+  /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
+  beside() { return this.surface.marginBeside(); }
   private held = false;
   /**
    * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is

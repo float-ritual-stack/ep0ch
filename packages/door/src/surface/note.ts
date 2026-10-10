@@ -2097,6 +2097,8 @@ export class NoteSurface {
     this.writeNext = null;
     if (ask && p && picked && fresh.text === m.text) {
       this.session.props = ask.props;
+      // Sent (or esc'd), the person is back reading, the passage's card in the margin: as a reply from an expanded thread.
+      this.session.inline = true;
       if (!this.session.write(USER) && ask.text) {
         this.session.writing?.replace(ask.text, USER);
         const d = this.session.composer;
@@ -4731,6 +4733,14 @@ export class NoteSurface {
       return;
     }
     void this.runKey("passage.act", { action }, host);
+  }
+
+  /** The columns a side margin wants beside the measured text: room for cards when the note has them, else none. */
+  marginBeside(): number {
+    const m = this.msg;
+    if (!m || this.marginMode === "off" || this.editing) return 0;
+    const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => c.start !== null && hasCard(c));
+    return cards ? 36 : 0;
   }
 
   /** What the passage toolbar offers: Comment, Ask and Explain (with an agent that answers in threads), and each extension's passage action. */
