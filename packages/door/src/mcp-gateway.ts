@@ -10,7 +10,9 @@
 // setting decides, as it does for stdio: `propose` and `full` add the write tools (src/mcp-writes.ts), attributed to the
 // token's subject and client. A mirror is never written: a write to its outline queues in the netmail store beside the
 // mirrors (src/mcp-netmail.ts) until its home machine pulls it.
-import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { createRemoteJWKSet } from "jose";
+// The token check is shared with a published page's sign-in (the outliner's src/bearer.ts).
+import { issuerFromPublishableKey, verifyBearer, type BearerPolicy } from "@ep0ch/outliner/bearer";
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import type { HostedOutlineList, HostedOutlineSummary, McpAccessLevel } from "@ep0ch/outline-core/protocol";
@@ -25,90 +27,17 @@ import { localAdmin, type McpOutlineAdmin } from "./mcp-outlines";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME } from "./socket";
 
+export { issuerFromPublishableKey, verifyBearer, type BearerPolicy };
+export type { BearerVerdict } from "@ep0ch/outliner/bearer";
+
 export const DEFAULT_GATEWAY_PORT = 8792;
 const MAX_BODY = 1024 * 1024;
 /** Requests answered at once; up to MAX_WAITING more wait their turn, and past that a request is turned away (503). */
 const MAX_INFLIGHT = 4;
 const MAX_WAITING = 32;
 
-/** What the gateway checks a token against. `keys`: the issuer's JWKS (a local set under test). */
-export interface BearerPolicy {
-  issuer: string;
-  /** This endpoint's public URL, as clients name it and as tokens carry it in `aud` (RFC 8707). */
-  resource: string;
-  /** Token subjects (Clerk user ids) allowed in. Empty: nobody (capture mode). */
-  allowedSubjects: readonly string[];
-  /** When set, the OAuth clients (`client_id`) allowed in; otherwise any client a pinned person signed in with. */
-  allowedClients?: readonly string[];
-  keys: JWTVerifyGetKey;
-}
-
-export type BearerVerdict =
-  | { ok: true; sub: string; clientId?: string }
-  | { ok: false; status: 401 | 403 | 503; error?: string; description: string };
-
 const trimSlash = (url: string) => url.replace(/\/+$/, "");
 const listOf = (value: string | undefined) => (value ?? "").split(",").map(s => s.trim()).filter(Boolean);
-
-/** Checks an Authorization header. Every failure is a refusal; nothing falls through to a read. */
-export async function verifyBearer(authorization: string | null, policy: BearerPolicy, log: (line: string) => void = console.error): Promise<BearerVerdict> {
-  const match = /^Bearer[ ]+([^\s]+)\s*$/i.exec(authorization ?? "");
-  if (!match) return { ok: false, status: 401, description: "a Bearer access token is required" };
-  const token = match[1]!;
-  if (token.startsWith("oat_")) {
-    log("mcp gateway: refused an opaque Clerk access token; this gateway verifies JWT access tokens (Clerk: OAuth applications → Settings → JWT access tokens)");
-    return { ok: false, status: 401, error: "invalid_token", description: "opaque access tokens aren't accepted" };
-  }
-  let payload;
-  try {
-    ({ payload } = await jwtVerify(token, policy.keys, {
-      issuer: policy.issuer,
-      algorithms: ["RS256"],
-      typ: "at+jwt",
-      requiredClaims: ["sub", "exp", "iat"],
-      clockTolerance: 30,
-    }));
-  } catch (e) {
-    if (e instanceof joseErrors.JWKSTimeout || !(e instanceof joseErrors.JOSEError)) {
-      log(`mcp gateway: can't check tokens: the issuer's keys didn't load (${(e as Error).message})`);
-      return { ok: false, status: 503, description: "the authorization server's keys are unreachable; try again" };
-    }
-    log(`mcp gateway: token refused: ${(e as Error).message}`);
-    return { ok: false, status: 401, error: "invalid_token", description: "the access token is invalid or expired" };
-  }
-  const audiences = payload.aud === undefined ? [] : [payload.aud].flat();
-  // Exactly this resource: `/mcp` and `/mcp/` are different resources.
-  if (!audiences.includes(policy.resource)) {
-    log(`mcp gateway: token refused: aud ${JSON.stringify(payload.aud ?? null)} isn't ${policy.resource} (Clerk: aud_claim_enabled must be on)`);
-    return { ok: false, status: 401, error: "invalid_token", description: "the access token is for another resource" };
-  }
-  const sub = typeof payload.sub === "string" ? payload.sub : "";
-  const clientId = typeof payload.client_id === "string" ? payload.client_id : undefined;
-  const who = `sub=${sub} client_id=${clientId ?? "(none)"}`;
-  if (!policy.allowedSubjects.length) {
-    log(`mcp gateway: capture mode, refusing a valid token: ${who}. To let this person in, set EP0CH_MCP_ALLOWED_SUBJECTS=${sub} and restart.`);
-    return { ok: false, status: 403, description: "this gateway hasn't been told who may use it yet" };
-  }
-  if (!sub || !policy.allowedSubjects.includes(sub)) {
-    log(`mcp gateway: refused ${who}: not on EP0CH_MCP_ALLOWED_SUBJECTS`);
-    return { ok: false, status: 403, description: "this account may not use this gateway" };
-  }
-  if (policy.allowedClients?.length && !(clientId && policy.allowedClients.includes(clientId))) {
-    log(`mcp gateway: refused ${who}: client not on EP0CH_MCP_ALLOWED_CLIENTS`);
-    return { ok: false, status: 403, description: "this client may not use this gateway" };
-  }
-  return { ok: true, sub, ...(clientId ? { clientId } : {}) };
-}
-
-/** Clerk's Frontend API URL, its OAuth issuer, from a publishable key (`pk_test_<base64 of "<host>$">`). */
-export function issuerFromPublishableKey(key: string): string | undefined {
-  const m = /^pk_(?:test|live)_([A-Za-z0-9+/=_-]+)$/.exec(key.trim());
-  if (!m) return undefined;
-  try {
-    const host = Buffer.from(m[1]!.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8").replace(/\$$/, "");
-    return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : undefined;
-  } catch { return undefined; }
-}
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 
