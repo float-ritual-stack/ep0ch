@@ -1,0 +1,64 @@
+# The whole suite on Blacksmith runners: a merge gate, not a per-push loop (agents iterate on float-box for free).
+# Runs on: a push to main (main never goes red silently), a PR marked ready or labelled `ci`, and by hand.
+# Each package's results go out as JUnit XML, which Blacksmith's test analytics reads (per-test history across runs).
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [ready_for_review, labeled]
+  workflow_dispatch:
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+  test:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: door, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16" }
+          - { pkg: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
+          - { pkg: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+      - run: sudo apt-get install -y --no-install-recommends tmux sqlite3 >/dev/null
+      - run: bun install --frozen-lockfile
+      - name: bun test (${{ matrix.pkg }})
+        working-directory: packages/${{ matrix.pkg }}
+        # A private HOME, as box-test gives: no test reads a person's settings.
+        run: |
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
+          bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.pkg }}
+          path: ${{ runner.temp }}/junit-${{ matrix.pkg }}.xml
+          if-no-files-found: ignore

@@ -181,7 +181,9 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       pane.key(ctrl("s"), d);
       await until(() => pane.session?.mode === "threads", `the comment to land: ${body}`);
       expect((await threads(b.id)).map(t => t.body)).toEqual([body]);
-      expect(flashes.at(-1)).toBe("comment added");
+      // The warning about a reference that leads nowhere follows the save (PIE-761), so on a fast machine it can be the
+      // last flash by now: what matters is that the comment was added, not refused.
+      expect(flashes).toContain("comment added");
     }
   });
 
