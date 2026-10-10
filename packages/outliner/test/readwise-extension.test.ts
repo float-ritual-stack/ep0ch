@@ -46,7 +46,7 @@ function fakeReadwise() {
   const saved: Array<Record<string, unknown>> = [];
   const exports: string[] = [];
   const lists: string[] = [];
-  const state = { pages: [] as FakeBook[][], docs: [] as FakeDoc[][], status: 0, limited: 0 };
+  const state = { pages: [] as FakeBook[][], docs: [] as FakeDoc[][], hidden: [] as FakeDoc[], status: 0, limited: 0 };
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -67,8 +67,11 @@ function fakeReadwise() {
           state.limited--;
           return new Response("{}", { status: 429, headers: { "Retry-After": "1" } });
         }
+        const one = url.searchParams.get("id");
+        if (one) return Response.json({ count: 0, nextPageCursor: null, results: [...state.docs.flat(), ...state.hidden].filter((candidate) => candidate.id === one) });
         const page = Number(url.searchParams.get("pageCursor") ?? "0");
-        const results = state.docs[page] ?? [];
+        const where = url.searchParams.get("location");
+        const results = (state.docs[page] ?? []).filter((candidate) => !where || candidate.location === where);
         return Response.json({ count: results.length, nextPageCursor: page + 1 < state.docs.length ? String(page + 1) : null, results });
       }
       if (url.pathname === "/api/v2/export/") {
@@ -109,7 +112,7 @@ function send<T>(socket: string, request: Record<string, unknown>): Promise<T> {
   });
 }
 
-async function setup() {
+async function setup(extra: Record<string, unknown> = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "readwise-ext-")));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const fake = fakeReadwise();
@@ -119,7 +122,7 @@ async function setup() {
   mkdirSync(secrets, { recursive: true, mode: 0o700 });
   writeFileSync(join(secrets, "readwise.env"), `# made up\nREADWISE_TOKEN=${TOKEN}\nOTHER=not-for-readwise\n`, { mode: 0o600 });
   cpSync(EXTENSION, join(userExtensions, "readwise"), { recursive: true });
-  writeFileSync(join(userExtensions, "readwise", "config.json"), JSON.stringify({ config: { api: fake.api, machine: MACHINE } }));
+  writeFileSync(join(userExtensions, "readwise", "config.json"), JSON.stringify({ config: { api: fake.api, machine: MACHINE, ...extra } }));
   process.env.OUTLINER_EXTENSIONS_DIR = userExtensions;
   process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-legacy-registry.json");
   process.env.WITH_SECRETS_DIR = secrets;
@@ -508,9 +511,10 @@ test("library: a block per Reader document under the Reader page, with its field
   fake.state.limited = 1;
   const first = await act("readwise", "library");
   expect(first.message).toBe("library: 2 new, 0 changed (of 2 documents), 2 highlights and notes skipped");
-  expect(fake.lists).toHaveLength(3);
   expect(fake.lists[1]).toContain("limit=100");
-  expect(fake.lists.at(-1)).toContain("pageCursor=1");
+  expect(fake.lists.some((query) => query.includes("pageCursor=1"))).toBe(true);
+  // Feed items are left out unless asked for.
+  expect(fake.lists.filter((query) => query.includes("location=")).map((query) => new URLSearchParams(query).get("location"))).not.toContain("feed");
 
   const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks;
   const [d1] = await find('reader.id="d1"');
@@ -518,7 +522,7 @@ test("library: a block per Reader document under the Reader page, with its field
   expect(d1!.text.split("\n")[1]).toBe([
     "[reader.id::d1] [title::Pond Weather] [author::Cy Placeholder] [url::https://blog.example.invalid/d1] [category::article] [location::later] [tags::moss]",
     "[reading-progress::40] [saved::2026-03-04] [published::2026-02-03] [words::1200] [site::Pond Blog] [reader.url::https://read.example.invalid/d1]",
-  ].join(" "));
+  ].join(" ") + ` [reader.seen::${/\[reader\.sweep::|\[reader\.seen::([^\]]+)\]/.exec(d1!.text)?.[1]}]`);
   expect(d1!.text).toEndWith("\n\nA made-up summary.\n\nRead again in spring.");
   expect(await find("reader.id=h1")).toHaveLength(0);
   // Finding them, as the README says.
@@ -535,6 +539,7 @@ test("library: a block per Reader document under the Reader page, with its field
   const again = await act("readwise", "library");
   expect(again.message).toBe("library: nothing new in 2 documents, 2 highlights and notes skipped");
   expect(fake.lists.at(-1)).toContain("updatedAfter=");
+  expect(fake.lists.at(-1)).toContain("location=");
   fake.state.docs = [[doc("d1", { title: "Pond Weather", reading_progress: 0.4, notes: "Read again in spring." })]];
   expect((await act("readwise", "library")).message).toBe("library: nothing new in 1 document");
   expect((await find("reader.id")).map((block) => `${block.id}@${block.revision}`).sort()).toEqual(before);
@@ -599,4 +604,52 @@ test("library: a refused token is refused, not a silent empty library", async ()
   fake.state.docs = [[doc("d1")]];
   fake.state.status = 401;
   await expect(act("readwise", "library")).rejects.toThrow();
+});
+
+test("library: feed items stay out unless config.locations adds feed", async () => {
+  const feedItem = doc("f1", { location: "feed", category: "rss" });
+  const without = await setup();
+  without.fake.state.docs = [[doc("d1"), feedItem]];
+  await without.act("readwise", "library");
+  expect(without.fake.lists.every((query) => new URLSearchParams(query).get("location") !== "feed")).toBe(true);
+  const find = (s: Awaited<ReturnType<typeof setup>>) => s.call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "reader.id", limit: 50 } });
+  expect((await find(without)).blocks).toHaveLength(1);
+  await cleanups.splice(0).reverse().reduce((previous, cleanup) => previous.then(cleanup), Promise.resolve());
+
+  const withFeed = await setup({ locations: ["later", "feed"] });
+  withFeed.fake.state.docs = [[doc("d1"), feedItem, doc("d2", { location: "archive" })]];
+  await withFeed.act("readwise", "library");
+  expect((await find(withFeed)).blocks.map((block) => block.text.split("\n")[0]).sort()).toEqual(["Doc d1", "Doc f1"]);
+});
+
+test("library: a finished full pass marks what Reader no longer has; a partial or failed one marks nothing", async () => {
+  const { fake, call, act } = await setup();
+  const find = async (where: string) => (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where, limit: 50 } })).blocks;
+  fake.state.docs = [[doc("d1"), doc("d2"), doc("d3")]];
+  await act("readwise", "library");
+  expect(await find("reader.seen")).toHaveLength(3);
+  // An incremental run lists only what changed and marks nothing, however much is missing from it; it keeps the stamps.
+  fake.state.docs = [[doc("d1", { location: "archive" })]];
+  expect((await act("readwise", "library")).message).toBe("library: 0 new, 1 changed (of 1 documents)");
+  expect(await find("reader.deleted")).toHaveLength(0);
+  expect(await find("reader.seen")).toHaveLength(3);
+
+  // A full pass again (the cursor cleared), d2 gone from Reader, d3 only out of the mirrored locations (it moved to feed).
+  const clear = async () => {
+    const [page] = await find("page=reader");
+    await call("readwise", { action: "update", blockId: page!.id, expectedRevision: page!.revision, text: page!.text.replace(/ ?\[reader\.synced::[^\]]*\]/, ""), author: "user" });
+  };
+  await clear();
+  fake.state.docs = [[doc("d1", { location: "archive" })]];
+  fake.state.hidden = [doc("d3", { location: "feed" })];
+  fake.state.status = 500;
+  await expect(act("readwise", "library")).rejects.toThrow();
+  expect(await find("reader.deleted")).toHaveLength(0);
+  fake.state.status = 0;
+  expect((await act("readwise", "library")).message).toBe("library: 0 new, 1 changed, 1 gone from Reader (of 1 documents)");
+  expect((await find("reader.deleted=true")).map((block) => block.text.split("\n")[0])).toEqual(["Doc d2"]);
+  const [page] = await find("page=reader");
+  expect(page!.text).toMatch(/reader\.synced/);
+  // d3 was out of the mirrored locations, not gone: it is still there, and stamped as seen.
+  expect((await find('reader.id="d3" AND NOT reader.deleted')).length).toBe(1);
 });

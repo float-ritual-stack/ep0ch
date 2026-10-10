@@ -22,7 +22,7 @@
 import { outline } from "./outline";
 
 interface Block { id: string; text: string; revision: number }
-interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string }
+interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string; locations?: string[] }
 interface Request {
   operation: string;
   input: { action: string; target?: { blockId: string }; context: { now: string }; scheduled?: { at: string } };
@@ -66,6 +66,7 @@ const FALLBACK_LINK = "https://ep0ch.invalid/{outline}@{machine}/b/{id}";
 const LINK = config.link ?? FALLBACK_LINK;
 const BOARD = config.board ?? "readwise";
 const PAGE = config.page ?? "readwise";
+const DEFAULT_LOCATIONS = ["new", "later", "shortlist", "archive"];
 const READER_PAGE = config.readerPage ?? "reader";
 const STARTED = Date.now();
 const UNTIL = STARTED + (config.minutes ?? 4) * 60_000;
@@ -170,15 +171,16 @@ function headerProps(text: string): Record<string, string> {
 }
 
 /** The first line with these properties set (a string) or taken out (null), the rest of the text as it was. */
-function withHeaderProps(text: string, changes: Record<string, string | null>): string {
-  const [first, ...rest] = text.split("\n");
-  let line = first!;
+function withHeaderProps(text: string, changes: Record<string, string | null>, at = 0): string {
+  const lines = text.split("\n");
+  let line = lines[at] ?? "";
   for (const [key, next] of Object.entries(changes)) {
     const pattern = new RegExp(`\\s?\\[${key.replace(/[.]/g, "\\.")}::[^\\]\\n]*\\]`, "g");
     line = line.replace(pattern, "");
     if (next !== null) line = `${line} ${token(key, next)}`;
   }
-  return [line, ...rest].join("\n");
+  lines[at] = line;
+  return lines.join("\n");
 }
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -581,13 +583,15 @@ const isDeleted = (doc: ReaderDoc) => Boolean(doc.deleted || doc.is_deleted || d
 const tagNames = (tags: ReaderDoc["tags"]) =>
   (Array.isArray(tags) ? tags.map((tag) => tag.name) : Object.entries(tags ?? {}).map(([key, tag]) => tag?.name ?? key)).map((name) => value(name ?? "")).filter(Boolean);
 
-function documentText(doc: ReaderDoc, book?: string): string {
+function documentText(doc: ReaderDoc, book?: string, seen?: string | null): string {
   const progress = typeof doc.reading_progress === "number" ? Math.round(Math.min(1, Math.max(0, doc.reading_progress)) * 100) : null;
   const entries: Entry[] = [
     ["reader.id", doc.id], ["title", value(doc.title || "")], ["author", doc.author], ["url", doc.source_url], ["category", doc.category], ["location", doc.location],
     ...tagNames(doc.tags).map((name): Entry => ["tags", name]),
     ["reading-progress", progress], ["saved", day(doc.saved_at ?? doc.created_at)], ["published", day(doc.published_date)], ["words", doc.word_count],
     ["site", doc.site_name], ["reader.url", doc.url], ["reader.deleted", isDeleted(doc) ? "true" : null],
+    // The full pass that last listed it: how a later full pass tells what Reader no longer has.
+    ["reader.seen", seen],
   ];
   const header = value(doc.title || "(untitled)").replace(/\((?=\()/g, "(\\");
   const body = [(doc.summary ?? "").trim(), (doc.notes ?? "").trim()].filter(Boolean).map(inert).join("\n\n");
@@ -631,7 +635,13 @@ async function linkDocument(id: string, bookId: string): Promise<void> {
   await update(current, withHighlightsLine(current.text, bookId), BOARD);
 }
 
-interface Counts { seen: number; created: number; updated: number; skipped: number }
+interface Counts { seen: number; created: number; updated: number; skipped: number; deleted: number }
+
+/** Whether Reader still has a document: one the full pass never listed may be out of the locations mirrored (a feed item, say), not gone. */
+async function stillThere(id: string): Promise<boolean> {
+  const { body } = await readwise<{ results?: ReaderDoc[] }>(`/api/v3/list/?${new URLSearchParams({ id })}`);
+  return (body.results ?? []).length > 0;
+}
 
 async function library(): Promise<void> {
   let page = await readerPage();
@@ -642,48 +652,74 @@ async function library(): Promise<void> {
     await update(page, withHeaderProps(page.text, changes), BOARD);
   };
   const sweep = props["reader.sweep"] ?? new Date(STARTED).toISOString();
-  let cursor: string | null = props["reader.next-page"] ?? null;
-  const counts: Counts = { seen: 0, created: 0, updated: 0, skipped: 0 };
+  // A pass with no `reader.synced` lists everything (the backfill, or one asked for by clearing it): the only one that can say a document is gone.
+  const full = !synced;
+  const locations = config.locations?.length ? config.locations : DEFAULT_LOCATIONS;
+  const resumed = locations.indexOf(props["reader.location"] ?? "");
+  let at = Math.max(0, resumed);
+  let cursor: string | null = resumed >= 0 ? props["reader.next-page"] ?? null : null;
+  const counts: Counts = { seen: 0, created: 0, updated: 0, skipped: 0, deleted: 0 };
+  const where = () => ({ "reader.sweep": sweep, "reader.location": locations[at]!, "reader.next-page": cursor });
   let complete = false;
   try {
-    for (;;) {
-      const query = new URLSearchParams({ limit: "100" });
-      if (synced) query.set("updatedAfter", synced);
-      if (cursor) query.set("pageCursor", cursor);
-      const { body } = await readwise<{ results: ReaderDoc[]; nextPageCursor?: string | null }>(`/api/v3/list/?${query}`);
-      let finished = true;
-      for (const doc of body.results ?? []) {
-        if (Date.now() > UNTIL - 30_000) { finished = false; break; }
-        // A highlight or a note is a document with a parent: the export brings those.
-        if (doc.parent_id || doc.category === "highlight" || doc.category === "note" || !doc.id) { counts.skipped++; continue; }
-        counts.seen++;
-        const have = await documentBlock(page, doc.id);
-        const book = await bookOf(doc.id);
-        const text = documentText(doc, book?.id);
-        if (!have) {
-          await outline({ action: "create", parentId: page.id, text }, BOARD);
-          counts.created++;
-        } else if (have.text !== text) {
-          await update(have, text, BOARD);
-          counts.updated++;
+    pass: for (; at < locations.length; at++) {
+      for (;;) {
+        const query = new URLSearchParams({ limit: "100", location: locations[at]! });
+        if (synced) query.set("updatedAfter", synced);
+        if (cursor) query.set("pageCursor", cursor);
+        const { body } = await readwise<{ results: ReaderDoc[]; nextPageCursor?: string | null }>(`/api/v3/list/?${query}`);
+        for (const doc of body.results ?? []) {
+          if (Date.now() > UNTIL - 30_000) break pass;
+          // A highlight or a note is a document with a parent: the export brings those.
+          if (doc.parent_id || doc.category === "highlight" || doc.category === "note" || !doc.id) { counts.skipped++; continue; }
+          counts.seen++;
+          const have = await documentBlock(page, doc.id);
+          const book = await bookOf(doc.id);
+          // `reader.seen` is the full pass that last listed it; an incremental run keeps what is there.
+          const text = documentText(doc, book?.id, full ? sweep : have ? headerPropsAnywhere(have.text)["reader.seen"] : null);
+          if (!have) {
+            await outline({ action: "create", parentId: page.id, text }, BOARD);
+            counts.created++;
+          } else if (have.text !== text) {
+            await update(have, text, BOARD);
+            counts.updated++;
+          }
         }
+        cursor = body.nextPageCursor ?? null;
+        if (!cursor) break;
+        if (Date.now() > UNTIL - 30_000) { await save(where()); break pass; }
+        await save(where());
       }
-      if (!finished) break;
-      cursor = body.nextPageCursor ?? null;
-      if (!cursor) { complete = true; break; }
-      if (Date.now() > UNTIL - 30_000) break;
-      await save({ "reader.sweep": sweep, "reader.next-page": cursor });
+      if (at + 1 < locations.length) await save({ "reader.sweep": sweep, "reader.location": locations[at + 1]!, "reader.next-page": null });
     }
+    complete = at >= locations.length;
   } catch (error) {
-    if (cursor) await save({ "reader.sweep": sweep, "reader.next-page": cursor }).catch(() => {});
+    await save(where()).catch(() => {});
     throw error;
   }
-  await save(complete
-    ? { "reader.synced": sweep, "reader.sweep": null, "reader.next-page": null }
-    : { "reader.sweep": sweep, "reader.next-page": cursor });
-  const what = counts.created + counts.updated === 0
+  if (!complete) {
+    await save(where());
+  } else {
+    // Only a finished full pass can say what is gone: a block it never listed, which Reader no longer has either.
+    if (full && counts.seen > 0) {
+      // In batches (a query answers at most 1000): each one handled is marked deleted, or stamped as there, so it leaves the next batch.
+      for (;;) {
+        const unlisted = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: {
+          where: `reader.id AND NOT reader.deleted AND NOT reader.seen="${sweep}"`, subtreeRootId: page.id, limit: 1000 } }, BOARD);
+        if (!unlisted.blocks.length) break;
+        for (const block of unlisted.blocks) {
+          const id = headerPropsAnywhere(block.text)["reader.id"];
+          const gone = !id || !(await stillThere(id));
+          await update(block, withHeaderProps(block.text, gone ? { "reader.deleted": "true" } : { "reader.seen": sweep }, 1), BOARD);
+          if (gone) counts.deleted++;
+        }
+      }
+    }
+    await save({ "reader.synced": sweep, "reader.sweep": null, "reader.location": null, "reader.next-page": null });
+  }
+  const what = counts.created + counts.updated + counts.deleted === 0
     ? `nothing new in ${counts.seen} document${counts.seen === 1 ? "" : "s"}`
-    : `${counts.created} new, ${counts.updated} changed (of ${counts.seen} documents)`;
+    : `${counts.created} new, ${counts.updated} changed${counts.deleted ? `, ${counts.deleted} gone from Reader` : ""} (of ${counts.seen} documents)`;
   answer({ message: `library: ${what}${counts.skipped ? `, ${counts.skipped} highlights and notes skipped` : ""}${complete ? "" : "; more next time"}` });
 }
 

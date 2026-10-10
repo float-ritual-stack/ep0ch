@@ -17,6 +17,7 @@
       "link": { "type": "string", "minLength": 1, "description": "The URL a sent note gets in Reader, with {outline}, {machine} and {id} (default: its published permalink, else https://ep0ch.invalid/{outline}@{machine}/b/{id})" },
       "machine": { "type": "string", "minLength": 1, "description": "This machine's name in ep0ch:// links (default the service's, from notes.address)" },
       "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags a sent document gets in Reader (default [\"ep0ch\"])" },
+      "locations": { "type": "array", "items": { "enum": ["new", "later", "shortlist", "archive", "feed"] }, "description": "Which Reader locations the library mirrors (default new, later, shortlist, archive); add \"feed\" to bring RSS items in" },
       "readerPage": { "type": "string", "minLength": 1, "description": "The page in the board outline the Reader library lands under (default reader)" },
       "api": { "type": "string", "minLength": 1, "description": "Readwise's address (default https://readwise.io); a test points it at a fake" },
       "minutes": { "type": "integer", "minimum": 1, "maximum": 4, "description": "How long one pull may work before it stops and leaves the rest for the next (default 4)" }

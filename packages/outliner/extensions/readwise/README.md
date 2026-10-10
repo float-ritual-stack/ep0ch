@@ -51,9 +51,15 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
     moves from later to archive is updated in place, never duplicated.
   - The block's first line is the title; the properties are under [Reader documents](#reader-documents); the body is
     the summary, then your note on the document.
-  - **Deleted is marked, not removed:** a document Reader reports deleted (`deleted`, `is_deleted` or `deleted_at` in
-    its list entry) gets `[reader.deleted::true]` and stays. Reader's list does not always say so, in which case
-    nothing is marked.
+  - **Feed items stay out by default.** `locations` (default `["new", "later", "shortlist", "archive"]`) says which Reader
+    locations are mirrored; add `"feed"` to bring RSS items in. A large feed would otherwise swamp the board and the
+    backfill. Each location is listed on its own (`location=`), so a left-out one costs no requests.
+  - **Deleted is marked, not removed:** a document gets `[reader.deleted::true]` and stays, in two ways. Reader may say
+    so (`deleted`, `is_deleted` or `deleted_at` in its list entry). And a **full pass** (the first backfill, or one you
+    ask for by taking `[reader.synced::…]` off the Reader page) stamps each document it lists with `[reader.seen::<pass>]`;
+    when the pass has finished, a block it never listed is looked up in Reader by id, and marked deleted if Reader does
+    not have it. One that is still there, only outside `locations` (moved to feed, say), is left alone. Only a finished
+    full pass does this: an incremental run lists just what changed, and a partial or failed pass marks nothing.
   - **One note with its highlights.** The export's book `external_id` is the Reader document's id when the source is
     `reader`, so each of its highlights carries `[reader.doc::<id>]`, and the document's block holds a line
     `Highlights: ((book|its highlights))` linking to its book on the board. Whichever arrives first, the next
@@ -102,6 +108,7 @@ new.
 | `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
 | `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
+| `locations` | `["new", "later", "shortlist", "archive"]` | Which Reader locations the library mirrors; add `"feed"` for RSS items |
 | `readerPage` | `reader` | The page in the board outline the Reader library lands under |
 | `api` | `https://readwise.io` | Readwise's address; the test points it at a fake |
 
@@ -148,7 +155,8 @@ are when the block was written, not when you highlighted), so "from 2024" is `hi
 | `reading-progress` | `reading_progress` as 0 to 100 |
 | `saved`, `published` | `saved_at`, `published_date` as days |
 | `words` | `word_count` |
-| `reader.deleted` | `true` when Reader says it is deleted |
+| `reader.deleted` | `true` when Reader says it is deleted, or a full pass found it gone |
+| `reader.seen` | the full pass that last listed it (bookkeeping for the deletion sweep) |
 
 ## Finding them
 
