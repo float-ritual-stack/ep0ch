@@ -221,7 +221,7 @@ const BarSourceSchema = Type.Object(
     id: ID,
     title: Type.String({ minLength: 1, maxLength: 30 }),
     /** The character that scopes the bar to this source when typed first (`~`). */
-    prefix: Type.Optional(Type.String({ pattern: "^[!#$&*:;=^|~]$" })),
+    prefix: Type.Optional(Type.String({ pattern: "^[!#$*:;=^|~]$" })),
     description: Type.Optional(Type.String({ maxLength: 300 })),
     /**
      * Its rows join the bar's main list (before a scope is chosen, typed or not), not only its own scope after its
@@ -335,6 +335,11 @@ const ManifestV2 = Type.Object(
     bar: Type.Optional(Type.Array(BarSourceSchema, { maxItems: 4 })),
     /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
     components: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 8 })),
+    /**
+     * A folder of demo notes (Blockdown, one file per note: src/extension-demo.ts) the service writes under the
+     * extension's page when it's installed, once (src/extension-pages.ts). Usually `"demo"`.
+     */
+    demo: Type.Optional(Type.String({ pattern: "^[a-z0-9][a-z0-9._-]{0,63}$" })),
   },
   { additionalProperties: false },
 );

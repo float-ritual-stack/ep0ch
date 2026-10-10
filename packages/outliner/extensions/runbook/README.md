@@ -1,4 +1,4 @@
-# runbook
+# Runbook
 
 A note is a runbook. Each step is a block with a `run::` line and its command in the first code fence; running it
 records the run under the step. Everything here is made up.
@@ -34,3 +34,9 @@ summary child on the note). In the door: `act ext.runbook.run-all block=<id>`.
 
 `config.json`: `{ "config": { "timeoutSeconds": 120 } }`. Groups are read where `with-secrets` reads them
 (`~/.config/secrets`, or the service's `WITH_SECRETS_DIR`).
+
+## The demo
+
+Installing it writes a made-up runbook under its page in the Extensions hub (`demo/`): *Ship the demo widget*, with a
+dry step, one that joins the made-up secrets group `runbook-demo` (it fails until you make the group), and one that
+exits 3. Every command is an `echo`. Run the steps from their lines to see each kind of record.

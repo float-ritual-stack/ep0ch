@@ -21,7 +21,7 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
-import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
+import { ActionRefused, ActionSet, actionSet, asActor, def, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
@@ -90,7 +90,21 @@ export interface RuleEntry {
   problem?: string;
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
-export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[] }
+/** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
+export interface AvailableExtension { id: string; name: string; version: number; description?: string }
+export interface ExtensionList {
+  generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
+  /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */
+  hub?: string; pages?: Record<string, string>;
+  /** How many of its demo notes each extension has left in the outline (none listed: none). */
+  demos?: Record<string, number>;
+  /** The repo's extensions not installed here: `extensions.install` adds one with its page and demo notes. */
+  available?: AvailableExtension[];
+}
+/** What `extensions.install` answers: what it did, and the page it wrote (with the demo notes under it). */
+export interface ExtensionInstalled { id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string }
+/** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
+export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: string[]; left: number } }
 export interface ExtensionActResult {
   extension: string; action: string; message?: string; written: string[];
   /** Text for the clipboard (copy with a citation): the client copies it. */
@@ -152,6 +166,7 @@ function cleaned(l: ExtensionList): ExtensionList {
     tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
     rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
     ruleProblems: (l.ruleProblems ?? []).map(oneLine),
+    available: (l.available ?? []).map(a => ({ ...a, id: oneLine(a.id), name: oneLine(a.name) || oneLine(a.id), description: clean(a.description) })),
   };
 }
 
@@ -197,6 +212,61 @@ export function handlerKeyAction(extension: string, handler: string, key: string
   if (READER_OWN_KEYS.has(key) || hostKeys.includes(key)) return undefined;
   return handlerActions(extension, handler).find(a => keyOf(a.key) === key);
 }
+
+// ── installing and removing one ──────────────────────────────────────────────
+
+/** An extension's name as listed (installed or available), else its id. */
+const nameOf = (id: string) => current?.extensions.find(e => e.id === id)?.name ?? current?.available?.find(a => a.id === id)?.name ?? oneLine(id);
+
+/**
+ * Installing and removing extensions, on every screen: the service does it (`extensions.install`, `extensions.uninstall`),
+ * as `ep0ch ext add` and `ext remove` do from a shell, and writes the extension's page and demo notes under the outline's
+ * Extensions hub. The power bar's extensions scope (`&`, src/bar/sources.ts) is where a person finds them, by keys and
+ * mouse; an agent's is `act`. Nothing of the person's moves: the service writes, as itself and the extension.
+ */
+export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install", {
+  "extensions.install": def({
+    summary: "install one of the repo's extensions (extensions.list's available, as ep0ch ext add <id>): the service copies it in for every outline its host serves, loads it, and writes its page under the outline's Extensions hub, its README and what it adds, with its demo notes under it (once, as ext:<id>). Answers the page",
+    keys: "⏎ or a click on its install row in the power bar's extensions (ctrl+k then &)",
+    touches: "nothing", replay: "ask",
+    says: (r: ExtensionInstalled) => `installed ${nameOf(r.id)}${r.page ? `: its page is ${r.page}` : ""}`,
+    args: { id: { type: "string", about: "the extension's id, such as moon (extensions.list's available)" } },
+    async run({ id }, on, actor) {
+      const say = asActor(on.ctx, actor);
+      say.flash(`installing ${nameOf(id)}…`);
+      try {
+        const r = await on.ctx.board.installExtension(id, actor);
+        say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions`);
+        on.ctx.redraw();
+        return r;
+      } catch (e) {
+        throw new ActionRefused(`${nameOf(id)} wasn't installed: ${oneLine(e instanceof Error ? e.message : String(e))}`);
+      }
+    },
+  }),
+  "extensions.uninstall": def({
+    summary: "remove an installed extension (as ep0ch ext remove <id>): its folder goes, and its handlers, actions and tiles with it; its demo notes stay (demo=keep) or go to Trash (demo=remove: the ones nobody changed, the rest are kept and named). demo= has no default: they never go silently. Its page stays while something is under it",
+    keys: "⏎ or a click on one of its remove rows in the power bar's extensions (ctrl+k then &, then its name)",
+    touches: "nothing", replay: "ask",
+    says: (r: ExtensionUninstalled) => `removed ${nameOf(r.id)}${r.demo.trashed ? `, ${r.demo.trashed} demo notes to Trash` : r.demo.left ? `, its ${r.demo.left} demo notes kept` : ""}`,
+    args: {
+      id: { type: "string", about: "the installed extension's id" },
+      demo: { type: "string", about: "keep (its demo notes stay under its page) or remove (to Trash, except what someone changed)" },
+    },
+    async run({ id, demo }, on, actor) {
+      if (demo !== "keep" && demo !== "remove") throw new ActionRefused("say what becomes of its demo notes: demo=keep or demo=remove");
+      const say = asActor(on.ctx, actor);
+      try {
+        const r = await on.ctx.board.uninstallExtension(id, demo, actor);
+        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}`);
+        on.ctx.redraw();
+        return r;
+      } catch (e) {
+        throw new ActionRefused(`${nameOf(id)} wasn't removed: ${oneLine(e instanceof Error ? e.message : String(e))}`);
+      }
+    },
+  }),
+});
 
 // ── running one ──────────────────────────────────────────────────────────────
 

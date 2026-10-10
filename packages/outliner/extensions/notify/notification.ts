@@ -72,8 +72,3 @@ export function merged(n: Notification, current?: string): string {
   return [theirs.length ? `${mine} ${theirs.join(" ")}` : mine, ...rest].join("\n");
 }
 
-/** Does a hub's note exist? A page address for the notes, one for each board. */
-export const BOARDS = (page: string, sources: readonly string[]) => [
-  { title: "Notifications by read state", lanes: [["Unread", "notify.state=unread"], ["Read", "notify.state=read"]] },
-  { title: "Notifications by source", lanes: sources.map((s) => [s[0]!.toUpperCase() + s.slice(1), `notify.source=${s}`]) },
-].map((board) => ({ ...board, page }));

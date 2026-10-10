@@ -13,7 +13,7 @@ import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
-import type { ExtensionActResult, ExtensionBarResult, ExtensionList } from "./extensions";
+import type { ExtensionActResult, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
@@ -479,6 +479,19 @@ export class SocketBoard implements Board {
    */
   listExtensions(reload = false): Promise<ExtensionList> {
     return this.request<ExtensionList>("extensions.list", reload ? { reload: true } : {});
+  }
+
+  /**
+   * Install one of the repo's extensions (`extensions.install`, as `ep0ch ext add <id>`): the service copies it in, loads
+   * it, and writes its page and demo notes under the outline's Extensions hub before it answers.
+   */
+  installExtension(id: string, actor: Actor = USER): Promise<ExtensionInstalled> {
+    return this.request<ExtensionInstalled>("extensions.install", { extension: id, mutation: requesterOf(actor) });
+  }
+
+  /** Remove an installed extension (`extensions.uninstall`); its demo notes `keep` or `remove` (to Trash, unless changed). */
+  uninstallExtension(id: string, demo: "keep" | "remove", actor: Actor = USER): Promise<ExtensionUninstalled> {
+    return this.request<ExtensionUninstalled>("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
   }
 
   /**

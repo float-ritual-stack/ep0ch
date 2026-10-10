@@ -226,12 +226,13 @@ export async function listExtensions(): Promise<string[]> {
 
 const USAGE = `usage: outliner ext ls
        outliner ext add <name|path> [--outline-folder <outline root>]
-       outliner ext remove <name> [--outline-folder <outline root>]
+       outliner ext remove <name> [--outline-folder <outline root>] [--demo keep|remove]
        outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
        outliner ext run <name> <action:id|handler:key>   runs one of its schedules now, recorded as any run
   An action on a passage (on: passage) takes --block and --quote: the words, exact, in the note's text now (--near picks among repeats).
   ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked.
-  Folders are watched: add and remove apply without a restart.
+  Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
+  outline's Extensions hub, with its demo notes once; remove keeps the demo notes unless --demo remove.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
 
 interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
@@ -264,23 +265,43 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
     if (operation === "add" || operation === "remove" || operation === "rm") {
       const { values, positionals } = parseArgs({
         args: [...rest], allowPositionals: true, strict: true,
-        options: { from: { type: "string" }, "outline-folder": { type: "string" } },
+        options: { from: { type: "string" }, "outline-folder": { type: "string" }, demo: { type: "string" } },
       });
       const [name, ...extra] = positionals;
       if (!name || extra.length) throw new Error(USAGE);
+      if (values.demo !== undefined && (operation === "add" || (values.demo !== "keep" && values.demo !== "remove"))) {
+        throw new Error("--demo is remove's: keep (its demo notes stay, the default) or remove (to Trash, unless you changed one)");
+      }
       const outlineFolder = values["outline-folder"] ? resolve(values["outline-folder"]) : undefined;
+      const client = await connect();
+      // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.
+      const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
+        try { return !existsSync(join(targetRoot(outlineFolder), name, "extension.json")); } catch { return false; }
+      })();
       const lines = operation === "add"
         ? await addExtension(name, { ...(values.from ? { from: values.from } : {}), ...(outlineFolder ? { outlineFolder } : {}) })
-        : await removeExtension(name, outlineFolder ? { outlineFolder } : {});
+        : folderGone ? [] : await removeExtension(name, outlineFolder ? { outlineFolder } : {});
       for (const line of lines) print(line);
       // Say what the service made of it when one is running here.
-      const client = await connect();
       if (client) {
-        const list = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+        const list = await client.request<ExtensionsListResult & { pages?: Record<string, string> }>({ action: "extensions.list", reload: true });
         const id = operation === "add" ? lines[0]!.split(" ")[1]! : name;
         const entry = list.extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
-        if (operation === "add") print(entry ? `service: ${id} is ${entry.state}${entry.error ? `: ${entry.error}` : ""}` : `service: ${id} isn't in a folder this outline reads (${list.roots.map((root) => root.path).join(", ")})`);
-        else print(entry ? `service: still has ${id} (${entry.directory})` : `service: ${id} is gone`);
+        if (operation === "add") {
+          print(entry ? `service: ${id} is ${entry.state}${entry.error ? `: ${entry.error}` : ""}` : `service: ${id} isn't in a folder this outline reads (${list.roots.map((root) => root.path).join(", ")})`);
+          // Its page, with its README and demo notes (src/extension-pages.ts).
+          if (list.pages?.[id]) print(`its page: ${list.pages[id]} (ep0ch show ${list.pages[id]})`);
+        } else if (entry) {
+          print(`service: still has ${id} (${entry.directory})`);
+        } else {
+          // Its demo notes: kept unless --demo remove said otherwise (never silently).
+          const done = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: id, demo: values.demo ?? "keep" })
+            .catch((error: Error) => ({ lines: /none of its demo notes are left/.test(error.message) ? [] : [`its demo notes: ${error.message}`] }));
+          print(`service: ${id} is gone`);
+          for (const line of done.lines) print(line);
+        }
+      } else if (operation !== "add") {
+        print(`No outline service answers here: its demo notes stay in the outline. With the service running, ep0ch ext remove ${name} --demo remove moves them to Trash.`);
       }
       return 0;
     }

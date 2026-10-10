@@ -1,9 +1,10 @@
 {
   "contract": 2,
   "id": "runbook",
-  "version": 1,
+  "version": 2,
   "name": "Runbook",
   "description": "A note is a runbook: each step is a command block you run by name, secrets join a step from a with-secrets group at run time, and every run is recorded under the step.",
+  "demo": "demo",
   "run": [
     "bun",
     "runbook.ts"

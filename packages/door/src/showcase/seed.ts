@@ -6,12 +6,13 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -1174,6 +1175,21 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
     const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
     await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
+  }
+  // Extensions that ship demo notes (each one's page under the Extensions hub): the notifications hub on its made-up
+  // sources, pulled once so its demo boards have cards, and the runbook with its demo runbook.
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, DEMO_EXAMPLES).length) {
+    writeFileSync(join(opts.ticketsConfig, "pi-herdr-outliner", "extensions", "notify", "config.json"), JSON.stringify({ config: {
+      sources: ["gmail", "jira", "slack"], days: 3650, fixtures: { gmail: "fixtures/gmail.json", jira: "fixtures/jira.json", slack: "fixtures/slack.json" },
+    } }));
+    // Their pages are written once the service reads the folders (a reload answers after it).
+    const end = Date.now() + 15_000;
+    while (Date.now() < end) {
+      const listed = await board.listExtensions(true).catch(() => null);
+      if (DEMO_EXAMPLES.every(id => listed?.pages?.[id])) break;
+      await Bun.sleep(100);
+    }
+    await board.request("extensions.schedule.run", { extension: "notify", entry: "action:pull" }).catch(() => null);
   }
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);

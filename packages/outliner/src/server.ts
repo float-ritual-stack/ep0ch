@@ -36,8 +36,10 @@ import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
-import { ExtensionRegistry, extensionRoots } from "./extension-registry";
-import { ResourceExtensionRuntime, keychainItem, scrubCredentials } from "./resource-extensions";
+import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
+import { ExtensionPages } from "./extension-pages";
+import { addExtension, removeExtension } from "./extension-install";
+import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse } from "./resource-extensions";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
@@ -339,6 +341,10 @@ export class OutlinerServer {
   readonly extensionRules: ExtensionRules;
   /** Handlers and actions an extension runs on a schedule, and what each run did (src/extension-schedule.ts, PIE-754). */
   readonly extensionSchedules: ExtensionSchedules;
+  /** The Extensions hub, a page per extension and their demo notes (src/extension-pages.ts). */
+  readonly extensionPages: ExtensionPages;
+  /** What the pages said at the last sync (hub, pages, available): a change is announced as an extensions event. */
+  private pagesSaid = "";
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
   private readonly turns = new Turns();
@@ -402,7 +408,10 @@ export class OutlinerServer {
         this.extensionRules?.rebaseline();
         this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
       },
+      // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
+      onReload: () => { if (!this.readOnly) void this.syncExtensionPages(false); },
     });
+    this.extensionPages = new ExtensionPages(store, this.extensionRegistry, { builtIns: BUILT_IN_EXTENSIONS });
     // Jira's Resource path reads the same folders, so a jira folder in the outline works like the user's.
     const catalogClient = store.resources.remoteEntityProviderClient;
     // Every extension process reaches the service the way a tile program does (PIE-754): this socket, this outline.
@@ -449,6 +458,76 @@ export class OutlinerServer {
       // A run's record is part of what extensions.list says: readers read it again.
       ran: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
     });
+  }
+
+  /**
+   * Writes the Extensions hub and pages (all of them with `force`, else only when what they're made from changed), and
+   * announces it when the hub, a page or what's available changed, so clients read `extensions.list` again.
+   */
+  private async syncExtensionPages(force: boolean): Promise<void> {
+    if (this.readOnly) return;
+    await (force ? this.extensionPages.sync() : this.extensionPages.syncIfChanged());
+    const said = JSON.stringify([this.extensionPages.hub(), this.extensionPages.pages(), this.extensionPages.availableNow().map((entry) => entry.id)]);
+    if (said === this.pagesSaid) return;
+    this.pagesSaid = said;
+    this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
+  }
+
+  /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
+  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
+    const hub = this.extensionPages.hub();
+    return {
+      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
+      ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
+    };
+  }
+
+  /**
+   * `extensions.install`: a built-in (the repo's extensions folder, as `ext add <name>`) copied into the user folder
+   * (every outline this host serves) or, with `where: "outline"` or when the host reads no user folder, this outline's
+   * own; then the registry reads it, and its page and demo notes are written before this answers.
+   */
+  private async installExtension(id: string, where: "user" | "outline" | undefined): Promise<{ id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string }> {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.install takes id: a built-in's name, such as moon (extensions.list's available)");
+    const available = this.extensionPages.availableNow().map((entry) => entry.id);
+    if (!existsSync(join(BUILT_IN_EXTENSIONS, id, "extension.json"))) {
+      throw new Error(`No extension ${id} in the repo's folder${available.length ? ` (available: ${available.join(", ")})` : ""}`);
+    }
+    const outline = where === "outline" || (where === undefined && !userExtensionsFolderInUse());
+    const lines = await addExtension(id, outline ? { outlineFolder: this.store.workspaceRoot } : {});
+    await this.extensionRegistry.reload();
+    await this.syncExtensionPages(true);
+    const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    const page = this.extensionPages.pages()[id], hub = this.extensionPages.hub();
+    return { id, lines, ...(page ? { page } : {}), ...(hub ? { hub } : {}), ...(entry ? { state: entry.state } : {}), ...(entry?.error ? { error: entry.error } : {}) };
+  }
+
+  /**
+   * `extensions.uninstall`: its folder deleted (the outline's or the user's, wherever it is installed; never the repo's)
+   * and its demo notes kept or moved to Trash, as `demo` says: there is no default, so they never go silently. With the
+   * folder already gone it does the demo part alone.
+   */
+  private async uninstallExtension(id: string, demo: "keep" | "remove", requestedBy: MutationProvenance | undefined): Promise<{ id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: readonly string[]; left: number } }> {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.uninstall takes id: an installed extension's name");
+    if (demo !== "keep" && demo !== "remove") throw new Error("extensions.uninstall needs demo: keep (its demo notes stay) or remove (to Trash, unless you changed one)");
+    const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    const lines: string[] = [];
+    if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : {}));
+    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id]) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
+    await this.extensionRegistry.reload();
+    // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.
+    const still = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
+    if (still) {
+      lines.push(`${id} is still installed from ${still.directory} (another copy): ${demo === "remove" ? "its demo notes stay. Remove that copy too to take them out" : "its demo notes stay"}`);
+      await this.syncExtensionPages(true);
+      return { id, lines, removed: !!entry, demo: { trashed: 0, kept: [], left: this.extensionPages.demoCount(id) } };
+    }
+    const removal = demo === "remove" ? this.extensionPages.removeDemo(id, requestedBy) : { trashed: 0, kept: [] };
+    await this.syncExtensionPages(true);
+    const left = this.extensionPages.demoCount(id);
+    if (demo === "remove") lines.push(`moved ${removal.trashed} demo ${removal.trashed === 1 ? "note" : "notes"} to Trash${removal.kept.length ? `; kept ${removal.kept.length} you changed: ${removal.kept.join(", ")}` : ""}`);
+    else if (left) lines.push(`kept its ${left} demo ${left === 1 ? "note" : "notes"} under its page: ep0ch ext remove ${id} --demo remove moves them to Trash`);
+    return { id, lines, removed: !!entry, demo: { ...removal, left } };
   }
 
   /** The named outline this service runs, reported by `ping`. */
@@ -1700,10 +1779,18 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run") {
+    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
+      request.action === "extensions.install" || request.action === "extensions.uninstall") {
       try {
         let result: unknown;
-        if (request.action === "extensions.bar") {
+        if (request.action === "extensions.install") {
+          if (typeof request.extension !== "string") throw new Error("extensions.install needs extension: a built-in's name (extensions.list's available)");
+          if (request.where !== undefined && request.where !== "user" && request.where !== "outline") throw new Error("where is user (every outline this host serves) or outline (this one's own)");
+          result = await this.installExtension(request.extension, request.where);
+        } else if (request.action === "extensions.uninstall") {
+          if (typeof request.extension !== "string") throw new Error("extensions.uninstall needs extension: an installed extension's name");
+          result = await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall"));
+        } else if (request.action === "extensions.bar") {
           // A command-palette source (PIE-656): it only answers; picking a row goes through open, extensions.act or a copy.
           if (typeof request.extension !== "string" || typeof request.source !== "string") throw new Error("extensions.bar needs extension and source");
           if (typeof request.query !== "string" || request.query.length > 500) throw new Error("query must be text up to 500 characters");
@@ -1716,7 +1803,10 @@ export class OutlinerServer {
           });
         } else if (request.action === "extensions.list") {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
-          if (request.reload) await this.extensionRegistry.reload();
+          if (request.reload) {
+            await this.extensionRegistry.reload();
+            await this.syncExtensionPages(false);
+          }
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
           const listed = this.extensionRegistry.list();
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
@@ -1726,7 +1816,7 @@ export class OutlinerServer {
             const lastRun = this.extensionRuntime.lastRun(entry.id);
             return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}) };
           });
-          result = { ...listed, extensions, ...this.extensionRules.list() };
+          result = { ...listed, extensions, ...this.extensionRules.list(), ...this.extensionPagesListed() };
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
@@ -2189,6 +2279,8 @@ export class OutlinerServer {
         case "extensions.act":
         case "extensions.bar":
         case "extensions.schedule.run":
+        case "extensions.install":
+        case "extensions.uninstall":
         case "notes.address":
         case "notes.render":
         case "computed.execute":
