@@ -86,6 +86,8 @@ export interface CommentPassage { quote: string; start: number; prefix?: string;
 /** An annotation's own properties as written: open keys, a value or a list. */
 export type AnnotationProps = Record<string, string | string[]>;
 export interface CommentReceipt { id: string; deduplicated: boolean }
+/** The open proposals beside a note, as the service answers `draft.proposals.list` (the outliner's `DraftProposalsBeside`). */
+export interface ProposalsBeside { blockId: string; revision: number; proposals: { id: string; afterLine: number; author: string; actorId?: string; applies: boolean }[] }
 /** One row of the whole-outline index: everything but the full text. `depth`: 0 for a top-level note. */
 export interface IndexBlock {
   id: string; parentId: string | null; position: number; depth: number; title: string; author: string;
@@ -120,8 +122,7 @@ import type { Passage } from "@ep0ch/outline-core/passage";
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
   | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
-  | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string }
-  | { kind: "embed"; requestId: string; holdId: string; blockId: string; line: string; mark?: string; mutation: { author: string; actorId?: string } };
+  | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
 export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
 export interface DraftHoldHandle {
@@ -1450,12 +1451,20 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Dismiss a proposal without applying it (`draft.proposal.dismiss`, PIE-510): the service takes its embed line
+   * Dismiss a proposal without applying it (`draft.proposal.dismiss`, PIE-510): the service takes an older one's embed line
    * out of the note it was proposed under (or the live draft of it), marks it dismissed and puts it in the Trash,
    * all as `actor`, and refuses an agent's dismissal of another's proposal. `embedRemoved`: where the line was.
    */
   async dismissProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "dismissed"; proposalId: string; embedRemoved: "saved" | "draft" | null; warning?: string }> {
     return this.request("draft.proposal.dismiss", { proposalId, mutation: requesterOf(actor) });
+  }
+
+  /**
+   * The open proposals beside note `blockId` (`draft.proposals.list`, PIE-725): a patch that didn't apply is a proposal block
+   * beside its note, never a line in its text. Each names the note line it is drawn after (its mark's, else the last).
+   */
+  async proposalsBeside(blockId: string): Promise<ProposalsBeside> {
+    return this.request<ProposalsBeside>("draft.proposals.list", { blockId });
   }
 
   close(): void {

@@ -708,7 +708,7 @@ lands in the note while he goes on. That needs a door that says when he types in
     the change feed. A note held by a door gets the patch in its live draft. The spans are compared
     with the text as it is when the answer comes back (`draft.patch` with `current`), so typing
     elsewhere in the note is fine; if the person changed that passage meanwhile, the edit becomes a
-    proposal embedded under the line, to apply or dismiss. If the request line itself changed, the
+    proposal beside the note, drawn under the line, to apply or dismiss. If the request line itself changed, the
     answer is dropped: the new wording is a new request.
   - `reply`: markdown shown under the line (inert, like an output). The note's text is untouched.
   - `message`: what it did, in a few words (`tidied 2 lines above`).

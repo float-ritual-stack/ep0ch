@@ -43,6 +43,8 @@ export interface TileSpec {
    * between screens or into the drawer (PIE-498) adopts its own program after a restart by it.
    */
   kept?: string;
+  /** A terminal started as an agent session (PIE-737): its program, persona and config. */
+  session?: { program: string; persona?: string; config?: string };
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
   source?: string;
   /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */

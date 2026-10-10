@@ -2206,6 +2206,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "draft.proposal.apply"; proposalId: string; mutation: MutationProvenance }
   /** Dismiss a proposal without applying it (capability `draft.proposal.dismiss`). */
   | { id: string; action: "draft.proposal.dismiss"; proposalId: string; mutation: MutationProvenance }
+  /** The open proposals beside a note, each with the line it is drawn after (PIE-725, `DraftProposalsBeside`). */
+  | { id: string; action: "draft.proposals.list"; blockId: string }
   /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
   | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number; mutation?: MutationProvenance }
   /**

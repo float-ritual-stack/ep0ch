@@ -32,7 +32,7 @@ import { agentConfig, herdrBin, herdrRunner, paneAgentPid, WATCH_TITLE, type Her
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
 import { alive } from "./state";
 import { controlPath } from "./control";
-import { ESCAPE_CHORD, isEscapeChord, PtyPane, type PtySpec } from "./desk/pty";
+import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane, type PtySpec } from "./desk/pty";
 import { rawKey } from "./kbd";
 import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
 import { sessionSlug } from "./desk/herdr-agent";
@@ -49,6 +49,12 @@ import type { TileDone, Where } from "./desk/tile-actions";
 import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
 import { statusMark, waitingOnYou } from "./desk/program-status";
 import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
+import { AGENTS_KIND_NAME } from "./desk/agents-panel";
+import { agentOf, asSession, configsOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
+import { KNOWN_AGENTS } from "./desk/drawer-program";
+import { existsSync, statSync } from "node:fs";
+import { basename, resolve as resolvePath } from "node:path";
+import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { PTY_ACTIONS } from "./desk/pty-actions";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
@@ -224,12 +230,12 @@ export class AgentDrawer {
    * the default for every outline). The drawer's own tab runs it from its next start; one running now keeps running
    * (nothing is restarted behind the person's back): agent.restart starts the new one in its place.
    */
-  choose(name: string, herdr: boolean, dflt: boolean, actor: Actor): Record<string, unknown> {
+  choose(name: string, herdr: boolean, dflt: boolean, actor: Actor, folder?: string): Record<string, unknown> {
     const all = this.agents(), hit = all.find(a => a.name === name && !!a.herdr === herdr);
     if (!hit) throw new ActionRefused(`no agent ${name}${herdr ? " in Herdr" : ""} here; installed: ${all.map(a => `${a.name}${a.herdr ? " (herdr=true)" : ""}`).join(", ")}`);
     if (!this.persist) throw new ActionRefused("this drawer saves nothing (a test's)");
     const file = choiceFile(dflt ? stateDir() : outlineState());
-    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, JSON.stringify({ agent: name, ...(herdr ? { herdr: true } : {}) }), { mode: 0o600 }); }
+    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, JSON.stringify({ agent: name, ...(herdr ? { herdr: true } : {}), ...(folder?.trim() ? { folder: resolvePath(untilde(folder)) } : {}) }), { mode: 0o600 }); }
     catch (e) { throw new ActionRefused(`couldn't save the choice in ${file}: ${(e as Error).message}`); }
     this.prog = this.program();
     const p = this.p, running = !!p?.running;
@@ -369,6 +375,187 @@ export class AgentDrawer {
     if (o.zoom) screen!.zoomTile(name, true, actor);
     this.host.redraw();
     return { tile: name, in: "screen", ...(raised ? { raised } : {}) };
+  }
+
+  // ── agent sessions (PIE-737): every agent the door holds, wherever it's shown ──
+
+  /**
+   * Every agent session this door holds: its terminals (the drawer's, the screen shown's, those on screens under it or
+   * kept in the background) running an agent or started as one. Read now, from the terminals themselves.
+   */
+  sessions(now = Date.now()): AgentSession[] {
+    const own = this.p;
+    const panes = livePrograms().filter(p => p.door === this || p === own);
+    if (own?.running && !panes.includes(own)) panes.unshift(own);
+    const rows = panes.flatMap(p => {
+      const s = asSession(p, { own: p === own, now });
+      if (!s) return [];
+      const st = p === own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.state(now)) : stateOf(p, now);
+      return [{ ...s, ...st, shown: this.shownOf(p) }];
+    });
+    // Your drawer's first, then the screen shown, then the rest; each in the order its tiles were made.
+    const rank = (x: Shown) => (x.in === "drawer" ? 0 : x.in === "screen" && x.here ? 1 : 2);
+    return withIds(rows.sort((a, b) => rank(a.shown) - rank(b.shown)));
+  }
+
+  /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
+  shownOf(p: Pane): Shown {
+    const inDrawer = this.d?.nameOfPane(p);
+    if (inDrawer) return { in: "drawer", tile: inDrawer, own: p === this.p, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
+    const top = this.host.screen?.(), ctx = this.host.ctx?.();
+    const screens = [top, ...[...(ctx?.screens?.() ?? [])].reverse(), ...(ctx?.kept?.() ?? [])].filter((x, i, all): x is Screen => !!x && all.indexOf(x) === i);
+    for (const sc of screens) {
+      const name = tilesOf(sc)?.nameOfPane(p);
+      if (name) return { in: "screen", screen: sc.title, tile: name, here: sc === top };
+    }
+    return { in: "nowhere" };
+  }
+
+  /** The session `sel` names (its id, program:folder, a tile it's in, or n from 1), or refused with what runs. */
+  sessionOf(sel: string | number | undefined): AgentSession {
+    const rows = this.sessions();
+    if (!rows.length) throw new ActionRefused("no agent sessions run · agent.start (n in the agent panel, `ep0ch agent` from a folder) starts one");
+    const s = sel === undefined ? null : pickSession(rows, sel);
+    if (!s) throw new ActionRefused(sel === undefined ? `which session: session=<id> · ${rows.map(r => r.id).join(", ")}` : `no agent session ${sel} · running: ${rows.map(r => r.id).join(", ")}`);
+    return s;
+  }
+
+  /** The agent configs in the outline (`[agent-config::<name>]` notes), read now; none when the outline can't say. */
+  async configs(): Promise<AgentConfig[]> {
+    const board = this.host.ctx?.()?.board;
+    if (!board) return [];
+    try { return configsOf(await board.query("agent-config", 100)); } catch { return []; }
+  }
+
+  /** What a new session can run: the outline's agent configs, then the agents installed here. */
+  async programs(): Promise<{ name: string; program: string; args: string[]; persona?: string; folder?: string; config: boolean }[]> {
+    const configs = (await this.configs()).map(c => ({ ...c, config: true }));
+    const installed = this.agents().filter(a => a.name !== "shell" && !a.herdr && !configs.some(c => c.name === a.name)).map(a => ({ name: a.name, program: a.cmd[0]!, args: a.cmd.slice(1), config: false }));
+    return [...configs, ...installed];
+  }
+
+  /**
+   * Start a session of `program` in folder `in` (or attach the one already running there: the same program in the same
+   * folder is the same session, unless `fresh`). It opens as a tab in your drawer, its conversation continued where the
+   * program keeps one for that folder. The person's goes to it (the drawer up, their keys in it); an agent's starts it
+   * behind the tab shown, and attaching moves nothing of theirs.
+   */
+  async startSession(o: { program?: string; in?: string; persona?: string; args?: string; fresh?: boolean }, actor: Actor): Promise<Record<string, unknown>> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
+    const all = await this.programs();
+    const want = o.program?.trim() || (this.prog.name !== "shell" ? this.prog.name : "claude");
+    const hit = all.find(c => c.name === want) ?? (all.find(c => !c.config && c.program === want) ?? null);
+    if (!hit) throw new ActionRefused(`no agent ${want} here · ${all.length ? `choose one of: ${all.map(c => c.name).join(", ")}` : "none is installed, and the outline has no agent configs"} · an agent config is a note with [agent-config::<name>] [program::<command>] (and args::, persona::, folder::)`);
+    const folder = resolvePath(untilde(o.in?.trim() || hit.folder || this.prog.cwd));
+    let dir = false;
+    try { dir = existsSync(folder) && statSync(folder).isDirectory(); } catch { dir = false; }
+    if (!dir) throw new ActionRefused(`no folder ${folder} · in=<a folder that exists> (~ is your home)`);
+    const program = agentOf([hit.program]) ?? basename(hit.program);
+    const persona = o.persona?.trim() || hit.persona;
+    const person = actor.kind !== "agent";
+    if (!o.fresh) {
+      const had = this.sessions().find(s => s.program === program && s.folder === folder);
+      if (had) {
+        const went = person ? this.goTo(had.pane, actor) : null;
+        return { attached: true, started: false, ...sessionFacts(had), ...(went ? { went: went.in } : {}) };
+      }
+    }
+    const args = [...hit.args, ...words(o.args ?? "")];
+    const cmd = sessionCommand(hit.program, args, folder);
+    const resumed = cmd.length > 1 + args.length;
+    if (person && !this.open) { this.offered = true; this.set(true, actor); }
+    const done = await d.openTile({ kind: "pty", cmd: shellQuote(hit.program), cwd: folder, name: freeName(d, program.replace(/[^\w-]/g, "-") || "agent") }, DRAWER_TILE_ID, "tabs", actor);
+    const p = d.pane(done.tile) as PtyPane;
+    // The session's own command and mark, before its program starts (it starts now: an agent's tab isn't drawn yet).
+    p.run.cmd = cmd;
+    p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
+    p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, done.tile); this.intoShown(); }
+    this.host.redraw();
+    return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, id: done.id ?? null };
+  }
+
+  /** Jump to session `sel`: where it's shown, the keys in it (the person's only). */
+  goSession(sel: string | number | undefined, actor: Actor) {
+    const s = this.sessionOf(sel);
+    const went = this.goTo(s.pane, actor);
+    return { session: s.id, ...went };
+  }
+
+  /** Pull session `sel` into your drawer, from the screen it's on: the same process, the conversation kept. */
+  pullSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
+    const s = this.sessionOf(sel);
+    if (s.shown.in === "drawer") throw new ActionRefused(`${s.id} is in your drawer already (${s.shown.tile}) · d docks it on this screen`);
+    if (s.shown.in === "nowhere") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
+    const ctx = this.host.ctx?.(), top = this.host.screen?.();
+    const sc = [top, ...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].find(x => !!x && tilesOf(x)?.nameOfPane(s.pane) === (s.shown as { tile: string }).tile);
+    const from = tilesOf(sc);
+    if (!from) throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
+    const done = this.put(from, s.shown.tile, actor);
+    return { session: s.id, pid: s.pane.pid ?? null, ...done };
+  }
+
+  /** Dock session `sel` on the screen shown, from your drawer or another screen: the same process, the conversation kept. */
+  dockSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
+    let s = this.sessionOf(sel);
+    if (s.shown.in === "screen" && s.shown.here) throw new ActionRefused(`${s.id} is on this screen already (${s.shown.tile})`);
+    // On another screen: through your drawer, whole.
+    if (s.shown.in === "screen") { this.pullSession(s.id, actor); s = this.sessions().find(x => x.pane === s.pane) ?? s; }
+    if (s.shown.in !== "drawer") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
+    const done = this.take(s.shown.tile, undefined, undefined, actor);
+    return { session: s.id, pid: s.pane.pid ?? null, ...done };
+  }
+
+  /**
+   * The person's new session: a picker of what can run (the outline's agent configs, the agents installed here), then of
+   * the folder (yours, the drawer's, the config's, the running sessions'); ⏎ starts it (agent.start), esc leaves it.
+   */
+  async newSessionPicker(): Promise<{ picking: string }> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready");
+    const all = await this.programs();
+    if (!all.length) throw new ActionRefused("no agent is installed here, and the outline has no agent configs · a note with [agent-config::<name>] [program::<command>] makes one");
+    this.offered = true;
+    if (!this.open) this.set(true, USER);
+    this.do({ op: "focus", tile: HOST_TILES }, USER);
+    d.overlay(new ListPicker<(typeof all)[number], Desk>({
+      name: "new agent session", items: () => all,
+      row: (c, _i, on, w) => [pickRow(` ${c.name}${c.config ? " · from the outline" : ""}${c.persona ? ` · as ${c.persona}` : ""}  ${[c.program, ...c.args].join(" ")}${c.folder ? ` · in ${c.folder}` : ""}`, on, w)],
+      choose: c => { void this.folderPicker(c.name, c.folder); },
+      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "a new agent session: which program", foot: "↑↓ pick · ⏎ then the folder · esc" }),
+    }));
+    this.host.redraw();
+    return { picking: "program" };
+  }
+
+  /** The folder for a new session of `program`: the config's, the drawer's, the running sessions', your home. */
+  private async folderPicker(program: string, given?: string) {
+    const d = this.desk;
+    if (!d) return;
+    const home = process.env.HOME ?? "";
+    const folders = [...new Set([given ? resolvePath(untilde(given)) : null, this.prog.cwd, ...this.sessions().map(s => s.folder), home].filter((x): x is string => !!x))];
+    d.overlay(new ListPicker<string, Desk>({
+      name: "new agent session folder", items: () => folders,
+      row: (f, i, on, w) => [pickRow(` ${tildeOf(f)}${f === this.prog.cwd ? " · the drawer's folder" : i === 0 && given ? " · the config's" : this.sessions().some(s => s.folder === f) ? " · a session runs here" : ""}`, on, w)],
+      choose: f => { void this.run?.("agent.start", { program, in: f }); },
+      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: `${program}: in which folder`, foot: "↑↓ pick · ⏎ starts it (or goes to the one running there) · esc" }),
+    }));
+    this.host.redraw();
+  }
+
+  /**
+   * The agent panel (src/desk/agents-panel.ts) as a tab in your drawer, opened once and shown again after: the person's
+   * pulls the drawer up and goes to it (alt+g); an agent's opens it behind the tab shown.
+   */
+  async agentsPanel(actor: Actor): Promise<{ tile: string; sessions: number }> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready");
+    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    const tile = this.tabs().find(t => t.kind === AGENTS_KIND_NAME)?.name ?? (await d.openTile({ kind: AGENTS_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
+    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    this.host.redraw();
+    return { tile, sessions: this.sessions().length };
   }
 
   /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */
@@ -821,6 +1008,7 @@ export class AgentDrawer {
       rect: this.shown ? this.rect : null, state: this.state(), tile: { id: DRAWER_TILE_ID, name: this.name },
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
       tiles: this.tabs(),
+      sessions: this.sessions().map(s => sessionFacts(s)),
       knows: this.knows ? { ...this.knows, pid: this.knowsPid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
       ...(p?.herdr ? { herdr: p.herdr } : {}),
@@ -890,10 +1078,10 @@ export class AgentDrawer {
       : this.entered && d?.waitsOnExit()
       ? `${fg(C.yellow)}${d.exitedSay(name, name === DRAWER_TILE_ID ? this.name : name, `the ${screen}`)} · alt+a puts it away`
       : this.entered && d?.rawKeys()
-      ? `${fg(C.yellow)}every key goes to ${name === DRAWER_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+s new shell · alt+g agent · alt+a puts it away`
+      ? `${fg(C.yellow)}every key goes to ${name === DRAWER_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+s new shell · alt+g agents · alt+a puts it away`
       : this.entered
       ? `${fg(C.yellow)}in the drawer, on ${name === DRAWER_TILE_ID ? this.name : name}${d?.pane(name) instanceof PtyPane ? " · ⏎ types in it" : ""} · ^W a takes it out · ^W ] [ other tabs · Esc or ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
-      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+s new shell · alt+g agent · alt+a or Esc puts it away · alt+A height · ^W a puts a tile in, ^W A brings a tab here`;
+      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+s new shell · alt+g agents · alt+a or Esc puts it away · alt+A height · ^W a puts a tile in, ^W A brings a tab here`;
     canvas.text(1, r.rows - 1, hint + RESET, cols - 2);
     return { rect: r, lines: canvas.lines(), placements };
   }
@@ -912,7 +1100,7 @@ export class AgentDrawer {
       if (k?.kind === "alt" && k.ch === "A") return run("host.size", { share: nextStep(this.share) });
       // The drawer's own keys, as everywhere in it: a new shell, its agent's picker.
       if (k?.kind === "alt" && k.ch === "s") return run("host.shell", {});
-      if (k?.kind === "alt" && k.ch === "g") return run("host.agent", {});
+      if (k?.kind === "alt" && k.ch === "g") return run("agents.open", {});
       raw(s);
     };
   }
@@ -926,7 +1114,7 @@ export class AgentDrawer {
       if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
       if (isAlt(k, "s")) { run("host.shell", {}); return true; }
-      if (isAlt(k, "g")) { run("host.agent", {}); return true; }
+      if (isAlt(k, "g")) { run("agents.open", {}); return true; }
       const d = this.desk;
       if (!d) return true;
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
@@ -938,9 +1126,9 @@ export class AgentDrawer {
     }
     if (isAlt(k, "a")) { run("host.toggle", {}); return true; }
     if (isAlt(k, "R")) { run("agent.restart", {}); return true; }
-    // alt+s: a new shell in the drawer, here; alt+g: choose the drawer's agent (its picker). On every screen, as alt+a.
+    // alt+s: a new shell in the drawer, here; alt+g: the agent panel, every session (PIE-737). On every screen, as alt+a.
     if (isAlt(k, "s")) { run("host.shell", {}); return true; }
-    if (isAlt(k, "g")) { run("host.agent", {}); return true; }
+    if (isAlt(k, "g")) { run("agents.open", {}); return true; }
     if (this.shown && isEscapeChord(k)) return this.chordBack(screen, run);
     if (this.shown && isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
@@ -1111,7 +1299,7 @@ export function nextStep(share: number): number {
 }
 
 /** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent", args: Record<string, unknown>) => void;
+export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
 export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
@@ -1193,17 +1381,80 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "host.agent": def({
     summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the drawer's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
-    keys: "alt+g (the picker; on every screen, and in the drawer), ⏎ in it; alt+a or a click on the chip offers it once a door, when no agent is chosen yet",
+    keys: "alt+a or a click on the chip offers the picker once a door, when no agent is chosen yet; the power bar (ctrl+k) names it",
     touches: "screen", replay: "ask",
     says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the drawer` : null),
-    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" } },
-    run({ name, herdr, default: dflt }, { drawer }, actor) {
+    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
+    run({ name, herdr, default: dflt, in: folder }, { drawer }, actor) {
       if (!name) {
         if (actor.kind === "agent") return { agents: drawer.agents().map(a => ({ name: a.name, cmd: a.cmd, ...(a.herdr ? { herdr: true } : {}) })), now: drawer.runs.name, from: drawer.runs.from };
         return drawer.pick();
       }
-      return drawer.choose(name, !!herdr, !!dflt, actor);
+      return drawer.choose(name, !!herdr, !!dflt, actor, folder);
     },
+  }),
+  "agents.open": def({
+    summary: "the agent panel as a tab in your drawer (PIE-737): every agent session this door holds (started with agent.start or `ep0ch agent`, a claude, codex or pi run in a terminal tile, the drawer's own), with its program, folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. Its rows: ⏎ or a click agents.go, a agents.drawer, d agents.dock, n agents.new. The person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown (agents.list reads the same rows)",
+    keys: "alt+g (on every screen, and in the drawer)",
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string }) => `· opened the agent panel in the drawer (${out.tile ?? "agents"})`,
+    args: {},
+    run(_, { drawer }, actor) { return drawer.agentsPanel(actor); },
+  }),
+  "agents.list": def({
+    summary: "every agent session this door holds, read: id (<program>:<folder>), program, folder, persona, config, how it became one (started, found running in a terminal tile, the drawer's own), state (working, waiting, idle, done, failed) and where it's shown. Changes nothing",
+    keys: "the agent panel (alt+g)",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { drawer }) { return { sessions: drawer.sessions().map((s, i) => sessionFacts(s, i + 1)) }; },
+  }),
+  "agent.start": def({
+    summary: "start an agent session, or attach the one running: program= (an agent config in the outline, a note with [agent-config::<name>] [program::<command>] and args::, persona::, folder::; or an agent installed here: claude, codex, pi, …) in folder in= (left out: the config's, else the drawer's). The same program in the same folder is the same session: it's attached, not started twice (fresh=true starts another). A new one opens as a tab in your drawer, continuing the program's last conversation in that folder (claude and pi --continue, codex resume --last, when there is one), inside your login shell, so it leaves you a shell when it exits. The person's goes to it; an agent's (and `ep0ch agent`) starts it behind the tab shown and never moves their keys",
+    keys: "n in the agent panel (then the program and the folder), `ep0ch agent [--program <name>] [--in <folder>]` from any folder",
+    touches: "shape", replay: "ask",
+    says: (out: { program?: string; folder?: string; attached?: boolean; id?: string }) => (out?.attached ? `· attached ${out.id}` : `· started ${out?.program ?? "an agent"} in ${out?.folder ? tildeOf(out.folder) : "a folder"} (your drawer)`),
+    args: {
+      program: { type: "string", optional: true, about: "an agent config's name or an installed agent (claude, codex, pi); left out: the drawer's agent, else claude" },
+      in: { type: "string", optional: true, about: "the folder it runs in (~ is your home)" },
+      persona: { type: "string", optional: true, about: "the persona it writes under (EP0CH_AGENT, OUTLINER_ACTOR), over the config's" },
+      args: { type: "string", optional: true, about: "more arguments for the program" },
+      fresh: { type: "boolean", optional: true, about: "start another even when one runs in that folder" },
+    },
+    run(a, { drawer }, actor) { return drawer.startSession(a, actor); },
+  }),
+  "agents.new": def({
+    summary: "a new agent session: the person's picks the program (the outline's agent configs, the agents installed here), then the folder, and starts it (agent.start). An agent names them: agents.new program=<name> in=<folder> is agent.start",
+    keys: "n in the agent panel",
+    touches: "shape", replay: "ask",
+    args: { program: { type: "string", optional: true, about: "as agent.start's" }, in: { type: "string", optional: true, about: "as agent.start's" } },
+    run({ program, in: folder }, { drawer }, actor) {
+      if (actor.kind === "agent" || program) return drawer.startSession({ ...(program ? { program } : {}), ...(folder ? { in: folder } : {}) }, actor);
+      return drawer.newSessionPicker();
+    },
+  }),
+  "agents.go": def({
+    summary: "jump to an agent session (session=<id, program:folder, a tile, or n from 1>): where it's shown, the drawer up on its tab or the screen's tile, the person's keys in it. The person's only: going takes their keys",
+    keys: "⏎ or a click on a row of the agent panel",
+    touches: "screen", replay: "ask",
+    person: "going to a session takes the person's keys; an agent reads it (agents.list) and types with tile.type",
+    args: { session: { type: "string", about: "the session: its id (agents.list), program:folder, the tile it's in, or n from 1" } },
+    run({ session }, { drawer }, actor) { return drawer.goSession(session, actor); },
+  }),
+  "agents.drawer": def({
+    summary: "pull an agent session into your drawer (session=…), from the screen it's on: the same process and conversation, now with you on every screen. The person's shows it there; an agent's adds it behind the tab shown",
+    keys: "a on a row of the agent panel; ^W a on its tile",
+    touches: "shape", replay: "ask",
+    says: (out: { session?: string }) => `· pulled ${out?.session ?? "a session"} into your drawer`,
+    args: { session: { type: "string", about: "as agents.go's" } },
+    run({ session }, { drawer }, actor) { return drawer.pullSession(session, actor); },
+  }),
+  "agents.dock": def({
+    summary: "dock an agent session on the screen shown (session=…), out of your drawer or off another screen: the same process and conversation, now a tile here",
+    keys: "d on a row of the agent panel; ^W A on its tab in the drawer",
+    touches: "shape", replay: "ask",
+    says: (out: { session?: string; into?: string }) => `· docked ${out?.session ?? "a session"} on the ${out?.into ?? "screen"}`,
+    args: { session: { type: "string", about: "as agents.go's" } },
+    run({ session }, { drawer }, actor) { return drawer.dockSession(session, actor); },
   }),
   "host.size": def({
     summary: "how much of the screen the drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",

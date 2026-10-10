@@ -189,19 +189,6 @@ describe("a patch in a draft being typed in", () => {
     expect(m.applyPatch({ patchId: "y", patches: [span(m.text, "beans   here", "beans here")], revision: 3, mark: "@tidy go" }, TIDY)).toEqual({ applied: true });
   });
 
-  test("a proposal's embed line goes under the mark; typing at the very end carries on before it", () => {
-    const d = new Draft("note-1", 3, "Plan\nstill typing");
-    d.row = 1; d.col = d.lines[1]!.length;
-    d.insertLine("!((prop-1))", "@tidy nowhere", TIDY);
-    for (const c of " here") d.key(char(c));
-    expect(d.text).toBe("Plan\nstill typing here\n!((prop-1))");
-    const m = new Draft("note-2", 3, "Plan\n@tidy go\nbelow");
-    m.row = 2; m.col = 5;
-    m.insertLine("!((prop-2))", "@tidy go", TIDY);
-    expect(m.text).toBe("Plan\n@tidy go\n!((prop-2))\nbelow");
-    expect([m.row, m.col]).toEqual([3, 5]);
-  });
-
   test("the compare the door runs is the service's: the same spans apply the same way", () => {
     const text = "Crème brûlée ^dessert\nnext";
     const located = locateSpans(text, [{ observed: "brûlée", replacement: "brulee", range: { start: 7, end: 15 }, unit: "utf8" }]);
@@ -284,7 +271,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(a))!.text).toContain(`((${e.id}^deep-link))`);
   }, 30_000);
 
-  /** tidy's patch of the sentence in a draft Evan has open, sent while his cursor is in it: it becomes a proposal embedded in the draft. */
+  /** tidy's patch of the sentence in a draft Evan has open, sent while his cursor is in it: it becomes a proposal beside the note, and his draft is as he typed it (PIE-725). */
   async function proposedInDraft(e: Awaited<ReturnType<typeof editing>>, typeInIt = false) {
     const read = await agent.readDraft(e.id);
     expect(read.route).toBe("draft");
@@ -297,13 +284,13 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       blockId: e.id, revision: read.revision, mark: { text: tidyMark }, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
-    expect(r).toMatchObject({ outcome: "proposed", embedded: "draft" });
-    expect(e.d.text).toContain(`${tidyMark}\n!((${r.proposalId}))`);
+    expect(r).toMatchObject({ outcome: "proposed", beside: e.id });
+    expect(e.d.text).not.toContain(r.proposalId);
     e.d.place(e.d.lines.length - 1, 0);
     return r.proposalId as string;
   }
 
-  test("an edit at the cursor fails cleanly into an embed in the draft, and A applies it anyway", async () => {
+  test("an edit at the cursor fails cleanly into a proposal beside the note, and A applies it anyway in the draft", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
     const id = await proposedInDraft(e);
     expect(e.d.text).toContain("The peas   climb  the net.");
@@ -319,7 +306,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(id))!.props["proposal-status"]).toBe("applied");
   }, 30_000);
 
-  test("one whose passage was reworded before it came offers only dismiss: A says why, X takes its line out of the draft", async () => {
+  test("one whose passage was reworded before it came offers only dismiss: A says why, X dismisses it and the draft is as typed", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
     const id = await proposedInDraft(e, true);
     const proposal = (await board.get(id))!;
@@ -337,8 +324,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(flashes.at(-1)).toContain("can't be applied");
     expect(e.d.text).toContain("The peas sugar   climb  the net.");
     reader.key(char("X"), h);
-    await until(() => !e.d.text.includes(`!((${id}))`), "its embed line out of the draft");
-    expect(flashes.at(-1)).toContain("its embed line is out of the draft being written");
+    await until(() => !!flashes.at(-1)?.startsWith("dismissed the proposal"), "the dismissal");
+    expect(flashes.at(-1)).not.toContain("embed line");
     expect(e.d.text).toBe(`Allotment\nThe peas sugar   climb  the net.\n\n${tidyMark}\n`);
     expect((await board.get(id))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
   }, 30_000);
@@ -365,6 +352,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("an agent dismissing its own proposal from a draft is said as that, not as applying it", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
     const id = await proposedInDraft(e, true);
+    // As a proposal from before PIE-725 left it: its embed line under the mark, in the draft being typed.
+    e.d.replace(e.d.text.replace(tidyMark, `${tidyMark}\n!((${id}))`));
     const r = await agent.request("draft.proposal.dismiss", { proposalId: id, mutation: { author: "agent", actorId: "tidy" } });
     expect(r).toMatchObject({ outcome: "dismissed", embedRemoved: "draft" });
     expect(e.d.text).not.toContain(`!((${id}))`);

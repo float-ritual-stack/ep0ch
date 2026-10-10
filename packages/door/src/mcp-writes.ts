@@ -168,6 +168,8 @@ export interface WriteOutcome {
   said: string;
   /** The service's answer, as the agent operation returned it. */
   detail: unknown;
+  /** The same caller's same patch was already open beside the note: `uri`'s proposal is that one, and nothing new was written (PIE-725). */
+  deduped?: true;
 }
 
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
@@ -223,7 +225,7 @@ interface AgentTools {
   resourceRefOf(ref: string): unknown | null;
   readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
 }
-type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; embedded: string | null; embeddedIn: string };
+type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; beside: string; deduped?: true };
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
 let agentTools: Promise<AgentTools> | null = null;
 const loadAgentTools = () => agentTools ??= import(AGENT_TOOLS_MODULE) as Promise<AgentTools>;
@@ -293,7 +295,9 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
-    : { outcome: "proposed", uri: o.uri(write.blockId), said: `${what} proposed, not applied: ${r.reason}; the proposal is ${o.uri(r.proposalId)}, under the note for its owner to apply or dismiss`, detail: r };
+    : r.deduped
+      ? { outcome: "proposed", uri: o.uri(write.blockId), deduped: true, said: `${what} already proposed: the same patch of yours is still open beside the note (${o.uri(r.proposalId)}), so nothing new was written; it waits for its owner to apply or dismiss`, detail: r }
+      : { outcome: "proposed", uri: o.uri(write.blockId), said: `${what} proposed, not applied: ${r.reason}; the proposal is ${o.uri(r.proposalId)}, beside the note for its owner to apply or dismiss`, detail: r };
   // A reply or a resolve names a thread of the note it is addressed to. One that isn't there (deleted, or never on this note) is a refusal here; a queued write lands on the whole note, saying so.
   const threadGone = async (): Promise<string | null> => {
     const thread = String(write.input.thread);

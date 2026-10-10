@@ -40,6 +40,10 @@ import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layou
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
+import { AgentsPane } from "../desk/agents-panel";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
@@ -116,6 +120,24 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
   });
   return d;
 }
+
+/**
+ * The agent sessions section's stand-in agent (PIE-737): a made-up program that says where it runs and as whom, then
+ * answers each line with its turn. Its turns are its conversation: moved between the drawer and a tile, they go on.
+ */
+export const DEMO_AGENT = [
+  `echo "$1, a demo agent (made up for the showcase), in $PWD"`,
+  `echo "type a line and ⏎: it answers with its turn. Move it (a or d in the agent panel) and the turns go on: the same process"`,
+  `n=0; while IFS= read -r l; do n=$((n+1)); echo "$1 · turn $n: $l"; done`,
+].join("\n");
+/** The two made-up folders the section's sessions run in. */
+export function demoFolders(): { shed: string; bench: string } {
+  const root = joinPath(tmpdir(), "ep0ch-showcase-agents"), shed = joinPath(root, "garden-shed"), bench = joinPath(root, "potting-bench");
+  for (const f of [shed, bench]) mkdirSync(f, { recursive: true });
+  return { shed, bench };
+}
+/** The section's own actor: what pins fern to your drawer as the section opens, said like any agent's. */
+const SHOWCASE_AGENT: Actor = { kind: "agent", id: "showcase" };
 
 /** The scripted agent of the what-changed section: each log note one round on, as garden-agent. */
 const GARDENER: Actor = { kind: "agent", id: "garden-agent" };
@@ -212,6 +234,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "proposals", need: "show what an agent proposed when its patch lost a race, beside the note it targets, and apply or dismiss it", part: "the proposal beside its note (PIE-725): a patch that doesn't apply is a proposal block under the note, never a line in its text, so the note's revision stays and the next writer doesn't lose too; the service lists the open ones with the line each follows (draft.proposals.list), the reader draws each as an embed of it there (proposalsBeside, the embed's [apply] [dismiss], A, X: proposal.apply, proposal.dismiss), and the same open patch from the same agent is returned again (deduped: true)", files: "outliner src/draft-patch-router.ts (propose, proposalsBeside), src/embeds.ts (proposalsBeside), src/surface/note.ts (besideRegions), outliner src/detail-embeds.ts",
+    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's is the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway or X dismisses it (an agent dismisses only its own) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts)",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · proposals", panes: [r], names: ["guide"] }, show, [[r, n.race]]);
+    },
+  },
+  {
     key: "undo", need: "copy text out of a draft; undo and redo anything typed or pasted, a big paste in one step", part: "the draft's one history (Draft.undos and redos behind draft.undo, ctrl+z, and draft.redo, ctrl+y or ctrl+shift+z: typing a word at a time, a paste or an agent's patch one step each, carried past a save when the note is opened again unchanged) and its copy (draft.copy: copy on select, a double click's word, shift+click and shift+arrows, cmd+c, alt+c, the frame's [copy]; OSC 52 through App.copy)", files: "src/edit.ts, src/surface/editor.ts, src/surface/note.ts, src/draft-session.ts, src/term.ts",
     aside: "the edit has a whole pantry list pasted into it by mistake: one step, said on the status line (pasted 42 lines · ctrl+z undoes) · ctrl+z takes it back, ctrl+y puts it back · the first line's [page::…] is selected: let go of a drag (or double-click a word, shift+click, shift+arrows then cmd+c or alt+c, or the frame's [copy]) and it's on your clipboard, \"copied N chars\" · an agent's draft.copy only returns the text, never your clipboard · the note has an earlier revision: the tile menu's \"an earlier revision\" (revision.restore) puts it in the edit, ctrl+s saves it, ctrl+z takes it back; `ep0ch revisions <id>` lists them from a shell",
     stage(n, show) {
@@ -297,6 +327,21 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "sessions", need: "talk to an agent here: start one in any folder, keep it running, show it in your drawer or a tile, see every one", part: "agent sessions (PIE-737, src/desk/agent-sessions.ts): a program (an agent config in the outline, [agent-config::<name>], or one installed), a folder and a persona, owned by the door session as a terminal tile's program; where it's shown (your drawer, a tile) isn't what it is, so moving it keeps the process and the conversation; agent.start (ep0ch agent from any folder, n in the panel) starts or attaches by folder and program, resuming the program's last conversation there; a claude typed in a ^W o s shell is one by itself (found as Herdr finds agents); the agent panel (a tile kind, agents.open, alt+g): agents.go, agents.drawer, agents.dock, agents.new, agents.list", files: "src/desk/agent-sessions.ts, src/desk/agents-panel.ts, src/drawer.ts (agent.start, agents.*), src/agent-cli.ts, src/desk/pty.ts (PtySpec.session)",
+    aside: "two made-up sessions of a demo agent, fern in garden-shed and moss in potting-bench: fern was pinned to your drawer as the section opened (alt+a shows it), moss is the tile on the left · the panel on the right lists both, with folder, persona, what each is doing and where it's shown · j k pick, ⏎ or a click jumps to one, a pulls it into your drawer, d docks it here, n starts a new one (the program, then the folder) · type to moss (click in it, a line, ⏎), then a on its row and type again in the drawer: the turns go on, the same process · alt+g opens the same panel on any screen · `ep0ch agent` in any folder starts (or attaches) that folder's session here; `act agents.list` reads the rows",
+    stage(_n, show) {
+      const { shed, bench } = demoFolders();
+      // temp: an exhibit no layout brings back (the drawer's saved tabs included), so a second showcase has two, not four.
+      const agent = (name: string, cwd: string) => new PtyPane({ cmd: ["sh", "-c", DEMO_AGENT, "demo-agent", name], cwd, label: name, shows: "demo-agent", temp: true, session: { program: "demo-agent", persona: name } });
+      const fern = agent("fern", shed), moss = agent("moss", bench), panel = new AgentsPane();
+      return deskOf({ title: "showcase · agent sessions", panes: [moss, fern, panel], names: ["moss", "fern", "agents"], layout: ([a, b, c]) => pair("row", 0.55, leaf(a!), pair("col", 0.4, leaf(b!), leaf(c!))) }, show, [], d => {
+        // fern goes to your drawer (the section's own agent's move: behind the tab shown, nobody's keys moved).
+        const host = d.ctx?.hostLayer;
+        if (host && d.pane("fern")) { try { fern.startNow(80, 20); host.put(d, "fern", SHOWCASE_AGENT); } catch { /* already moved, or the drawer won't take it */ } }
+      });
     },
   },
   {
