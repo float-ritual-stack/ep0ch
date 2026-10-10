@@ -1064,7 +1064,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The person's open that nothing here shows (the outline's ⏎ with no reader following the current note): said, with
     // how to give it somewhere to land, never a silent change of the current note.
     const shownBy = (p: Pane) => p !== opts.from && kindOf(p)?.shows?.(p)?.id === m?.id && this.shownNow(p);
-    if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(shownBy)) {
+    // (A following reader that stayed on its note for an open edit or comment said so itself, PIE-761.)
+    const stayed = (p: Pane) => p instanceof ReaderPane && p.follows && !p.holding && p.editing;
+    if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(p => shownBy(p) || stayed(p))) {
       this.ctx.flash(`no tile shows ${headOf(subject(m), 24)} · alt+l, then a click on a reader, sends ${this.nameOfPane(opts.from)}'s opens there`);
     }
     this.redraw();

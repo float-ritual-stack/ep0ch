@@ -987,7 +987,7 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.dispatch({ type: "buffer.insert", text: "Human reply\nsecond line" }, viewport);
     await harness.controller.dispatch({ type: "buffer.save" }, viewport);
     expect(harness.controller.state.mode).toBe("comment");
-    expect(harness.controller.state.status).toBe("Reply transport failed");
+    expect(harness.controller.state.status).toBe("Not sent · Reply transport failed · your text stays here; save tries again");
     expect(harness.controller.state.buffer.text).toBe("Human reply\nsecond line");
     await harness.controller.dispatch({ type: "buffer.save" }, viewport);
     expect(submissions.map(input => input.requestId)).toEqual([requestId, requestId]);
@@ -1419,8 +1419,10 @@ describe("detail controller projection and deferred refresh", () => {
   test("Detail replaces source evidence when hidden anchors change without changing the displayed text", async () => {
     const initial = makeBlock({text:'Plan ^before',revision:1});
     const harness = createHarness(initial,null,async text=>({text,references:[]}),
-      (text,hostBlockId,hostRevision)=>projectDetailRead({async request(){throw Error('Plain note needs no projection reads');}},text,{hostBlockId,hostRevision}));
+      // A plain note reads only the proposals beside it (PIE-725): none here.
+      (text,hostBlockId,hostRevision)=>projectDetailRead({async request<T>(input:{action:string}){if(input.action==='draft.proposals.list')return {blockId:hostBlockId,revision:hostRevision,proposals:[]} as T;throw Error('Plain note needs no other projection reads');}},text,{hostBlockId,hostRevision}));
     await harness.controller.initialize();
+    await new Promise<void>(resolve => setImmediate(resolve));
     const observation = () => {
       const run=harness.controller.state.resolvedProvenance!.runs[0]!;
       if(run.origin.kind!=='source')throw Error('Expected canonical note evidence');
@@ -1432,6 +1434,7 @@ describe("detail controller projection and deferred refresh", () => {
     const updated={...initial,text:'Plan ^after',revision:2};
     harness.setSelection({selected:updated,ancestors:[],children:[]});
     await harness.controller.onServiceEvent(event('content'),viewport);
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(harness.controller.state.resolvedSelectedText).toBe('Plan');
     expect(observation()).toMatchObject({text:'Plan ^after',revision:2});
     expect(observation().hash).not.toBe(beforeHash);

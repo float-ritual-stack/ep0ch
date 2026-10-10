@@ -645,19 +645,6 @@ export class Draft {
     return { applied: true };
   }
 
-  /**
-   * A line the service puts in for a proposal (`!((id))`): after the mark line, or at the end without one.
-   * The cursor at the very place it goes stays before it, so typing at the end of the note carries on.
-   */
-  insertLine(line: string, mark: string | undefined, by: Actor, patchId = `embed-${Date.now()}`): DraftPatchAnswer {
-    if (this.busy) return { applied: false, reason: "the draft is being saved" };
-    const at = mark?.trim() ? this.lines.findIndex(l => l.trim() === mark.trim()) : -1;
-    const offset = at >= 0 ? this.offsetOf(at, this.lines[at]!.length) : this.text.length;
-    const add = (this.text ? "\n" : "") + line;
-    this.commitPatch([{ start: offset, end: offset, replacement: add }], by, patchId, o => (o <= offset ? o : o + add.length));
-    return { applied: true };
-  }
-
   /** Take back the patch `patchId` (the service reverting a patch that didn't apply everywhere, or undo). */
   revertPatch(patchId: string, by: Actor = USER): boolean {
     const i = this.patches.findIndex(u => u.patchId === patchId);

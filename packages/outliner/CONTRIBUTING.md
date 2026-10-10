@@ -243,13 +243,16 @@ source evidence or distinguish authored glyphs from controls.
   `drafts.hold|heartbeat|release`; a door that misses an answer's deadline
   keeps its hold, so nothing is written under its draft), and the proposal
   block a failed patch becomes (`proposalText`: one proposal however many
-  changes it holds, embedded under the mark, its
+  changes it holds, a child of the note it targets and never a line in its text,
+  so the note's revision stays (PIE-725); the same open patch from the same actor
+  is returned again (`deduped: true`); `draft.proposals.list` names each open one
+  and the note line it is drawn after (the mark's, else the last); its
   hidden `[draft-patch::…]` payload capped; `draft.proposal.apply` applies it
   anyway: forced for the person, the same compare as a patch for an agent,
   and only what the proposal's text shows. Forced means no revision or policy
   check. It never places a passage that changed since, and never reaches below
-  the mark. `draft.proposal.dismiss` takes its embed line out of the note or
-  the live draft, marks it dismissed and trashes it; an agent dismisses only its
+  the mark. `draft.proposal.dismiss` marks it dismissed and trashes it (and takes
+  an older proposal's embed line out of the note or the live draft); an agent dismisses only its
   own. Each settles a proposal once (the router holds it while it runs).
   The proposal contract clients read:
   `[proposal-status::open|applied|dismissed]`, and `[proposal-applies::no]` when

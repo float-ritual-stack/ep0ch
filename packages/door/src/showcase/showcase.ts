@@ -184,8 +184,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts",
-    aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts)",
+    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts, src/reference-warnings.ts",
+    aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts) · what you write always lands (PIE-761): a ((reference left unclosed or naming nothing is sent as written and said after, with a did-you-mean (outline-core reference-warnings.ts); a refused send keeps the comment open with a copy on disk; and a reader with a comment open stays on its note whatever else opens",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
       // An edit put aside on the shed note a revision ago (fictional), so its ■ unsent line and controls are live here.
@@ -209,6 +209,14 @@ export const SECTIONS: Section[] = [
       };
       put(n.rota, KEPT.rota.draft, day); put(n.hedge, KEPT.hedge.draft, 2 * day); put(n.compost, KEPT.compost.draft, 5 * day);
       return deskOf({ title: "showcase · kept edits", panes: [a, b, c], names: ["rota", "hedge", "compost"], layout: ([x, y, z]) => pair("row", 0.34, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.rota], [b, n.hedge], [c, n.compost]]);
+    },
+  },
+  {
+    key: "proposals", need: "show what an agent proposed when its patch lost a race, beside the note it targets, and apply or dismiss it", part: "the proposal beside its note (PIE-725): a patch that doesn't apply is a proposal block under the note, never a line in its text, so the note's revision stays and the next writer doesn't lose too; the service lists the open ones with the line each follows (draft.proposals.list), the reader draws each as an embed of it there (proposalsBeside, the embed's [apply] [dismiss], A, X: proposal.apply, proposal.dismiss), and the same open patch from the same agent is returned again (deduped: true)", files: "outliner src/draft-patch-router.ts (propose, proposalsBeside), src/embeds.ts (proposalsBeside), src/surface/note.ts (besideRegions), outliner src/detail-embeds.ts",
+    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's is the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway or X dismisses it (an agent dismisses only its own) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts)",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · proposals", panes: [r], names: ["guide"] }, show, [[r, n.race]]);
     },
   },
   {
