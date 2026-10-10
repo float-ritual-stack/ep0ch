@@ -10,7 +10,8 @@
  * `sqlite3 <db> ".backup <copy>"`); `ep0ch install --apply` runs it itself. In one transaction it checks the file is
  * exactly a version-4 database's shape, rebuilds the three tables whose provider check changed (`resource_sources`,
  * `resources`, `remote_entity_source_snapshots`: SQLite can't alter a check) with their rows, renames `jira` to
- * `ext:jira` in their provider columns and in every stored JSON that names it (`"kind":"jira"`, `"provider":"jira"`),
+ * `ext:jira` in their provider columns and in the JSON of the outline's own shapes that names it (a `kind` or
+ * `provider` key in a boundary, an address, a revision or an annotation target; never a captured payload),
  * checks the foreign keys and the new shape, and stamps `PRAGMA user_version = 5`. Anything else rolls back and leaves
  * the file as it was. It also adds the read marks table (PIE-708: what each reader has read). A version-5 database
  * missing its outline instance id (or holding one that isn't a UUID) is repaired: it gets a fresh one.
@@ -66,6 +67,41 @@ const instanceId = (database: Database): string | undefined => {
   return row && BLOCK_ID_PATTERN.test(row.value) ? row.value.toLowerCase() : undefined;
 };
 
+/** The JSON columns holding the outline's own shapes that can name Jira (never a captured payload or a result). */
+export const RENAMED_JSON: readonly (readonly [string, string])[] = [
+  ["resource_sources", "boundary_json"],
+  ["resources", "address_json"],
+  ["remote_entity_source_snapshots", "revision_json"],
+  ["computed_invocations", "dependencies_json"],
+  ["computed_executions", "dependencies_json"],
+  ["resource_retention_events", "metadata_json"],
+  ["annotation_targets", "original_target_json"],
+  ["annotation_resolution_events", "source_representation_json"],
+  ["annotation_resolution_events", "target_representation_json"],
+  ["annotation_resolution_events", "resolved_target_json"],
+  ["annotation_resolution_events", "candidates_json"],
+  ["annotation_resolution_events", "passage_resolution_json"],
+];
+
+/** `value` with every `kind` or `provider` that is `jira` made `ext:jira`, at any depth; whether anything changed. */
+export function renameJira(value: unknown): { value: unknown; changed: boolean } {
+  let changed = false;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (!node || typeof node !== "object") return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(node)) {
+      if ((key === "kind" || key === "provider") && child === "jira") {
+        out[key] = "ext:jira";
+        changed = true;
+      } else out[key] = walk(child);
+    }
+    return out;
+  };
+  const next = walk(value);
+  return { value: next, changed };
+}
+
 /** How many rows each step renamed: `<table>.provider` and `<table>.<column>` for a JSON column. */
 export type Renamed = Record<string, number>;
 
@@ -107,15 +143,21 @@ export function migrate(path: string): { migrated: boolean; repaired?: boolean; 
         database.exec(`DROP TABLE "${table}__v4"`);
         for (const index of indexes) database.exec(index);
       }
-      // Every stored JSON that names Jira as a provider or an address, revision or reference kind.
-      const tables = (database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((row) => row.name);
-      for (const table of tables) {
-        for (const { name } of database.query(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>) {
-          if (!name.endsWith("_json")) continue;
-          const changed = database.query(`UPDATE "${table}" SET "${name}" = replace(replace("${name}", '"kind":"jira"', '"kind":"ext:jira"'), '"provider":"jira"', '"provider":"ext:jira"')
-            WHERE "${name}" LIKE '%"kind":"jira"%' OR "${name}" LIKE '%"provider":"jira"%'`).run().changes;
-          if (changed) renamed[`${table}.${name}`] = changed;
+      // Jira named as a provider or a kind in the outline's own shapes: a Source's boundary, a Resource's address, a
+      // snapshot's revision, and the annotation targets and resolutions that carry them. Only those columns, and only a
+      // `kind` or `provider` key: a captured payload (`payload_json`), a result or a message is someone else's data and
+      // is kept exactly as it came.
+      for (const [table, column] of RENAMED_JSON) {
+        const rows = database.query(`SELECT rowid AS id, "${column}" AS value FROM "${table}" WHERE "${column}" LIKE '%"jira"%'`).all() as Array<{ id: number; value: string }>;
+        const write = database.query(`UPDATE "${table}" SET "${column}" = ? WHERE rowid = ?`);
+        let changed = 0;
+        for (const row of rows) {
+          const next = renameJira(JSON.parse(row.value));
+          if (!next.changed) continue;
+          write.run(JSON.stringify(next.value), row.id);
+          changed += 1;
         }
+        if (changed) renamed[`${table}.${column}`] = changed;
       }
       const broken = database.query("PRAGMA foreign_key_check").all();
       if (broken.length) throw new Error(`${path}: ${broken.length} rows would break a foreign key, so it was not migrated`);

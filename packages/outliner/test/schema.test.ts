@@ -95,6 +95,9 @@ test("the stamp script stamps a database whose shape matches, column order and f
 });
 
 /** A version-4 database holding one note and one Jira ticket's Source and Resource, as version 4 named them. */
+/** A made-up captured payload that names Jira as its fields would. */
+const CAPTURED = JSON.stringify({ key: "FIC-7", fields: { labels: [{ kind: "jira", provider: "jira" }], summary: "Fix the gate" } });
+
 function version4(path: string, change?: (database: Database) => void): { noteId: string; resourceId: string } {
   const store = new OutlinerStore(path);
   const noteId = store.create("Kept through the migration").id;
@@ -114,6 +117,9 @@ function version4(path: string, change?: (database: Database) => void): { noteId
     .run(sourceId, JSON.stringify({ origin: "https://tickets.example.com", project: "FIC" }), JSON.stringify({ deniedCapabilities: [] }), at, at);
   database.query("INSERT INTO resources (id, source_id, provider, address_json, canonical_key, media_type, address_version, version, created_at, updated_at) VALUES (?, ?, 'jira', ?, '10007', NULL, 1, 1, ?, ?)")
     .run(resourceId, sourceId, JSON.stringify({ kind: "jira", entityId: "10007", key: "FIC-7" }), at, at);
+  // A captured issue whose own fields say "kind": "jira": someone else's data, kept exactly as it came.
+  database.query("INSERT INTO remote_entity_source_snapshots (id, resource_id, address_version, provider, entity_id, revision_json, payload_json, captured_at) VALUES ('snap-1', ?, 1, 'jira', '10007', ?, ?, ?)")
+    .run(resourceId, JSON.stringify({ kind: "jira", updated: at }), CAPTURED, at);
   database.exec("PRAGMA user_version = 4");
   change?.(database);
   database.close();
@@ -144,8 +150,15 @@ test("the version 5 migration moves Jira onto the extension providers as ext:jir
   const { noteId, resourceId } = version4(path);
   const id = outlineInstanceId(path);
   expect(migrate5(path)).toEqual({ migrated: true, outlineInstanceId: id,
-    renamed: { "resource_sources.provider": 1, "resources.provider": 1, "remote_entity_source_snapshots.provider": 0, "resources.address_json": 1 } });
+    renamed: { "resource_sources.provider": 1, "resources.provider": 1, "remote_entity_source_snapshots.provider": 1, "resources.address_json": 1, "remote_entity_source_snapshots.revision_json": 1 } });
   expect(userVersion(path)).toBe(5);
+  {
+    const after = new Database(path, { readonly: true });
+    const snapshot = after.query("SELECT revision_json AS revision, payload_json AS payload FROM remote_entity_source_snapshots WHERE id = 'snap-1'").get() as { revision: string; payload: string };
+    after.close();
+    expect(JSON.parse(snapshot.revision)).toEqual({ kind: "ext:jira", updated: "2026-10-01T09:00:00.000Z" });
+    expect(snapshot.payload).toBe(CAPTURED);
+  }
   const store = new OutlinerStore(path);
   expect(store.get(noteId)?.text).toBe("Kept through the migration");
   expect(store.readMarks.mark("user", [noteId])).toBe(1);
