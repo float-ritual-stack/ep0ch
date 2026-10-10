@@ -64,7 +64,12 @@ export function propsOf(text: string): Record<string, string> {
 export function merged(n: Notification, current?: string): string {
   if (!current) return noteText(n, n.unread ? "unread" : "read");
   const was = propsOf(current)[STATE] === "read" ? "read" : "unread";
-  return noteText(n, was === "read" || !n.unread ? "read" : "unread");
+  const [first = "", ...rest] = current.split("\n");
+  // The extension owns the title and the notify.* tokens of the first line; anything a person added there (their own
+  // properties) and every line after it stay as they are.
+  const mine = noteText(n, was === "read" || !n.unread ? "read" : "unread").split("\n")[0]!;
+  const theirs = [...first.slice(Math.max(0, first.indexOf(`[${KEY}::`))).matchAll(/\s?\[(?!notify\.)[A-Za-z][\w.-]*::[^\]\n]*\]/g)].map((m) => m[0].trim());
+  return [theirs.length ? `${mine} ${theirs.join(" ")}` : mine, ...rest].join("\n");
 }
 
 /** Does a hub's note exist? A page address for the notes, one for each board. */

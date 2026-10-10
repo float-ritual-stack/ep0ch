@@ -39,7 +39,7 @@ async function setup() {
   mkdirSync(join(outline, "extensions"), { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "notify"), extension, { recursive: true });
   writeFileSync(join(extension, "config.json"), JSON.stringify({ config: {
-    sources: ["github", "gmail", "jira", "slack"],
+    sources: ["github", "gmail", "jira", "slack"], days: 3650,
     fixtures: { gmail: "fixtures/gmail.json", jira: "fixtures/jira.json", slack: "fixtures/slack.json" },
   } }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
@@ -103,16 +103,23 @@ test("marking one read in the outline stays read; a notification read at the sou
   await pull();
   const target = (await notes()).find((b) => propsOf(b.text)["notify.key"] === "github:102")!;
   await client.request({ action: "update", blockId: target.id, expectedRevision: target.revision, text: target.text.replace("[notify.state::unread]", "[notify.state::read]"), mutation: { author: "user" } });
+  // A person's own property and paragraph on a note survive a pull.
+  const mine = (await notes()).find((b) => propsOf(b.text)["notify.key"] === "github:101")!;
+  await client.request({ action: "update", blockId: mine.id, expectedRevision: mine.revision, text: `${mine.text.split("\n")[0]} [mine::yes]\n\nMy own note.`, mutation: { author: "user" } });
   // GitHub still says 101 changed (title edited, now read there) and 102 unread: 102 stays read here.
   const changed = THREADS.map((t) => (t.id === "101" ? { ...t, unread: false, updated_at: "2026-10-09T11:00:00Z", subject: { ...t.subject, title: "Fix the build" } } : { ...t, updated_at: "2026-10-09T11:00:00Z" }));
   writeFileSync(join(root, "threads.json"), JSON.stringify([changed]));
   // A broken fixture: its source reports, the rest go on.
-  writeFileSync(join(root, "outline", "extensions", "notify", "config.json"), JSON.stringify({ config: { sources: ["github", "gmail"], fixtures: { gmail: "fixtures/missing.json" } } }));
+  writeFileSync(join(root, "outline", "extensions", "notify", "config.json"), JSON.stringify({ config: { sources: ["github", "gmail"], days: 3650, fixtures: { gmail: "fixtures/missing.json" } } }));
   await client.request({ action: "extensions.list", reload: true });
   const said = await pull();
   expect(said).toMatch(/^notifications: 0 new, 2 changed, 0 unchanged; gmail: /);
   const now = await notes();
   const state = (key: string) => propsOf(now.find((b) => propsOf(b.text)["notify.key"] === key)!.text)["notify.state"];
   expect(state("github:101")).toBe("read");
+  const kept = now.find((b) => propsOf(b.text)["notify.key"] === "github:101")!.text;
+  expect(kept).toContain("[mine::yes]");
+  expect(kept).toContain("My own note.");
+  expect(kept.split("\n")[0]).toStartWith("Fix the build [notify.key");
   expect(state("github:102")).toBe("read");
 });
