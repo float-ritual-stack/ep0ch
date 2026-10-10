@@ -173,8 +173,8 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
     name: 'outline_comment',
     example: {"ref": "PIE-123", "body": "Is this still true?", "whole": true},
     description:
-      'Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, prefix or ' +
-      'suffix when the quote repeats), or on the `whole` note. Returns the thread id for outline_reply and ' +
+      'Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or ' +
+      'suffix when the quote repeats), or on the `whole` note. With a quote and no body it\'s a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread. Returns the thread id for outline_reply and ' +
       'outline_resolve_thread. A requestId makes a retry return the same thread. `ref` may be a Resource ' +
       '(`resource:<id>` or a `[file::path]` token) instead of a note: the quote is exact text of the file as ' +
       'outline_read returned it, `from` names the note whose link opened it, and the file is never written.',
@@ -184,16 +184,19 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       quote: { type: 'string', description: 'Exact source text the comment is about' },
       whole: { type: 'boolean', description: 'true: about the whole note, instead of a quote' },
       start: { type: 'integer', minimum: 0, description: 'The quote’s UTF-16 offset, when it repeats' },
+      near: { type: 'integer', minimum: 0, description: 'When the quote repeats: the offset to be nearest' },
+      properties: { type: 'object', description: 'The thread’s own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key' },
       prefix: { type: 'string' },
       suffix: { type: 'string' },
       requestId: { type: 'string' },
       from: { type: 'string', description: 'A Resource comment: the note whose link opened it' },
       revision: { type: 'integer', minimum: 1, description: 'A Resource comment: the revision outline_read returned; the comment is refused if the file changed since' },
-    }, ['ref', 'body']),
+    }, ['ref']),
     command(input) {
-      if (!nonEmpty(input.ref) || !nonEmpty(input.body)) return 'Give the note and a non-empty comment.'
+      if (!nonEmpty(input.ref)) return 'Give the note.'
       if ((input.whole === true) === (typeof input.quote === 'string')) return 'Give either quote (exact source text) or whole: true.'
-      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'prefix', 'suffix', 'requestId', 'from', 'revision']) }
+      if (!nonEmpty(input.body) && (input.whole === true || (input.body !== undefined && input.body !== ''))) return 'Give a non-empty comment (only a quote with no body is a highlight).'
+      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'near', 'prefix', 'suffix', 'requestId', 'from', 'revision', 'properties']) }
     },
   },
   {

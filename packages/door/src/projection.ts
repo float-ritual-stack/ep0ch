@@ -91,7 +91,7 @@ export interface ResourceProjection {
  * callout, a list, a rule, an image) or a line a text pattern hit. Lines are the note's whole-text lines; `end` is the
  * line after the last.
  */
-export interface RuleHit { at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: string; captures?: string[] }
+export interface RuleHit { at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: string; captures?: string[]; span?: { start: number; end: number } }
 /**
  * A rule's decoration on a note (pi-herdr-outliner src/extension-rules.ts): view primitives the reader draws above or
  * below what matched, in its place, or around it. The note's text never changes; the reader's `R` shows it raw.

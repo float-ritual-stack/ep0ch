@@ -107,7 +107,11 @@ const fitsKind = (c: Construct, k: KindSpec) => c.kind === k.kind && (k.level ==
  * text pattern hit (`text`), with the pattern's captures (`$0` the whole hit). Lines are whole-text lines; `end` is
  * the line after the last.
  */
-export interface RuleHit { at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: ConstructKind; captures?: string[] }
+export interface RuleHit {
+  at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: ConstructKind; captures?: string[];
+  /** A text hit's characters: UTF-16 offsets of the hit (`$0`) in the note's whole text, what a `span` place marks. */
+  span?: { start: number; end: number };
+}
 
 /** At most this many hits per rule in one note: a rule that hits every line decorates the first 16. */
 export const MAX_RULE_HITS = 16;
@@ -128,6 +132,8 @@ export function ruleHits(text: string, match: { text?: RegExp; kind?: KindSpec }
   const structure = noteStructure(lines), { inside, markers } = literalLines(text);
   const pattern = new RegExp(match.text.source, match.text.flags.replace(/[gy]/g, ""));
   const out: RuleHit[] = [];
+  const lineStart: number[] = [];
+  for (let i = 0, o = 0; i < lines.length; i++) { lineStart.push(o); o = text.indexOf("\n", o) + 1 || text.length + 1; }
   for (let i = 0; i < lines.length && out.length < limit; i++) {
     if (structure[i] !== -1 || inside.has(i) || markers.has(i)) continue;
     const owner = match.kind ? constructs.find(c => i >= c.line && i < c.end) : undefined;
@@ -140,7 +146,7 @@ export function ruleHits(text: string, match: { text?: RegExp; kind?: KindSpec }
       if (!hit[0]) break;
       const start = hit.index, end = start + hit[0].length;
       if (code.some(c => c.start < end && start < c.end)) continue;
-      out.push({ at: "text", line: i, end: i + 1, text: line, captures: [...hit].map(x => x ?? ""), ...(owner ? { kind: owner.kind, level: owner.level } : {}) });
+      out.push({ at: "text", line: i, end: i + 1, text: line, captures: [...hit].map(x => x ?? ""), span: { start: lineStart[i]! + start, end: lineStart[i]! + end }, ...(owner ? { kind: owner.kind, level: owner.level } : {}) });
       break;
     }
   }
@@ -166,8 +172,12 @@ export function compileRulePattern(raw: string): RegExp | { problem: string } {
 
 // ── built-in decorations: what a rule draws with no code ────────────────────────────────────────────────
 
-/** Where a decoration goes: above or below what matched, in its place, or around it. */
-export const PLACES = ["above", "below", "replace", "around"] as const;
+/**
+ * Where a decoration goes: above or below what matched, in its place, or around it; or (ADR 0004 contract 6) `span`, on
+ * the characters a text pattern hit (a tone on the words), and `margin`, a card beside them (in the reader's margin
+ * column when there's room, folded under the passage when there isn't).
+ */
+export const PLACES = ["above", "below", "replace", "around", "span", "margin"] as const;
 export type Place = (typeof PLACES)[number];
 
 /**

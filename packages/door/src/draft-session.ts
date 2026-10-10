@@ -12,7 +12,7 @@ import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
 import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
-import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
+import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
@@ -684,7 +684,7 @@ export function blockTarget(m: Msg, o: {
 
 /** Where a comment goes: a passage of a note at a revision, or a thread. */
 export type CommentWhere =
-  | { kind: "quote"; blockId: string; revision: number; passage: CommentPassage }
+  | { kind: "quote"; blockId: string; revision: number; passage: CommentPassage; props?: AnnotationProps }
   | { kind: "reply"; thread: Comment };
 
 /**
@@ -753,8 +753,8 @@ export function commentTarget(o: {
       try {
         const b = o.board();
         const r = t.kind === "reply" ? await b.reply(requestId, t.thread.id, body, by)
-          : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.passage, by)
-          : await b.comment(requestId, t.blockId, t.revision, body, t.passage, by);
+          : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.passage, by, t.props)
+          : await b.comment(requestId, t.blockId, t.revision, body, t.passage, by, t.props);
         o.out.done();
         d.saving = false;
         await o.landed(r, t);

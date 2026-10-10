@@ -13,6 +13,7 @@
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
+import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
@@ -650,12 +651,17 @@ function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> =
  */
 export async function commentOn(
   client: AgentToolsClient,
-  input: { ref: string; body: string; quote?: string; whole?: boolean; start?: number; prefix?: string; suffix?: string; requestId?: string; from?: string },
+  input: { ref: string; body?: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; properties?: Record<string, string | string[]> },
   actor: AgentActor,
 ): Promise<CommentResult> {
-  const body = requireText(input.body, "The comment");
   if ((input.whole === true) === (typeof input.quote === "string")) {
     throw new WorkToolRefusal("Give either quote (exact source text) or whole: true");
+  }
+  // A highlight is a comment on a passage with no body (ADR 0004 contract 6): its properties say what it is.
+  const body = typeof input.quote === "string" && (input.body === undefined || input.body === "") ? "" : requireText(input.body, "The comment");
+  if (input.properties !== undefined) {
+    const problem = input.properties && typeof input.properties === "object" && !Array.isArray(input.properties) ? annotationPropertyProblem(input.properties) : "properties map names to a value or a list of values";
+    if (problem) throw new WorkToolRefusal(`properties: ${problem}. Example: properties: { kind: "highlight", tags: ["soil"], color: "warn" }`);
   }
   const resource = resourceRefOf(input.ref);
   if (resource) return commentOnResource(client, resource, { ...input, body }, actor);
@@ -673,10 +679,12 @@ export async function commentOn(
         passage: {
           quote: input.quote!,
           ...(input.start === undefined ? {} : { start: input.start }),
+          ...(input.near === undefined ? {} : { near: input.near }),
           ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
           ...(input.suffix === undefined ? {} : { suffix: input.suffix }),
         },
       }),
+      ...(input.properties ? { properties: input.properties } : {}),
     },
   });
   const record = receipt.annotations[0];
@@ -693,7 +701,7 @@ export async function commentOn(
 async function commentOnResource(
   client: AgentToolsClient,
   ref: ResourceRef,
-  input: { body: string; quote?: string; whole?: boolean; start?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; revision?: number },
+  input: { body: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; revision?: number; properties?: Record<string, string | string[]> },
   actor: AgentActor,
 ): Promise<CommentResult> {
   if (input.whole) throw new WorkToolRefusal("A Resource's text is commented on at a quote; give quote (exact source text), not whole");
@@ -713,10 +721,12 @@ async function commentOnResource(
       passage: {
         quote: input.quote!,
         ...(input.start === undefined ? {} : { start: input.start }),
+        ...(input.near === undefined ? {} : { near: input.near }),
         ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
         ...(input.suffix === undefined ? {} : { suffix: input.suffix }),
       },
       ...(from ? { referenceBlockId: from } : {}),
+      ...(input.properties ? { properties: input.properties } : {}),
     } }],
   });
   const record = receipt.annotations[0];

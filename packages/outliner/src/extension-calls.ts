@@ -20,6 +20,10 @@ import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
+import { checkPassage, isMiss, missMessage, type Passage } from "@ep0ch/outline-core/passage";
+import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
+import { resourceCommentSource } from "./resource-comments";
 
 /**
  * Runs extension handlers for the lines that ask for them, keeps their
@@ -75,7 +79,15 @@ interface PassOptions {
 /** What an action may return: writes inside the block it acts on, checked and attributed by the service. */
 export type ExtensionWrite =
   | { readonly op: "create"; readonly parentId: string; readonly text: string }
-  | { readonly op: "update"; readonly blockId: string; readonly expectedRevision: number; readonly text: string };
+  | { readonly op: "update"; readonly blockId: string; readonly expectedRevision: number; readonly text: string }
+  /**
+   * An annotation on the passage the action acts on (`on: passage`): a comment with `body`, a highlight without, with
+   * its own properties (`kind`, `tags`, `color` as a theme tone, any other).
+   */
+  | { readonly op: "annotate"; readonly body: string; readonly properties?: Readonly<Record<string, string | readonly string[]>> };
+
+/** A write to a block (not an annotation). */
+type BlockWrite = Exclude<ExtensionWrite, { op: "annotate" }>;
 
 export interface ExtensionActRequest {
   readonly extension: string;
@@ -85,6 +97,12 @@ export interface ExtensionActRequest {
   readonly line?: number;
   /** Arguments a tile or agent passes along (the tile's own args). */
   readonly args?: Readonly<Record<string, string>>;
+  /**
+   * The passage an `on: passage` action acts on (ADR 0004 contract 5), as a selection or `quote=` built it. Checked
+   * before the action runs: at its revision the quote is at `start`; at a newer one found once with its context.
+   * `blockId`, with a Resource's passage, names the note that linked it (where a created block may go).
+   */
+  readonly passage?: Passage;
   /**
    * Who asked for it (the request's `mutation`): the person, or an agent with its actor id. The writes stay
    * the extension's (`ext:<id>`); this is recorded beside them as the change feed's `requestedBy`.
@@ -96,8 +114,12 @@ export interface ExtensionActResult {
   readonly extension: string;
   readonly action: string;
   readonly message?: string;
-  /** Blocks the action created or changed. */
+  /** Blocks the action created or changed (an annotation it wrote among them). */
   readonly written: readonly string[];
+  /** Text the action hands back for the person's clipboard (copy with a citation): the client copies it. */
+  readonly copy?: string;
+  /** The passage it acted on, as the service checked it (moved, when the text moved since it was read). */
+  readonly passage?: Passage;
   /**
    * Its update couldn't apply as it was (the person was typing in that passage of a live draft): it waits as
    * a proposal (`draft.patch`'s), and nothing else the action returned was written.
@@ -138,6 +160,8 @@ const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
 const MAX_WRITES = 20;
 const MAX_WRITE_TEXT = 64 * 1024;
+/** How much of a passage's subject text an action is sent with it. */
+const MAX_PASSAGE_TEXT = 64 * 1024;
 const RETRY_FAILED_MS = 60_000;
 const MAX_SPEND_MEMORY = 5_000;
 
@@ -182,21 +206,32 @@ function validateRecord(value: unknown): ExtensionRecordData {
   return { title: cleanExtensionText(record.title), fields, body: cleanExtensionText(body, true) };
 }
 
-function validateAct(value: unknown): { message?: string; writes: ExtensionWrite[] } {
-  if (!isObject(value)) throw new Error("an action returns { message?, writes? }");
+function validateAct(value: unknown): { message?: string; writes: ExtensionWrite[]; copy?: string } {
+  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy? }");
   if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) throw new Error("message must be text up to 500 characters");
+  if (value.copy !== undefined && (typeof value.copy !== "string" || value.copy.length > 8_000)) throw new Error("copy must be text up to 8000 characters");
   const writes = value.writes ?? [];
   if (!Array.isArray(writes) || writes.length > MAX_WRITES) throw new Error(`writes must be a list of at most ${MAX_WRITES}`);
   return {
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
+    ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
+      if (write.op === "annotate") {
+        const body = write.body ?? "";
+        if (typeof body !== "string" || Buffer.byteLength(body) > MAX_WRITE_TEXT) throw new Error(`writes[${index}].body must be text up to 64 KiB (empty for a highlight)`);
+        if (write.properties !== undefined) {
+          const problem = isObject(write.properties) ? annotationPropertyProblem(write.properties as Record<string, string>) : "properties map names to a value or a list";
+          if (problem) throw new Error(`writes[${index}].properties: ${problem}`);
+        }
+        return { op: "annotate", body, ...(write.properties !== undefined ? { properties: write.properties as Record<string, string | string[]> } : {}) };
+      }
       if (typeof write.text !== "string" || Buffer.byteLength(write.text) > MAX_WRITE_TEXT) throw new Error(`writes[${index}].text must be text up to 64 KiB`);
       if (write.op === "create" && typeof write.parentId === "string") return { op: "create", parentId: write.parentId, text: write.text };
       if (write.op === "update" && typeof write.blockId === "string" && Number.isSafeInteger(write.expectedRevision)) {
         return { op: "update", blockId: write.blockId, expectedRevision: write.expectedRevision as number, text: write.text };
       }
-      throw new Error(`writes[${index}] must be { op: "create", parentId, text } or { op: "update", blockId, expectedRevision, text }`);
+      throw new Error(`writes[${index}] must be { op: "create", parentId, text }, { op: "update", blockId, expectedRevision, text } or { op: "annotate", body?, properties? }`);
     }),
   };
 }
@@ -664,6 +699,8 @@ export class ExtensionCalls {
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
+    if (action.on === "passage") return this.actOnPassage(extension, action, request);
+    if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
     if (request.blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
     if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
@@ -677,14 +714,15 @@ export class ExtensionCalls {
       ...(block ? { context: this.context(block, call?.line ?? request.line) } : {}),
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
     }, this.deadline(extension));
-    let parsed: { message?: string; writes: ExtensionWrite[] };
+    let parsed: { message?: string; writes: ExtensionWrite[]; copy?: string };
     try {
       parsed = validateAct(answer.value);
     } catch (error) {
       throw new Error(`${extension.name} returned an answer the service can't apply: ${message(error)}`);
     }
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
-    const applied = parsed.writes.length ? await this.apply(extension, action, block, parsed.writes, request.requestedBy) : { written: [] };
+    if (parsed.writes.some((write) => write.op === "annotate")) throw new Error(`${action.name} returned an annotation, but it acts on ${action.on ?? "a block"}: only an action on a passage annotates`);
+    const applied = parsed.writes.length ? await this.apply(extension, action, block, parsed.writes as BlockWrite[], request.requestedBy) : { written: [] };
     const written = applied.written;
     // An action's writes change what a read handler's line reads: run that line again (found again by its
     // call, in case the writes moved it) before answering. A spend or write line waits for r.
@@ -693,7 +731,101 @@ export class ExtensionCalls {
     else if (written.length || applied.proposalId) this.options.changed?.(block!.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
+      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}) };
+  }
+
+  /**
+   * The text a passage's subject has now, and its revision: a block's, or a Resource's stored text (its content hash,
+   * folded, is its revision). Refused when there's none to quote.
+   */
+  passageSubject(subject: string): { text: string; revision: number; block: Block | null; resourceId: string | null } {
+    if (subject.startsWith("resource:")) {
+      const resourceId = subject.slice("resource:".length);
+      const source = resourceCommentSource(this.store.resources.describe(resourceId, true));
+      const hash = source?.representation.contentHash;
+      if (!source || !hash) throw new Error(`${subject} has no stored text a passage can quote (a PDF, a ticket, or a file that is gone)`);
+      return { text: source.text, revision: resourceTextRevision(hash), block: null, resourceId };
+    }
+    const block = this.store.get(subject);
+    if (!block || block.effectiveDeletedRootId) throw new Error(`Block not found: ${subject}`);
+    return { text: block.text, revision: block.revision, block, resourceId: null };
+  }
+
+  /**
+   * The passage as it is now: checked against its subject's current text (outline-core passage.ts) and moved when the
+   * text moved under it; refused with the nearest match otherwise. Never fuzzy before a write.
+   */
+  checkPassage(passage: Passage): { passage: Passage; block: Block | null; resourceId: string | null } {
+    if (!isObject(passage) || typeof passage.subject !== "string" || typeof passage.quote !== "string" ||
+      !Number.isSafeInteger(passage.start) || !Number.isSafeInteger(passage.end) ||
+      (typeof passage.revision !== "number" && typeof passage.revision !== "string")) {
+      throw new Error("a passage is { subject, revision, quote, start, end, prefix, suffix }: a selection, or quote= with near=, builds one");
+    }
+    const subject = this.passageSubject(passage.subject);
+    const checked = checkPassage(subject.text, subject.revision, { ...passage, prefix: passage.prefix ?? "", suffix: passage.suffix ?? "" });
+    if (isMiss(checked)) throw new Error(missMessage(checked));
+    return { passage: checked.passage, block: subject.block, resourceId: subject.resourceId };
+  }
+
+  /**
+   * An action on a passage (`on: passage`): the passage checked, then the extension's `act` with `target.passage`.
+   * Its writes: an update of the passage's block goes through `draft.patch` at the revision it was checked at; an
+   * `annotate` writes an annotation on the passage (checked again after any update, so it lands on the words as they
+   * are). A Resource's text is stored content, never edited: on a Resource's passage an action writes only blocks
+   * (an annotation, or a block under the note that linked it, `blockId`).
+   */
+  private async actOnPassage(extension: LoadedExtension, action: ExtensionActionEntry, request: ExtensionActRequest): Promise<ExtensionActResult> {
+    if (!request.passage) throw new Error(`${action.name} acts on a passage: pass passage { subject, revision, quote, start, end, prefix, suffix } (a selection builds one, or quote= with near=)`);
+    const checked = this.checkPassage(request.passage);
+    const host = checked.block ?? (request.blockId ? this.store.get(request.blockId) : null);
+    if (request.blockId && !checked.block && (!host || host.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
+    const answer = await this.runtime.invokeLoaded(extension, "act", {
+      action: action.id,
+      ...(request.args ? { args: request.args } : {}),
+      // The subject's text, so an action can read around the passage (a glossary, the paragraph, a fragment anchor).
+      target: { passage: checked.passage, text: this.passageSubject(checked.passage.subject).text.slice(0, MAX_PASSAGE_TEXT),
+        ...(checked.block ? { blockId: checked.block.id, revision: checked.block.revision } : {}),
+        ...(checked.resourceId ? { resourceId: checked.resourceId } : {}) },
+      ...(host ? { context: this.context(host, undefined) } : {}),
+    }, this.deadline(extension));
+    let parsed: { message?: string; writes: ExtensionWrite[]; copy?: string };
+    try {
+      parsed = validateAct(answer.value);
+    } catch (error) {
+      throw new Error(`${extension.name} returned an answer the service can't apply: ${message(error)}`);
+    }
+    if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
+    const annotations = parsed.writes.filter((write): write is Extract<ExtensionWrite, { op: "annotate" }> => write.op === "annotate");
+    const others = parsed.writes.filter((write): write is BlockWrite => write.op !== "annotate");
+    const applied = others.length ? await this.apply(extension, action, host, others, request.requestedBy) : { written: [] as string[] };
+    if (applied.proposalId) {
+      const unwritten = annotations.length ? `; its ${annotations.length === 1 ? "annotation wasn't" : `${annotations.length} annotations weren't`} written` : "";
+      return { extension: extension.id, action: action.id, message: `${applied.proposed}${unwritten}`, written: [], proposalId: applied.proposalId, passage: checked.passage };
+    }
+    const written = [...applied.written];
+    let passage = checked.passage;
+    if (annotations.length) {
+      // After an update the words may have moved: the passage is checked again, found once with its context.
+      if (written.length) passage = this.checkPassage(passage).passage;
+      const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
+      const attribution = this.store.changes.attribution({ action: action.name, actor, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+      const quote = { quote: passage.quote, start: passage.start, prefix: passage.prefix, suffix: passage.suffix };
+      const operations = annotations.map((write, index) => checked.resourceId
+        ? { operationId: `annotate-${index}`, type: "resource-comment" as const, input: {
+          resourceId: checked.resourceId, expectedRevision: Number(passage.revision), body: write.body, source: "agent" as const, passage: quote,
+          ...(write.properties ? { properties: write.properties } : {}), ...(host ? { referenceBlockId: host.id } : {}),
+        } }
+        : { operationId: `annotate-${index}`, type: "block-comment" as const, input: {
+          blockId: checked.block!.id, expectedRevision: Number(passage.revision), body: write.body, source: "agent" as const, passage: quote,
+          ...(write.properties ? { properties: write.properties } : {}),
+        } });
+      const receipt = this.store.changes.run(attribution, () => this.store.createAnnotationBatch(crypto.randomUUID(), operations, "agent", { actorId: actor.actorId! }));
+      written.push(...receipt.annotations.map((record) => record.block.id));
+      this.options.changed?.(checked.block?.id ?? host?.id ?? passage.subject);
+    } else if (written.length && host) this.options.changed?.(host.id);
+    return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
+      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), passage };
   }
 
   /**
@@ -759,7 +891,7 @@ export class ExtensionCalls {
    * the updates applied; when the updates became a proposal, nothing else is written.
    */
   private async apply(
-    extension: LoadedExtension, action: ExtensionActionEntry, block: Block | null, writes: readonly ExtensionWrite[], requestedBy: MutationProvenance | undefined,
+    extension: LoadedExtension, action: ExtensionActionEntry, block: Block | null, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined,
   ): Promise<{ written: string[]; proposalId?: string; proposed?: string }> {
     if (!block) throw new Error(`${action.name} returned writes but acts on no block; writes stay inside the block an action acts on`);
     const inside = (id: string) => id === block.id || this.store.isDescendant(id, block.id);

@@ -41,7 +41,7 @@ import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, s
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
+import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord } from "../socket";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -50,6 +50,11 @@ import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
 import { pickInto, type Picked } from "../pick";
+import { sourceSpanOf } from "./source-map";
+import { passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
+import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
@@ -262,6 +267,10 @@ interface HeaderBlock {
 interface Laid {
   m: Msg; key: string; doc: Doc; drawn: Link[]; picks: { at: number; lines: number; rows: number[] } | null;
   controls: Control[]; body: string[]; marks: Mark[]; lines: number[]; elems: Element[];
+  /** The margin's side column (ADR 0004 contract 6): its width (0: cards fold under their passages), and its cards. */
+  margin: { cols: number; cards: { thread: string; at: number; rows: string[] }[] };
+  /** The annotations' and span rules' marks on the words, by content row: columns and background. Filled on first paint. */
+  spans?: Map<number, { from: number; to: number; bg: string }[]>;
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
@@ -282,7 +291,7 @@ const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -292,7 +301,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  */
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
-export type ThreadControl = "select" | "reply" | "resolve";
+export type ThreadControl = "select" | "reply" | "resolve" | "card";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -320,7 +329,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -533,6 +542,10 @@ export class NoteSurface {
    * reader's reading state and the person's alone (an agent's action never expands or collapses one).
    */
   expanded = new Set<string>();
+  /** The margin (ADR 0004 contract 6): cards trimmed to a row, whole, or off (the spans stay). The person's reading state. */
+  marginMode: MarginMode = "trim";
+  /** `a` was pressed with text selected: the passage toolbar has the next key. */
+  passageMenu = false;
   /**
    * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
    * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
@@ -1223,16 +1236,28 @@ export class NoteSurface {
     // The look's backgrounds (PIE-673, PIE-675): every other list item's zebra stripe, a box's surface, each across its
     // cells, under the ruler and a thread's tint (which take the whole row).
     const tints = doc.tints ?? [];
+    // Highlights and annotated passages (ADR 0004 contract 6): each one's words on its tone's dark surface, under the
+    // selections. The margin's side column, when there is one, is beside the body and never part of its rows.
+    const spans = this.spansOf(laid, m, src);
+    const mcols = laid.margin.cols, bodyW = w - mcols;
+    const marked = (l: string, row: number) => {
+      const ss = spans.get(row);
+      if (!ss) return l;
+      for (const t of ss) l = paintRange(l, Math.max(bx, t.from), Math.min(bodyW, t.to), t.bg);
+      return l;
+    };
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
       const row = i < top ? i : i + this.scroll;
+      const W = i < top ? w : bodyW;
       const tint = ruled(row) ? RULER_BG : inQuote(row) ? THREAD_BG : null;
-      if (tint) return this.paintSelection(paintRange(pad(l, w), 0, w, tint), row);
+      if (tint) return this.paintSelection(marked(paintRange(pad(l, W), 0, W, tint), row), row);
       const under = row >= top ? tints.filter(t => row - top >= t.rows[0] && row - top < t.rows[1]) : [];
-      if (!under.length) return this.paintSelection(l, row);
-      let painted = pad(l, w);
-      for (const t of under) painted = t.cols ? paintRange(painted, Math.max(0, t.cols[0] + bx), Math.min(w, t.cols[1] + bx), t.bg) : paintRange(painted, 0, w, t.bg);
-      return this.paintSelection(painted, row);
+      if (!under.length) return this.paintSelection(marked(l, row), row);
+      let painted = pad(l, W);
+      for (const t of under) painted = t.cols ? paintRange(painted, Math.max(0, t.cols[0] + bx), Math.min(W, t.cols[1] + bx), t.bg) : paintRange(painted, 0, W, t.bg);
+      return this.paintSelection(marked(painted, row), row);
     });
+    if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols);
     // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
     // block holds the `[ ]` position. A click is block.copy, as y is. Not drawn over a code cell it would hide.
     const blockNow = current ? this.blockOf(current) : null;
@@ -1283,11 +1308,15 @@ export class NoteSurface {
     const top = head.length, t = host?.ctx.t;
     // What the rules draw on the note (PIE-600), unless the person asked for it raw (R).
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
+    // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
+    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => c.start !== null && hasCard(c));
+    const mcols = marginColumn(w, this.marginMode, cardThreads.length);
+
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}`;
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
-    const bw = Math.max(1, w - this.bx - this.bxRight);
+    const bw = Math.max(1, w - this.bx - this.bxRight - mcols);
     const look = this.lastLook;
     // A list's own look (PIE-675): its lead-in or heading line's fields, with this connection's tuning over them, by the note's line.
     const noteLine = this.foldsIn(m).lines;
@@ -1345,7 +1374,7 @@ export class NoteSurface {
     });
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
-    const threads = this.threadPanels(m, rendered, noteLines, bw);
+    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0);
     const { doc, picks } = this.pickerRows(threads.doc, drawn, bw);
     const controls = threads.controls.map(c => ({ ...c, row: c.row + (picks && c.row >= picks.at ? picks.lines : 0) }));
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
@@ -1367,7 +1396,12 @@ export class NoteSurface {
     for (const k of marks) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
     for (const [row, open] of margin) body[row] = fg(open ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
-    return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
+    // The side column's cards, each beside its passage, none overlapping (expanded threads are drawn in the body).
+    const cards = mcols ? placeCards(cardThreads.flatMap(c => {
+      const k = marks.find(x => x.thread === c.id);
+      return k && !this.expanded.has(c.id) ? [{ thread: c.id, row: k.row, rows: cardRows(c, mcols - 2, this.marginMode) }] : [];
+    })) : [];
+    return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems, margin: { cols: mcols, cards } });
   }
 
   /**
@@ -2452,6 +2486,8 @@ export class NoteSurface {
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
+    // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
+    if (c === "M" && this.msg && !this.msg.partial) { void this.runKey("margin", {}, host); return true; }
     // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
     if (c === "r" && this.msg && isOutlineNote(this.msg)) { void this.runKey("projection.refresh", {}, host, true); return true; }
     return false;
@@ -2855,12 +2891,18 @@ export class NoteSurface {
   }
 
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number): { doc: Doc; controls: Control[] } {
-    if (!this.expanded.size) return { doc, controls: [] };
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false): { doc: Doc; controls: Control[] } {
+    // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
+    const folding = fold && this.marginMode !== "off";
+    if (!this.expanded.size && !folding) return { doc, controls: [] };
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
-      const c = this.expanded.has(k.thread) ? cs.find(x => x.id === k.thread) : undefined;
-      return c ? [{ at: k.rows[1], ...threadPanel(c, W, this.cur) }] : [];
+      const c = cs.find(x => x.id === k.thread);
+      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], ...threadPanel(c, W, this.cur) }];
+      if (!c || !folding || !hasCard(c)) return [];
+      const rows = cardRows(c, Math.max(8, Math.min(W, 72) - 2), this.marginMode).map(l => "  " + l);
+      // The whole card is one control: a click or ⏎ on it expands its thread.
+      return [{ at: k.rows[1], lines: rows, controls: [{ thread: c.id, control: "card" as const, row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] }];
     });
     if (!panels.length) return { doc, controls: [] };
     const { doc: out, starts } = withRows(doc, panels);
@@ -2876,6 +2918,12 @@ export class NoteSurface {
   private async useControl(e: Element, host: SurfaceHost): Promise<unknown> {
     const c = this.comments?.find(x => x.id === e.thread);
     if (!c || !this.msg) return null;
+    // A margin card folded under its passage: its thread expands there, as a click on its mark does.
+    if (e.control === "card") {
+      this.setExpanded(c.id, true);
+      host.redraw();
+      return { thread: c.id, expanded: true };
+    }
     if (e.control === "select") {
       const sel = this.passageSelection(c);
       if (!sel) { host.ctx.flash("its passage isn't drawn here (the quoted words moved, or they're folded away)"); return { selected: null }; }
@@ -2919,7 +2967,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${c.author}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c)} · ${c.author}${c.open ? "" : " · resolved"}` });
     }
     return out;
   }
@@ -3443,6 +3491,8 @@ export class NoteSurface {
       return true;
     }
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
+    // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
+    if (h && "passage" in h) { this.passageMenu = false; void this.runKey("passage.act", { action: h.passage }, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) void this.runKey("select.clear", {}, host);
     if (!h) return this.clickFold(x, y, host);
@@ -4369,8 +4419,64 @@ export class NoteSurface {
     if (copy.length > w) return;
     this.hits.push({ row: at, from, to: from + copy.length, copy: "visible" });
     if (wide) this.hits.push({ row: at, from: from + copy.length + 1, to: from + copy.length + 1 + source.length, copy: "source" });
-    const shown = (fits ? fg(C.blue) + "── " + fg(C.white) + `${n} chars ` : "") + fg(C.lcyan) + copy + (wide ? " " + source : "");
+    let shown = (fits ? fg(C.blue) + "── " + fg(C.white) + `${n} chars ` : "") + fg(C.lcyan) + copy + (wide ? " " + source : "");
+    // The passage toolbar (ADR 0004 contract 5): what can be done with these words, each a click, and after `a` a key.
+    if (this.msg && !this.msg.partial && s.text(rows).trim()) {
+      const left = width(shown) + 3, bar = toolbarRow(this.passageChoices(), this.passageMenu, w - left);
+      if (bar.hits.length) {
+        shown += fg(C.blue) + " │ " + bar.text;
+        for (const x of bar.hits) this.hits.push({ row: at, from: left + x.from, to: left + x.to, passage: x.action });
+      }
+    }
     d.head[at] = pad(shown + fg(C.blue) + "─".repeat(Math.max(0, w - width(shown))), w) + RESET;
+  }
+
+  /**
+   * The marks on the words (ADR 0004 contract 6), by content row: each annotation's passage where it's drawn, in its
+   * tone (a resolved thread's only when it's a highlight), and each `place: span` rule decoration's hit. Worked out once
+   * per layout, from where the words are drawn (a passage whose words aren't drawn as they read is marked on its lines).
+   */
+  private spansOf(laid: Laid, m: Msg, src: Source | null): Map<number, { from: number; to: number; bg: string }[]> {
+    if (laid.spans) return laid.spans;
+    const out = new Map<number, { from: number; to: number; bg: string }[]>();
+    const put = (sel: Selection | null, bg: string) => {
+      if (!sel || !bg) return;
+      for (let r = sel.start.row; r <= sel.end.row; r++) {
+        const cells = r >= (this.drawn?.top ?? 0) ? width(laid.body[r - this.drawn!.top] ?? "") : 0;
+        const sp = sel.span(r, cells);
+        if (!sp) continue;
+        const g = out.get(r);
+        if (g) g.push({ from: sp[0], to: sp[1], bg }); else out.set(r, [{ from: sp[0], to: sp[1], bg }]);
+      }
+    };
+    laid.spans = out;
+    if (!this.drawn) return out;
+    for (const c of this.commentsFor === m.id ? this.comments ?? [] : []) {
+      if (c.start === null || c.end === null || (!c.open && kindOf(c) !== "highlight")) continue;
+      put(this.passageSelection(c), spanBg(c.props));
+    }
+    // A rule's span decoration (place: span) on the characters its text pattern hit.
+    if (isOutlineNote(m) && !this.raw) for (const d of decorationsOf(m, src)) {
+      const at = d.place === "span" ? d.hit.span : undefined;
+      if (!at || at.end <= at.start) continue;
+      const tone = (d.view as { tone?: string } | undefined)?.tone;
+      put(this.passageSelection({ start: at.start, end: at.end, quote: m.text.slice(at.start, at.end) } as Comment), toneBg(tone));
+    }
+    return out;
+  }
+
+  /**
+   * The margin's side column, `cols` wide, beside the body rows shown: each card at its passage's row (placed in the
+   * layout so none overlap), a dim rule where there's none. A click on a card expands its thread inline.
+   */
+  private drawMargin(lines: string[], laid: Laid, top: number, room: number, bodyW: number, cols: number) {
+    const byRow = new Map<number, { thread: string; text: string }>();
+    for (const c of laid.margin.cards) c.rows.forEach((t, j) => byRow.set(c.at + j, { thread: c.thread, text: t }));
+    for (let i = top; i < lines.length && i - top < room; i++) {
+      const r = i - top + this.scroll, card = byRow.get(r);
+      lines[i] = pad(lines[i]!, bodyW) + fg(C.dark) + "│" + RESET + " " + (card ? card.text : " ".repeat(cols - 2));
+      if (card) this.hits.push({ row: i, from: bodyW + 1, to: bodyW + cols, thread: card.thread, elem: `comment:${card.thread}` });
+    }
   }
 
   /** Row `row`'s drawn line with the selections on it painted: an agent's, then the person's over it. */
@@ -4409,6 +4515,16 @@ export class NoteSurface {
       void this.runKey("select.mode", {}, host);
       return true;
     }
+    // `a`: the passage toolbar takes the next key (ADR 0004 contract 5); that key runs its choice on the selection.
+    if (this.passageMenu) {
+      this.passageMenu = false;
+      const pick = this.passageChoices().find(x => x.key === c);
+      if (pick) void this.runKey("passage.act", { action: pick.action }, host);
+      else if (k.kind !== "esc") host.ctx.flash(`a then ${this.passageChoices().filter(x => x.key).map(x => `${x.key} ${x.label.toLowerCase()}`).join(" · ")}`);
+      host.redraw();
+      return true;
+    }
+    if (c === "a" && s.text(rows).trim()) { this.passageMenu = true; host.redraw(); return true; }
     if (c === "y" || c === "Y") { void this.runKey("select.copy", c === "Y" ? { source: true } : {}, host); return true; }
     if (!s.keys) {
       if (c === "v") { void this.runKey("select.mode", {}, host); return true; }
@@ -4465,6 +4581,11 @@ export class NoteSurface {
     for (const t of [seen, seen.replace(/\n/g, " ")]) {
       const at = t.trim() ? span.indexOf(t) : -1;
       if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
+    }
+    // Drawn words with a link, emphasis or a list mark inside: read the source lines as they're drawn (source-map.ts).
+    for (const t of [seen, seen.replace(/^[ \t]*[•◦▪▸‣·○●☐☑✓✗□■-][ \t]+/gm, "")]) {
+      const hit = sourceSpanOf(span, t);
+      if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
     }
     const lead = span.length - span.trimStart().length;
     return { text: span, exact: false, from: start + lead, to: start + span.trimEnd().length, lines: [lo, hi] };
@@ -4534,6 +4655,56 @@ export class NoteSurface {
     if (!s || !rows) return null;
     const text = s.text(rows), src = this.sourceOf(s);
     return { chars: [...text].length, text, keys: s.keys, ...(src ? { source: src.text, sourceExact: src.exact, lines: [src.lines[0] + 1, src.lines[1] + 1] } : {}) };
+  }
+
+  // ── the passage target (ADR 0004 contract 5) and the margin (contract 6) ──────────
+
+  /**
+   * The passage an action acts on, for `actor`: the words it names (`quote`, `near` among repeats) in the note's
+   * current text, else its own selection (the person's for the person, an agent's own for an agent: never the
+   * person's). `target` is the passage as the service takes it (a Resource's text has its own offsets); `note` the same
+   * words as offsets into the note shown, for a comment. Refused with why: a selection that doesn't read the same in
+   * the source is never widened to its lines here.
+   */
+  passageFor(actor: Actor, quote?: string, near?: number): { target: PassageTarget; note: CommentPassage } {
+    const m = this.msg;
+    if (!m || m.revision === undefined) throw new ActionRefused("no note here to act on a passage of");
+    if (m.resource?.uncommentable) throw new ActionRefused(m.resource.uncommentable);
+    let from: number, to: number;
+    if (quote !== undefined) {
+      const at = findPassage(m.text, quote, near === undefined ? {} : { near });
+      if (isMiss(at)) throw new ActionRefused(missMessage(at));
+      ({ start: from, end: to } = at);
+    } else {
+      const sel = actor.kind === "user" ? this.selection : this.agentSelection?.id === actor.id ? this.agentSelection.sel : null;
+      if (!sel) throw new ActionRefused(actor.kind === "user" ? "nothing is selected: drag across the words, or v and move" : "name the words: quote= (near= among repeats); the person's selection is theirs");
+      const src = this.sourceOf(sel);
+      if (!src) throw new ActionRefused("only the header's details are selected: select words of the note");
+      if (!src.exact) throw new ActionRefused("the selection doesn't read the same in the note's source (a link drawn by its title, or a figure): select the words around it, or name them with quote=");
+      ({ from, to } = src);
+    }
+    const trimmed = m.text.slice(from, to), lead = trimmed.length - trimmed.trimStart().length;
+    from += lead; to = from + trimmed.trim().length;
+    if (to <= from) throw new ActionRefused("only blanks are selected");
+    const note = passageAt(m.text, from, to, m.id, m.revision);
+    if (!m.resource) return { target: note, note: { quote: note.quote, start: from, prefix: note.prefix, suffix: note.suffix } };
+    const at = m.resource.sourceAt;
+    if (at === null || from < at) throw new ActionRefused("this Resource isn't drawn as its text here, so a passage of it can't be placed: open it as a file");
+    const text = m.text.slice(at);
+    return { target: passageAt(text, from - at, to - at, `resource:${m.resource.id}`, m.revision), note: { quote: note.quote, start: from } };
+  }
+
+  /** What the passage toolbar offers: Comment, Ask and Explain (with an agent that answers in threads), and each extension's passage action. */
+  passageChoices(): PassageChoice[] {
+    const own: PassageChoice[] = [{ action: "comment", label: "Comment", key: "c" }];
+    if (threadAgents().length) own.push({ action: "ask", label: "Ask", key: "a" }, { action: "explain", label: "Explain", key: "e" });
+    const taken = new Set(own.map(c => c.key));
+    for (const { action } of passageActions()) {
+      const k = action.key && [...action.key].length === 1 && !taken.has(action.key) ? action.key : undefined;
+      if (k) taken.add(k);
+      own.push({ action: action.name, label: action.label, ...(k ? { key: k } : {}) });
+    }
+    return own;
   }
 
   // ── actions ────────────────────────────────────────────────────────────────
@@ -4941,10 +5112,9 @@ function rowsOfLines(doc: Doc, noteLines: number[], lo: number, hi: number): [nu
 
 /** Where `quote` is in `text`: the occurrence nearest `near` (an offset), or the first; -1 when it isn't. */
 function findQuote(text: string, quote: string, near?: number): number {
-  const hits: number[] = [];
-  if (quote) for (let i = text.indexOf(quote); i >= 0; i = text.indexOf(quote, i + 1)) hits.push(i);
-  if (!hits.length) return -1;
-  return near === undefined ? hits[0]! : hits.reduce((a, b) => (Math.abs(b - near) < Math.abs(a - near) ? b : a));
+  // The one quote lookup (outline-core passage.ts): the first place, or the one nearest `near`.
+  const at = quote ? findPassage(text, quote, { near: near ?? 0 }) : null;
+  return !at || isMiss(at) ? -1 : at.start;
 }
 
 /** A block id as an agent names it: the whole id, or its first 8+ characters. */
@@ -5599,7 +5769,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
-      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on an expanded thread; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
+      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "card" ? "threads, or reply" : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
       if (e.kind === "comment" && actor.kind === "agent") {
@@ -5780,6 +5950,89 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       await NOTE_ACTIONS.run("passage.select", { quote, near }, on, actor);
       await NOTE_ACTIONS.run("comment.write", { body }, on, actor);
       return NOTE_ACTIONS.run("comment.send", {}, on, actor);
+    },
+  }),
+  "passage.act": def({
+    summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
+    keys: "a then the choice's key while text is selected (a c comment, a a ask, a e explain, a h highlight, a d define, a k cite with marginalia), or a click on its chip on the selection's line",
+    touches: "draft", draft: "type", replay: "ask",
+    args: {
+      action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
+      quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
+      near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
+      body: { type: "string", optional: true, about: "comment: its text, sent at once (left out, the person writes it)" },
+      question: { type: "string", optional: true, about: "ask: the question, sent at once (left out, the person writes it after @name)" },
+      color: { type: "string", optional: true, about: "a theme tone the extension may use (highlight's colour): default, good, warn, bad, dim, accent" },
+    },
+    async run({ action, quote, near, body, question, color }, { surface, host }, actor) {
+      const m = surface.requireNote();
+      if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to act on a passage of");
+      const p = surface.passageFor(actor, quote, near);
+      const said = asActor(host.ctx, actor);
+      const send = async (text: string, props?: Record<string, string>) => {
+        const id = crypto.randomUUID();
+        const r = m.resource ? await host.ctx.board.commentOnResource(id, m.resource, m.revision!, text, p.note, actor, props) : await host.ctx.board.comment(id, m.id, m.revision!, text, p.note, actor, props);
+        await surface.loadComments(host);
+        if (actor.kind === "user") surface.selection = null;
+        host.redraw();
+        return r.id;
+      };
+      if (action === "comment" || action === "ask" || action === "explain") {
+        const agent = action === "comment" ? null : threadAgents()[0];
+        if (action !== "comment" && !agent) throw new ActionRefused("no agent here answers in comment threads: add marginalia (its @margin agent) or another whose agent says threads: true");
+        const kind = action === "comment" ? undefined : action === "ask" ? "question" : "explain";
+        const props = kind ? { kind } : undefined;
+        const text = action === "explain" ? `@${agent!.name} explain this passage` : action === "ask" && question !== undefined ? `@${agent!.name} ${question}` : body;
+        if (text !== undefined && text.trim()) {
+          const thread = await send(text, props);
+          said.flash(action === "comment" ? "commented on the passage" : `asked @${agent!.name} · the answer lands in the margin`);
+          surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${ellipsize(p.note.quote, 30)}"`);
+          return { thread, passage: p.target };
+        }
+        // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
+        if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
+        const s = await personComments(surface, host, "select");
+        if (s.passage) { s.passage.from = p.note.start; s.passage.to = p.note.start + p.note.quote.length; }
+        s.props = props ?? null;
+        const why = s.write(actor);
+        if (why) throw new ActionRefused(why);
+        if (agent) s.writing?.replace(`@${agent.name} `, actor);
+        host.redraw();
+        return { writing: action, passage: p.target };
+      }
+      const named = /^ext\.([a-z][a-z0-9-]{0,31})\.([a-z][a-z0-9-]{0,31})$/.exec(action);
+      const choice = passageActions().find(x => x.action.name === action);
+      if (!named || !choice) throw new ActionRefused(`no passage action ${action}: it's comment, ask, explain${passageActions().length ? `, or ${passageActions().map(x => x.action.name).join(", ")}` : " (no extension here acts on a passage)"}`);
+      const r = await runExtensionAction(host.ctx, choice.action, choice.extension.id, { passage: p.target, ...(m.resource?.from ? { blockId: m.resource.from } : {}), ...(color ? { args: { color } } : {}) }, actor);
+      // Copy with a citation: the person's clipboard; an agent gets the text back, the person's clipboard untouched.
+      if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
+      if (r.written.length) await surface.loadComments(host);
+      if (actor.kind === "user") surface.selection = null;
+      surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
+      host.redraw();
+      return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target };
+    },
+  }),
+  "passage.choices": def({
+    summary: "list what can be done with a passage here: comment, ask and explain (when an agent answers in threads) and each extension's passage action, with its key after a",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { surface }) {
+      return { choices: surface.passageChoices(), agents: threadAgents().map(a => a.name) };
+    },
+  }),
+  "margin": def({
+    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off (the highlights stay on the words). A wide reader has them in a column beside the text; a narrow one under each passage. The person's reading state",
+    keys: "M cycles trim, full, off",
+    touches: "tile", replay: "safe", person: "how the margin reads is the person's reading state; an agent reads threads with threads",
+    args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
+    run({ mode }, { surface, host }) {
+      const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
+      if (!next) throw new ActionRefused("mode is trim, full or off");
+      surface.marginMode = next;
+      host.ctx.flash(`margin: ${next === "trim" ? "cards a row each" : next === "full" ? "cards whole" : "off (highlights stay)"} · M`);
+      host.redraw();
+      return { margin: next };
     },
   }),
   "comment.close": def({

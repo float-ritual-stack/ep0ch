@@ -15,7 +15,7 @@ import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";
 import {measureRenderedLinks, withInternalLinks, type RenderedLink} from './rendered-links';
 import {LinkAwareMarkdown} from './link-aware-markdown';
-import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, type DetailAnnotationGroup, type AnnotationReaderState } from "./detail-annotations";
+import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, annotationThreadTitle, annotationMarginCard, annotationMarkStyle, annotationTags, type DetailAnnotationGroup, type AnnotationReaderState } from "./detail-annotations";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import {
   Key,
@@ -942,7 +942,7 @@ function annotationPanelLines(
     comments.workIdPrefix, comments.linksEnabled);
   const panelWidth = Math.max(1, width);
   const title =
-    ` ${selected ? "▶ " : ""}Comment ${index + 1} · ${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle} `;
+    ` ${selected ? "▶ " : ""}${annotationThreadTitle(thread, index + 1)} · ${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle} `;
   const top = truncateToWidth(
     `╭${title}${"─".repeat(Math.max(0, panelWidth - visibleWidth(title) - 1))}`,
     panelWidth,
@@ -956,7 +956,9 @@ function annotationPanelLines(
     `${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle}`,
     scope,
     "",
-    ...commentLines(thread.body),
+    // A highlight has no body: it reads as one, with its tags, never as an empty comment.
+    ...(thread.body.trim() ? commentLines(thread.body)
+      : [`*Highlight${annotationTags(thread).length ? ` · ${annotationTags(thread).map(tag => `#${escapeGeneratedMarkdown(tag)}`).join(" ")}` : ""}*`]),
   ];
   if (placement === "unpositioned" || thread.resolvedTarget?.anchor.kind === "list-item" ||
     thread.currentResolution.passageResolution?.fragments.some(fragment => fragment.sources.some(source => source.resolvedTarget?.anchor.kind === "list-item"))) {
@@ -1023,6 +1025,16 @@ class DetailAnnotationPreview implements Component {
     let markdownLines = this.markdown.render(contentWidth);
     const activeThread = selectedAnnotationThread(this.state);
     const activeGroup=this.groups.find(group=>group.threads.includes(activeThread!));
+    // Every positioned passage is marked in its annotation's tone (ADR 0004, contract 6: a span decoration),
+    // a capped-dark background; the selected thread's passage is drawn over it in the selection style.
+    if (this.markdown.renderedFrame) {
+      for (const group of this.groups) {
+        if (group.placement !== "inline" || group === activeGroup) continue;
+        const thread = group.threads[0]!;
+        markdownLines = highlightPassageCells(markdownLines, annotationFrameCells(thread, this.markdown.renderedFrame, false,
+          this.state.historical||this.state.target?.kind==='resource', group.target), contentWidth, annotationMarkStyle(thread));
+      }
+    }
     if (activeThread && activeGroup?.placement==='inline' && this.markdown.renderedFrame) {
       markdownLines = highlightPassageCells(markdownLines,
         annotationFrameCells(activeThread, this.markdown.renderedFrame, false, this.state.historical||this.state.target?.kind==='resource',activeGroup.target), contentWidth);
@@ -1047,9 +1059,19 @@ class DetailAnnotationPreview implements Component {
       const region = this.state.previewRegions.regions.find((candidate) =>
         candidate.id === group.regionId
       );
-      if (!region?.disclosure?.expanded) continue;
       const insertionRow = Math.max(startRow + 1, endBoundary);
       const existing = insertions.get(insertionRow) ?? [];
+      if (!region?.disclosure?.expanded) {
+        // Folded, a thread with a body keeps a one-line margin card under its passage (a highlight needs none).
+        for (const thread of group.threads) {
+          const card = annotationMarginCard(thread);
+          if (!card) continue;
+          existing.push({regionId: `annotation-card:${thread.block.id}`, groupId: group.regionId,
+            lines: [`${annotationBorder("┆")} \x1b[2m${truncateToWidth(sanitizeDynamicText(card), Math.max(1, contentWidth - 2), "…")}${RESET_STYLE}`]});
+        }
+        if (existing.length) insertions.set(insertionRow, existing);
+        continue;
+      }
       for (const thread of group.threads) {
         existing.push({
           regionId: `annotation-thread:${thread.block.id}`, groupId: group.regionId,
@@ -1068,8 +1090,10 @@ class DetailAnnotationPreview implements Component {
     const panelRows = new Map<string, number>();
     for (let row = 0; row <= markdownLines.length; row += 1) {
       for (const panel of insertions.get(row) ?? []) {
-        panelRows.set(panel.regionId, lines.length);
-        if (!panelRows.has(panel.groupId)) panelRows.set(panel.groupId, lines.length);
+        if (!panel.regionId.startsWith("annotation-card:")) {
+          panelRows.set(panel.regionId, lines.length);
+          if (!panelRows.has(panel.groupId)) panelRows.set(panel.groupId, lines.length);
+        }
         for (const panelLine of panel.lines) {
           lines.push(`${" ".repeat(gutterWidth)}${panelLine}`);
           markdownRows.push(null);

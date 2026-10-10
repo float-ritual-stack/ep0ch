@@ -1,6 +1,7 @@
 import type { OutlinerClient } from "./client";
 import { blockAnnotationRepresentation } from "./annotation-representations";
 import { createTextQuoteAnchor } from "./annotations";
+import { findPassage, isMiss, missMessage } from "@ep0ch/outline-core/passage";
 import { markdownListItems } from "./markdown-structure";
 import { checklistItems } from "./checklist-items";
 import type { AnnotationBatchReceipt, AnnotationTarget, Block, BlockAuthor, BlockCommentInput,
@@ -23,6 +24,9 @@ export function blockCommentSelection(text: string, passage?: BlockCommentPassag
   if (passage.start !== undefined && (!Number.isSafeInteger(passage.start) || passage.start < 0)) {
     throw new Error("Comment start must be a non-negative UTF-16 source offset");
   }
+  if (passage.near !== undefined && (!Number.isSafeInteger(passage.near) || passage.near < 0)) {
+    throw new Error("Comment near must be a non-negative UTF-16 source offset");
+  }
   for (const key of ["prefix", "suffix", "itemId"] as const) {
     if (passage[key] !== undefined && typeof passage[key] !== "string") throw new Error(`Comment ${key} must be text`);
   }
@@ -34,19 +38,20 @@ export function blockCommentSelection(text: string, passage?: BlockCommentPassag
     lower = items[0]!.span.start; upper = items[0]!.span.end;
     descendants = markdownListItems(text).filter(child => child.parentStart === lower);
   }
-  const matches: number[] = [];
-  for (let start = text.indexOf(passage.quote, lower); start >= 0 && start + passage.quote.length <= upper;
-    start = text.indexOf(passage.quote, start + 1)) {
-    const end = start + passage.quote.length;
-    if (descendants.some(child => start < child.span.end && end > child.span.start)) continue;
-    if (passage.start !== undefined && start !== passage.start) continue;
-    if (passage.prefix !== undefined && !text.slice(0, start).endsWith(passage.prefix)) continue;
-    if (passage.suffix !== undefined && !text.slice(end).startsWith(passage.suffix)) continue;
-    matches.push(start);
-    if (matches.length > 1) break;
+  // The one quote lookup (outline-core passage.ts): found once in the range, with the context given, else why not.
+  const found = findPassage(text, passage.quote, {
+    lower, upper,
+    ...(passage.start === undefined ? {} : { start: passage.start }),
+    ...(passage.near === undefined ? {} : { near: passage.near }),
+    ...(passage.prefix === undefined ? {} : { prefix: passage.prefix }),
+    ...(passage.suffix === undefined ? {} : { suffix: passage.suffix }),
+    exclude: (start, end) => descendants.some(child => start < child.span.end && end > child.span.start),
+  });
+  if (isMiss(found)) {
+    if (found.count > 1) throw new Error(`Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId (${missMessage(found)})`);
+    throw new Error(`Comment quote or context was not found; read the current source and select it again (${missMessage(found)})`);
   }
-  if (matches.length === 0) throw new Error("Comment quote or context was not found; read the current source and select it again");
-  if (matches.length > 1) throw new Error("Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId");
+  const matches = [found.start];
   return { anchor: createTextQuoteAnchor(text, matches[0]!, matches[0]! + passage.quote.length),
     ...(passage.itemId === undefined ? {} : { listItemId: passage.itemId }) };
 }
