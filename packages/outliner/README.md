@@ -723,9 +723,12 @@ client options are mutually exclusive; goto URLs accept Tree targeting only.
 
 ### Publishing blocks
 
-`outliner publish serve` gives published blocks a URL. It is a read-only client
-of the service (`blocks.query`, `pages.resolve`, `files.read` and the content
-event feed) and listens on `127.0.0.1` only; exposing it is Tailscale's job.
+`outliner publish serve` gives published blocks a URL, and on the tailnet it is
+also a light web client for the whole outline ([The whole outline on the
+tailnet](#the-whole-outline-on-the-tailnet)). It is a client of the service
+(`blocks.query`, `children`, `pages.resolve`, `files.read` and the content event
+feed) and listens on `127.0.0.1` only; exposing it is Tailscale's job. Its only
+writes are a tailnet page's highlights, comments, asks, replies and resolves.
 
 ```sh
 bun run cli publish serve --ws pie --port 8790 --base-path /pub [--root ~/writing]… [--max-bytes 1048576] [--allow-host NAME]… [--artifact-cache DIR] [--public-port 8791 --public-url https://HOST.ts.net:8443/share]
@@ -799,7 +802,9 @@ as a Jira ticket kept as a block) is left off a published page, in a subtree
 and in an embed, unless the block, a block above it or the embedding page opts
 in with `[publish.ext::jira]` (or `[publish.ext::all]`). Ticket blocks go
 wherever the outline goes; a client's ticket text never reaches a page by
-default. An embed of one shows "jira data, not published" in its place.
+default. An embed of one shows "jira data, not published" in its place. An extension's annotation
+(marginalia's highlight or definition) is a mark on the words, not a record, and
+is drawn like any other.
 
 `/` and `/index` list everything published like a little file system (title,
 URL, type, updated): HTML by default, plain text with `Accept: text/plain` or at
@@ -810,9 +815,11 @@ the attached file's modification time when that is later. The index says when an
 attachment is refused and why, but never shows an attachment's path; `publish
 list` shows it to you.
 
-**Safety.** The publisher serves only published blocks and only files attached
-to them. There is no query endpoint and no directory listing; any other path is
-`404`, and anything but `GET`/`HEAD` is `405`. An attachment is served only when:
+**Safety.** The publisher serves only files attached to published blocks; the
+public listener serves only public notes, and the tailnet listener every note
+not locked. There is no query endpoint and no directory listing; any other path
+is `404`, and anything but `GET`/`HEAD` is `405`, except a tailnet page's
+marginalia write (above). An attachment is served only when:
 
 - its authored path has no `..` segment;
 - its real path, with every symlink resolved, is inside an allowed root: the
@@ -832,7 +839,8 @@ denies reading a filesystem Source still applies), and a file that changed
 between the check and the read is refused with `409`. A refused attachment is
 never read: the block is published as text instead and the index says why.
 Pages the publisher renders carry a `Content-Security-Policy` that allows no
-script, and authored raw HTML in markdown is shown as text. An attached `.html`
+script (a tailnet page allows only the publisher's own reader script), and
+authored raw HTML in markdown is shown as text. An attached `.html`
 file, SVG, mermaid page and compiled React page are served sandboxed
 (`Content-Security-Policy: sandbox allow-scripts allow-popups
 allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads`, without
@@ -849,6 +857,41 @@ clears the cached index, which is otherwise at most five seconds old.
 Anyone who can write to the outline can publish: an agent that adds
 `[publish::true]` publishes that block. The publisher is built for a tailnet,
 where every reader is already trusted.
+
+#### The whole outline on the tailnet
+
+On the tailnet listener every note is a page, published or not (PIE-782): "outline as a file system, served;
+folders can also have notes". Being on the tailnet is the sign-in: there are no accounts and no tokens. The public
+listener is untouched (below): read-only, marked notes only.
+
+- **Addresses.** `/p/<address>`, where the address is a note's published slug, else its page name
+  (`/p/Field%20Notes` for `[page::Field Notes]`), else its id. `/` in a browser is the outline's top level; on
+  float-2 that's `https://float-2.<tailnet>.ts.net/pub/`, and `https://my.ep0ch.sh/p/<id>` redirects there. An
+  agent that names a note can give that link.
+- **A page is a folder that is also a file** (PIE-775): breadcrumbs up to the outline, the note's own text (the
+  file), then its children as links (the folder), each with its title, a summary line (its first line of text), how
+  many notes it holds, when it changed and its first properties. A `[publish::never]` child is a "locked note" row
+  with no link, and the lock wins on its own address too. Annotations are drawn on their words, never listed.
+  `?view=full` is the whole subtree on one page, as a published page always was; `?view=md` is the Markdown. A
+  browser (`Accept: text/html`) gets the page at `/p/<address>`; anything else (curl, an agent) gets the Markdown, as
+  before.
+- **Marginalia on the page** (PIE-774). Select words: a toolbar along the bottom offers Highlight, Comment, Ask
+  (`@margin`), Copy (the words as a Blockdown quote with a `((reference))` and the page's link), and the outline's
+  other passage actions (Explain, Define). Comment and Ask open a sheet to write in; a refusal keeps the text and says
+  why. Threads are cards beside the text when the window is wide and under their passage when it's narrow, with Reply
+  and Resolve; a bare highlight opens its card when its words are tapped. "Comment on this note" comments on the whole
+  note. An answer appears when it lands (the page waits on the threads route for the next change).
+- **Every write goes through the service's own paths**, the door's: a comment or ask is `annotations.batch` (a
+  `block-comment` on the exact passage: block, revision, quote, prefix, suffix, found once in the note's source or
+  refused with why), a highlight is the extension's passage action (`extensions.act`), a reply `annotations.reply`, a
+  resolve `annotations.lifecycle`. They're the person's (`author: user`), as the door writes his, so the door, Detail
+  and agents see the same threads. Words that can't be placed still land, on the whole note, quoted.
+- **What guards the writes.** The routes are `<base>/_marginalia/threads` (GET) and `<base>/_marginalia/write`
+  (POST) on the tailnet listener only. A write must name this host in its `Origin` and be sent as JSON, so a page on
+  another site can't post one; the `Host` rule below still applies. The page runs one script, the publisher's own
+  (`<base>/_marginalia/reader.js`, `script-src 'self'`, `connect-src 'self'`), and a note's text can't add another:
+  authored HTML is shown as text.
+- **Dark and phone first:** a reading measure, targets a thumb can hit, no animation and nothing light or flashing.
 
 #### Anyone with the link
 

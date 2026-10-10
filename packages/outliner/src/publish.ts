@@ -339,6 +339,7 @@ ul.kids .s{display:block;color:#c9c7bf;font-size:15px;line-height:1.45;margin-to
 ul.kids .m{display:block;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);margin-top:.2rem;overflow-wrap:anywhere}
 ul.kids li.locked{padding:.75rem .35rem;color:var(--dim);font-style:italic}
 ::selection{background:#3b4250;color:inherit}
+main.browse [hidden],.mg-ui[hidden]{display:none!important}
 .mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
 .mg-ui button{font:15px/1 ui-sans-serif,system-ui,sans-serif;min-height:44px;min-width:44px;padding:0 .9rem;border-radius:.5rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer;flex:none}
 .mg-ui button:active{background:#2c2c2a}

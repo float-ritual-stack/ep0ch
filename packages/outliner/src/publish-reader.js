@@ -103,7 +103,10 @@
       if (writing) return;
       const now = readSelection();
       if (now) { selected = now; showBar(); }
-      else if (!bar.hidden) setTimeout(() => { if (!readSelection() && !writing) hideBar(); }, 400);
+      else {
+        if (!bar.hidden) setTimeout(() => { if (!readSelection() && !writing) hideBar(); }, 400);
+        if (behind) catchUp();
+      }
     }, 150);
   });
 
@@ -117,6 +120,14 @@
     bar.hidden = !choices.length;
   }
   function hideBar() { bar.hidden = true; }
+
+  /** Done with these words: the selection goes, unless the reader has already selected others. */
+  function letGo(words) {
+    const now = readSelection();
+    if (now && now.quote !== words.quote) return;
+    window.getSelection()?.removeAllRanges();
+    hideBar();
+  }
 
   // ---- Writing.
 
@@ -132,7 +143,8 @@
   }
 
   function choose(action) {
-    const words = selected;
+    // The selection as it is now (the last one seen, when pressing the button let it go).
+    const words = readSelection() || selected;
     if (!words) return;
     if (action === "copy") return copy(words);
     if (action === "comment" || action === "ask") return compose(action, words);
@@ -143,8 +155,7 @@
     writing = true;
     try {
       const answer = await send({ action, ...words, requestId: requestId() });
-      window.getSelection()?.removeAllRanges();
-      hideBar();
+      letGo(words);
       say(answer.said || "done");
     } catch (error) {
       say(error.message);
@@ -165,7 +176,7 @@
       sendButton.disabled = true;
       try {
         const answer = await send({ action, ...(words || { quote: "" }), body: input.value, requestId: id });
-        window.getSelection()?.removeAllRanges();
+        if (words) letGo(words);
         say(answer.said || "saved");
         close();
       } catch (error) {
@@ -317,6 +328,8 @@
     const response = await fetch(location.href, { headers: { accept: "text/html" }, cache: "no-store" });
     if (!response.ok) return;
     const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
+    // The reader selected words (or began writing) while it was on its way: it waits for them.
+    if (writing || readSelection()) { behind = true; return; }
     for (const part of ["article", "section.inside", "footer"]) {
       const now = main.querySelector(part), next = fresh.querySelector(`main ${part}`);
       if (now && next) now.replaceWith(document.adoptNode(next));
@@ -329,11 +342,14 @@
   /** Writing's over: draw what changed meanwhile, and read again at once. */
   function doneWriting() {
     writing = false;
-    if (behind) {
-      behind = false;
-      refresh().catch(() => {}).finally(draw);
-    }
+    if (behind && !readSelection()) catchUp();
     wake();
+  }
+
+  /** What changed while the reader had words selected or was writing, drawn now. */
+  function catchUp() {
+    behind = false;
+    refresh().catch(() => {}).finally(draw);
   }
 
   async function load(wait) {
@@ -348,8 +364,11 @@
     choices = data.choices || [];
     agent = data.agent || "";
     threads = data.threads || [];
+    // A selection made before the toolbar knew its choices gets them now.
+    if (first && readSelection()) { selected = readSelection(); showBar(); }
     if (!first && !changed) return false;
-    if (writing) { behind = true; return changed; }
+    // Never under the reader's hands: while words are selected or something is being written, the page waits.
+    if (writing || readSelection()) { behind = true; return changed; }
     if (changed) await refresh();
     draw();
     return changed;
