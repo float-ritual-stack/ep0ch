@@ -23,7 +23,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** `extensions.list` lists `resourceProviders`; the door, Detail and the service read `key::` lines with
   each outline's own.
 - Also in this change (wave 2's runtime, #379): `lastRun` on `extensions.list` entries.
-- Protocol 135 and schema 5: `ep0ch install --apply` on each machine migrates every outline at schema 4
+- Protocol 136 and schema 5: `ep0ch install --apply` on each machine migrates every outline at schema 4
   (`packages/outliner/scripts/migrations/0005-extension-providers.ts`: the provider checks opened, `jira` renamed
   `ext:jira`, nothing else changed) and restarts the host; update every client with it.
 

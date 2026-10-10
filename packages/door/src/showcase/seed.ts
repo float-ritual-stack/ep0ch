@@ -897,7 +897,7 @@ const TICKET_PAGE = "Rollout ticket [jira::ACME-12]\nOur own notes under the tic
 async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   const sourceId = await ticketSource(board);
   if (!ticketsConfig) {
-    for (const [key, t] of Object.entries(SHOWCASE_TICKETS)) await board.request("resources.intern", { input: { sourceId, address: { kind: "jira", entityId: t.id, key } } });
+    for (const [key, t] of Object.entries(SHOWCASE_TICKETS)) await board.request("resources.intern", { input: { sourceId, address: { kind: "ext:jira", entityId: t.id, key } } });
     return;
   }
   installTickets(ticketsConfig, SHOWCASE_TICKETS);
