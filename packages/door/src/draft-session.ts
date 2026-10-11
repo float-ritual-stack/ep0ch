@@ -742,6 +742,8 @@ export function commentTarget(o: {
   /** Not sent, and why (said by the host at once, before the outcome reaches whoever asked). */
   refused?(why: string, stale: boolean): void;
   relocate?(): Promise<void>;
+  /** A quote's put-aside place names its passage too (`comment:<id>@<key>`): the composer alone's (src/compose.ts). */
+  passageKey?: string;
 }): DraftTarget {
   const w0 = o.where(), title = `“${subject(o.note).slice(0, 40)}”`;
   let confirmNew = false;
@@ -750,7 +752,7 @@ export function commentTarget(o: {
   const back = w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back";
   const label = `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`;
   return {
-    place: w0.kind === "quote" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
+    place: w0.kind === "quote" ? `comment:${o.note.id}${o.passageKey ? `@${o.passageKey}` : ""}` : `reply:${w0.thread.id}`, near: o.note.id,
     back, label,
     what: `the ${w0.kind === "quote" ? "comment" : "reply"} on ${title}`,
     verb: "send", leaveWrites: false,

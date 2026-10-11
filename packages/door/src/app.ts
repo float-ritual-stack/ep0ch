@@ -328,6 +328,8 @@ export interface Screen {
   reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
   /** No drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDrawer?: boolean;
+  /** No status bar either: the screen has every row (the composer alone, `ep0ch compose`, in a small terminal). */
+  bare?: boolean;
   /**
    * Where the host layer (the drawer) may appear over this screen, as its spec says (PIE-513, its policy's
    * `host`): `over` it (the default), `beside` it (the screen drawn shorter), or `none` (it keeps the whole screen).
@@ -1186,7 +1188,7 @@ export class App implements Ctx {
 
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
   private paintStatus(s: Screen) {
-    if (this.closed) return;
+    if (this.closed || s.bare) return;
     const { cols, rows } = this.term.info;
     if (!this.display.showRow(rows - 1, this.statusBar(s, cols))) this.redraw();
   }
@@ -1256,8 +1258,9 @@ export class App implements Ctx {
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
     const frame = s.render(this);
-    let lines = frame.lines.slice(0, rows - 1);
-    while (lines.length < rows - 1) lines.push("");
+    const room = s.bare ? rows : rows - 1;
+    let lines = frame.lines.slice(0, room);
+    while (lines.length < room) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
     if (this.drawer.shown) {
       const d = this.drawer.render(cols, rows, s.title);
@@ -1272,7 +1275,7 @@ export class App implements Ctx {
       placements = placements.filter(p => p.row >= r.row + r.rows || p.row + p.rows <= r.row || p.col >= r.col + r.cols || p.col + p.cols <= r.col);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
-    lines.push(this.statusBar(s, cols));
+    if (!s.bare) lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     this.display.show(lines, placements);
     this.schedulePublish();

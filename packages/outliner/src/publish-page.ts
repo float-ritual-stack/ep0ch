@@ -84,6 +84,8 @@ export interface PageReply {
 /** One block's open thread as the page's script reads it. */
 export interface PageThread {
   id: string;
+  /** The block it's on (a mark on a card's words: that mark's), so a reply knows where it's written. */
+  on: string;
   /** The words it's on (empty for a whole-note comment). */
   quote: string;
   kind: string;
@@ -170,6 +172,11 @@ export interface PageHost {
   linkable(ids: readonly string[], share?: PageShare): Promise<PageQuote[]>;
   /** The outline's notes by words (the service's search), none locked or outside the share. */
   find(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]>;
+  /**
+   * The door's composer page (`<base>/door/compose`, publish-door.ts) when this publisher serves it: a page's comment
+   * box can be it (spike, Oct 11). Never below a share.
+   */
+  composer?(): string | null;
   log(line: string): void;
 }
 
@@ -246,6 +253,10 @@ export class PageMarginalia {
       if (request.method !== "POST") return refused(405, "use POST");
       return this.view(request, share?.base ?? this.host.basePath, share);
     }
+    if (route === "/place" && !share && this.host.composer?.()) {
+      if (request.method !== "POST") return refused(405, "use POST");
+      return this.place(request);
+    }
     return refused(404, "not here");
   }
 
@@ -295,6 +306,26 @@ export class PageMarginalia {
       ...(fold && typeof fold.blockId === "string" && onPage.has(fold.blockId) ? { fold: { blockId: fold.blockId, open: fold.open === true } } : {}),
     });
     return json(200, { ok: true, ...(answer && typeof answer === "object" ? answer : {}) });
+  }
+
+  /**
+   * Where words selected on the page are in the outline, for the door's composer (spike, Oct 11): the note and its
+   * exact source words, nearest where they are (`/door/compose?on=…&quote=…&near=…`), mapped as a comment's are
+   * (publish-passage.ts), or why not. Writes nothing.
+   */
+  private async place(request: Request): Promise<Response> {
+    if (!sameOrigin(request)) return refused(403, "a page says what's on it itself");
+    if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
+    const raw = await request.text();
+    if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
+    let input: { page?: unknown; view?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown };
+    try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
+    const text = (value: unknown) => typeof value === "string" ? value : "";
+    const view = await this.host.view(text(input.page), text(input.view) === "full");
+    if (!view) return refused(404, "this note isn't here now (moved to Trash, or locked)");
+    const found = findDrawnPassage(view.blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
+    if (!found.ok) return refused(422, found.why);
+    return json(200, { ok: true, on: found.block.id, quote: found.passage.quote, near: found.passage.start, composer: this.host.composer!() });
   }
 
   private extensionList(): Promise<ExtensionsListResult> {
@@ -384,12 +415,14 @@ export class PageMarginalia {
       : [];
     const quotes = (record: AnnotationRecord): PageQuote[] => (record.quotedIn ?? []).map((id) => { quoted.push(id); return { id, title: "", href: null }; });
     const anchor = thread.resolvedTarget?.anchor;
+    const subject = thread.resolvedTarget?.representation.subject ?? thread.originalTarget.representation.subject;
     const properties = thread.properties ?? {};
     // A reply marked [publish::never] stays off the page, as a locked note does.
     const replies = await Promise.all(thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
       .map(async (reply): Promise<PageReply> => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply) })));
     return {
       id: thread.block.id,
+      on: subject.kind === "block" ? subject.blockId : "",
       quote: anchor?.kind === "text-quote" ? anchor.exact : "",
       kind: annotationKind(properties, thread.body),
       tone: annotationTone(properties),
@@ -475,7 +508,8 @@ export class PageMarginalia {
         ...(kit.agent ? [{ action: "explain", label: "Explain" }] : []),
         ...kit.actions.filter((action) => action.id !== "highlight").map((action) => ({ action: action.id, label: action.label })),
       ];
-      Object.assign(body, { ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view, share) });
+      const composer = share ? null : this.host.composer?.() ?? null;
+      Object.assign(body, { ...(kit.agent ? { agent: kit.agent } : {}), ...(composer ? { composer } : {}), choices, threads: await this.pageThreads(view, share) });
     }
     const drawn = JSON.stringify([view.blocks.map((block) => `${block.id}:${block.revision}`), view.listed ?? [], body]);
     return { version: new Bun.CryptoHasher("sha256").update(drawn).digest("hex").slice(0, 16), ...body };

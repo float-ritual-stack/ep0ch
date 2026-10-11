@@ -12,6 +12,11 @@ const grid = () => document.getElementById("grid-door");
 const term = document.getElementById("term");
 const status = document.getElementById("status");
 const showStats = new URLSearchParams(location.search).has("stats");
+// A composer page (`/door/compose`): framed by a note's page as its comment box, which is told when the composer is
+// up (its first frame) and when it ends (its exit code: 0 sent, 3 closed unsent, 2 refused), on this origin only.
+const compose = body.hasAttribute("data-compose");
+const tell = (what) => { if (compose && parent !== window) parent.postMessage({ ep0ch: "compose", t: id, ...what }, location.origin); };
+let told = false;
 
 // The terminal this page was given: each page (and each reload) is a terminal of its own; the last one ends on its own.
 const id = body.dataset.t;
@@ -233,9 +238,11 @@ function apply(msg) {
   } else if (msg.t === "exit") {
     ended = true;
     source?.close();
-    status.textContent = "the door ended · reload to call again";
+    status.textContent = compose ? (msg.code === 0 ? "sent" : "closed") : "the door ended · reload to call again";
+    tell({ exit: msg.code });
     return;
   }
+  if (compose && !told && /ctrl\+s|can't write/.test(grid().textContent || "")) { told = true; tell({ ready: performance.now() }); }
   if (pendingKey) { latency.push(performance.now() - pendingKey); pendingKey = 0; }
   if (showStats) {
     const sorted = [...latency].sort((a, b) => a - b);
@@ -259,7 +266,7 @@ function connect() {
   // A refused reconnect (signed out, the terminal gone) closes it for good: say so rather than "reconnecting" forever.
   es.onerror = () => {
     if (ended) return;
-    if (es.readyState === EventSource.CLOSED) status.textContent = "disconnected (signed out, or the terminal ended) · reload";
+    if (es.readyState === EventSource.CLOSED) { status.textContent = "disconnected (signed out, or the terminal ended) · reload"; tell({ lost: true }); }
     else if (!showStats) status.textContent = "reconnecting…";
   };
   es.onopen = () => { if (!showStats) status.textContent = ""; fitSoon(); };

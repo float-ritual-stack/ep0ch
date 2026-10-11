@@ -17,6 +17,9 @@
 // reads (EP0CH_KITTY=0, EP0CH_SIZED=0): figures draw as cells, titles at one height.
 //
 //   <base>/door?open=<block id>   the page: a full-viewport terminal opening that note in the door's detail screen
+//   <base>/door/compose?on=<block id>&quote=<words>[&near=<offset>] | &reply=<thread id>
+//                                 the comment composer alone (`ep0ch compose`, spike Oct 11): a small terminal a note's
+//                                 page frames as its comment box; when it ends, the page is told its exit code
 //   <base>/door/stream?t=<id>     SSE: ptyZZZ's frames for terminal <id>, started on first connect
 //   <base>/door/input?t=<id>      POST: ptyZZZ commands (JSONL) for terminal <id>
 //   <base>/door/stats             JSON: each terminal's frames and bytes (the spike's measurements)
@@ -42,6 +45,8 @@ export interface WebDoorOptions {
   ptyzzz: string;
   /** What runs in a page's pty: the door attached to the outline's session, opening `open` when given. */
   command: (open: string | undefined) => string[];
+  /** What runs in a composer page's pty (`ep0ch compose`): absent, there's no `/door/compose`. */
+  compose?: (on: ComposeOn) => string[];
   /** The environment it runs in (default: this process's). */
   env?: Record<string, string | undefined>;
   /** At most this many terminals at once (default 4). */
@@ -84,6 +89,11 @@ const STILL_SIGNED_IN_MS = 30_000;
  * Who a request comes from: the tailnet, or one web session at the signed-in origin, with how to ask whether that
  * session is still live (a stream outlasts the request its gate checked).
  */
+/** What a composer page writes: a comment on a note's exact words (nearest `near`), or a reply to a thread. */
+export interface ComposeOn { on: string; quote?: string; near?: number; reply?: string }
+/** The longest quote a composer page takes (a page's selection is capped at 2,000 characters too). */
+const MAX_QUOTE = 2000;
+
 export interface DoorCaller {
   owner: string;
   stillSignedIn?: () => Promise<boolean>;
@@ -92,8 +102,11 @@ export const TAILNET_CALLER: DoorCaller = { owner: "tailnet" };
 
 export class WebDoor {
   private readonly terminals = new Map<string, Terminal>();
-  /** Terminal ids handed to pages, not yet started, with whom: only these can start one (another site can't read a page's). */
-  private readonly issued = new Map<string, { at: number; owner: string }>();
+  /**
+   * Terminal ids handed to pages, not yet started, with whom and what they run: only these can start one (another site
+   * can't read a page's), and only what the page was given for.
+   */
+  private readonly issued = new Map<string, { at: number; owner: string; argv: string[] }>();
   private readonly binary: string;
   private readonly log: (line: string) => void;
 
@@ -109,7 +122,13 @@ export class WebDoor {
     if (!sameOrigin(request)) return text("Cross-site requests are refused\n", 403);
     if (request.method === "GET" && (path === "/door" || path === "/door/")) {
       const open = url.searchParams.get("open") ?? "";
-      return page(base, this.issue(caller.owner), BLOCK_ID.test(open) ? open : undefined);
+      const at = BLOCK_ID.test(open) ? open : undefined;
+      return page(base, this.issue(caller.owner, this.options.command(at)), at);
+    }
+    if (request.method === "GET" && (path === "/door/compose" || path === "/door/compose/") && this.options.compose) {
+      const on = composeOn(url.searchParams);
+      if ("error" in on) return text(`${on.error}\n`, 400);
+      return page(base, this.issue(caller.owner, this.options.compose(on)), undefined, true);
     }
     if (request.method === "GET" && path === "/door/door.js") return asset(PAGE_SCRIPT, "text/javascript; charset=utf-8");
     if (request.method === "GET" && path === "/door/client.js") return asset(CLIENT_SCRIPT, "text/javascript; charset=utf-8");
@@ -124,14 +143,14 @@ export class WebDoor {
     const id = url.searchParams.get("t") ?? "";
     if (!TERMINAL_ID.test(id)) return text("Not found\n", 404);
     if (request.method === "GET" && path === "/door/stream") {
-      const open = url.searchParams.get("open") ?? "";
       const size = { cols: clamp(Number(url.searchParams.get("cols")), 20, 400, 80), rows: clamp(Number(url.searchParams.get("rows")), 5, 200, 24) };
       const running = this.terminals.get(id);
       if (running && running.owner !== caller.owner) return text("No such terminal; reload the page\n", 404);
       if (running?.closing) return text("That terminal ended; reload the page\n", 404);
       if (running && running.watchers.size >= MAX_WATCHERS) return text("Too many streams on that terminal\n", 503);
-      if (!running && !this.claim(id, caller.owner)) return text("No such terminal; reload the page\n", 404);
-      const term = running ?? this.start(id, caller.owner, BLOCK_ID.test(open) ? open : undefined, size);
+      const argv = running ? null : this.claim(id, caller.owner);
+      if (!running && !argv) return text("No such terminal; reload the page\n", 404);
+      const term = running ?? this.start(id, caller.owner, argv!, size);
       if (!term) return text(`Too many door terminals open (${this.options.max ?? 4}); close one\n`, 503);
       return this.stream(term, request.signal, caller.stillSignedIn);
     }
@@ -160,6 +179,9 @@ export class WebDoor {
     return text("Not found\n", 404);
   }
 
+  /** Whether it serves the composer alone (`/door/compose`), a note page's comment box. */
+  get composes(): boolean { return !!this.options.compose; }
+
   /** Every terminal's frames and bytes so far. */
   stats() {
     const now = Date.now();
@@ -171,35 +193,35 @@ export class WebDoor {
     await Promise.all([...this.terminals.values()].map(t => this.end(t, true)));
   }
 
-  /** A fresh terminal id for a page, remembered (with whom it went to) until its stream starts the terminal. */
-  private issue(owner: string): string {
+  /** A fresh terminal id for a page, remembered (with whom it went to and what it runs) until its stream starts the terminal. */
+  private issue(owner: string, argv: string[]): string {
     const now = Date.now();
     for (const [id, { at }] of this.issued) if (now - at > ISSUED_MS) this.issued.delete(id);
     if (this.issued.size >= 64) this.issued.delete(this.issued.keys().next().value!);
     const id = Buffer.from(crypto.getRandomValues(new Uint8Array(18))).toString("base64url");
-    this.issued.set(id, { at: now, owner });
+    this.issued.set(id, { at: now, owner, argv });
     return id;
   }
 
-  /** An issued id, used up: only by whom it was issued to, within ISSUED_MS. */
-  private claim(id: string, owner: string): boolean {
+  /** An issued id, used up: only by whom it was issued to, within ISSUED_MS. What it runs, or null. */
+  private claim(id: string, owner: string): string[] | null {
     const issued = this.issued.get(id);
-    if (!issued || issued.owner !== owner || Date.now() - issued.at > ISSUED_MS) return false;
+    if (!issued || issued.owner !== owner || Date.now() - issued.at > ISSUED_MS) return null;
     this.issued.delete(id);
-    return true;
+    return issued.argv;
   }
 
-  private start(id: string, owner: string, open: string | undefined, size: { cols: number; rows: number }): Terminal | null {
+  private start(id: string, owner: string, argv: string[], size: { cols: number; rows: number }): Terminal | null {
     if (this.terminals.size >= (this.options.max ?? 4)) return null;
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.options.env ?? process.env)) if (v !== undefined && !DROPPED.includes(k)) env[k] = v;
     Object.assign(env, { TERM: "xterm-256color", COLORTERM: "truecolor", EP0CH_KITTY: "0", EP0CH_SIZED: "0" });
-    const proc = Bun.spawn([this.binary, "run", "--die-with-parent", "--target", "grid-door", "--scrollback", "0", "--cols", String(size.cols), "--rows", String(size.rows), "--", ...this.options.command(open)], {
+    const proc = Bun.spawn([this.binary, "run", "--die-with-parent", "--target", "grid-door", "--scrollback", "0", "--cols", String(size.cols), "--rows", String(size.rows), "--", ...argv], {
       stdin: "pipe", stdout: "pipe", stderr: "ignore", env,
     });
     const term: Terminal = { id, owner, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
     this.terminals.set(id, term);
-    this.log(`door: terminal ${id.slice(0, 6)} started (pid ${proc.pid}${open ? `, opening ${open}` : ""})`);
+    this.log(`door: terminal ${id.slice(0, 6)} started (pid ${proc.pid}: ${argv.slice(2).join(" ").slice(0, 80)})`);
     void this.read(term);
     void proc.exited.then(code => {
       this.terminals.delete(id);
@@ -296,6 +318,21 @@ function sameOrigin(request: Request): boolean {
   return request.method === "GET" || !!site;
 }
 
+/** A composer page's query: the note, and its exact words (nearest `near`) or the thread replied to. */
+export function composeOn(q: URLSearchParams): ComposeOn | { error: string } {
+  const on = q.get("on") ?? "", reply = q.get("reply"), quote = q.get("quote"), near = q.get("near");
+  if (!BLOCK_ID.test(on)) return { error: "on= names the note (its block id)" };
+  if (reply !== null) {
+    if (!BLOCK_ID.test(reply)) return { error: "reply= names the thread (its id)" };
+    if (quote !== null) return { error: "quote= comments on words, reply= answers a thread: one of them" };
+    return { on, reply };
+  }
+  if (quote !== null && (!quote.trim() || quote.length > MAX_QUOTE || quote.includes("\0"))) return { error: `quote= is the note's exact words, at most ${MAX_QUOTE} characters` };
+  const n = near === null ? undefined : Number(near);
+  if (n !== undefined && (!Number.isInteger(n) || n < 0)) return { error: "near= is an offset in the note's text" };
+  return { on, ...(quote !== null ? { quote } : {}), ...(n !== undefined ? { near: n } : {}) };
+}
+
 function clamp(n: number, lo: number, hi: number, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.max(lo, Math.min(hi, Math.floor(n))) : fallback;
 }
@@ -307,8 +344,10 @@ const asset = (body: string, type: string) => new Response(body, { headers: { ..
 
 /** The page runs only its own scripts from this origin; ptyZZZ's rows carry inline styles (colours), so styles may be inline. */
 const DOOR_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/** A composer page is framed by a note's page on the same origin, and only there. */
+const COMPOSE_CSP = DOOR_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 
-function page(base: string, terminal: string, open: string | undefined): Response {
+function page(base: string, terminal: string, open: string | undefined, compose = false): Response {
   const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -316,18 +355,23 @@ function page(base: string, terminal: string, open: string | undefined): Respons
 <meta name="color-scheme" content="dark"><title>ep0ch door</title>
 <style>${PAGE_STYLE.replaceAll("__BASE__", attr(base))}</style>
 <script type="module" src="${attr(`${base}/door/door.js`)}"></script></head>
-<body data-base="${attr(base)}" data-t="${attr(terminal)}"${open ? ` data-open="${attr(open)}"` : ""}>
+<body data-base="${attr(base)}" data-t="${attr(terminal)}"${open ? ` data-open="${attr(open)}"` : ""}${compose ? ` data-compose` : ""}>
 <div id="term" class="pane" data-pane="door"><div class="scroll"><div id="grid-door">connecting…</div></div></div>
-<div id="bar" role="toolbar" aria-label="keys">
+${compose ? COMPOSE_BAR : `<div id="bar" role="toolbar" aria-label="keys">
 <button data-key="Escape">esc</button><button data-key="Tab">tab</button><button data-mod="4" aria-pressed="false">ctrl</button><button data-mod="2" aria-pressed="false">alt</button>
 <button data-key="ArrowLeft" aria-label="left">←</button><button data-key="ArrowUp" aria-label="up">↑</button><button data-key="ArrowDown" aria-label="down">↓</button><button data-key="ArrowRight" aria-label="right">→</button>
 <button data-key="k" data-mods="4">^K</button><button data-key="s" data-mods="4">^S</button><button data-key="w" data-mods="4">^W</button><button data-key="n" data-mods="4">^N</button>
 <button data-font="-1" aria-label="smaller">A−</button><button data-font="1" aria-label="bigger">A+</button><button data-kbd aria-label="keyboard">⌨</button>
-<span id="status"></span></div>
+<span id="status"></span></div>`}
 </body></html>
 `;
-  return new Response(html, { headers: { ...COMMON, "content-type": "text/html; charset=utf-8", "content-security-policy": DOOR_CSP } });
+  return new Response(html, { headers: { ...COMMON, "content-type": "text/html; charset=utf-8", "content-security-policy": compose ? COMPOSE_CSP : DOOR_CSP } });
 }
+
+/** A composer's keys a phone lacks: esc, tab, a sticky ctrl, ctrl+s (send); shown on a phone only (COMPOSE_STYLE). */
+const COMPOSE_BAR = `<div id="bar" role="toolbar" aria-label="keys">
+<button data-key="Escape">esc</button><button data-key="Tab">tab</button><button data-mod="4" aria-pressed="false">ctrl</button><button data-key="s" data-mods="4">^S send</button>
+<button data-kbd aria-label="keyboard">⌨</button><span id="status"></span></div>`;
 
 // The terminal's palette is the door's own dark one; never a white flash: the page is dark before anything loads. The
 // toolbar shows on a desktop too, smaller: a browser keeps ctrl+w, ctrl+n and ctrl+t for itself, whatever the page asks.
@@ -358,4 +402,6 @@ background:var(--term-fg);mix-blend-mode:difference;opacity:.8}
 #bar button[aria-pressed="true"]{background:#3a3a20;border-color:#77773a}
 #status{align-self:center;color:#77776e;margin-left:auto;padding:0 6px}
 @media (pointer:fine){#bar button{min-height:26px;min-width:32px}}
+body[data-compose] #bar{padding:2px 4px}
+@media (pointer:fine){body[data-compose] #bar button{display:none}}
 `;
