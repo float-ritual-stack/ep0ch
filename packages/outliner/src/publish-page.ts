@@ -23,6 +23,7 @@ import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-m
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { plainBody } from "./publish-marginalia";
+import { stripPropertyTokens } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, BlockProperty } from "./types";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
@@ -81,7 +82,11 @@ export interface PageShare {
   base: string;
   scope: ShareSession["scope"];
   comments: boolean;
+  /** Whether the link still opens its session now: asked again right before a write lands, and after a long poll. */
+  active(): Promise<boolean>;
 }
+
+const ended = () => refused(410, "this link has ended");
 
 /** What the routes ask of the publisher. */
 export interface PageHost {
@@ -92,6 +97,8 @@ export interface PageHost {
    * (with `share`) it's outside the share.
    */
   view(page: string, full: boolean, share?: PageShare): Promise<PageView | undefined>;
+  /** The tailnet listener's base path (`/pub`): its pages' addresses are below it. */
+  readonly basePath: string;
   /** Says what a reader has in front of them now (`reader.report`). */
   report(view: Record<string, unknown>): Promise<unknown>;
   /** Whether a block's own properties lock it (`[publish::never]`). */
@@ -145,8 +152,8 @@ export class PageMarginalia {
     if (route === "/reader.js") {
       if (request.method !== "GET" && request.method !== "HEAD") return refused(405, "read-only");
       return new Response(READER_SCRIPT, { headers: {
-        // Below a share's link the path holds its secret: no shared cache keeps it.
-        "content-type": "text/javascript; charset=utf-8", "cache-control": `${share ? "private" : "public"}, max-age=86400, immutable`,
+        // Below a share's link the path holds its secret: nothing keeps it.
+        "content-type": "text/javascript; charset=utf-8", "cache-control": share ? "no-store" : "public, max-age=86400, immutable",
         "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cross-origin-resource-policy": "same-origin",
       } });
     }
@@ -160,17 +167,19 @@ export class PageMarginalia {
     }
     if (route === "/view") {
       if (request.method !== "POST") return refused(405, "use POST");
-      return this.view(request, share);
+      return this.view(request, share?.base ?? this.host.basePath, share);
     }
     return refused(404, "not here");
   }
 
   /**
    * What the reader has in front of them (presence, `reader.report`): the page's note, its title and address, and the
-   * words selected with the drawn text either side, placed in the note row they're in when they can be. A share's
-   * address is said without its secret.
+   * words selected with the drawn text either side, placed in the note row they're in when they can be. The title is
+   * the note's own and the address must be this page's, so a page can't put other words in an agent's read. A share's
+   * address is said without its secret, and its reader's selection only when it is found in the note (a share's
+   * reader may be anyone with the link: what an agent reads back is the outline's own text).
    */
-  private async view(request: Request, share?: PageShare): Promise<Response> {
+  private async view(request: Request, base: string, share?: PageShare): Promise<Response> {
     if (!sameOrigin(request)) return refused(403, "a page says what's on it itself");
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();
@@ -182,9 +191,18 @@ export class PageMarginalia {
     if (!view) return refused(404, "no such note here");
     const quote = text(input.quote).trim();
     const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    const placed = !!found?.ok || (!share && !!quote);
+    if (share && !(await share.active())) return ended();
+    const title = plainBody(stripPropertyTokens(view.root.text.split("\n")[0] ?? "")).replace(/^\s*#{1,6}\s+/, "").trim();
+    // The page's own address (on this host, below this listener's or this share's base), else the note's path.
+    let url = `${base}/p/${view.root.id}`;
+    try {
+      const given = new URL(text(input.url));
+      if (given.host === (request.headers.get("host") ?? new URL(request.url).host) && given.pathname.startsWith(`${base}/`)) url = given.href;
+    } catch { /* the note's path */ }
     await this.host.report({
-      reader: share ? `share:${share.id}` : "tailnet", blockId: view.root.id, title: text(input.title), url: text(input.url).replace(/\/s\/[^/?#]+/, "/s/…"),
-      ...(quote ? { selection: { text: quote, before: text(input.prefix), after: text(input.suffix), ...(found?.ok ? { blockId: found.block.id } : {}) } } : {}),
+      reader: share ? `share:${share.id}` : "tailnet", blockId: view.root.id, title, url: url.replace(/\/s\/[^/?#]+/, "/s/…"),
+      ...(placed ? { selection: { text: quote, before: text(input.prefix), after: text(input.suffix), ...(found?.ok ? { blockId: found.block.id } : {}) } } : {}),
     });
     return json(200, { ok: true });
   }
@@ -274,6 +292,7 @@ export class PageMarginalia {
       await this.host.changed(since, Math.min(Number(url.searchParams.get("wait")) || MAX_POLL_MS, MAX_POLL_MS));
     }
     const generation = this.host.generation();
+    if (share && !(await share.active())) return ended();
     const view = await this.host.view(page, url.searchParams.get("view") === "full", share);
     if (!view) return refused(404, "no such note here");
     // A share without comments is a reading copy: no threads, and Copy alone.
@@ -304,6 +323,8 @@ export class PageMarginalia {
     const view = await this.host.view(text(input.page), text(input.view) === "full", share);
     if (!view) return refused(404, "this note isn't here now (moved to Trash, or locked)");
     const said = (status: number, body: Record<string, unknown>) => json(status, { ...body, generation: this.host.generation() });
+    // The link may have ended while the body was on its way: asked again just before anything lands.
+    if (share && !(await share.active())) return ended();
     try {
       if (action === "reply" || action === "resolve" || action === "read") {
         const thread = text(input.thread);

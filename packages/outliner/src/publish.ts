@@ -580,6 +580,7 @@ export class Publisher {
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full, share) => this.view(page, full, share),
       report: (view) => this.client.request({ action: "reader.report", view }),
+      basePath: this.basePath,
       locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,
       changed: (since, ms) => this.changed(since, ms),
@@ -862,7 +863,7 @@ export class Publisher {
       try {
         return await this.answerShare(request, shared[1]!, shared[2] ?? "/");
       } catch (error) {
-        this.log(`publish: ${request.method} ${redactSharePath(path)}: ${error instanceof Error ? error.message : String(error)}`);
+        this.log(redactSharePath(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
         return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
       }
     }
@@ -933,7 +934,10 @@ export class Publisher {
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
     if (found.status === "ended") return shareGone(found.state);
-    const share: PageShare = { id: found.share.id, base: `${this.publicBase.basePath}/s/${token}`, scope: found.share.scope, comments: found.share.comments };
+    const share: PageShare = {
+      id: found.share.id, base: `${this.publicBase.basePath}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
+      active: async () => (await this.client.request<ShareResolution>({ action: "shares.resolve", token })).status === "active",
+    };
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const index = await this.shareIndex(share);
