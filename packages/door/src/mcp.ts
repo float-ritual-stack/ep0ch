@@ -795,6 +795,8 @@ const shareToolDefinitions = (outline: Record<string, unknown>) => [
       whole: { type: "boolean", default: false, description: "Share the whole outline instead of one note" },
       ttl: { type: "string", default: "1h", description: "How long it lives: 30m, 1h, 2h30m (1m to 24h)" },
       comments: { type: "boolean", default: true, description: "Let the link's reader highlight, comment, ask and reply" },
+      via: { type: "string", enum: ["edge", "cloudflare"], default: "edge", description: "edge: the outline's own public host (one stable origin, https://pie.ep0ch.sh/s/…). cloudflare: a Cloudflare tunnel of its own on a random trycloudflare.com host, for sharing with someone else; with allowMail only they get in" },
+      allowMail: { type: "array", items: { type: "string" }, description: "via cloudflare: the emails (or @domains) that may sign in by one-time PIN; leave out for a public tunnel (the link's token still gates it)" },
       outline,
     }, additionalProperties: false },
   },
@@ -830,7 +832,10 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
     if (name === "share_start") {
       if (args.whole === true && args.ref !== undefined) return toolError("Give ref (one note) or whole: true (the whole outline), not both.");
       const ref = args.whole === true ? "outline" : typeof args.ref === "string" ? args.ref : undefined;
-      const started = await startShare(board, { ...(ref ? { ref } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}) }, { kind: "agent", id: actorOf(caller).actorId });
+      const started = await startShare(board, {
+        ...(ref ? { ref } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
+        ...(typeof args.via === "string" ? { via: args.via } : {}), ...(Array.isArray(args.allowMail) ? { allowMail: args.allowMail as string[] } : {}),
+      }, { kind: "agent", id: actorOf(caller).actorId });
       outlines.log?.(`mcp share_start: ${actorOf(caller).actorId} (${caller.sub}) ${started.share.id} ${started.share.scope.kind === "note" ? started.share.scope.blockId : "outline"} until ${started.share.expiresAt}`);
       return toolText({ ...started, said: [shareLine(started.share), started.said].filter(Boolean).join("\n") });
     }
@@ -841,7 +846,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
     if (args.all !== true && typeof args.id !== "string") return toolError("Give id (from share_list) or all: true.");
     const { revoked } = await revokeShares(board, args.all === true ? { all: true } : { id: args.id as string });
     outlines.log?.(`mcp share_revoke: ${actorOf(caller).actorId} (${caller.sub}) ${revoked.map(s => s.id).join(",") || "none"}`);
-    return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links answer 410 now` : "no share was open" });
+    return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links open nothing now (410 on the outline's host; a Cloudflare tunnel is stopped)` : "no share was open" });
   } catch (e) { return toolError((e as Error).message); }
 }
 

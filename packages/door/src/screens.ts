@@ -487,9 +487,14 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       ref: { type: "string", optional: true, about: "the note to share with its subtree (id, ((id)), [[page]], PIE-123), or outline for the whole outline; default: the note your web client shows now" },
       ttl: { type: "string", optional: true, about: "how long it lives: 30m, 1h (the default), 2h30m, up to 24h" },
       comments: { type: "boolean", optional: true, about: "false: a reading copy (no highlights, comments or asks); default true" },
+      via: { type: "string", optional: true, about: "edge (the default: the outline's public host) or cloudflare (a tunnel of its own, for sharing with someone else)" },
+      allowMail: { type: "string", optional: true, about: "via cloudflare: emails or @domains (comma-separated) that may sign in by one-time PIN; left out, the tunnel is public" },
     },
-    async run({ ref, ttl, comments }, { ctx }, actor) {
-      const started = await startShare(ctx.board, { ...(ref ? { ref } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}) }, actor);
+    async run({ ref, ttl, comments, via, allowMail }, { ctx }, actor) {
+      const started = await startShare(ctx.board, {
+        ...(ref ? { ref } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}),
+        ...(via ? { via } : {}), ...(allowMail ? { allowMail: allowMail.split(",") } : {}),
+      }, actor);
       const { share } = started;
       if (actor.kind === "user") {
         if (share.url) ctx.copy?.(share.url, "share link");
@@ -520,7 +525,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     async run({ id, all }, { ctx }) {
       if (!all && !id) throw new ActionRefused("name the share (id= from share.list) or all=true");
       const { revoked } = await revokeShares(ctx.board, all ? { all: true } : { id: id! });
-      ctx.flash(revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the link${revoked.length === 1 ? "" : "s"} answer 410 now` : "no share was open", 8000);
+      ctx.flash(revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the link${revoked.length === 1 ? "" : "s"} open nothing now` : "no share was open", 8000);
       return { revoked: revoked.map(s => s.id) };
     },
   }),

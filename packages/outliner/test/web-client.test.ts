@@ -213,6 +213,28 @@ test("Recent replies: a page of the replies on his threads, the unread marked, e
   expect((await get("/share/replies", browser, "public")).status).toBe(404);
 });
 
+test("through a share link too: Ask about this gets its answer in the margin, and the agent reads what's selected on either page", async () => {
+  await client.request({ action: "shares.start", scope: hub.id, ttl: "5m" });
+  const kept = JSON.parse(store.readMetadata("share_sessions")!) as { sessions: { token: string; state: string }[] };
+  const base = `/s/${kept.sessions.find((session) => session.state === "active")!.token}`;
+  const asked = await (await write({ page: survey.id, action: "ask", quote: "light trap", body: "how bright?", requestId: "share-ask-01" }, `https://${HOST}`, "public", base)).json();
+  expect(asked.ok).toBe(true);
+  await until("the margin's answer through the share", async () => {
+    const response = await get(`${base}/_marginalia/threads?page=${survey.id}`, {}, "public");
+    const listed = (await response.json()) as { threads: { id: string; replies: { by: string }[] }[] };
+    return listed.threads.find((thread) => thread.id === asked.thread && thread.replies.some((reply) => reply.by === "marginalia"));
+  });
+  // The tailnet page says what's selected; the agent reads it without opening anything.
+  const said = await publisher.handle(new Request(`http://${HOST}/pub/_marginalia/view`, {
+    method: "POST", headers: { host: HOST, origin: `https://${HOST}`, "content-type": "application/json" },
+    body: JSON.stringify({ page: survey.id, quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk.", url: `https://${HOST}/pub/p/${survey.id}` }),
+  }), "tailnet");
+  expect(said.status).toBe(200);
+  const seen = await client.request<{ view: { reader: string; title: string; selection?: { text: string } } }>({ action: "reader.view" });
+  expect(seen.view).toMatchObject({ reader: "tailnet", title: "Moth survey", selection: { text: "elephant hawk-moths" } });
+  await client.request({ action: "shares.revoke", all: true });
+});
+
 test("wide tables scroll sideways on the page instead of crushing their columns", async () => {
   const wide = store.create("Plot rota by week\n\n| week | bed 1 | bed 2 | bed 3 | bed 4 | bed 5 | bed 6 |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | dig | sow | water | weed | net | harvest |", hub.id, "user");
   const html = await page(`/pub/p/${wide.id}`);

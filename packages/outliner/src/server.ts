@@ -133,7 +133,7 @@ import {
   type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { ReaderPresence, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, type ShareResolution } from "./share-sessions";
+import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName } from "./machine-name";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
@@ -276,10 +276,14 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address",
 ]);
 
+/** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
+const TUNNEL_WAIT_MS = 45_000;
+
 /** A publisher's address as it registers (PIE-767): each URL a full http(s) URL (`publisherUrl`), or refused. */
 function normalizePublisherAddress(address: unknown): PublisherAddress {
   if (!address || typeof address !== "object") throw new Error("A client's publish address is an object: { url?, publicUrl? }");
   const out: PublisherAddress = {};
+  if ((address as Record<string, unknown>).tunnels === true) out.tunnels = true;
   for (const key of ["url", "publicUrl"] as const) {
     const value = (address as Record<string, unknown>)[key];
     if (value === undefined) continue;
@@ -320,6 +324,8 @@ export class OutlinerServer {
   private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
   /** What each reader of the web client has in front of them (presence, in memory). */
   private readonly readers = new ReaderPresence();
+  /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
+  private readonly tunnelWaits = new Map<string, () => void>();
   private extensionRuntime!: ResourceExtensionRuntime;
   private readonly holderAnswers = new Map<string, { clientId: string; resolve: (answer: DraftHolderAnswer) => void; reject: (error: Error) => void; timer: Timer }>();
   /** Holds whose door missed an answer's deadline and hasn't been heard from since: asked again, they fail at once. */
@@ -1911,7 +1917,7 @@ export class OutlinerServer {
     }
     if (request.action.startsWith("shares.") || request.action.startsWith("reader.")) {
       try {
-        return { id: request.id, ok: true, result: this.shareRequest(request), sequence: this.store.sequence };
+        return { id: request.id, ok: true, result: await this.shareRequest(request), sequence: this.store.sequence };
       } catch (error) {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
@@ -2362,6 +2368,7 @@ export class OutlinerServer {
         case "shares.list":
         case "shares.revoke":
         case "shares.resolve":
+        case "shares.tunnel":
         case "reader.report":
         case "reader.view":
         case "computed.execute":
@@ -3542,12 +3549,18 @@ export class OutlinerServer {
    * Share sessions and reader presence (share-sessions.ts). A share's link is made from the public listener's URL the
    * publisher gave; a scope must be a live note that isn't `[publish::never]` (or under one), or the whole outline.
    */
-  private shareRequest(request: OutlinerRequest): unknown {
+  private async shareRequest(request: OutlinerRequest): Promise<unknown> {
     const publicUrl = this.publisherAddress().publicUrl;
     switch (request.action) {
       case "shares.start": {
         if (request.comments !== undefined && typeof request.comments !== "boolean") throw new Error("comments is true or false");
         const ttlMs = shareTtlMs(request.ttl);
+        const via = shareVia(request.via);
+        const allowMail = shareAllowMail(request.allowMail);
+        if (allowMail.length && via !== "cloudflare") throw new Error("allowMail gates a Cloudflare tunnel: give via cloudflare with it (ep0ch share start <ref> --via cloudflare --allow-mail a@example.org)");
+        if (via === "cloudflare" && !this.tunnelPublisher()) {
+          throw new Error("no publisher with a public listener is connected to run the tunnel: start it with --public-port (systemctl --user restart outliner-publish), or share by the edge (leave out via)");
+        }
         const by = declaredRequester(request, "shares.start");
         const wanted = typeof request.scope === "string" && request.scope.trim() ? request.scope.trim() : this.readers.view("tailnet").view?.blockId;
         if (!wanted) throw new Error("name what to share: a note (ep0ch share start <ref>) or the whole outline (ep0ch share start outline)");
@@ -3565,7 +3578,20 @@ export class OutlinerServer {
           }
           scope = { kind: "note", blockId: block.id, title: blockDisplayTitle(block) };
         }
-        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you" });
+        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you", via, ...(allowMail.length ? { allowMail } : {}) });
+        this.sharesChanged();
+        if (via === "cloudflare") {
+          // The publisher starts the tunnel and says its host: the answer waits for it, so the caller gets the link.
+          await new Promise<void>((resolve) => {
+            if (this.shares.list(true).find((candidate) => candidate.id === session.id)?.tunnel?.state !== "starting") { resolve(); return; }
+            const timer = setTimeout(() => { this.tunnelWaits.delete(session.id); resolve(); }, TUNNEL_WAIT_MS);
+            this.tunnelWaits.set(session.id, () => { clearTimeout(timer); this.tunnelWaits.delete(session.id); resolve(); });
+          });
+          const now = this.shares.list(true).find((candidate) => candidate.id === session.id) ?? session;
+          if (now.tunnel?.state === "failed") throw new Error(`the tunnel didn't start: ${now.tunnel.error ?? "no reason given"}`);
+          const shown = shareOnWire(now, publicUrl);
+          return { share: shown, ...(shown.url ? {} : { said: "the tunnel is still starting: ep0ch share list shows its link once it is up" }) };
+        }
         const shown = shareOnWire(session, publicUrl);
         return { share: shown, ...(publicUrl ? {} : { said: "no public listener has said where it is opened, so there is no link yet: run the publisher with --public-port and --public-url (systemctl --user restart outliner-publish), then ep0ch share list" }) };
       }
@@ -3575,11 +3601,13 @@ export class OutlinerServer {
         if (request.all === true) {
           const ended = this.shares.revokeAll();
           for (const session of ended) this.readers.forget(`share:${session.id}`);
+          this.sharesChanged();
           return { revoked: ended.map((session) => shareOnWire(session, undefined)) };
         }
         if (typeof request.shareId !== "string" || !request.shareId.trim()) throw new Error("name the share to end (shareId, from ep0ch share list), or all: true for every one");
         const ended = this.shares.revoke(request.shareId.trim());
         this.readers.forget(`share:${ended.id}`);
+        this.sharesChanged();
         return { revoked: [shareOnWire(ended, undefined)] };
       }
       case "shares.resolve": {
@@ -3589,6 +3617,18 @@ export class OutlinerServer {
             : { status: "ended", state: found.state };
         return answer;
       }
+      case "shares.tunnel": {
+        if (typeof request.shareId !== "string") throw new Error("shares.tunnel names shareId");
+        const host = typeof request.host === "string" && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(request.host) ? request.host.toLowerCase() : undefined;
+        const error = typeof request.error === "string" ? request.error.slice(0, 500) : undefined;
+        if (!host && !error) throw new Error("shares.tunnel says host (it's up) or error (it failed)");
+        const kept = this.shares.setTunnel(request.shareId, error
+          ? { state: "failed", error }
+          : { state: "up", host: host!, ...(Number.isSafeInteger(request.pid) ? { pid: request.pid } : {}) });
+        if (kept && kept.state !== "active") this.sharesChanged();
+        this.tunnelWaits.get(request.shareId)?.();
+        return { share: kept ? shareOnWire(kept, publicUrl) : null };
+      }
       case "reader.report":
         if (!request.view || typeof request.view !== "object") throw new Error("reader.report takes view: { reader, blockId?, title, url, selection? }");
         return { view: this.readers.report(request.view) };
@@ -3597,6 +3637,17 @@ export class OutlinerServer {
       default:
         throw new Error(`Unsupported action: ${request.action}`);
     }
+  }
+
+  /** Whether a connected publisher runs tunnels for `cloudflare` shares. */
+  private tunnelPublisher(): boolean {
+    this.pruneDestroyedSubscribers();
+    return [...this.subscribers.values()].some((client) => client.publish?.tunnels);
+  }
+
+  /** Tells the publishers that shares started or ended (no ids or tokens): each reads `shares.list` and starts or stops its tunnels. */
+  private sharesChanged(): void {
+    this.broadcast({ id: crypto.randomUUID(), domain: "shares", action: "shares.changed", sequence: this.store.sequence });
   }
 
   /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */

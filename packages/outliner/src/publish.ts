@@ -7,6 +7,7 @@ import { Marked } from "marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import type { ShareResolution } from "./share-sessions";
+import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -144,6 +145,13 @@ export interface PublisherOptions {
    * `https://host.ts.net/pub`). The publisher tells the service, so `notes.address` can give a published note's web URL.
    */
   url?: string;
+  /**
+   * Where the public listener is reached from this machine (`http://127.0.0.1:8791`), when it has one: `cloudflare`
+   * shares' tunnels point there, and the publisher tells the service it runs them.
+   */
+  publicListener?: string;
+  /** cloudflared's path (tests give a fake); else EP0CH_CLOUDFLARED, else PATH. */
+  cloudflared?: () => string | undefined;
   log?: (line: string) => void;
 }
 
@@ -561,6 +569,8 @@ export class Publisher {
   private readonly marginalia: PageMarginalia;
   /** The outline's name, the top of a tailnet page's breadcrumbs. */
   private outlineName: string | undefined;
+  /** The `cloudflare` shares' tunnels, when there's a public listener to point them at. */
+  private tunnels: ShareTunnels | null = null;
   /** Each share's view of the published index, until the next change. */
   private readonly shareIndexes = new Map<string, { generation: number; from: PublishedIndex; value: PublishedIndex }>();
 
@@ -634,7 +644,7 @@ export class Publisher {
       return false;
     }
     return host === "127.0.0.1" || host === "localhost" || host === "[::1]" ||
-      host.endsWith(".ts.net") || this.allowedHosts.has(host) || (audience === "public" && host === this.publicHost);
+      host.endsWith(".ts.net") || this.allowedHosts.has(host) || (audience === "public" && (host === this.publicHost || !!this.tunnels?.serves(host)));
   }
 
   /**
@@ -661,6 +671,12 @@ export class Publisher {
       maxBytes: this.maxBytes,
       ...(local ? {} : { remoteService: true }),
     };
+    if (this.options.publicListener !== undefined) {
+      this.tunnels = new ShareTunnels({
+        request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
+        origin: this.options.publicListener, log: this.log, ...(this.options.cloudflared ? { binary: this.options.cloudflared } : {}),
+      });
+    }
     const connected = Promise.withResolvers<void>();
     this.watcher = this.client.watch({
       // Where it is opened, so the service can give a published note's web URL (notes.address, PIE-767).
@@ -669,12 +685,15 @@ export class Publisher {
         this.connected = true;
         this.invalidate();
         connected.resolve();
+        void this.tunnels?.reconcile();
       },
       onDisconnect: () => {
         this.connected = false;
       },
       onEvent: (event) => {
         if (event.domain === "content") this.invalidate();
+        // A share started or ended: its tunnel, if it has one, starts or stops.
+        if (event.domain === "shares") void this.tunnels?.reconcile();
       },
       onError: (error) => this.log(`publish: change feed: ${error.message}`),
     });
@@ -686,7 +705,7 @@ export class Publisher {
   address(): PublisherAddress {
     const url = this.options.url?.trim().replace(/\/+$/, "");
     const publicUrl = this.publicBase.origin ? `${this.publicBase.origin}${this.publicBase.basePath}` : undefined;
-    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}) };
+    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}), ...(this.options.publicListener !== undefined ? { tunnels: true } : {}) };
   }
 
   /**
@@ -767,7 +786,13 @@ export class Publisher {
     for (const wake of [...this.waiting]) wake();
   }
 
+  /** The running tunnels' processes (publish-tunnels.ts), for the log and tests. */
+  tunnelProcesses(): { shareId: string; pid: number; host?: string }[] {
+    return this.tunnels?.processes() ?? [];
+  }
+
   async stop(): Promise<void> {
+    await this.tunnels?.stop();
     await this.watcher?.stop();
     this.watcher = null;
   }
@@ -853,15 +878,17 @@ export class Publisher {
     const url = new URL(request.url);
     const basePath = this.basePathFor(audience);
     let path = url.pathname;
+    let mount = "";
     if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
       path = path.slice(basePath.length) || "/";
+      mount = basePath;
     }
     // A share link (share-sessions.ts): on the public listener, below `/s/<token>`, checked against the service on
     // every request, so an expiry or a revoke holds from the next one.
     const shared = audience === "public" ? SHARE_PATH.exec(path) : null;
     if (shared) {
       try {
-        return await this.answerShare(request, shared[1]!, shared[2] ?? "/");
+        return await this.answerShare(request, shared[1]!, shared[2] ?? "/", mount);
       } catch (error) {
         this.log(redactSharePath(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
         return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
@@ -930,12 +957,17 @@ export class Publisher {
    * when it ended). Inside, it is the tailnet's web client cut to the session's scope: every note in it a page and a
    * folder, its links and embeds only to notes inside, and marginalia when the session takes comments.
    */
-  private async answerShare(request: Request, token: string, rest: string): Promise<Response> {
+  private async answerShare(request: Request, token: string, rest: string, mount: string): Promise<Response> {
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
     if (found.status === "ended") return shareGone(found.state);
+    // A tunnel's share is answered on its tunnel's host only (its email gate is there), and an edge share never on a tunnel's.
+    let host = "";
+    try { host = new URL(`http://${request.headers.get("host") ?? new URL(request.url).host}`).hostname.toLowerCase(); } catch { /* not a host */ }
+    if (found.share.via === "cloudflare" ? !host || host !== found.share.tunnel?.host || !this.tunnels?.serves(host) : !!this.tunnels?.serves(host)) return notFound();
     const share: PageShare = {
-      id: found.share.id, base: `${this.publicBase.basePath}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
+      // Links stay as the request came: at the host's root (`/s/<token>`), or under the listener's mount when it was asked there.
+      id: found.share.id, base: `${mount}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
       active: async () => (await this.client.request<ShareResolution>({ action: "shares.resolve", token })).status === "active",
     };
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
@@ -970,7 +1002,10 @@ export class Publisher {
       if (path !== "/shares/revoke" && path !== "/shares/start") return notFound();
       try {
         await this.client.request(path === "/shares/start"
-          ? { action: "shares.start", scope: form.get("scope") ?? "", ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" } }
+          ? {
+            action: "shares.start", scope: form.get("scope") ?? "", ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" },
+            ...(form.get("via") ? { via: form.get("via")! } : {}), ...(form.get("allowMail")?.trim() ? { allowMail: form.get("allowMail")! } : {}),
+          }
           : form.get("all") === "1" ? { action: "shares.revoke", all: true } : { action: "shares.revoke", shareId: form.get("id") ?? "" });
       } catch (error) {
         // Refused (a locked note, a ttl out of range): said, with the way back.
@@ -989,8 +1024,9 @@ export class Publisher {
     const what = (share: ShareSession) => share.scope.kind === "outline"
       ? `the whole outline`
       : `<a href="${escapeHtml(`${base}/p/${share.scope.blockId}`)}">${escapeHtml(noteTitle(share.scope.title) || share.scope.blockId)}</a> and what's under it`;
-    const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}</div></td>` +
-      `<td>${share.url ? `<a href="${escapeHtml(share.url)}" rel="noreferrer">${escapeHtml(share.url)}</a>` : `<span class="dim">no public listener has said its address</span>`}</td>` +
+    const how = (share: ShareSession) => share.via === "cloudflare" ? ` · Cloudflare tunnel${share.allowMail?.length ? ` for ${share.allowMail.join(", ")}` : ", public"}` : "";
+    const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}${escapeHtml(how(share))}</div></td>` +
+      `<td>${share.url ? `<a href="${escapeHtml(share.url)}" rel="noreferrer">${escapeHtml(share.url)}</a>` : `<span class="dim">${share.via === "cloudflare" ? `its tunnel is ${escapeHtml(share.tunnel?.state ?? "starting")}` : "no public listener has said its address"}</span>`}</td>` +
       `<td>${escapeHtml(left(share.expiresAt))}</td><td>${share.comments ? "on" : "off"}</td>` +
       `<td><form method="post" action="${escapeHtml(`${base}/shares/revoke`)}"><input type="hidden" name="id" value="${escapeHtml(share.id)}"><button type="submit">Revoke</button></form></td></tr>`).join("\n");
     const list = shares.length
@@ -1007,6 +1043,8 @@ export class Publisher {
           `<input type="hidden" name="scope" value="${escapeHtml(block.id)}">` +
           `<label>for <select name="ttl"><option value="15m">15 minutes</option><option value="1h" selected>1 hour</option><option value="4h">4 hours</option><option value="24h">24 hours</option></select></label>` +
           `<label><input type="checkbox" name="comments" checked> comments (highlight, comment, ask, reply)</label>` +
+          `<label>by <select name="via"><option value="edge" selected>this outline's public host</option><option value="cloudflare">a Cloudflare tunnel of its own</option></select></label>` +
+          `<label>only for (Cloudflare, by email PIN) <input type="text" name="allowMail" placeholder="someone@example.org, @example.org" size="32"></label>` +
           `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads this note and what's under it until it ends; [publish::never] notes stay hidden.</p>\n`
         : `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
     }
