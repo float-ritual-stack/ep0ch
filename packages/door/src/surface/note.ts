@@ -2590,13 +2590,16 @@ export class NoteSurface {
     if (cs.busy) throw new ActionRefused(`${cs.busy} · wait for it to land`);
     const what = cs.target?.kind === "reply" ? "reply" : cs.props?.kind === "question" ? "question" : "comment";
     this.modes.drop("grip");
-    this.leaving = { what, name, args, ...(elem ? { elem } : {}) };
+    const ask: LeaveAsk = { what, name, args, ...(elem ? { elem } : {}) };
+    this.leaving = ask;
     const choices: LeaveChoice[] = ["save", "keep", "discard"];
     return askInBar(host.ctx as never, `about to leave an unsent ${what}`, [{
       name: "choice", type: "choice", label: "what happens to it", choices, says: LEAVE_SAYS,
       description: "Save and continue keeps it as unsent where it was written (C and the passage bring it back) and goes; keep writing goes back to it; discard lets it go (a copy stays on disk) and goes. Esc keeps writing.",
     }], {}, actor, answers => {
-      if (!answers.choice) throw new ActionRefused(`the ${what} isn't sent · ctrl+s sends it, esc twice puts it aside`);
+      // Answered late (the person went back to typing, or another question replaced it): nothing waits on it any more.
+      if (this.leaving !== ask || this.session !== cs) throw new ActionRefused(`that question is over · the ${what} is as it was`);
+      if (!answers.choice) { this.leaving = null; throw new ActionRefused(`the ${what} isn't sent · ctrl+s sends it, esc twice puts it aside`); }
       return this.runKey("comment.leaving", { choice: answers.choice }, host);
     });
   }
@@ -2725,6 +2728,8 @@ export class NoteSurface {
   /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
   private commentKey(s: CommentSession, k: Key, host: SurfaceHost): boolean {
     const writing = s.writing;
+    // Back to writing: a "leave it unsent?" asked in the power bar (PIE-785) is over, and its answer does nothing.
+    this.leaving = null;
     // ctrl+s sends, x resolves or reopens, and the esc that ends it closes it.
     if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
     // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
