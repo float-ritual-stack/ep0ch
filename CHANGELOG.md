@@ -21,6 +21,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** following a link, a comment mark, back or forward while a comment is unsent asks instead of doing
   nothing: save and continue (kept as unsent, `C` and the passage bring it back), keep writing, or discard (a copy
   stays on disk). `s`, `k`/esc, `d`, `⏎`, or a click on a chip (`comment.leaving`). An agent's action never asks.
+
 ### Marks you can quote: a highlight, comment or reply becomes a block of its own, and traces back
 
 - **New:** quote marks into a new block, the margin's quote-tweet. One highlight, comment or reply, or several, become
