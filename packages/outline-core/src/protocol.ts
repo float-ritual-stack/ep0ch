@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 142;
+export const PROTOCOL = 143;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -335,10 +335,42 @@ export interface ReaderView {
   blockId?: string;
   title: string;
   url: string;
-  /** The words selected, at most 2,000 characters, with the text around them and the note row they're in. */
-  selection?: { text: string; before: string; after: string; blockId?: string; truncated?: boolean };
+  /**
+   * The words selected, at most 2,000 characters, with the text around them and the note row they're in; `offsets`
+   * are where they are in that row's source (UTF-16, end exclusive) at its `revision`, when the page found them there.
+   */
+  selection?: {
+    text: string; before: string; after: string; blockId?: string;
+    offsets?: { start: number; end: number }; revision?: number; truncated?: boolean;
+  };
+  /** The blocks on screen, in page order (at most READER_VISIBLE_MAX). */
+  visible?: string[];
+  /** How far down the page is: pixels from the top, of at most `max`. */
+  scroll?: { y: number; max: number };
   /** When the page last said so. */
   at: string;
+}
+
+/** At most this many blocks are said to be on screen. */
+export const READER_VISIBLE_MAX = 200;
+
+/**
+ * One thing a reader did, kept in order (`reader.view`'s journal, `ep0ch.journal(since)` on the page): opened a page,
+ * selected words, or opened or closed a fold. `n` goes up by one each time, across readers.
+ */
+export interface ReaderEvent {
+  n: number;
+  at: string;
+  reader: string;
+  kind: "page" | "selection" | "fold";
+  blockId?: string;
+  /** A page's title and address. */
+  title?: string;
+  url?: string;
+  /** A selection's words (at most 2,000 characters). */
+  text?: string;
+  /** A fold, opened or closed. */
+  open?: boolean;
 }
 
 /**

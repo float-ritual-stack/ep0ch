@@ -32,11 +32,27 @@ import type { ShareSession } from "@ep0ch/outline-core/protocol";
 export const READER_SCRIPT = readFileSync(new URL("./publish-reader.js", import.meta.url), "utf8");
 const READER_TAG = new Bun.CryptoHasher("sha256").update(READER_SCRIPT).digest("hex").slice(0, 16);
 
+/**
+ * The WebMCP polyfill (`@mcp-b/global`, pinned in package.json), served at `<base>/_marginalia/webmcp.js` after the
+ * reader script, so `navigator.modelContext` exists where the browser has none yet and the page's helpers are tools
+ * there. From this origin, never a CDN; when it isn't installed the page has no such script and works the same.
+ */
+export const WEBMCP_SCRIPT: string | null = (() => {
+  try {
+    return readFileSync(new URL(import.meta.resolve("@mcp-b/global/iife")), "utf8");
+  } catch {
+    return null;
+  }
+})();
+const WEBMCP_TAG = WEBMCP_SCRIPT ? new Bun.CryptoHasher("sha256").update(WEBMCP_SCRIPT).digest("hex").slice(0, 16) : "";
+
 /** The route the page's script reads and writes through, below the listener's base path. */
 export const PAGE_ROUTE = "/_marginalia";
 
 const MAX_WRITE_BYTES = 64 * 1024;
 const MAX_POLL_MS = 20_000;
+/** A change wakes a waiting page this long after it, so a burst of writes elsewhere is one look, not one each. */
+const SETTLE_MS = 1_000;
 const EXTENSIONS_MAX_AGE_MS = 30_000;
 /** At most this many annotated blocks of one page are read for its threads. */
 const MAX_THREAD_BLOCKS = 200;
@@ -70,6 +86,8 @@ export interface PageView {
   blocks: ShownBlock[];
   /** Each annotation block the page may show, by id, with the block it's on. */
   annotations: ReadonlyMap<string, string>;
+  /** What else the page draws that can change, each as `id:revision`: a folder page's children. */
+  listed?: readonly string[];
 }
 
 /**
@@ -123,6 +141,11 @@ export function readerScriptPath(basePath: string): string {
   return `${basePath}${PAGE_ROUTE}/reader.js?v=${READER_TAG}`;
 }
 
+/** The WebMCP polyfill's URL path, when it's installed. */
+export function webmcpScriptPath(basePath: string): string | undefined {
+  return WEBMCP_SCRIPT ? `${basePath}${PAGE_ROUTE}/webmcp.js?v=${WEBMCP_TAG}` : undefined;
+}
+
 /**
  * Whether a write comes from a page of this listener: its `Origin` names the host the request was sent to (through
  * `tailscale serve` both are the tailnet name). A page on another site can't post here: its origin differs, and a
@@ -149,9 +172,10 @@ export class PageMarginalia {
    * the rest: `/threads`, `/write`, `/view`, …).
    */
   async handle(request: Request, route: string, share?: PageShare): Promise<Response> {
-    if (route === "/reader.js") {
+    const script = route === "/reader.js" ? READER_SCRIPT : route === "/webmcp.js" ? WEBMCP_SCRIPT : null;
+    if (script) {
       if (request.method !== "GET" && request.method !== "HEAD") return refused(405, "read-only");
-      return new Response(READER_SCRIPT, { headers: {
+      return new Response(script, { headers: {
         // Below a share's link the path holds its secret: nothing keeps it.
         "content-type": "text/javascript; charset=utf-8", "cache-control": share ? "no-store" : "public, max-age=86400, immutable",
         "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cross-origin-resource-policy": "same-origin",
@@ -173,18 +197,21 @@ export class PageMarginalia {
   }
 
   /**
-   * What the reader has in front of them (presence, `reader.report`): the page's note, its title and address, and the
-   * words selected with the drawn text either side, placed in the note row they're in when they can be. The title is
-   * the note's own and the address must be this page's, so a page can't put other words in an agent's read. A share's
-   * address is said without its secret, and its reader's selection only when it is found in the note (a share's
-   * reader may be anyone with the link: what an agent reads back is the outline's own text).
+   * What the reader has in front of them (presence, `reader.report`): the page's note, its title and address, the
+   * words selected with the drawn text either side, placed in the note row they're in (and where in its source) when
+   * they can be, the blocks on screen and how far down the page is; and a fold opened or closed. The title is the
+   * note's own, the address must be this page's and the blocks this page's, so a page can't put other words in an
+   * agent's read. A share's address is said without its secret, and its reader's selection only when it is found in
+   * the note (a share's reader may be anyone with the link: what an agent reads back is the outline's own text).
+   * Answers what the service kept, with the reader's journal (on a share, only this visitor's: anyone with the link
+   * reads as the share): the page's `ep0ch.view()` and `ep0ch.journal()` are it.
    */
   private async view(request: Request, base: string, share?: PageShare): Promise<Response> {
     if (!sameOrigin(request)) return refused(403, "a page says what's on it itself");
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();
     if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
-    let input: { page?: unknown; view?: unknown; title?: unknown; url?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown };
+    let input: { page?: unknown; view?: unknown; title?: unknown; url?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; visible?: unknown; scroll?: unknown; fold?: unknown; visitor?: unknown };
     try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
     const text = (value: unknown) => typeof value === "string" ? value : "";
     const view = await this.host.view(text(input.page), text(input.view) === "full", share);
@@ -200,11 +227,21 @@ export class PageMarginalia {
       const given = new URL(text(input.url));
       if (given.host === (request.headers.get("host") ?? new URL(request.url).host) && given.pathname.startsWith(`${base}/`)) url = given.href;
     } catch { /* the note's path */ }
-    await this.host.report({
-      reader: share ? `share:${share.id}` : "tailnet", blockId: view.root.id, title, url: url.replace(/\/s\/[^/?#]+/, "/s/…"),
-      ...(placed ? { selection: { text: quote, before: text(input.prefix), after: text(input.suffix), ...(found?.ok ? { blockId: found.block.id } : {}) } } : {}),
+    const onPage = new Set([...view.blocks.map((block) => block.id), ...(view.listed ?? []).map((row) => row.slice(0, row.lastIndexOf(":")))]);
+    const visible = Array.isArray(input.visible) ? input.visible.filter((id): id is string => typeof id === "string" && onPage.has(id)) : undefined;
+    const scroll = input.scroll && typeof input.scroll === "object" ? input.scroll : undefined;
+    const fold = input.fold && typeof input.fold === "object" ? input.fold as { blockId?: unknown; open?: unknown } : undefined;
+    const answer = await this.host.report({
+      reader: share ? `share:${share.id}` : "tailnet", visitor: text(input.visitor), blockId: view.root.id, title, url: url.replace(/\/s\/[^/?#]+/, "/s/…"),
+      ...(placed ? { selection: {
+        text: quote, before: text(input.prefix), after: text(input.suffix),
+        ...(found?.ok ? { blockId: found.block.id, offsets: { start: found.passage.start, end: found.passage.end }, revision: found.block.revision } : {}),
+      } } : {}),
+      ...(visible ? { visible } : {}),
+      ...(scroll ? { scroll } : {}),
+      ...(fold && typeof fold.blockId === "string" && onPage.has(fold.blockId) ? { fold: { blockId: fold.blockId, open: fold.open === true } } : {}),
     });
-    return json(200, { ok: true });
+    return json(200, { ok: true, ...(answer && typeof answer === "object" ? answer : {}) });
   }
 
   private extensionList(): Promise<ExtensionsListResult> {
@@ -281,32 +318,51 @@ export class PageMarginalia {
   }
 
   /**
-   * The page's threads and what its toolbar offers. `since`: the generation the script last saw; while nothing has
-   * changed the answer waits (up to 20 s) for a change, so a new answer reaches the page soon after it lands.
+   * The page's threads and what its toolbar offers, with `version`: a digest of everything the page draws (its rows'
+   * revisions, its folder's children, its threads and choices). With `since` (the version the script last saw) the answer
+   * waits, up to `wait` ms (at most 20 s), until the page's own version moves: a change elsewhere in the outline wakes it
+   * to look again but doesn't answer, so a page nothing touches asks about three times a minute however busy the outline.
    */
   private async threads(request: Request, share?: PageShare): Promise<Response> {
     const url = new URL(request.url);
     const page = url.searchParams.get("page") ?? "";
-    const since = Number(url.searchParams.get("since"));
-    if (url.searchParams.has("since") && Number.isFinite(since) && since === this.host.generation()) {
-      await this.host.changed(since, Math.min(Number(url.searchParams.get("wait")) || MAX_POLL_MS, MAX_POLL_MS));
+    const full = url.searchParams.get("view") === "full";
+    const since = url.searchParams.get("since");
+    const deadline = Date.now() + Math.min(Number(url.searchParams.get("wait")) || MAX_POLL_MS, MAX_POLL_MS);
+    for (;;) {
+      // Read before the answer is built, so a change made while it's built wakes the wait below at once.
+      const generation = this.host.generation();
+      const answer = await this.pageState(page, full, share);
+      if (answer instanceof Response) return answer;
+      const left = deadline - Date.now();
+      if (!since || answer.version !== since || left <= 0) return json(200, answer);
+      await this.host.changed(generation, left);
+      await Bun.sleep(Math.max(0, Math.min(SETTLE_MS, deadline - Date.now())));
     }
-    const generation = this.host.generation();
+  }
+
+  /** What `threads` answers now, or why it can't. */
+  private async pageState(page: string, full: boolean, share?: PageShare): Promise<Response | { version: string } & Record<string, unknown>> {
     if (share && !(await share.active())) return ended();
-    const view = await this.host.view(page, url.searchParams.get("view") === "full", share);
+    const view = await this.host.view(page, full, share);
     if (!view) return refused(404, "no such note here");
+    const body: Record<string, unknown> = { note: view.root.id };
     // A share without comments is a reading copy: no threads, and Copy alone.
-    if (share && !share.comments) return json(200, { generation, note: view.root.id, choices: [{ action: "copy", label: "Copy" }], threads: [] });
-    const kit = await this.kit();
-    const choices: PageChoice[] = [
-      ...kit.actions.filter((action) => action.id === "highlight").map((action) => ({ action: action.id, label: action.label })),
-      { action: "comment", label: "Comment" },
-      ...(kit.agent ? [{ action: "ask", label: "Ask" }] : []),
-      { action: "copy", label: "Copy" },
-      ...(kit.agent ? [{ action: "explain", label: "Explain" }] : []),
-      ...kit.actions.filter((action) => action.id !== "highlight").map((action) => ({ action: action.id, label: action.label })),
-    ];
-    return json(200, { generation, note: view.root.id, ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view) });
+    if (share && !share.comments) Object.assign(body, { choices: [{ action: "copy", label: "Copy" }], threads: [] });
+    else {
+      const kit = await this.kit();
+      const choices: PageChoice[] = [
+        ...kit.actions.filter((action) => action.id === "highlight").map((action) => ({ action: action.id, label: action.label })),
+        { action: "comment", label: "Comment" },
+        ...(kit.agent ? [{ action: "ask", label: "Ask" }] : []),
+        { action: "copy", label: "Copy" },
+        ...(kit.agent ? [{ action: "explain", label: "Explain" }] : []),
+        ...kit.actions.filter((action) => action.id !== "highlight").map((action) => ({ action: action.id, label: action.label })),
+      ];
+      Object.assign(body, { ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view) });
+    }
+    const drawn = JSON.stringify([view.blocks.map((block) => `${block.id}:${block.revision}`), view.listed ?? [], body]);
+    return { version: new Bun.CryptoHasher("sha256").update(drawn).digest("hex").slice(0, 16), ...body };
   }
 
   private async write(request: Request, share?: PageShare): Promise<Response> {

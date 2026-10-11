@@ -2501,7 +2501,7 @@ export type OutlinerRequestAction =
   /** A web client page's presence (the publisher posts it): the page and the words selected on it (`ReaderView`). */
   | { id: string; action: "reader.report"; view: Record<string, unknown> }
   /** What a reader of the web client has in front of them now: the latest reader's view (or `reader`'s), and every reader seen lately. */
-  | { id: string; action: "reader.view"; reader?: string };
+  | { id: string; action: "reader.view"; reader?: string; since?: number };
 
 /** Machine-readable detail for a rejected request, such as a query syntax position. */
 export interface SelectionContext {

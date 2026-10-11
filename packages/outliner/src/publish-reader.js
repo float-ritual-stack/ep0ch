@@ -7,19 +7,28 @@
 //   the text, says why, and Send tries again with the same request id, so a retry never writes twice).
 // - Threads are cards: beside the text when the window is wide, under their passage when it's narrow, with Reply and
 //   Resolve. A highlight alone has no card until its words are tapped.
-// - The page waits on the threads route for the next change (a long poll), so an answer lands on the page soon after
-//   it lands in the outline; the note itself is fetched again then, so new marks show.
+// - The page waits on the threads route until what it draws changes (a long poll on the page's own `version`, so a
+//   busy outline elsewhere doesn't wake it), so an answer lands on the page soon after it lands in the outline; the
+//   note itself is fetched again then, so new marks show. Idle, that's about three requests a minute.
 // - Opening a thread marks it read (the `/replies` page's unread marks clear): arriving at `#thread=<id>` from Recent
 //   replies (its card opens and comes into view), tapping its words, or replying in it.
 // - What's in front of the reader is said (presence): the page, and the words selected on it (debounced, at most 2,000
 //   characters), posted to `view`, so an agent in chat can say "you have X selected" (`reader.view`). The same words are
-//   in the page itself, in `#ep0ch-selection` (aria-live), for an agent driving a browser.
+//   in the page itself, in `#ep0ch-selection` (aria-live), for an agent driving a browser. With them go the blocks on
+//   screen and how far down the page is, and a fold opened or closed: the service keeps what the reader did (the
+//   journal) with it.
+// - Page helpers for an agent that sees the page (`window.ep0ch`, and the same as WebMCP tools on
+//   `navigator.modelContext` when the page has one): help(), view(), reveal(ref), journal(since), from one list of
+//   definitions. They only read and point: nothing they do writes. The page says when an agent calls one.
 // - The same script runs on a share link's pages (share-sessions.ts), below the link; one without comments offers Copy.
 //
 // Dark throughout, no animation, nothing that flashes (Evan is photosensitive). Plain DOM, no build, no eval: text is
 // set as text, never as HTML.
 (() => {
   "use strict";
+  // The WebMCP polyfill the publisher serves after this script answers an extension in this tab from this page's
+  // origin only (its default is any origin), and never a page that frames this one (none may: frame-ancestors 'none').
+  window.__webModelContextOptions = { transport: { tabServer: { allowedOrigins: [location.origin] }, iframeServer: false } };
   const main = document.querySelector("main[data-marginalia]");
   if (!main) return;
   const api = main.dataset.marginalia;
@@ -28,7 +37,8 @@
   const full = main.dataset.view === "full";
   const wide = window.matchMedia("(min-width: 75rem)");
 
-  let generation = null;
+  /** The version of what the page draws, as the threads route last said (null until it has). */
+  let version = null;
   let choices = [];
   let agent = "";
   let threads = [];
@@ -113,21 +123,90 @@
   // ---- Presence: what's in front of the reader, said when it changes (and when the page comes back into view).
 
   const SELECTION_MAX = 2000;
-  let said = "";
+  const VISIBLE_MAX = 200;
+
+  /** The blocks the page draws (anchors in the note, rows in its folder), each with the element it is on the page. */
+  function blocks() {
+    return [...main.querySelectorAll("[data-block]")].map((node) => ({ id: node.dataset.block, node: drawnAt(node) }));
+  }
+  /** Where a block is drawn: its list row, else the heading or paragraph its anchor ends. */
+  function drawnAt(node) {
+    if (node.tagName !== "SPAN") return node;
+    return node.closest("li") || node.parentElement.closest("h1,h2,h3,h4,h5,h6,p,blockquote,pre,table,div") || node.parentElement;
+  }
+  /** The block a node of the page is in: the last anchor before it. */
+  function blockOf(node) {
+    let found = null;
+    for (const { id, node: at } of blocks()) {
+      if (at === node || at.contains(node) || at.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) found = id;
+      else break;
+    }
+    return found;
+  }
+  function onScreen() {
+    const height = window.innerHeight || document.documentElement.clientHeight;
+    const ids = [];
+    for (const { id, node } of blocks()) {
+      const box = node.getBoundingClientRect();
+      if (box.bottom > 0 && box.top < height && !ids.includes(id)) ids.push(id);
+      if (ids.length >= VISIBLE_MAX) break;
+    }
+    return ids;
+  }
+
+  /** What's in front of the reader now, as the page tells the service (one source for presence and ep0ch.view()). */
+  function snapshot() {
+    const now = readSelection();
+    const words = now ? { quote: now.quote.slice(0, SELECTION_MAX), prefix: now.prefix, suffix: now.suffix } : null;
+    shown.textContent = words ? words.quote : "";
+    const max = Math.max(0, Math.round(document.documentElement.scrollHeight - window.innerHeight));
+    return { page, ...(full ? { view: "full" } : {}), title: document.title, url: location.href, ...(words || {}), visible: onScreen(), scroll: { y: Math.round(window.scrollY), max } };
+  }
+
+  /** This tab, across its pages: on a share, the journal the page gets back is this tab's alone. */
+  const visitor = (() => {
+    const made = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9-]/g, "");
+    try {
+      const kept = sessionStorage.getItem("ep0ch-visitor");
+      if (kept) return kept;
+      sessionStorage.setItem("ep0ch-visitor", made);
+    } catch { /* storage refused: this page alone */ }
+    return made;
+  })();
+
   let sayTimer = 0;
+  /** The last report the service answered, and its answer: the view it kept and the journal. */
+  let said = "";
+  let seen = null;
+  /** Reports one at a time, in order, so an older answer never stands for a newer report. */
+  let reporting = Promise.resolve();
+  /** Says what's in front of the reader now, if that changed (or `extra`, a fold, goes with it); the service's answer. */
+  function report(extra) {
+    clearTimeout(sayTimer);
+    const body = JSON.stringify({ ...snapshot(), ...(extra || {}), visitor });
+    const run = reporting.then(async () => {
+      if (body === said && seen) return seen;
+      const response = await fetch(`${api}/view`, { method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", keepalive: true, body });
+      const answer = await response.json();
+      if (!response.ok || !answer.ok) throw new Error(answer.error || `the publisher answered ${response.status}`);
+      said = body;
+      seen = answer;
+      return seen;
+    });
+    reporting = run.catch(() => {});
+    return run;
+  }
   function present() {
     clearTimeout(sayTimer);
-    sayTimer = setTimeout(() => {
-      const now = readSelection();
-      const words = now ? { quote: now.quote.slice(0, SELECTION_MAX), prefix: now.prefix, suffix: now.suffix } : null;
-      shown.textContent = words ? words.quote : "";
-      const body = JSON.stringify({ page, ...(full ? { view: "full" } : {}), title: document.title, url: location.href, ...(words || {}) });
-      if (body === said || document.hidden) return;
-      said = body;
-      fetch(`${api}/view`, { method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", keepalive: true, body }).catch(() => { said = ""; });
-    }, 600);
+    sayTimer = setTimeout(() => { if (!document.hidden) report().catch(() => {}); }, 600);
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { said = ""; present(); } });
+  window.addEventListener("scroll", present, { passive: true });
+  // A fold (a collapsible callout, a summary) opened or closed goes in the journal; `toggle` doesn't bubble.
+  main.addEventListener("toggle", (event) => {
+    const id = event.target instanceof Element ? blockOf(event.target) : null;
+    if (id) report({ fold: { blockId: id, open: !!event.target.open } }).catch(() => {});
+  }, true);
   present();
 
   let selectTimer = 0;
@@ -441,13 +520,13 @@
 
   async function load(wait) {
     const query = new URLSearchParams({ page, ...(full ? { view: "full" } : {}) });
-    if (wait && generation !== null) { query.set("since", String(generation)); query.set("wait", "20000"); }
+    if (wait && version !== null) { query.set("since", version); query.set("wait", "20000"); }
     const response = await fetch(`${api}/threads?${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`threads: ${response.status}`);
     const data = await response.json();
-    const first = generation === null;
-    const changed = !first && data.generation !== generation;
-    generation = data.generation;
+    const first = version === null;
+    const changed = !first && data.version !== version;
+    version = data.version;
     choices = data.choices || [];
     agent = data.agent || "";
     threads = data.threads || [];
@@ -478,4 +557,136 @@
       waking = null;
     }
   })();
+
+  // ---- Page helpers: for an agent that sees this page (a browser pane beside the chat), so it reads and points with
+  // one call instead of writing its own script. One list of definitions makes `window.ep0ch`, its `help()` catalog and
+  // the WebMCP tools, so the three can't drift. They read and point; none writes. Nothing a note holds runs here (the
+  // page's policy runs this script and the WebMCP polyfill only), so only an agent's own script reaches them.
+
+  const pageBase = api.slice(0, api.length - "/_marginalia".length);
+  const agentSign = el("div", { id: "ep0ch-agent", class: "mg-ui", role: "status", hidden: "" });
+  document.body.append(agentSign);
+  let signTimer = 0;
+  /** Says on the page what an agent just did through a helper, for a few seconds. */
+  function agentDid(text) {
+    agentSign.textContent = text;
+    agentSign.hidden = false;
+    clearTimeout(signTimer);
+    signTimer = setTimeout(() => { agentSign.hidden = true; }, 6000);
+  }
+
+  let pointed = null;
+  let pointTimer = 0;
+  /** Scrolls to a block and marks it for a few seconds: a still outline, no animation. Pointing never writes. */
+  function reveal(ref) {
+    const wanted = String(ref || "").trim().replace(/^\(\(/, "").replace(/\)\)$/, "").split("|")[0].trim();
+    if (wanted.length < 8) return { ok: false, why: "reveal takes a block: its id, ((id)) or ((id|label)) (at least the first 8 characters of the id)" };
+    const hits = blocks().filter((block) => block.id === wanted || block.id.startsWith(wanted));
+    const ids = [...new Set(hits.map((block) => block.id))];
+    if (ids.length > 1) return { ok: false, why: `${wanted} starts ${ids.length} blocks on this page: give more of the id`, blocks: ids };
+    if (!hits.length) {
+      return { ok: false, why: `((${wanted})) isn't on this page; its own page is ${location.origin}${pageBase}/p/${encodeURIComponent(wanted)} (reveal doesn't leave the page)` };
+    }
+    const node = hits[0].node;
+    if (pointed) pointed.classList.remove("ep0ch-pointed");
+    clearTimeout(pointTimer);
+    node.classList.add("ep0ch-pointed");
+    pointed = node;
+    pointTimer = setTimeout(() => { node.classList.remove("ep0ch-pointed"); if (pointed === node) pointed = null; }, 5000);
+    node.scrollIntoView({ block: "center", behavior: "auto" });
+    const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+    agentDid(`an agent is pointing at “${text.length > 60 ? `${text.slice(0, 60)}…` : text}”`);
+    return { ok: true, blockId: ids[0], text: text.slice(0, 300) };
+  }
+
+  /** What's in front of the reader, as the service keeps it; this page's own reading when the service can't be reached. */
+  async function view() {
+    try {
+      return (await report()).view;
+    } catch (error) {
+      const now = snapshot();
+      return {
+        offline: `the publisher couldn't be reached (${error.message}): this is the page's own reading, without the selection's place in the source`,
+        blockId: noteId, title: now.title, url: now.url,
+        ...(now.quote ? { selection: { text: now.quote, before: now.prefix, after: now.suffix } } : {}),
+        visible: now.visible, scroll: now.scroll,
+      };
+    }
+  }
+
+  /** What the reader did after event `since` (pages opened, words selected, folds), oldest first, and the number to pass next time. */
+  async function journal(since) {
+    const after = Number(since) || 0;
+    try { await report(); } catch { /* the journal as the page last had it */ }
+    const events = ((seen && seen.journal) || []).filter((event) => event.n > after);
+    return { events, next: events.length ? events[events.length - 1].n : after };
+  }
+
+  const HELPERS = [
+    {
+      name: "help", args: [],
+      description: "The page helpers: each one's call, what it does and its arguments (JSON Schema). The same list is this page's WebMCP tools.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      did: () => "an agent read this page's helpers",
+      run: () => catalog(),
+    },
+    {
+      name: "view", args: [],
+      description: "What the reader has in front of them now: the note (blockId, title, url), the words selected (text, before, after, the block they're in and their offsets in its source at its revision), the blocks on screen (visible, in page order) and the scroll position. The same as the outline's reader.view.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      did: () => "an agent is reading what's on screen",
+      run: () => view(),
+    },
+    {
+      name: "reveal", args: ["ref"],
+      description: "Scroll the page to a block and mark it for a few seconds, to point at it. Takes the block's id, ((id)) or ((id|label)); a block that isn't on this page is refused with its own page's address. Never writes.",
+      inputSchema: { type: "object", properties: { ref: { type: "string", description: "The block: its id (at least 8 characters), ((id)) or ((id|label))" } }, required: ["ref"], additionalProperties: false },
+      did: null,
+      run: ({ ref }) => reveal(ref),
+    },
+    {
+      name: "journal", args: ["since"],
+      description: "What the reader did lately, oldest first: pages opened, words selected, folds opened or closed, across pages. Pass the `next` of the last answer as since to get only what's new.",
+      inputSchema: { type: "object", properties: { since: { type: "number", description: "Only events after this one (`next` from the last answer); 0 or left out for all that's kept" } }, additionalProperties: false },
+      did: () => "an agent is reading what you did lately",
+      run: ({ since }) => journal(since),
+    },
+  ];
+
+  function catalog() {
+    return HELPERS.map((helper) => ({
+      call: `ep0ch.${helper.name}(${helper.args.join(", ")})`, tool: `ep0ch_${helper.name}`,
+      description: helper.description, inputSchema: helper.inputSchema,
+    }));
+  }
+
+  /** A helper called by an agent: said on the page, then run. */
+  async function call(helper, input) {
+    if (helper.did) agentDid(helper.did());
+    return helper.run(input || {});
+  }
+
+  const ep0ch = {};
+  for (const helper of HELPERS) {
+    ep0ch[helper.name] = (...values) => call(helper, Object.fromEntries(helper.args.map((name, at) => [name, values[at]])));
+  }
+  Object.defineProperty(window, "ep0ch", { value: Object.freeze(ep0ch), enumerable: true });
+
+  // WebMCP: the same helpers as tools, once the page has navigator.modelContext (the browser's own, or the polyfill the
+  // publisher serves after this script). The page works the same without it.
+  function registerTools() {
+    const context = navigator.modelContext;
+    if (!context || typeof context.registerTool !== "function") return;
+    for (const helper of HELPERS) {
+      try {
+        context.registerTool({
+          name: `ep0ch_${helper.name}`, description: helper.description, inputSchema: helper.inputSchema,
+          annotations: { readOnlyHint: true },
+          execute: async (input) => ({ content: [{ type: "text", text: JSON.stringify(await call(helper, input)) }] }),
+        });
+      } catch { /* already registered, or a context that refuses it: window.ep0ch still works */ }
+    }
+  }
+  if (document.readyState === "complete") registerTools();
+  else window.addEventListener("load", registerTools, { once: true });
 })();

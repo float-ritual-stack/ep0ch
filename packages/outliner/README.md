@@ -880,7 +880,9 @@ listener is untouched (below): read-only, marked notes only.
   other passage actions (Explain, Define). Comment and Ask open a sheet to write in; a refusal keeps the text and says
   why. Threads are cards beside the text when the window is wide and under their passage when it's narrow, with Reply
   and Resolve; a bare highlight opens its card when its words are tapped. "Comment on this note" comments on the whole
-  note. An answer appears when it lands (the page waits on the threads route for the next change).
+  note. An answer appears when it lands: the page waits on the threads route until what it draws changes (its rows,
+  its folder's children, its threads), so a busy outline elsewhere doesn't wake it; idle, about three requests a
+  minute.
 - **Every write goes through the service's own paths**, the door's: a comment or ask is `annotations.batch` (a
   `block-comment` on the exact passage: block, revision, quote, prefix, suffix, found once in the note's source or
   refused with why), a highlight is the extension's passage action (`extensions.act`), a reply `annotations.reply`, a
@@ -888,9 +890,9 @@ listener is untouched (below): read-only, marked notes only.
   and agents see the same threads. Words that can't be placed still land, on the whole note, quoted.
 - **What guards the writes.** The routes are `<base>/_marginalia/threads` (GET) and `<base>/_marginalia/write`
   (POST) on the tailnet listener only. A write must name this host in its `Origin` and be sent as JSON, so a page on
-  another site can't post one; the `Host` rule below still applies. The page runs one script, the publisher's own
-  (`<base>/_marginalia/reader.js`, `script-src 'self'`, `connect-src 'self'`), and a note's text can't add another:
-  authored HTML is shown as text.
+  another site can't post one; the `Host` rule below still applies. The page runs the publisher's own scripts only
+  (`<base>/_marginalia/reader.js` and the WebMCP polyfill, `script-src 'self'`, `connect-src 'self'`), and a note's
+  text can't add another: authored HTML is shown as text.
 - **Dark and phone first:** a reading measure, targets a thumb can hit, no animation and nothing light or flashing.
 
 #### Anyone with the link
@@ -1026,7 +1028,38 @@ and the words selected (debounced, at most 2,000 characters) with the text eithe
 The service keeps the latest per reader in memory (`reader.report`); `reader.view`, the MCP's `reader_view` and
 `ep0ch reader` read it, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 A share's address is said without its token. The page also holds the selection in `#ep0ch-selection`
-(`aria-live`), for an agent driving a browser.
+(`aria-live`), for an agent driving a browser. With it go where the words are in the row's source (`offsets` at its
+`revision`), the blocks on screen and the scroll position, and the service keeps what the reader did lately (the
+journal: pages opened, words selected, folds opened or closed; the last 200, in memory).
+
+**Page helpers.** An agent that sees the page itself (the Claude desktop app's browser pane beside the chat, Claude in
+Chrome, any agent with the page's JavaScript) reads and points with one call each, instead of writing its own
+script. `window.ep0ch` on every web client page (tailnet and share):
+
+| Call | What it answers |
+| --- | --- |
+| `ep0ch.help()` | The helpers: each one's call, what it does and its arguments as JSON Schema. |
+| `ep0ch.view()` | What's in front of the reader: `blockId`, `title`, `url`; `selection` (`text`, `before`, `after`, `blockId`, `offsets: {start, end}` in that block's source at `revision`); `visible` (the block ids on screen, in page order); `scroll` (`y` of `max` pixels). The same object `reader.view` keeps. |
+| `ep0ch.reveal('((id))')` | Scrolls to the block and outlines it for five seconds (a still outline: nothing flashes). Takes an id (at least 8 characters), `((id))` or `((id\|label))`. A block not on the page is refused with its own page's address; it never navigates. |
+| `ep0ch.journal(since)` | What the reader did after event `since`, oldest first: `{ events, next }`. Pass `next` back to get only what's new. |
+
+Each returns a promise. From a desktop-pane agent's JavaScript tool:
+
+```js
+await ep0ch.view()                          // "this": the selection, with its block and offsets
+await ep0ch.reveal('((5f1c2a90-7b3e-4d21-9a6c-0e8b4d2f1a77))')   // point back at a block
+await ep0ch.journal(0)                      // everything kept; then journal(next)
+```
+
+They only read and point: none writes. A change to the outline still goes through the MCP (`outline_patch`,
+`outline_comment`, …), attributed. The page says on screen when an agent calls one ("an agent is pointing at …").
+The same helpers are **WebMCP tools** (`ep0ch_help`, `ep0ch_view`, `ep0ch_reveal`, `ep0ch_journal`, read-only) on
+`navigator.modelContext`, from the same definitions, so the catalog, the tools and `window.ep0ch` can't drift. Where
+the browser has no WebMCP yet, the publisher serves the `@mcp-b/global` polyfill (pinned in package.json) from this
+origin at `<base>/_marginalia/webmcp.js`, after the reader script: `navigator.modelContext.listTools()` lists them, and
+an agent that discovers WebMCP tools finds them with no change here. Its in-tab transport answers this page's origin
+only; the WebMCP permissions policy is left at its default (`self`), so nothing embedded reaches the tools. Without the
+polyfill (not installed) or without JavaScript, the page works as before.
 
 #### Artifacts
 

@@ -282,8 +282,14 @@ test("ttl words, and a token that is only near another opens nothing", () => {
   expect(sessions.resolve(session.token)?.id).toBe(session.id);
   expect(sessions.resolve(`${session.token.slice(0, -1)}${session.token.endsWith("A") ? "B" : "A"}`)).toBeUndefined();
   const presence = new ReaderPresence();
-  const view = presence.report({ reader: "tailnet", title: "t", url: "u", selection: { text: "x".repeat(5000), before: "", after: "" } });
+  const { view } = presence.report({ reader: "tailnet", title: "t", url: "u", selection: { text: "x".repeat(5000), before: "", after: "" } });
   expect(view.selection).toMatchObject({ truncated: true });
   expect(view.selection!.text.length).toBe(2000);
   expect(() => presence.report({ reader: "someone", title: "", url: "" })).toThrow();
+  // Anyone with a share's link reads as the share: a page gets back only its own tab's journal; the agent reads all.
+  presence.report({ reader: "share:0123abcd", visitor: "visitor-aaaa", title: "t", url: "u", selection: { text: "words of one visitor", before: "", after: "" } });
+  const other = presence.report({ reader: "share:0123abcd", visitor: "visitor-bbbb", title: "t", url: "u" });
+  expect(other.journal.map((event) => event.kind)).toEqual(["page"]);
+  expect(JSON.stringify(other)).not.toContain("words of one visitor");
+  expect(presence.view("share:0123abcd").journal.map((event) => event.kind)).toEqual(["page", "selection", "page"]);
 });

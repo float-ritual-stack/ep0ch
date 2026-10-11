@@ -3645,10 +3645,10 @@ export class OutlinerServer {
         return { share: kept ? shareOnWire(kept, publicUrl) : null };
       }
       case "reader.report":
-        if (!request.view || typeof request.view !== "object") throw new Error("reader.report takes view: { reader, blockId?, title, url, selection? }");
-        return { view: this.readers.report(request.view) };
+        if (!request.view || typeof request.view !== "object") throw new Error("reader.report takes view: { reader, blockId?, title, url, selection?, visible?, scroll?, fold? }");
+        return this.readers.report(request.view);
       case "reader.view":
-        return this.readers.view(typeof request.reader === "string" ? request.reader : undefined);
+        return this.readers.view(typeof request.reader === "string" ? request.reader : undefined, typeof request.since === "number" ? request.since : 0);
       default:
         throw new Error(`Unsupported action: ${request.action}`);
     }
