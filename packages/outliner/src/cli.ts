@@ -97,6 +97,8 @@ Outlines
 Publishing and extensions
   publish serve [--port <n>] [--root <dir>]… [--public-url <url>] … | publish list [--json]
   ext …                                install and list extensions
+  web sessions [--json] | web revoke <id> | --all
+                                       the signed-in web client's browsers (my.ep0ch.sh), and signing them out
 
 More in README.md, "Headless service and CLI".`;
 if (["--help", "-h", "help", undefined].includes(process.argv[2])) {
@@ -203,6 +205,10 @@ if (process.argv[2] === "door-open") {
     process.exit(error instanceof DoorUnreachable ? 3 : 1);
   }
 }
+if (process.argv[2] === "web") {
+  const { runWebCommand } = await import("./web-cli");
+  process.exit(await runWebCommand(process.argv.slice(3)));
+}
 if (process.argv[2] === "ext") {
   const { runExtCommand } = await import("./extension-install");
   process.exit(await runExtCommand(process.argv.slice(3)));
@@ -219,6 +225,8 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
  * `--public-bind` (or OUTLINER_PUBLIC_BIND, default 127.0.0.1) the one address it listens on. `--url` (or
  * OUTLINER_PUBLISH_URL) is the full URL the tailnet listener is opened at (`https://host.ts.net/pub`): the publisher
  * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767).
+ * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin:
+ * the same web client, every route behind a Clerk sign-in (EP0CH_WEB_CLIENT_ID, EP0CH_WEB_ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS).
  * `publish list [--json]` prints the same index once, with each public note's public URL.
  */
 if (process.argv[2] === "publish") {
@@ -228,7 +236,7 @@ if (process.argv[2] === "publish") {
 async function runPublishCommand(operation: string | undefined, args: string[]): Promise<number> {
   try {
     if (operation !== "serve" && operation !== "list") {
-      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME] | list [--public-url URL] [--json]");
+      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--signin-port N --signin-url URL] [--ws NAME] | list [--public-url URL] [--json]");
     }
     const { values } = parseArgs({
       args, strict: true,
@@ -237,6 +245,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         "base-path": { type: "string" }, "allow-host": { type: "string", multiple: true }, ws: { type: "string" },
         "artifact-cache": { type: "string" }, "public-port": { type: "string" }, "public-url": { type: "string" },
         "public-bind": { type: "string" }, url: { type: "string" },
+        "signin-port": { type: "string" }, "signin-url": { type: "string" },
         json: { type: "boolean" },
       },
     });
@@ -248,6 +257,11 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     const publicPort = values["public-port"] === undefined ? undefined : Number(values["public-port"]);
     if (publicPort !== undefined && (!Number.isInteger(publicPort) || publicPort < 0 || publicPort > 65535)) throw new Error("--public-port must be a port number");
     if (publicPort !== undefined && publicPort !== 0 && publicPort === port) throw new Error("--public-port must differ from --port");
+    const signinPort = values["signin-port"] === undefined ? undefined : Number(values["signin-port"]);
+    if (signinPort !== undefined && (!Number.isInteger(signinPort) || signinPort < 0 || signinPort > 65535)) throw new Error("--signin-port must be a port number");
+    if (signinPort !== undefined && signinPort !== 0 && (signinPort === port || signinPort === publicPort)) throw new Error("--signin-port must differ from --port and --public-port");
+    const signinUrl = values["signin-url"] ?? process.env.EP0CH_WEB_URL;
+    if (signinPort !== undefined && !signinUrl) throw new Error("--signin-port needs --signin-url (or EP0CH_WEB_URL): the public origin it is opened at, e.g. --signin-url https://my.ep0ch.sh");
     const publicUrl = values["public-url"] ?? process.env.OUTLINER_PUBLIC_URL;
     const { checkPublicBind, publisherUrl } = await import("./publish");
     const rawPublishUrl = values.url ?? process.env.OUTLINER_PUBLISH_URL;
@@ -275,11 +289,48 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       console.log(values.json ? JSON.stringify(listed, null, 2) : renderIndexText(index, publisher.basePath, entry => publisher.publicHref(entry)).trimEnd());
       return 0;
     }
-    const server = servePublisher(publisher, port);
+    // The web client over every outline the host serves: this outline at the base path, each other one below `/o/<name>`.
+    const { OutlinePublishers } = await import("./publish-outlines");
+    const { outlineHostClient } = await import("./outline-host-client");
+    // Asked of the host at most every 10 s: a page of another outline asks on each request.
+    let known: { names: string[]; at: number } | undefined;
+    const outlineNames = async () => {
+      if (known && Date.now() - known.at < 10_000) return known.names;
+      const host = await outlineHostClient();
+      const names = host ? (await host.request<{ outlines: { name: string }[] }>({ action: "outlines.list" })).outlines.map(o => o.name) : [];
+      known = { names, at: Date.now() };
+      return names;
+    };
+    const web = new OutlinePublishers({
+      home: publisher, ...(status.outline?.name ? { homeName: status.outline.name } : {}), names: outlineNames, log: line => console.error(line),
+      open: (name, basePath) => new Publisher({
+        client: createOutlinerClient({ ...resolveClientPaths(), outline: name }),
+        basePath, webRoot: publisher.basePath,
+        artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
+        ...(publishUrl ? { url: `${publishUrl}/o/${name}` } : {}),
+        log: line => console.error(line),
+      }),
+    });
+    const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 30, fetch: request => web.handle(request) });
     // One publisher, one index; the public listener is the same publisher seen by the public audience.
     const publicServer = publicPort === undefined ? undefined : servePublisher(publisher, publicPort, "public", publicBind);
+    // The signed-in web client (web-signin.ts): the same web client, behind a sign-in, for a public origin's proxy.
+    let signinServer: ReturnType<typeof Bun.serve> | undefined;
+    if (signinPort !== undefined) {
+      const { SignInGate, signInSettings } = await import("./web-signin");
+      const settings = signInSettings(process.env, signinUrl!, `${publisher.basePath}/`);
+      if ("error" in settings) throw new Error(settings.error);
+      if (!settings.allowedSubjects.length) console.error("web sign-in: EP0CH_MCP_ALLOWED_SUBJECTS is empty: every sign-in is refused, and its subject logged to pin");
+      const host = createOutlinerClient(resolveClientPaths());
+      const gate = new SignInGate({
+        settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
+        serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
+      });
+      signinServer = Bun.serve({ hostname: "127.0.0.1", port: signinPort, idleTimeout: 30, fetch: request => gate.handle(request) });
+    }
     console.log(JSON.stringify({
       status: "publishing", url: `http://127.0.0.1:${server.port}${publisher.basePath}/`,
+      ...(signinServer ? { signinListener: `http://127.0.0.1:${signinServer.port}/`, signinUrl } : {}),
       ...(publicServer ? { publicListener: `http://${publicBind.includes(":") ? `[${publicBind}]` : publicBind}:${publicServer.port}${publisher.publicBase.basePath}/p/…`, publicUrl: `${publisher.publicBase.origin ?? ""}${publisher.publicBase.basePath}` } : {}),
       outline: status.outline?.name ?? process.env.EP0CH_WS ?? null, roots: publisher.roots,
     }));
@@ -288,6 +339,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     await stopped.promise;
     server.stop(true);
     publicServer?.stop(true);
+    signinServer?.stop(true);
+    await web.stop();
     await publisher.stop();
     return 0;
   } catch (error) {

@@ -13,6 +13,7 @@
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { allowedSubjects, issuerFromPublishableKey } from "@ep0ch/outline-core/signin";
 import type { HostedOutlineList, HostedOutlineSummary, McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
@@ -100,15 +101,8 @@ export async function verifyBearer(authorization: string | null, policy: BearerP
   return { ok: true, sub, ...(clientId ? { clientId } : {}) };
 }
 
-/** Clerk's Frontend API URL, its OAuth issuer, from a publishable key (`pk_test_<base64 of "<host>$">`). */
-export function issuerFromPublishableKey(key: string): string | undefined {
-  const m = /^pk_(?:test|live)_([A-Za-z0-9+/=_-]+)$/.exec(key.trim());
-  if (!m) return undefined;
-  try {
-    const host = Buffer.from(m[1]!.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8").replace(/\$$/, "");
-    return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : undefined;
-  } catch { return undefined; }
-}
+/** Clerk's issuer from a publishable key: outline-core's, the one rule the web sign-in reads too. */
+export { issuerFromPublishableKey };
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 
@@ -125,7 +119,7 @@ export function gatewayConfig(env: Record<string, string | undefined>): { issuer
   let issuer: URL;
   try { issuer = new URL(issuerText); } catch { return { error: `the issuer ${issuerText} isn't a URL` }; }
   if (issuer.protocol !== "https:" && !loopback(issuer)) return { error: `the issuer must be https (got ${issuerText})` };
-  return { issuer: trimSlash(issuer.href), resource, allowedSubjects: listOf(env.EP0CH_MCP_ALLOWED_SUBJECTS), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
+  return { issuer: trimSlash(issuer.href), resource, allowedSubjects: allowedSubjects(env), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
 }
 
 /**

@@ -1071,6 +1071,41 @@ an agent that discovers WebMCP tools finds them with no change here. Its in-tab 
 only; the WebMCP permissions policy is left at its default (`self`), so nothing embedded reaches the tools. Without the
 polyfill (not installed) or without JavaScript, the page works as before.
 
+#### The signed-in web client (my.ep0ch.sh)
+
+The tailnet's web client, whole, on a public origin behind a sign-in: every outline the host serves, every page and
+folder, marginalia writes, `@margin`, quotes, Recent replies, `/shares`, the page helpers and `reader_view` presence.
+It is the same code and the same pages, never a second client: `--signin-port N --signin-url https://my.ep0ch.sh` adds
+a loopback listener (`web-signin.ts`) that lets a request through to the web client only with a web session. Signed
+out, every page is the sign-in page (dark, no script) and an API call is `401`; only `/signin`, its callback and
+`/robots.txt` answer without one. The tailnet listener keeps working with no sign-in, as before.
+
+- **Every outline.** The home outline (`--ws`) is at `/pub/`, as always; every other outline the host serves is at
+  `/pub/o/<name>/` (its own `Publisher`, started when first asked for, `publish-outlines.ts`), and `/pub/o/` lists
+  them. The same paths on the tailnet. `/` goes to `/pub/`, and the old `my.ep0ch.sh/p/<slug>` links to `/pub/p/<slug>`.
+- **Sign-in** is OpenID Connect against Clerk, the MCP gateway's authorization server: the authorization code flow
+  with PKCE for a public client (`EP0CH_WEB_CLIENT_ID`, the Clerk OAuth application `ep0ch-web`; no client secret),
+  `state` bound to the browser by a ten-minute cookie, and a `nonce`. The ID token is checked against the issuer's
+  JWKS (issuer `EP0CH_WEB_ISSUER`, or the one `CLERK_PUBLISHABLE_KEY` names; audience; expiry; nonce). Only the
+  people on `EP0CH_MCP_ALLOWED_SUBJECTS`, the one list the MCP gateway reads too (outline-core's `signin.ts`), get
+  in; anyone else is refused and their subject logged, and with nobody listed everyone is, saying what to set.
+- **A session** is a 256-bit token in an `HttpOnly; Secure; SameSite=Lax` cookie (`__Host-ep0ch_session`) for 30
+  days, renewed as it is used. The outline host keeps the sessions for every outline (`web.sessions.*`, host
+  actions) in `.host/web-sessions.json` (0600), each as its SHA-256 only, with its browser, who and last use.
+- **Sessions page.** `<base>/sessions`, signed in and on the tailnet, lists them (this browser marked) with Revoke
+  and Sign out everywhere; `ep0ch web sessions` and `ep0ch web revoke <id>|--all` do the same. A revoke holds from
+  the next request.
+- **Writes** need the session and an `Origin` naming the sign-in origin (CSRF), on top of each route's own check.
+  Every answer says `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer`; nothing logs a token, a
+  code or a cookie. The listener answers only its own `Host` (`421` otherwise).
+
+| Env | Meaning |
+|---|---|
+| `EP0CH_WEB_URL` | the public origin, as `--signin-url` (`https://my.ep0ch.sh`); https |
+| `EP0CH_WEB_CLIENT_ID` | the Clerk OAuth application's client id (public, PKCE; its redirect is `<origin>/signin/callback`) |
+| `EP0CH_WEB_ISSUER` | Clerk's Frontend API URL; else from `CLERK_PUBLISHABLE_KEY` |
+| `EP0CH_MCP_ALLOWED_SUBJECTS` | the Clerk user ids allowed in, shared with the MCP gateway |
+
 #### Artifacts
 
 What claude.ai runs as an artifact runs here when its file is attached to a

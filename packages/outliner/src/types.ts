@@ -1888,6 +1888,15 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "outlines.archive"; name: string }
   | { id: string; action: "outlines.unarchive"; name: string }
+  /**
+   * The signed-in web client's sessions (web-sessions.ts), answered by the outline host for every outline: `start` after
+   * a sign-in (answers the cookie's token once), `resolve` a cookie's token on each request (renewing it), `list`, and
+   * `revoke` one (`sessionId`) or `all`.
+   */
+  | { id: string; action: "web.sessions.start"; subject: string; name?: string; device?: string }
+  | { id: string; action: "web.sessions.resolve"; token: string }
+  | { id: string; action: "web.sessions.list" }
+  | { id: string; action: "web.sessions.revoke"; sessionId?: string; all?: boolean }
   | ({ id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] } & WatchFields)
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */

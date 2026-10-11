@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The web client at my.ep0ch.sh, signed in
+
+- **New:** the tailnet's web client, whole, at `https://my.ep0ch.sh` behind a sign-in (GitHub through Clerk, only the
+  people the MCP gateway lets in): every page and folder, marginalia, `@margin`, quotes, Recent replies, shares and
+  the page helpers. Signed in once, a browser stays signed in for 30 days from its last visit.
+- **New:** every outline the host serves is in the web client: the home one at `/pub/`, the others at
+  `/pub/o/<name>/` (`/pub/o/` lists them), on the tailnet too.
+- **New:** `/pub/sessions` (and `ep0ch web sessions`, `ep0ch web revoke <id>|--all`) lists the signed-in browsers,
+  with Revoke and Sign out everywhere.
+- **Run:** PROTOCOL 146: `ep0ch install --apply`, then the deploy steps in the PR (a Caddy change for my.ep0ch.sh, the
+  publisher's `--signin-port`, and one shared `signin.env` for the allowed list).
+
 ### The floating comment box stays with you (PIE-785)
 
 - **Changed:** clicking another tile (or ^W, or a hyper chord) no longer closes the comment you're writing: the box

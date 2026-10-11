@@ -25,6 +25,7 @@ import {
   type OutlinerServiceStatus,
 } from "./types";
 import { probeSocket } from "./socket-probe";
+import { answerWebSessions, WEB_SESSION_ACTIONS, WebSessions } from "./web-sessions";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 import { metaDir, withLitestreamPaused } from "./litestream-guard";
 
@@ -72,7 +73,8 @@ export interface OutlineHostOptions {
   readOnly?: boolean;
 }
 
-const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane"]);
+// `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
+const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS]);
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -143,6 +145,7 @@ export class OutlineHost {
   readonly outlinesFolder: string;
   readonly defaultOutline: string | undefined;
   private readonly layout: ReturnType<typeof outlineLayout>;
+  private webSessions: WebSessions | undefined;
   private listener: Server | null = null;
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
@@ -711,6 +714,12 @@ export class OutlineHost {
       case "outlines.delete": return this.delete(request.name);
       case "outlines.archive": return this.archive(request.name);
       case "outlines.unarchive": return this.unarchive(request.name);
+      case "web.sessions.start":
+      case "web.sessions.resolve":
+      case "web.sessions.list":
+      case "web.sessions.revoke":
+        this.webSessions ??= new WebSessions(join(this.layout.hostDir, "web-sessions.json"));
+        return answerWebSessions(this.webSessions, request);
       default: throw new Error(`Unsupported host action: ${String(request.action)}`);
     }
   }

@@ -5,7 +5,7 @@ import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
-import type { ShareSession } from "@ep0ch/outline-core/protocol";
+import type { ShareSession, WebSession } from "@ep0ch/outline-core/protocol";
 import type { ShareResolution } from "./share-sessions";
 import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
@@ -157,7 +157,17 @@ export interface PublisherOptions {
   tunnelSweepMs?: number;
   /** cloudflared's path (tests give a fake); else EP0CH_CLOUDFLARED, else PATH. */
   cloudflared?: () => string | undefined;
+  /**
+   * The web client's root, where the home outline is mounted (`/pub`): an outline's folder links its fellow outlines
+   * at `<webRoot>/o/` (publish-outlines.ts). Defaults to the base path.
+   */
+  webRoot?: string;
   log?: (line: string) => void;
+}
+
+/** A request the sign-in listener let through (web-signin.ts): which web session it came with. */
+export interface SignedIn {
+  sessionId: string;
 }
 
 /** What a block's `[publish::…]` asks for: not published, locked, or published (public or tailnet only), maybe at a slug. */
@@ -484,6 +494,16 @@ function notFound(): Response {
   return respond("Not published\n", "text/plain; charset=utf-8", 404);
 }
 
+/**
+ * A plain page of the web client's own (the sign-in page, a refusal): dark, no script, the publisher's style, nothing
+ * from the outline. `body` is HTML the caller escaped.
+ */
+export function plainPage(title: string, body: string, status = 200, headers: Record<string, string> = {}): Response {
+  return withHeaders(renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, `<nav class="crumbs">ep0ch</nav>`, { browse: true }), status), headers);
+}
+
+export { escapeHtml };
+
 /** A share link that ended: 410, a plain dark page that names nothing from the outline. */
 function shareGone(state: "expired" | "revoked"): Response {
   const said = state === "expired" ? "This link has expired." : "This link was turned off.";
@@ -573,6 +593,8 @@ export const DEFAULT_PUBLIC_BASE_PATH = "/share";
 export class Publisher {
   private readonly client: PublishClient;
   readonly basePath: string;
+  /** The web client's root (`/pub`): where the home outline is, and `<webRoot>/o/` the outlines. */
+  readonly webRoot: string;
   /** The public listener's mount (`/share`) and, when known, the origin anyone opens it at. */
   readonly publicBase: { basePath: string; origin?: string };
   private readonly maxBytes: number;
@@ -602,6 +624,7 @@ export class Publisher {
   constructor(private readonly options: PublisherOptions) {
     this.client = options.client;
     this.basePath = normalizeBasePath(options.basePath);
+    this.webRoot = options.webRoot === undefined ? this.basePath : normalizeBasePath(options.webRoot);
     this.publicBase = parsePublicUrl(options.publicUrl);
     this.maxBytes = Math.min(options.maxBytes ?? MAX_TEXT_FILE_BYTES, MAX_TEXT_FILE_BYTES);
     this.log = options.log ?? (() => {});
@@ -667,7 +690,7 @@ export class Publisher {
   }
 
   /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
-  private hostAllowed(header: string | null, audience: PublishAudience): boolean {
+  hostAllowed(header: string | null, audience: PublishAudience): boolean {
     if (!header) return false;
     let host: string;
     try {
@@ -905,12 +928,12 @@ export class Publisher {
    * (PIE-782) and a page's marginalia routes (`/_marginalia/…`, publish-page.ts). The public audience has no index,
    * sees only public notes and takes no writes.
    */
-  async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string): Promise<Response> {
-    const response = await this.answer(request, audience, tunnel);
+  async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
+    const response = await this.answer(request, audience, tunnel, signedIn);
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
-  private async answer(request: Request, audience: PublishAudience, tunnel?: string): Promise<Response> {
+  private async answer(request: Request, audience: PublishAudience, tunnel?: string, signedIn?: SignedIn): Promise<Response> {
     // A tunnel's ingress answers its one share and nothing else; its Host is the tunnel's, whatever that is.
     if (tunnel !== undefined) {
       const shared = SHARE_PATH.exec(new URL(request.url).pathname);
@@ -922,7 +945,8 @@ export class Publisher {
         return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
       }
     }
-    if (!this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
+    // The sign-in listener checked its own Host (its public name) before it let the request through.
+    if (!(signedIn && audience === "tailnet") && !this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
       return respond("Host not allowed\n", "text/plain; charset=utf-8", 421);
     }
     const url = new URL(request.url);
@@ -953,8 +977,17 @@ export class Publisher {
         return respond("The outline could not be reached; try again\n", "text/plain; charset=utf-8", 502);
       }
     }
+    // The signed-in web sessions (web-sessions.ts): every browser signed in at the sign-in listener, each with Revoke.
+    if (audience === "tailnet" && (path === "/sessions" || path.startsWith("/sessions/"))) {
+      try {
+        return await this.serveSessions(request, path, signedIn);
+      } catch (error) {
+        this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+        return respond("The outline host could not be reached; try again\n", "text/plain; charset=utf-8", 502);
+      }
+    }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
-    // tailnet is the sign-in; the public listener has none of these.
+    // tailnet (or signed in at the sign-in listener) is the sign-in; the public listener has none of these.
     if (audience === "tailnet" && path.startsWith(`${PAGE_ROUTE}/`)) {
       try {
         return await this.marginalia.handle(request, path.slice(PAGE_ROUTE.length));
@@ -1035,6 +1068,51 @@ export class Publisher {
     const entry = await this.entryAt(address, index, "tailnet");
     if (!entry || !(await this.inScope([entry.blockId], share)).has(entry.blockId)) return notFound();
     return this.serveEntry(entry.type === "block" ? entry : { ...entry, type: "block" }, index, shown, "tailnet", share);
+  }
+
+  /**
+   * The signed-in web sessions page (`<base>/sessions`, on the tailnet and at the sign-in listener): each browser signed
+   * in (its device, who, last seen), each with Revoke, and Sign out everywhere; the one this request came with is marked,
+   * with Sign out. The sessions are the host's, the same from every outline. Its forms post here from this page only.
+   */
+  private async serveSessions(request: Request, path: string, signedIn?: SignedIn): Promise<Response> {
+    const base = this.basePath;
+    if (request.method === "POST") {
+      if (!sameOrigin(request)) return respond("A change comes from the sessions page itself\n", "text/plain; charset=utf-8", 403);
+      if (path !== "/sessions/revoke") return notFound();
+      const form = new URLSearchParams((await request.text()).slice(0, 4096));
+      const all = form.get("all") === "1";
+      try {
+        await this.client.request(all ? { action: "web.sessions.revoke", all: true } : { action: "web.sessions.revoke", sessionId: form.get("id") ?? "" });
+      } catch (error) {
+        const why = `<article>\n<h1>Not done</h1>\n<p>${escapeHtml(error instanceof Error ? error.message : String(error))}</p>\n<p><a href="${escapeHtml(`${base}/sessions`)}">back to sessions</a></p>\n</article>\n`;
+        return renderedHtml(htmlPage("Not done", why, `<nav class="crumbs"><a href="${escapeHtml(`${base}/sessions`)}">Sessions</a></nav>`, { browse: true }), 422);
+      }
+      // Ending this browser's own session (or every one) signs it out: back to the sign-in.
+      const own = signedIn && (all || form.get("id") === signedIn.sessionId);
+      return new Response(null, { status: 303, headers: { ...COMMON_HEADERS, location: own ? "/signin" : `${base}/sessions` } });
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Use GET or POST\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD, POST" });
+    if (path !== "/sessions" && path !== "/sessions/") return notFound();
+    const { sessions } = await this.client.request<{ sessions: WebSession[] }>({ action: "web.sessions.list" });
+    const ago = (iso: string) => {
+      const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+      return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 48 * 60 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1440)} days ago`;
+    };
+    const rows = sessions.map((session) => {
+      const here = session.id === signedIn?.sessionId;
+      return `<tr><td>${escapeHtml(session.device)}${here ? ` <strong>(this browser)</strong>` : ""}<div class="dim">${escapeHtml(session.id)} · ${escapeHtml(session.name ? `${session.name} (${session.subject})` : session.subject)} · signed in ${escapeHtml(session.createdAt.slice(0, 10))}</div></td>` +
+        `<td>${escapeHtml(ago(session.lastSeenAt))}</td><td>${escapeHtml(session.expiresAt.slice(0, 10))}</td>` +
+        `<td><form method="post" action="${escapeHtml(`${base}/sessions/revoke`)}"><input type="hidden" name="id" value="${escapeHtml(session.id)}"><button type="submit">${here ? "Sign out" : "Revoke"}</button></form></td></tr>`;
+    }).join("\n");
+    const list = sessions.length
+      ? `<table class="shares"><thead><tr><th>browser</th><th>last seen</th><th>ends</th><th></th></tr></thead><tbody>\n${rows}\n</tbody></table>\n` +
+        `<form method="post" action="${escapeHtml(`${base}/sessions/revoke`)}" class="share-new"><input type="hidden" name="all" value="1"><button type="submit">Sign out everywhere (${sessions.length})</button></form>\n`
+      : `<p class="dim">No browser is signed in. Signing in at the web client's public address starts one.</p>\n`;
+    const body = `<article>\n<h1>Sessions</h1>\n<p class="dim">Browsers signed in to the web client. Each lasts 30 days from its last use; Revoke ends it now. The same as <code>ep0ch web sessions</code> and <code>ep0ch web revoke &lt;id&gt;|--all</code>.</p>\n${list}</article>\n` +
+      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Sessions</span></nav>`;
+    return renderedHtml(htmlPage("Sessions", body, crumbs, { browse: true }), 200, SHARES_CSP);
   }
 
   /**
@@ -1213,7 +1291,7 @@ export class Publisher {
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
       : "";
-    const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a></footer>`;
+    const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
     const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
     const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.outlineName ?? "outline")}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
