@@ -13,11 +13,8 @@ const term = document.getElementById("term");
 const status = document.getElementById("status");
 const showStats = new URLSearchParams(location.search).has("stats");
 
-// One terminal per tab: a reload within the server's grace reattaches to the same one.
-const id = (() => {
-  const fresh = () => [...crypto.getRandomValues(new Uint8Array(18))].map(b => b.toString(16).padStart(2, "0")).join("");
-  try { return sessionStorage.getItem("door-t") || (sessionStorage.setItem("door-t", fresh()), sessionStorage.getItem("door-t")) || fresh(); } catch { return fresh(); }
-})();
+// The terminal this page was given: each page (and each reload) is a terminal of its own; the last one ends on its own.
+const id = body.dataset.t;
 
 // Input: one POST in flight, the backlog batched behind it, so frames arrive in order.
 const queue = [];
@@ -234,6 +231,8 @@ function apply(msg) {
     for (const rid of msg.trim || []) document.getElementById(rid)?.remove();
     seqno = msg.seqno;
   } else if (msg.t === "exit") {
+    ended = true;
+    source?.close();
     status.textContent = "the door ended · reload to call again";
     return;
   }
@@ -246,17 +245,18 @@ function apply(msg) {
   }
 }
 
+let source = null, ended = false;
 function connect() {
   const s = measure();
   size = s;
   const q = new URLSearchParams({ t: id, cols: String(s.cols), rows: String(s.rows), ...(open ? { open } : {}) });
-  const es = new EventSource(`${base}/door/stream?${q}`);
+  const es = source = new EventSource(`${base}/door/stream?${q}`);
   es.onmessage = ev => {
     frames++;
     bytes += ev.data.length;
     try { apply(JSON.parse(ev.data)); } catch {}
   };
-  es.onerror = () => { if (!showStats) status.textContent = "reconnecting…"; };
+  es.onerror = () => { if (!ended && !showStats) status.textContent = "reconnecting…"; };
   es.onopen = () => { if (!showStats) status.textContent = ""; fitSoon(); };
 }
 

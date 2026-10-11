@@ -54,6 +54,12 @@ async function setup() {
   return { store, client, publisher, note };
 }
 
+/** The terminal id a door page was given. */
+async function issued(publisher: Publisher, query = ""): Promise<string> {
+  const html = await (await tailnet(publisher, `/pub/door${query}`)).text();
+  return html.match(/data-t="([^"]+)"/)![1]!;
+}
+
 const tailnet = (publisher: Publisher, path: string, init: RequestInit = {}) =>
   publisher.handle(new Request(`http://moth-box.tail0000.ts.net${path}`, init), "tailnet");
 
@@ -105,7 +111,7 @@ test("the door is never served on the public listener, below a share link, or at
 
 test("a page's terminal runs the door attached to the outline, streams its frames and takes its keys", async () => {
   const { publisher, note } = await setup();
-  const t = "fernfernfernfern01";
+  const t = await issued(publisher, `?open=${note.id}`);
   const stream = await tailnet(publisher, `/pub/door/stream?t=${t}&cols=100&rows=30&open=${note.id}`);
   expect(stream.headers.get("content-type")).toBe("text/event-stream");
   const sent = tailnet(publisher, `/pub/door/input?t=${t}`, { method: "POST", headers: { origin: "http://moth-box.tail0000.ts.net" }, body: '{"t":"key","key":"i","mods":0}\nnot json\n' });
@@ -117,13 +123,18 @@ test("a page's terminal runs the door attached to the outline, streams its frame
   // A joiner asks for a fresh keyframe; then only the JSON command passed to the terminal, never the line that isn't.
   const patches = seen.filter(line => line.includes('"t":"diff"')).map(line => JSON.parse(JSON.parse(line).patch));
   expect(patches).toEqual([{ t: "screen" }, { t: "key", key: "i", mods: 0 }]);
-  const stats = await (await tailnet(publisher, "/pub/door/stats")).json() as Array<{ inputs: number }>;
+  const stats = await (await tailnet(publisher, "/pub/door/stats")).json() as Array<{ inputs: number; pid: number }>;
   expect(stats[0]!.inputs).toBe(1);
+  // The publisher stopping ends the terminal even while a page watches it.
+  await publisher.stop();
+  expect(() => process.kill(stats[0]!.pid, 0)).toThrow();
 });
 
 test("another site can't open a terminal or type into one", async () => {
   const { publisher } = await setup();
-  const t = "fernfernfernfern02";
+  // An id the page wasn't given (one another site picks) starts nothing.
+  expect((await tailnet(publisher, "/pub/door/stream?t=fernfernfernfern02")).status).toBe(404);
+  const t = await issued(publisher);
   expect((await tailnet(publisher, `/pub/door/stream?t=${t}`, { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
   const stream = await tailnet(publisher, `/pub/door/stream?t=${t}`);
   const typed = await tailnet(publisher, `/pub/door/input?t=${t}`, { method: "POST", headers: { origin: "https://evil.example" }, body: '{"t":"input","b":"x"}\n' });

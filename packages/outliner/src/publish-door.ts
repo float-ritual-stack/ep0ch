@@ -7,7 +7,7 @@
 //
 // It is a terminal, effectively shell-adjacent (the door's drop shell is a key away), so it is served on the tailnet
 // listener only: never the public listener, never below a share link, not yet the signed-in origin. Requests must come
-// from the page's own origin (Sec-Fetch-Site / Origin), and a stream or input names a terminal by an unguessable id.
+// from the page's own origin (Sec-Fetch-Site / Origin), and only a terminal id the page itself was given starts one.
 //
 // The door is told it's in a terminal without Kitty graphics or text sizing through the variables its Display already
 // reads (EP0CH_KITTY=0, EP0CH_SIZED=0): figures draw as cells, titles at one height.
@@ -49,14 +49,28 @@ interface Terminal {
   proc: Bun.Subprocess<"pipe", "pipe", "ignore">;
   /** The last keyframe line, for a stream that (re)connects. */
   keyframe: string | null;
-  watchers: Set<(line: string) => void>;
+  watchers: Set<Watcher>;
+  /** Ending: no stream attaches to it any more. */
+  closing: boolean;
   idleTimer: ReturnType<typeof setTimeout> | null;
   started: number;
   stats: { keyframes: number; diffs: number; bytesOut: number; inputs: number; bytesIn: number };
 }
 
+/** One page's stream: a frame to it, and its end. */
+interface Watcher { send(line: string): void; close(): void }
+
+/** A stream that has this much unsent is too slow: it's ended, and the page reconnects to a fresh keyframe. */
+const MAX_QUEUED = 4 << 20;
+/** Streams on one terminal (a page reconnecting, a second tab of the same page). */
+const MAX_WATCHERS = 4;
+/** A terminal id the page was given is good for this long before its stream starts it. */
+const ISSUED_MS = 60_000;
+
 export class WebDoor {
   private readonly terminals = new Map<string, Terminal>();
+  /** Terminal ids handed to pages, not yet started: only these can start one (another site can't read a page's). */
+  private readonly issued = new Map<string, number>();
   private readonly binary: string;
   private readonly log: (line: string) => void;
 
@@ -72,7 +86,7 @@ export class WebDoor {
     if (!sameOrigin(request)) return text("Cross-site requests are refused\n", 403);
     if (request.method === "GET" && (path === "/door" || path === "/door/")) {
       const open = url.searchParams.get("open") ?? "";
-      return page(base, BLOCK_ID.test(open) ? open : undefined);
+      return page(base, this.issue(), BLOCK_ID.test(open) ? open : undefined);
     }
     if (request.method === "GET" && path === "/door/door.js") return asset(PAGE_SCRIPT, "text/javascript; charset=utf-8");
     if (request.method === "GET" && path === "/door/client.js") return asset(CLIENT_SCRIPT, "text/javascript; charset=utf-8");
@@ -89,13 +103,17 @@ export class WebDoor {
     if (request.method === "GET" && path === "/door/stream") {
       const open = url.searchParams.get("open") ?? "";
       const size = { cols: clamp(Number(url.searchParams.get("cols")), 20, 400, 80), rows: clamp(Number(url.searchParams.get("rows")), 5, 200, 24) };
-      const term = this.terminals.get(id) ?? this.start(id, BLOCK_ID.test(open) ? open : undefined, size);
+      const running = this.terminals.get(id);
+      if (running?.closing) return text("That terminal ended; reload the page\n", 404);
+      if (running && running.watchers.size >= MAX_WATCHERS) return text("Too many streams on that terminal\n", 503);
+      if (!running && !this.issued.delete(id)) return text("No such terminal; reload the page\n", 404);
+      const term = running ?? this.start(id, BLOCK_ID.test(open) ? open : undefined, size);
       if (!term) return text(`Too many door terminals open (${this.options.max ?? 4}); close one\n`, 503);
       return this.stream(term, request.signal);
     }
     if (request.method === "POST" && path === "/door/input") {
       const term = this.terminals.get(id);
-      if (!term) return text("No such terminal\n", 404);
+      if (!term || term.closing) return text("No such terminal\n", 404);
       const body = await request.text();
       // Only whole JSON objects pass, one per line: nothing else reaches ptyZZZ's stdin.
       const lines = body.split("\n").filter(line => line.trim()).filter(line => { try { return typeof JSON.parse(line)?.t === "string"; } catch { return false; } });
@@ -116,8 +134,19 @@ export class WebDoor {
     return [...this.terminals.values()].map(t => ({ id: t.id.slice(0, 6), pid: t.proc.pid, seconds: Math.round((now - t.started) / 1000), watchers: t.watchers.size, ...t.stats }));
   }
 
+  /** Every terminal ended, its streams with it. */
   async stop(): Promise<void> {
-    await Promise.all([...this.terminals.values()].map(t => this.end(t)));
+    await Promise.all([...this.terminals.values()].map(t => this.end(t, true)));
+  }
+
+  /** A fresh terminal id for a page, remembered until its stream starts the terminal. */
+  private issue(): string {
+    const now = Date.now();
+    for (const [id, at] of this.issued) if (now - at > ISSUED_MS) this.issued.delete(id);
+    if (this.issued.size >= 64) this.issued.delete(this.issued.keys().next().value!);
+    const id = Buffer.from(crypto.getRandomValues(new Uint8Array(18))).toString("base64url");
+    this.issued.set(id, now);
+    return id;
   }
 
   private start(id: string, open: string | undefined, size: { cols: number; rows: number }): Terminal | null {
@@ -128,13 +157,15 @@ export class WebDoor {
     const proc = Bun.spawn([this.binary, "run", "--die-with-parent", "--target", "grid-door", "--scrollback", "0", "--cols", String(size.cols), "--rows", String(size.rows), "--", ...this.options.command(open)], {
       stdin: "pipe", stdout: "pipe", stderr: "ignore", env,
     });
-    const term: Terminal = { id, proc, keyframe: null, watchers: new Set(), idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
+    const term: Terminal = { id, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
     this.terminals.set(id, term);
     this.log(`door: terminal ${id.slice(0, 6)} started (pid ${proc.pid}${open ? `, opening ${open}` : ""})`);
     void this.read(term);
     void proc.exited.then(code => {
       this.terminals.delete(id);
-      for (const w of term.watchers) w(JSON.stringify({ t: "exit", code }));
+      term.closing = true;
+      if (term.idleTimer) clearTimeout(term.idleTimer);
+      for (const w of [...term.watchers]) { w.send(JSON.stringify({ t: "exit", code })); w.close(); }
       this.log(`door: terminal ${id.slice(0, 6)} ended (${code})`);
     });
     return term;
@@ -153,50 +184,60 @@ export class WebDoor {
         if (line.endsWith('"t":"screen"}')) { term.keyframe = line; term.stats.keyframes++; }
         else term.stats.diffs++;
         term.stats.bytesOut += Buffer.byteLength(line) * term.watchers.size;
-        for (const w of term.watchers) w(line);
+        for (const w of [...term.watchers]) w.send(line);
       }
     }
   }
 
   private stream(term: Terminal, signal: AbortSignal): Response {
-    let send: ((line: string) => void) | null = null;
-    let keepalive: ReturnType<typeof setInterval> | null = null;
-    const done = () => {
-      if (send) term.watchers.delete(send);
-      if (keepalive) clearInterval(keepalive);
-      send = null;
-      if (!term.watchers.size && this.terminals.has(term.id)) {
-        term.idleTimer = setTimeout(() => void this.end(term), this.options.graceMs ?? 15_000);
-      }
-    };
     const encoder = new TextEncoder();
+    let keepalive: ReturnType<typeof setInterval> | null = null;
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const watcher: Watcher = {
+      send: line => {
+        // A page that reads slower than the door draws is let go; it reconnects and starts from a keyframe.
+        if ((controller.desiredSize ?? 0) < -MAX_QUEUED) { watcher.close(); return; }
+        try { controller.enqueue(encoder.encode(`data: ${line}\n\n`)); } catch { watcher.close(); }
+      },
+      close: () => {
+        if (!term.watchers.delete(watcher)) return;
+        if (keepalive) clearInterval(keepalive);
+        try { controller.close(); } catch {}
+        if (!term.watchers.size && !term.closing) {
+          term.idleTimer = setTimeout(() => void this.end(term), this.options.graceMs ?? 15_000);
+        }
+      },
+    };
     const body = new ReadableStream<Uint8Array>({
-      start: controller => {
+      start: c => {
+        controller = c;
         if (term.idleTimer) { clearTimeout(term.idleTimer); term.idleTimer = null; }
-        send = line => { try { controller.enqueue(encoder.encode(`data: ${line}\n\n`)); } catch { done(); } };
-        term.watchers.add(send);
+        term.watchers.add(watcher);
         // Where a joiner starts: the last keyframe now, and a fresh one within one coalesce window (PROTOCOL.md `screen`).
-        if (term.keyframe) controller.enqueue(encoder.encode(`data: ${term.keyframe}\n\n`));
+        if (term.keyframe) watcher.send(term.keyframe);
         term.proc.stdin.write('{"t":"screen"}\n');
         term.proc.stdin.flush();
         // Under the listener's 30 s idle timeout.
-        keepalive = setInterval(() => { try { controller.enqueue(encoder.encode(": k\n\n")); } catch { done(); } }, 10_000);
-        signal.addEventListener("abort", () => { done(); try { controller.close(); } catch {} });
+        keepalive = setInterval(() => { try { controller.enqueue(encoder.encode(": k\n\n")); } catch { watcher.close(); } }, 10_000);
+        signal.addEventListener("abort", () => watcher.close());
       },
-      cancel: done,
-    });
+      cancel: () => watcher.close(),
+    }, new ByteLengthQueuingStrategy({ highWaterMark: 1 << 20 }));
     return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no", "x-content-type-options": "nosniff" } });
   }
 
-  private async end(term: Terminal): Promise<void> {
-    if (!this.terminals.has(term.id) || term.watchers.size) return;
+  /** End a terminal nobody watches (or, `force`, every stream on it too): its stdin closed, then killed if it stays. */
+  private async end(term: Terminal, force = false): Promise<void> {
+    if (term.closing || !this.terminals.has(term.id) || (term.watchers.size && !force)) return;
+    term.closing = true;
+    if (term.idleTimer) clearTimeout(term.idleTimer);
+    for (const w of [...term.watchers]) w.close();
     // stdin's end is ptyZZZ's signal to end its pty's program (--on-stdin-eof exit); the door client detaches.
     try { term.proc.stdin.end(); } catch {}
     const ended = await Promise.race([term.proc.exited.then(() => true), Bun.sleep(3000).then(() => false)]);
-    if (!ended) term.proc.kill();
+    if (!ended) { term.proc.kill("SIGKILL"); await term.proc.exited; }
   }
 }
-
 /** A request from the page's own origin: a browser says so in Sec-Fetch-Site, or in Origin for a POST. */
 function sameOrigin(request: Request): boolean {
   const site = request.headers.get("sec-fetch-site");
@@ -220,7 +261,7 @@ const asset = (body: string, type: string) => new Response(body, { headers: { ..
 /** The page runs only its own scripts from this origin; ptyZZZ's rows carry inline styles (colours), so styles may be inline. */
 const DOOR_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-function page(base: string, open: string | undefined): Response {
+function page(base: string, terminal: string, open: string | undefined): Response {
   const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -228,7 +269,7 @@ function page(base: string, open: string | undefined): Response {
 <meta name="color-scheme" content="dark"><title>ep0ch door</title>
 <style>${PAGE_STYLE.replaceAll("__BASE__", attr(base))}</style>
 <script type="module" src="${attr(`${base}/door/door.js`)}"></script></head>
-<body data-base="${attr(base)}"${open ? ` data-open="${attr(open)}"` : ""}>
+<body data-base="${attr(base)}" data-t="${attr(terminal)}"${open ? ` data-open="${attr(open)}"` : ""}>
 <div id="term" class="pane" data-pane="door"><div class="scroll"><div id="grid-door">connecting…</div></div></div>
 <div id="bar" role="toolbar" aria-label="keys">
 <button data-key="Escape">esc</button><button data-key="Tab">tab</button><button data-mod="4" aria-pressed="false">ctrl</button><button data-mod="2" aria-pressed="false">alt</button>
