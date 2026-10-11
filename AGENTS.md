@@ -31,6 +31,12 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
 
 ## Before you build
 
+- **Infrastructure: read the Infrastructure hub first.** Before setting up or proposing anything about machines,
+  services, domains, tunnels, DNS, TLS, backups or public access, read the live hub in pie (block
+  `50fe932d-4314-4c1b-88c9-13e79a41ef83`, `ep0ch show --ws pie 50fe932d-4314-4c1b-88c9-13e79a41ef83`). There is
+  often more already running than the person remembers (a public domain behind Caddy, a Funnel, a logged-in
+  Cloudflare account, backups): reuse it before adding a parallel one. When you add or change infrastructure,
+  update the hub in the same step, since it is how the person finds it again.
 - Read [Before adding a feature](packages/door/docs/UI-GRAMMAR.md#before-adding-a-feature) for the door, and
   the outliner's [Source boundaries](packages/outliner/CONTRIBUTING.md#source-boundaries) and
   [Architecture pass](CONTRIBUTING.md#1-architecture-pass) for the outliner. Name the shared parts the change
