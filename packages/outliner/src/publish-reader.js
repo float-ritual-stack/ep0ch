@@ -420,7 +420,7 @@
       words ? el("p", { class: "q", text: `“${words.quote}”` }) : null,
       input, why,
       el("div", { class: "mg-row" }, cancel, sendButton, ...(composer && action === "comment" && words && !words.in
-        ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { chooseBox("door"); close(); compose(action, words); } })] : [])));
+        ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { if (input.value.trim()) return say("send or clear what's typed first: it stays in this box"); chooseBox("door"); close(); compose(action, words); } })] : [])));
     document.body.append(sheet);
     input.focus();
   }
@@ -670,7 +670,7 @@
         done();
       }) });
     box.append(el("div", { class: "mg-row" }, cancel, sendButton, ...(composer
-      ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { chooseBox("door"); done(); replyIn(node, thread, row); } })] : [])));
+      ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { if (input.value.trim()) return say("send or clear what's typed first: it stays in this box"); chooseBox("door"); done(); replyIn(node, thread, row); } })] : [])));
     row.hidden = true;
     node.append(box);
     input.focus();

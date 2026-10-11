@@ -335,7 +335,7 @@ export class CommentSession {
       landed: (r, t, body) => this.landed(r, t, body),
       refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
       relocate: () => this.relocate(this.env!),
-      ...(this.alone && this.target?.kind === "quote" ? { passageKey: rangeHash(this.target.passage.quote) } : {}),
+      ...(this.alone && this.target?.kind === "quote" ? { passageKey: rangeHash(`${this.target.passage.start}:${this.target.passage.quote}`) } : {}),
     }), { by });
   }
 
