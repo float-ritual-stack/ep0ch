@@ -514,7 +514,8 @@ export class PageMarginalia {
         const placeName = text(input.place) || "inbox";
         let place: Record<string, string>;
         if (placeName === "inbox") place = { kind: "inbox" };
-        else if (placeName === "note") place = { kind: "under", blockId: view.root.id };
+        // The note the first mark is on (on a mark's own page too: never under the mark), as the door's "under this note".
+        else if (placeName === "note") place = { kind: "note" };
         else if (placeName === "under") {
           const under = text(input.under);
           const [target] = under ? await this.host.linkable([under], share) : [];

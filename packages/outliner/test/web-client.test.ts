@@ -243,6 +243,9 @@ test("words in a comment are marked like a note's: a highlight on them lands on 
   const card = ((await threads(pots.id)).threads as unknown as { id: string; marks: { id: string; quote: string }[] }[]).find((thread) => thread.id === comment)!;
   expect(card.marks).toEqual([expect.objectContaining({ id: on[0]!.block.id, quote: "October" })]);
   expect((await write({ page: pots.id, action: "reply", thread: on[0]!.block.id, body: "Mid-month.", requestId: "in-comment-03" })).status).toBe(200);
+  // Quoted "under its note", a mark on a comment goes under the note they're both on, never under the comment.
+  const nested = await (await write({ page: pots.id, action: "quote", marks: [on[0]!.block.id], place: "note", requestId: "in-comment-05" })).json();
+  expect(store.get(nested.block)!.parentId).toBe(pots.id);
   // Words that are the comment's heading, not its own, aren't found there.
   expect((await write({ page: pots.id, action: "highlight", in: comment, quote: "Comment on", requestId: "in-comment-04" })).status).toBe(422);
 });

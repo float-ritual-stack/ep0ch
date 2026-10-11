@@ -1279,7 +1279,14 @@ export class OutlinerStore {
       let intent: NewNoteIntent = { kind: "capture" };
       if (place.kind === "under") intent = { kind: "note", near: place.blockId, nearOnly: true };
       else if (place.kind === "note") {
-        const subject = records[0]!.originalTarget.representation.subject;
+        // A mark on a mark (words of a comment highlighted): up through the marks to the note they're all on.
+        let subject = records[0]!.originalTarget.representation.subject;
+        for (let hops = 0; subject.kind === "block" && hops < 16; hops++) {
+          const on = this.getFromCurrentRead(subject.blockId);
+          const type = on?.properties.find((property) => property.key === "type")?.value;
+          if (type !== "annotation" && type !== "annotation-reply") break;
+          subject = this.annotations.get(subject.blockId).originalTarget.representation.subject;
+        }
         if (subject.kind !== "block") throw new Error("that mark is on a Resource, not a note: quote it into the Inbox or under a block you name");
         intent = { kind: "note", near: subject.blockId, nearOnly: true };
       }

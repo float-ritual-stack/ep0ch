@@ -465,7 +465,7 @@
   function quote(ids) {
     if (!ids.length || !opening()) return;
     hideBar();
-    let place = "inbox", under = "", findTimer = 0;
+    let place = "inbox", under = "", findTimer = 0, finds = 0;
     // One request id for this sheet: a retry after a lost answer gets the first quote back, not a second one.
     const id = requestId();
     const input = el("textarea", { class: "mg-in", placeholder: "Your own words above the quote (optional: its first line is its title)" });
@@ -474,7 +474,7 @@
     const chosen = el("p", { class: "q", hidden: "" });
     const found = el("div", { class: "found", hidden: "" });
     const find = el("input", { class: "mg-find", type: "search", placeholder: "Find the note to put it under", hidden: "" });
-    const places = [["inbox", "Inbox"], ["note", "Under this note"], ["under", "Under…"]].map(([name, label]) =>
+    const places = [["inbox", "Inbox"], ["note", "Under its note"], ["under", "Under…"]].map(([name, label]) =>
       el("button", { type: "button", class: name === place ? "on" : "", text: label, onclick: () => choosePlace(name) }));
     function choosePlace(name) {
       place = name;
@@ -486,12 +486,15 @@
     }
     find.addEventListener("input", () => {
       clearTimeout(findTimer);
+      const asked = ++finds;
       findTimer = setTimeout(async () => {
         const words = find.value.trim();
         if (words.length < 2) { found.replaceChildren(); found.hidden = true; return; }
         try {
           const response = await fetch(`${api}/find?${new URLSearchParams({ q: words, page })}`, { cache: "no-store" });
           const notes = response.ok ? (await response.json()).notes || [] : [];
+          // An answer to words since changed is dropped: the list is always for what's typed now.
+          if (asked !== finds) return;
           found.replaceChildren(...(notes.length ? notes.map((note) => el("button", { type: "button", class: "quiet", text: note.path ? `${note.title} · ${note.path}` : note.title, onclick: () => {
             under = note.id;
             chosen.textContent = `Under “${note.title}”`;
@@ -530,7 +533,8 @@
       toast.hidden = true;
       sending += 1;
       try { say((await send({ action: "undo", undo: answer.undo })).said || "undone"); }
-      catch (error) { say(error.message); }
+      // Not undone: said, with Undo still there to try again.
+      catch (error) { say(`Not undone: ${error.message}`, ...after); }
       finally { sending -= 1; doneWriting(); }
     } }));
     say(answer.said || "quoted", ...after);
