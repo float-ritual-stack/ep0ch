@@ -5,8 +5,13 @@
 //   selection menu) offers what the page's threads route says it can: Highlight, Comment, Ask, Copy, Explain, …
 // - Comment and Ask open a sheet to write in; what's written stays in it until the outline has it (a refusal keeps
 //   the text, says why, and Send tries again with the same request id, so a retry never writes twice).
-// - Threads are cards: beside the text when the window is wide, under their passage when it's narrow, with Reply and
-//   Resolve. A highlight alone has no card until its words are tapped.
+// - Threads are cards: beside the text when the window is wide, under their passage when it's narrow, with Reply,
+//   Resolve and Quote. A highlight alone has no card until its words are tapped.
+// - A card's own words select like the note's: Highlight, Comment or Ask on them lands on that mark (threads of
+//   threads), drawn on its words in the card; tapping one opens its card inside.
+// - Quote: one card's Quote, or Pick on several and then Quote N, opens a sheet: the Inbox (the default), under this
+//   note, or under a note found by its words, and words of your own. The new block transcludes each mark and links
+//   back; the toast opens it, or undoes it. A card says where it's been quoted.
 // - The page waits on the threads route until what it draws changes (a long poll on the page's own `version`, so a
 //   busy outline elsewhere doesn't wake it), so an answer lands on the page soon after it lands in the outline; the
 //   note itself is fetched again then, so new marks show. Idle, that's about three requests a minute.
@@ -78,11 +83,12 @@
   const toast = el("div", { id: "mg-toast", class: "mg-ui", role: "status", hidden: "" });
   document.body.append(bar, toast);
   let toastTimer = 0;
-  function say(text) {
-    toast.textContent = text;
+  /** A word in the toast, with any links or buttons after it (kept up longer then, so there's time to reach them). */
+  function say(text, ...after) {
+    toast.replaceChildren(text, ...after);
     toast.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toast.hidden = true; }, 5000);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, after.length ? 12000 : 5000);
   }
 
   // ---- Selection: the words, and the drawn words either side (the server finds them in the note's source).
@@ -108,10 +114,23 @@
     return { before, inside, after };
   }
 
+  /** The card words (a mark's own, `.b[data-mark]`) a point of a selection is in, or null. */
+  const ownWords = (node) => (node instanceof Element ? node : node && node.parentElement)?.closest(".b[data-mark]") || null;
+
   function readSelection() {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
     const range = selection.getRangeAt(0);
+    // Words of one card: a passage of that mark's own text (`in`), the card's words either side.
+    const words = ownWords(range.startContainer);
+    if (words && words === ownWords(range.endContainer)) {
+      const before = document.createRange(), after = document.createRange();
+      before.setStart(words, 0); before.setEnd(range.startContainer, range.startOffset);
+      after.setStart(range.endContainer, range.endOffset); after.setEnd(words, words.childNodes.length);
+      const quote = range.toString().trim();
+      if (!quote) return null;
+      return { quote, prefix: before.toString().slice(-64), suffix: after.toString().slice(0, 64), in: words.dataset.mark };
+    }
     const host = article();
     if (!host || !host.contains(range.commonAncestorContainer)) return null;
     const { before, inside, after } = around(range);
@@ -311,7 +330,7 @@
     if (!opening()) return;
     hideBar();
     const id = requestId();
-    const input = el("textarea", { class: "mg-in", placeholder: action === "ask" ? `Ask @${agent || "margin"} about this passage (or leave it blank: what does this mean?)` : words ? "Comment on this passage" : "Comment on this note" });
+    const input = el("textarea", { class: "mg-in", placeholder: action === "ask" ? `Ask @${agent || "margin"} about this passage (or leave it blank: what does this mean?)` : words && words.in ? "Comment on these words of the comment" : words ? "Comment on this passage" : "Comment on this note" });
     editor = input;
     const why = el("p", { class: "why", hidden: "" });
     const close = () => { sheet.remove(); editor = null; doneWriting(); };
@@ -333,7 +352,7 @@
   /** Copy with citation: the words as a Blockdown quote, then the note they're from (a reference and this page's link). */
   async function copy(words) {
     const title = document.title;
-    const text = `> ${words.quote.replace(/\s*\n\s*/g, " ")}\n— ((${noteId}|${title.replace(/[|)]/g, " ")})) ${location.origin}${location.pathname}`;
+    const text = `> ${words.quote.replace(/\s*\n\s*/g, " ")}\n— ((${words.in || noteId}|${title.replace(/[|)]/g, " ")})) ${location.origin}${location.pathname}`;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -349,15 +368,56 @@
 
   // ---- Threads as cards.
 
+  /** A mark's own words in its card, the marks on them drawn on their words (each opens its card in the nest below). */
+  function ownText(id, text, marks) {
+    const node = el("div", { class: "b", "data-mark": id });
+    let cursor = 0;
+    for (const mark of marks) {
+      const at = mark.quote ? text.indexOf(mark.quote, cursor) : -1;
+      if (at < 0) continue;
+      node.append(text.slice(cursor, at), el("mark", { class: `ann ann-${mark.tone}`, "data-sub": mark.id, "data-kind": mark.kind, text: mark.quote }));
+      cursor = at + mark.quote.length;
+    }
+    node.append(text.slice(cursor));
+    return node;
+  }
+
+  /** Where a mark's been quoted: each block linked (its page), or said when this page can't link it. */
+  function quotedLine(quotedIn) {
+    if (!quotedIn || !quotedIn.length) return null;
+    const line = el("div", { class: "quoted" }, "quoted in ");
+    quotedIn.forEach((quote, at) => {
+      if (at) line.append(", ");
+      line.append(quote.href ? el("a", { href: quote.href, text: quote.title || "a note" }) : quote.title || "a note");
+    });
+    return line;
+  }
+
+  /** Quote (this mark alone) and Pick (one of several to quote together). */
+  function quoteButtons(id) {
+    return [
+      el("button", { type: "button", class: "quiet", text: "Quote", onclick: () => quote([id]) }),
+      el("button", { type: "button", class: `quiet${picked.has(id) ? " on" : ""}`, "data-pick": id, text: picked.has(id) ? "Picked" : "Pick", onclick: () => pick(id) }),
+    ];
+  }
+
   function card(thread) {
     const bare = thread.kind === "highlight" && !thread.body && !thread.replies.length;
-    const node = el("div", { class: `mg-card mg-ui${bare ? " bare" : ""}`, "data-thread": thread.id });
+    const node = el("div", { class: `mg-card mg-ui${bare ? " bare" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
     node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at)].filter(Boolean).join(" · ") }));
     if (thread.quote && !markOf(thread.id)) node.append(el("div", { class: "q", text: `“${thread.quote}”` }));
-    if (thread.body) node.append(el("div", { class: "b", text: thread.body }));
+    const marks = thread.marks || [];
+    if (thread.body) node.append(ownText(thread.id, thread.body, marks));
+    const nested = nest(marks);
+    if (nested) node.append(nested);
     for (const reply of thread.replies) {
-      node.append(el("div", { class: "reply" }, el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}` }), el("div", { class: "b", text: reply.body })));
+      const replyMarks = reply.marks || [];
+      node.append(el("div", { class: `reply${picked.has(reply.id) ? " picked" : ""}`, "data-reply": reply.id },
+        el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}` }), ownText(reply.id, reply.body, replyMarks), nest(replyMarks),
+        quotedLine(reply.quotedIn), el("div", { class: "mg-row" }, ...quoteButtons(reply.id))));
     }
+    const quotes = quotedLine(thread.quotedIn);
+    if (quotes) node.append(quotes);
     // Waiting while the last ask (the comment, or a reply of his starting @…) has no answer after it. A reply without
     // an @ is a note to himself: nothing waits on it.
     const turns = [{ by: thread.by, body: thread.body }, ...thread.replies];
@@ -368,9 +428,112 @@
     row.append(
       el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
       el("button", { type: "button", class: "quiet", text: bare ? "Remove" : "Resolve", onclick: () => act("resolve", { thread: thread.id }) }),
+      ...quoteButtons(thread.id),
     );
     node.append(row);
     return node;
+  }
+
+  /** The cards of the marks on a card's words, under them: a highlight's opens when its words are tapped. */
+  function nest(marks) {
+    return marks.length ? el("div", { class: "mg-nest" }, ...marks.map(card)) : null;
+  }
+
+  // ---- Quoting marks into a block of their own.
+
+  const picked = new Set();
+  const pickBar = el("div", { id: "mg-pick", class: "mg-ui", hidden: "" });
+  document.body.append(pickBar);
+
+  /** Pick or unpick a mark to quote with others; the bar along the bottom quotes them together. */
+  function pick(id) {
+    if (picked.has(id)) picked.delete(id); else picked.add(id);
+    for (const button of document.querySelectorAll("button[data-pick]")) {
+      const on = picked.has(button.dataset.pick);
+      button.classList.toggle("on", on);
+      button.textContent = on ? "Picked" : "Pick";
+    }
+    for (const node of document.querySelectorAll(".mg-card[data-thread], .reply[data-reply]")) node.classList.toggle("picked", picked.has(node.dataset.thread || node.dataset.reply));
+    pickBar.replaceChildren(
+      el("button", { type: "button", class: "quiet", text: "Clear", onclick: () => { for (const id of [...picked]) pick(id); } }),
+      el("button", { type: "button", text: `Quote ${picked.size}`, onclick: () => quote([...picked]) }),
+    );
+    pickBar.hidden = !picked.size;
+  }
+
+  /** The sheet that quotes marks: where the new block goes, and words of your own. */
+  function quote(ids) {
+    if (!ids.length || !opening()) return;
+    hideBar();
+    let place = "inbox", under = "", findTimer = 0;
+    // One request id for this sheet: a retry after a lost answer gets the first quote back, not a second one.
+    const id = requestId();
+    const input = el("textarea", { class: "mg-in", placeholder: "Your own words above the quote (optional: its first line is its title)" });
+    editor = input;
+    const why = el("p", { class: "why", hidden: "" });
+    const chosen = el("p", { class: "q", hidden: "" });
+    const found = el("div", { class: "found", hidden: "" });
+    const find = el("input", { class: "mg-find", type: "search", placeholder: "Find the note to put it under", hidden: "" });
+    const places = [["inbox", "Inbox"], ["note", "Under this note"], ["under", "Under…"]].map(([name, label]) =>
+      el("button", { type: "button", class: name === place ? "on" : "", text: label, onclick: () => choosePlace(name) }));
+    function choosePlace(name) {
+      place = name;
+      places.forEach((button, at) => button.classList.toggle("on", ["inbox", "note", "under"][at] === name));
+      find.hidden = name !== "under";
+      found.hidden = name !== "under" || !found.childElementCount;
+      chosen.hidden = name !== "under" || !under;
+      if (name === "under") find.focus();
+    }
+    find.addEventListener("input", () => {
+      clearTimeout(findTimer);
+      findTimer = setTimeout(async () => {
+        const words = find.value.trim();
+        if (words.length < 2) { found.replaceChildren(); found.hidden = true; return; }
+        try {
+          const response = await fetch(`${api}/find?${new URLSearchParams({ q: words, page })}`, { cache: "no-store" });
+          const notes = response.ok ? (await response.json()).notes || [] : [];
+          found.replaceChildren(...(notes.length ? notes.map((note) => el("button", { type: "button", class: "quiet", text: note.path ? `${note.title} · ${note.path}` : note.title, onclick: () => {
+            under = note.id;
+            chosen.textContent = `Under “${note.title}”`;
+            chosen.hidden = false;
+          } })) : [el("p", { class: "q", text: "no note by those words" })]));
+          found.hidden = false;
+        } catch {
+          found.replaceChildren(el("p", { class: "q", text: "the search didn't answer" }));
+          found.hidden = false;
+        }
+      }, 250);
+    });
+    const close = () => { sheet.remove(); editor = null; doneWriting(); };
+    const cancel = el("button", { type: "button", class: "quiet", text: "Cancel", onclick: () => close() });
+    const go = el("button", { type: "button", text: "Quote", onclick: () => {
+      if (place === "under" && !under) { why.textContent = "Find the note to put it under first, and pick it."; why.hidden = false; return; }
+      submit(input, [go, cancel, ...places], why, { action: "quote", marks: ids, place, ...(place === "under" ? { under } : {}), text: input.value, requestId: id }, (answer) => {
+        for (const id of ids) if (picked.has(id)) pick(id);
+        close();
+        quoted(answer);
+      });
+    } });
+    const sheet = el("div", { id: "mg-sheet", class: "mg-ui" },
+      el("p", { class: "q", text: ids.length === 1 ? "Quote this into a block of its own" : `Quote these ${ids.length} into a block of their own` }),
+      el("div", { class: "places" }, ...places), find, found, chosen, input, why,
+      el("div", { class: "mg-row" }, cancel, go));
+    document.body.append(sheet);
+    input.focus();
+  }
+
+  /** A quote landed: said, with its page and an Undo. */
+  function quoted(answer) {
+    const after = [];
+    if (answer.href) after.push(el("a", { href: answer.href, text: "Open" }));
+    if (answer.undo) after.push(el("button", { type: "button", class: "quiet", text: "Undo", onclick: async () => {
+      toast.hidden = true;
+      sending += 1;
+      try { say((await send({ action: "undo", undo: answer.undo })).said || "undone"); }
+      catch (error) { say(error.message); }
+      finally { sending -= 1; doneWriting(); }
+    } }));
+    say(answer.said || "quoted", ...after);
   }
 
   /** The thread read by the person, quietly (a failure only means it stays unread); one request at a time per thread. */
@@ -482,6 +645,16 @@
     place();
     node.scrollIntoView({ block: "nearest" });
     markRead(mark.dataset.ann);
+  });
+  // Tapping words marked in a card opens that mark's card, in the nest under them.
+  document.addEventListener("click", (event) => {
+    const mark = event.target instanceof Element ? event.target.closest("mark.ann[data-sub]") : null;
+    if (!mark || !window.getSelection()?.isCollapsed) return;
+    const node = document.querySelector(`.mg-card[data-thread="${CSS.escape(mark.dataset.sub)}"]`);
+    if (!node) return;
+    node.classList.toggle("open");
+    place();
+    markRead(mark.dataset.sub);
   });
   wide.addEventListener("change", draw);
   let resizeTimer = 0;

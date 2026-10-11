@@ -6,6 +6,11 @@
 //   starting `@<agent>` for the agent that answers in threads (marginalia's `@margin`), which the service sets off;
 // - an extension's passage action (marginalia's highlight, define): `extensions.act` with the passage;
 // - reply: `annotations.reply`; resolve: `annotations.lifecycle`;
+// - quote: `marks.quote`, one or more of the page's marks (a thread, a reply, or a mark on one) quoted into a new block
+//   in the Inbox, under this note or under a note found with `/find`; undo: `extensions.undo` with the undo step a
+//   quote from this publisher answered. A mark's card says where it's been quoted (`quotedIn`);
+// - words selected in a card (`in`: the mark's id) are a passage of that mark's own text: highlights, comments and asks
+//   land on the mark (threads of threads), drawn in its card;
 // - read: `annotations.read`, the thread read by the person (he opened it from Recent replies, tapped it or replied),
 //   which clears its replies from `unread:me` (the `/replies` page's marks).
 //
@@ -25,7 +30,9 @@ import type { ExtensionsListResult } from "./extension-registry";
 import { plainBody } from "./publish-marginalia";
 import { stripPropertyTokens } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
-import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, BlockProperty } from "./types";
+import { extractAnnotationBody } from "./annotations";
+import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
+import { passageAt } from "@ep0ch/outline-core/passage";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 
 /** The script, read once: served at `<base>/_marginalia/reader.js`, the only script a rendered page may run. */
@@ -57,6 +64,23 @@ const EXTENSIONS_MAX_AGE_MS = 30_000;
 /** At most this many annotated blocks of one page are read for its threads. */
 const MAX_THREAD_BLOCKS = 200;
 
+/** A block quoting a mark, as a card links it: its title and page, or why it isn't linked (locked, outside the share). */
+export interface PageQuote {
+  id: string;
+  title: string;
+  href: string | null;
+}
+
+/** A reply as the page's script reads it, with the marks on its words and where it's been quoted. */
+export interface PageReply {
+  id: string;
+  body: string;
+  by: string;
+  at: string;
+  marks: PageThread[];
+  quotedIn: PageQuote[];
+}
+
 /** One block's open thread as the page's script reads it. */
 export interface PageThread {
   id: string;
@@ -69,8 +93,23 @@ export interface PageThread {
   body: string;
   by: string;
   at: string;
-  replies: { id: string; body: string; by: string; at: string }[];
+  replies: PageReply[];
+  /** The open marks on its own words (threads of threads), drawn in its card. */
+  marks: PageThread[];
+  /** The blocks quoting it (`marks.quote`). */
+  quotedIn: PageQuote[];
 }
+
+/** Where a thread's words start in what it's on (0 for a whole-note comment): threads in reading order. */
+function start(thread: AnnotationThread): number {
+  const anchor = thread.resolvedTarget?.anchor;
+  return anchor?.kind === "text-quote" ? anchor.start ?? 0 : 0;
+}
+
+/** How deep marks on marks are read for a page: a mark on a comment, a mark on that. */
+const MAX_MARK_DEPTH = 3;
+/** The undo steps this publisher's quotes answered, newest last: only these are undone from a page. */
+const MAX_QUOTE_UNDOS = 100;
 
 /** What a page's toolbar offers, as the door's passage toolbar does. */
 export interface PageChoice {
@@ -125,6 +164,10 @@ export interface PageHost {
   generation(): number;
   /** Resolves when the generation passes `since`, or after `ms`. */
   changed(since: number, ms: number): Promise<void>;
+  /** Notes a page may link to, each with its title and address (null: locked, or outside the share). */
+  linkable(ids: readonly string[], share?: PageShare): Promise<PageQuote[]>;
+  /** The outline's notes by words (the service's search), none locked or outside the share. */
+  find(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]>;
   log(line: string): void;
 }
 
@@ -164,6 +207,10 @@ export function sameOrigin(request: Request): boolean {
 
 export class PageMarginalia {
   private extensions: { at: number; value: Promise<ExtensionsListResult> } | null = null;
+  /** Each quote's undo step this publisher answered, with where it was made (`tailnet` or the share's id). */
+  private readonly undos = new Map<string, string>();
+  /** Each quote's answer by where it came from and its request id: a retry gets the same answer, never a second block. */
+  private readonly quotes = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly host: PageHost) {}
 
@@ -188,6 +235,10 @@ export class PageMarginalia {
     if (route === "/write") {
       if (request.method !== "POST") return refused(405, "use POST");
       return this.write(request, share);
+    }
+    if (route === "/find") {
+      if (request.method !== "GET") return refused(405, "use GET");
+      return this.find(request, share);
     }
     if (route === "/view") {
       if (request.method !== "POST") return refused(405, "use POST");
@@ -276,45 +327,105 @@ export class PageMarginalia {
     return actor ? parseActor(actor).handle : "agent";
   }
 
-  /** The page's open threads, as its script draws them. */
-  async pageThreads(view: PageView): Promise<PageThread[]> {
+  /** The page's open threads, as its script draws them: each with its replies, the marks on its words and where it's quoted. */
+  async pageThreads(view: PageView, share?: PageShare): Promise<PageThread[]> {
     const annotated = [...new Set(view.annotations.values())].filter((id) => view.blocks.some((block) => block.id === id)).slice(0, MAX_THREAD_BLOCKS);
     const order = new Map(view.blocks.map((block, index) => [block.id, index]));
-    const lists = await Promise.all(annotated.map(async (blockId) => {
-      try {
-        const threads = await this.host.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: false } });
-        return threads.filter((thread) => {
-          const subject = thread.resolvedTarget?.representation.subject ?? thread.originalTarget.representation.subject;
-          return thread.lifecycle === "open" && view.annotations.has(thread.block.id) && subject.kind === "block" && subject.blockId === blockId;
-        }).map((thread) => ({ blockId, thread }));
-      } catch (error) {
-        this.host.log(`publish: annotations.list: ${(error as Error).message}`);
-        return [];
-      }
-    }));
-    const start = (thread: AnnotationThread) => {
-      const anchor = thread.resolvedTarget?.anchor;
-      return anchor?.kind === "text-quote" ? anchor.start ?? 0 : 0;
-    };
-    return lists.flat()
-      .sort((a, b) => (order.get(a.blockId)! - order.get(b.blockId)!) || start(a.thread) - start(b.thread))
-      .map(({ thread }) => {
-        const anchor = thread.resolvedTarget?.anchor;
-        const properties = thread.properties ?? {};
-        return {
-          id: thread.block.id,
-          quote: anchor?.kind === "text-quote" ? anchor.exact : "",
-          kind: annotationKind(properties, thread.body),
-          tone: annotationTone(properties),
-          tags: [...new Set((properties.tags ?? []).flatMap((tag) => tag.split(",")).map((tag) => tag.trim()).filter(Boolean))],
-          body: plainBody(thread.body),
-          by: this.by(thread),
-          at: thread.block.createdAt,
-          // A reply marked [publish::never] stays off the page, as a locked note does.
-          replies: thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
-            .map((reply) => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt })),
-        };
+    const lists = await Promise.all(annotated.map(async (blockId) => (await this.openOn(blockId))
+      .filter((thread) => view.annotations.has(thread.block.id)).map((thread) => ({ blockId, thread }))));
+    // The marks whose own words are marked: one read of the page's marks finds them (a mark's parent is what it's on).
+    let marked = new Set<string>();
+    try {
+      const all = await this.host.request<ProjectedBlockCollection>({
+        action: "blocks.query", query: { subtreeRootId: view.root.id, filters: [{ key: "type", value: "annotation" }], limit: 1000 }, fields: ["parent"],
       });
+      const notes = new Set(view.blocks.map((block) => block.id));
+      marked = new Set(all.blocks.flatMap((block) => block.parentId && !notes.has(block.parentId) ? [block.parentId] : []));
+    } catch (error) {
+      this.host.log(`publish: blocks.query: ${(error as Error).message}`);
+    }
+    const quoted: string[] = [];
+    const roots = lists.flat()
+      .sort((a, b) => (order.get(a.blockId)! - order.get(b.blockId)!) || start(a.thread) - start(b.thread));
+    const drawn = await Promise.all(roots.map(({ thread }) => this.pageThread(thread, marked, quoted, 1)));
+    const links = new Map((await this.host.linkable([...new Set(quoted)], share).catch(() => [] as PageQuote[])).map((quote) => [quote.id, quote]));
+    const fill = (thread: PageThread): void => {
+      thread.quotedIn = thread.quotedIn.map((quote) => links.get(quote.id) ?? quote);
+      thread.marks.forEach(fill);
+      for (const reply of thread.replies) {
+        reply.quotedIn = reply.quotedIn.map((quote) => links.get(quote.id) ?? quote);
+        reply.marks.forEach(fill);
+      }
+    };
+    drawn.forEach(fill);
+    return drawn;
+  }
+
+  /** A block's open threads on its own text (an annotation block's: the marks on its words), none locked. */
+  private async openOn(blockId: string): Promise<AnnotationThread[]> {
+    try {
+      const threads = await this.host.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: false } });
+      return threads.filter((thread) => {
+        const subject = thread.resolvedTarget?.representation.subject ?? thread.originalTarget.representation.subject;
+        return thread.lifecycle === "open" && !this.host.locks(thread.block.properties ?? []) && subject.kind === "block" && subject.blockId === blockId;
+      });
+    } catch (error) {
+      this.host.log(`publish: annotations.list: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /** One thread as the script draws it; `marked`: the marks with marks on their own words, read `depth` deep. */
+  private async pageThread(thread: AnnotationThread, marked: ReadonlySet<string>, quoted: string[], depth: number): Promise<PageThread> {
+    const on = async (id: string) => depth < MAX_MARK_DEPTH && marked.has(id)
+      ? Promise.all((await this.openOn(id)).sort((a, b) => start(a) - start(b)).map((mark) => this.pageThread(mark, marked, quoted, depth + 1)))
+      : [];
+    const quotes = (record: AnnotationRecord): PageQuote[] => (record.quotedIn ?? []).map((id) => { quoted.push(id); return { id, title: "", href: null }; });
+    const anchor = thread.resolvedTarget?.anchor;
+    const properties = thread.properties ?? {};
+    // A reply marked [publish::never] stays off the page, as a locked note does.
+    const replies = await Promise.all(thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
+      .map(async (reply): Promise<PageReply> => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply) })));
+    return {
+      id: thread.block.id,
+      quote: anchor?.kind === "text-quote" ? anchor.exact : "",
+      kind: annotationKind(properties, thread.body),
+      tone: annotationTone(properties),
+      tags: [...new Set((properties.tags ?? []).flatMap((tag) => tag.split(",")).map((tag) => tag.trim()).filter(Boolean))],
+      body: plainBody(thread.body),
+      by: this.by(thread),
+      at: thread.block.createdAt,
+      replies,
+      marks: await on(thread.block.id),
+      quotedIn: quotes(thread),
+    };
+  }
+
+  /** Every mark a page shows, by id: `root` for a thread (a mark of its own, which takes replies), else a reply. */
+  private async onPage(view: PageView, share?: PageShare): Promise<{ marks: Map<string, "root" | "reply">; threads: PageThread[] }> {
+    const threads = await this.pageThreads(view, share);
+    const marks = new Map<string, "root" | "reply">();
+    const walk = (thread: PageThread): void => {
+      marks.set(thread.id, "root");
+      thread.marks.forEach(walk);
+      for (const reply of thread.replies) { marks.set(reply.id, "reply"); reply.marks.forEach(walk); }
+    };
+    threads.forEach(walk);
+    return { marks, threads };
+  }
+
+  /** Notes by words, for "Under…" in the quote sheet: the service's search, near the page's note. */
+  private async find(request: Request, share?: PageShare): Promise<Response> {
+    const url = new URL(request.url);
+    const query = (url.searchParams.get("q") ?? "").trim().slice(0, 200);
+    if (share && !(await share.active())) return ended();
+    if (query.length < 2) return json(200, { notes: [] });
+    const near = url.searchParams.get("page") ? (await this.host.view(url.searchParams.get("page")!, false, share))?.root.id : undefined;
+    try {
+      return json(200, { notes: await this.host.find(query, near, share) });
+    } catch (error) {
+      return refused(502, `the search didn't answer: ${(error as Error).message}`);
+    }
   }
 
   /**
@@ -359,7 +470,7 @@ export class PageMarginalia {
         ...(kit.agent ? [{ action: "explain", label: "Explain" }] : []),
         ...kit.actions.filter((action) => action.id !== "highlight").map((action) => ({ action: action.id, label: action.label })),
       ];
-      Object.assign(body, { ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view) });
+      Object.assign(body, { ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view, share) });
     }
     const drawn = JSON.stringify([view.blocks.map((block) => `${block.id}:${block.revision}`), view.listed ?? [], body]);
     return { version: new Bun.CryptoHasher("sha256").update(drawn).digest("hex").slice(0, 16), ...body };
@@ -371,7 +482,10 @@ export class PageMarginalia {
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();
     if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
-    let input: { page?: unknown; view?: unknown; action?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; body?: unknown; thread?: unknown; requestId?: unknown };
+    let input: {
+      page?: unknown; view?: unknown; action?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; body?: unknown; thread?: unknown; requestId?: unknown;
+      marks?: unknown; place?: unknown; under?: unknown; text?: unknown; undo?: unknown; in?: unknown;
+    };
     try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
     const text = (value: unknown) => typeof value === "string" ? value : "";
     const action = text(input.action);
@@ -381,10 +495,55 @@ export class PageMarginalia {
     const said = (status: number, body: Record<string, unknown>) => json(status, { ...body, generation: this.host.generation() });
     // The link may have ended while the body was on its way: asked again just before anything lands.
     if (share && !(await share.active())) return ended();
+    const where = share ? share.id : "tailnet";
     try {
+      if (action === "undo") {
+        // Only a quote this publisher made, from the same place (the tailnet, or this share): undone whole, once.
+        const undo = text(input.undo);
+        if (this.undos.get(undo) !== where) return refused(404, "nothing to undo here: only a quote made on these pages, once");
+        const done = await this.host.request<{ written: string[] }>({ action: "extensions.undo", undo, mutation: { author: "user" } });
+        this.undos.delete(undo);
+        return said(200, { ok: true, undone: done.written, said: "undone: the quote is in the Trash" });
+      }
+      const { marks: shown } = await this.onPage(view, share);
+      if (action === "quote") {
+        const wanted = Array.isArray(input.marks) ? input.marks.map(text).filter(Boolean) : [];
+        if (!wanted.length) return refused(400, "pick a mark to quote: a highlight, comment or reply on this page");
+        const missing = wanted.find((id) => !shown.has(id));
+        if (missing) return refused(404, "that mark isn't on this page now (resolved, or moved)");
+        const placeName = text(input.place) || "inbox";
+        let place: Record<string, string>;
+        if (placeName === "inbox") place = { kind: "inbox" };
+        else if (placeName === "note") place = { kind: "under", blockId: view.root.id };
+        else if (placeName === "under") {
+          const under = text(input.under);
+          const [target] = under ? await this.host.linkable([under], share) : [];
+          if (!target?.href) return refused(404, "that note isn't one this page can put things under (locked, or outside this link)");
+          place = { kind: "under", blockId: under };
+        } else return refused(400, "place is inbox, note or under (with under: a note's id)");
+        // A retry of a quote whose answer was lost (the same request id) gets the first answer, not a second block.
+        const again = this.quotes.get(`${where}:${requestId}`);
+        if (again) return said(200, again);
+        const words = text(input.text).trim();
+        const receipt = await this.host.request<MarkQuoteReceipt>({
+          action: "marks.quote", input: { marks: wanted, place, ...(words ? { text: words } : {}) }, mutation: { author: "user" },
+        });
+        if (receipt.undo) {
+          this.undos.set(receipt.undo, where);
+          while (this.undos.size > MAX_QUOTE_UNDOS) this.undos.delete(this.undos.keys().next().value!);
+        }
+        const [made] = await this.host.linkable([receipt.block.id], share);
+        const answer = {
+          ok: true, block: receipt.block.id, href: made?.href ?? null, title: made?.title ?? "", ...(receipt.undo ? { undo: receipt.undo } : {}),
+          said: `quoted ${wanted.length === 1 ? "it" : `${wanted.length} marks`} ${receipt.placement.said}`,
+        };
+        this.quotes.set(`${where}:${requestId}`, answer);
+        while (this.quotes.size > MAX_QUOTE_UNDOS) this.quotes.delete(this.quotes.keys().next().value!);
+        return said(200, answer);
+      }
       if (action === "reply" || action === "resolve" || action === "read") {
         const thread = text(input.thread);
-        if (!view.annotations.has(thread)) return refused(404, "that thread isn't on this page");
+        if (shown.get(thread) !== "root") return refused(404, "that thread isn't on this page");
         if (action === "read") {
           const read = await this.host.request<{ thread: string; marked: number }>({ action: "annotations.read", annotationId: thread });
           return said(200, { ok: true, thread: read.thread, marked: read.marked });
@@ -408,7 +567,18 @@ export class PageMarginalia {
         return refused(400, `no action ${action || "(none)"} here: it's comment${kit.agent ? ", ask, explain" : ""}, reply, resolve, read${kit.actions.length ? `, or ${kit.actions.map((candidate) => candidate.id).join(", ")}` : ""}`);
       }
       if ((action === "ask" || action === "explain") && !kit.agent) return refused(409, "no agent here answers in threads: add marginalia to this outline (its @margin agent)");
-      const found = findDrawnPassage(view.blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
+      // Words selected in a card are a passage of that mark's own words: what's done with them lands on the mark.
+      const inside = text(input.in);
+      let blocks = view.blocks, home = view.root;
+      if (inside) {
+        if (!shown.has(inside)) return refused(404, "that mark isn't on this page now (resolved, or moved)");
+        const mark = await this.host.request<Block>({ action: "get", blockId: inside });
+        home = { id: mark.id, revision: mark.revision, text: mark.text };
+        blocks = [{ ...home, text: ownWords(mark.text) }];
+      }
+      const drawn = findDrawnPassage(blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
+      // Found in the mark's words alone; its passage is read in its whole text, so the words around it are its own.
+      const found = drawn.ok && inside ? { ok: true as const, block: home, passage: passageAt(home.text, drawn.passage.start, drawn.passage.end, home.id, home.revision) } : drawn;
       if (extensionAction) {
         if (!found.ok) return refused(422, found.why);
         const result = await this.host.request<{ written: string[]; message?: string }>({
@@ -425,9 +595,9 @@ export class PageMarginalia {
       const properties = { ...(action === "ask" ? { kind: "question" } : action === "explain" ? { kind: "explain" } : {}), ...(share ? { via: `share:${share.id}` } : {}) };
       const selected = text(input.quote).trim();
       if (!found.ok) {
-        // What he wrote still lands: on the page's own note, the words he meant quoted above it.
+        // What he wrote still lands: on the page's own note (or the mark), the words he meant quoted above it.
         const quoted = selected.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
-        const thread = await this.batch(requestId, { blockId: view.root.id, expectedRevision: view.root.revision, body: selected ? `${quoted}\n\n${body}` : body, source: "user", ...(Object.keys(properties).length ? { properties } : {}) });
+        const thread = await this.batch(requestId, { blockId: home.id, expectedRevision: home.revision, body: selected ? `${quoted}\n\n${body}` : body, source: "user", ...(Object.keys(properties).length ? { properties } : {}) });
         return said(200, { ok: true, thread, landed: "note", said: selected ? `${found.why}; it landed on the whole note, with the words quoted` : "commented on the whole note" });
       }
       const p = found.passage;
@@ -449,4 +619,16 @@ export class PageMarginalia {
     });
     return receipt.annotations[0]?.block.id;
   }
+}
+
+/**
+ * A mark's text with all but its own words blanked (its heading and metadata lines as spaces), so a selection in its
+ * card is found in its words alone while every offset still means the block's text.
+ */
+export function ownWords(text: string): string {
+  const body = extractAnnotationBody(text);
+  const firstBreak = text.indexOf("\n");
+  const at = body && firstBreak >= 0 ? text.indexOf(body, firstBreak + 1) : -1;
+  if (at < 0) return text.replace(/[^\n]/g, " ");
+  return text.slice(0, at).replace(/[^\n]/g, " ") + text.slice(at);
 }

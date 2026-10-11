@@ -29,6 +29,7 @@ import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
+import { askInBar } from "./bar/ask";
 
 /** One action an extension declares, as `extensions.list` names it. */
 export interface ExtensionAction {
@@ -387,69 +388,18 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);
 
 /**
- * The person's run of an action with arguments they didn't give (PIE-784): the power bar asks for each, one at a time,
- * its choices from the service (`extensions.args`: a property's from the rows it would act on) and its value now lit,
- * then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
+ * The person's run of an action with arguments they didn't give (PIE-784): the power bar asks for each, one at a time
+ * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
+ * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
 export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
   const open = (a.args ?? []).filter(x => asks(x) && given[x.name] === undefined);
   if (actor.kind !== "user" || !open.length || !ctx.dispatch) return run(given);
   let specs: ExtensionArgChoice[];
   try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = open; }
-  const questions = open.map(x => ({ ...x, ...specs.find(y => y.name === x.name) }));
-  waiting = { title: a.label, questions, answers: { ...given }, run: answers => run(answers) };
-  registerBarSource(ASK_SOURCE);
-  await ctx.dispatch.act({ action: "bar.open", args: { scope: ASK_SCOPE } }, actor);
-  return { asking: questions[0]!.name, action: a.name };
+  const r = await askInBar(ctx, a.label, open.map(x => ({ ...x, ...specs.find(y => y.name === x.name) })), given, actor, run);
+  return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
 }
-
-// ── asking for an action's arguments in the power bar ────────────────────────
-
-const ASK_SCOPE = "ask";
-/** The action waiting on the person's answers: the next question is the first not answered. */
-let waiting: { title: string; questions: ExtensionArgChoice[]; answers: Record<string, string>; run: (answers: Record<string, string>) => Promise<unknown> } | null = null;
-
-/** The question asked now, or null. */
-const question = () => waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null;
-
-/**
- * The power bar's `ask` scope (`?`): the question an action is waiting on, its choices as rows (the value it has
- * now first), or for a number or text, what's typed. ⏎ answers it; the next question opens, or the action runs.
- */
-const ASK_SOURCE: BarSource = {
-  id: ASK_SCOPE, title: "ask", prefix: "?", by: "door",
-  about: "what an action you ran asks for (a sort's by and order): ⏎ on a choice answers it, then the next, then the action runs",
-  main: { empty: false, typed: false },
-  rows(query) {
-    const q = question();
-    if (!q || !waiting) return [];
-    const head = `${waiting.title} · ${q.label ?? q.name}`;
-    const typed = query.trim();
-    if (q.type === "text" || q.type === "number") {
-      const value = typed || q.value;
-      return value === undefined ? [] : [{ key: `answer:${value}`, label: value, detail: head, group: head, data: value }];
-    }
-    const choices = [...new Set([...(q.value !== undefined ? [q.value] : []), ...(q.choices ?? q.options ?? [])])];
-    const words = typed.toLowerCase();
-    return choices.filter(c => !words || c.toLowerCase().includes(words))
-      .map(c => ({ key: `answer:${c}`, label: c, detail: c === q.value ? "now" : undefined, group: head, data: c }));
-  },
-  preview() {
-    const q = question();
-    if (!q || !waiting) return null;
-    return { markdown: [`**${waiting.title}** asks for **${q.label ?? q.name}**`, "", q.description ?? "", "", ...waiting.questions.map(x => `- ${x.label ?? x.name}: ${waiting!.answers[x.name] ?? (x === q ? "…" : "next")}`)].join("\n") };
-  },
-  async pick(row, host, how) {
-    const q = question();
-    if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
-    waiting.answers[q.name] = String(row.data);
-    if (question()) return how.actor.kind === "agent" ? { asking: question()!.name } : host.dispatch.press("bar.open", { scope: ASK_SCOPE });
-    const done = waiting;
-    waiting = null;
-    unregisterBarSource(ASK_SCOPE);
-    return done.run(done.answers);
-  },
-};
 
 /**
  * An action on a passage (`on: passage`), on every screen: `act ext.marginalia.define block=<id> quote="soil pH"`

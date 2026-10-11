@@ -867,7 +867,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
-  test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread", async () => {
+  test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread; the question and a highlight quoted into one Inbox block (act, then the person's [Quote] and the power bar), each undone in one step", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "margin-replies" }, as: "test-agent" })).toMatchObject({ key: "margin-replies" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "margin-replies")).top; };
@@ -899,8 +899,40 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       if (Date.now() > again) throw new Error("timed out waiting for the margin's answer");
       await Bun.sleep(50);
     }
+    // Quote (the margin's quote-tweet): the question and the seeded highlight into one new Inbox block, by an agent through act.
+    const highlight = (await board.comments(plan.id)).find(t => !t.body && t.props?.kind?.[0] === "highlight")!;
+    const quoted = await app.act({ action: "quote", tile: "plan", args: { threads: `${thread.id},${highlight.id}`, where: "inbox" }, as: "test-agent" }) as { block: string; placed: string; undo: string };
+    expect(quoted.placed).toBe("in the Inbox");
+    const made = (await board.get(quoted.block))!;
+    expect(made.text).toContain(`[from::((${thread.id}))] [from::((${highlight.id}))]`);
+    expect(made.text).toContain(`!((${thread.id}))\n!((${highlight.id}))`);
+    // Each mark says where it was quoted, and the open thread's panel draws it as a line that opens the new block.
+    const marked = await board.comments(plan.id);
+    expect(marked.find(t => t.id === thread.id)!.quotedIn).toEqual([quoted.block]);
+    expect(marked.find(t => t.id === highlight.id)!.quotedIn).toEqual([quoted.block]);
+    await until(() => screen().includes("quoted in Quoting"), "the thread's quoted in line", 5000);
+    // One undo step takes it back whole: the block to the Trash, the cards quoted in nothing.
+    await app.act({ action: "ext.undo", tile: "plan", as: "test-agent" });
+    expect((await board.get(quoted.block).catch(() => null))?.deleted ?? true).toBe(true);
+    expect((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn).toBeUndefined();
+    // The person's: a click on the thread's [Quote], then the power bar asks where; ⏎ on its first row, the Inbox.
+    const quoteAt = () => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes("[Quote]") && l.includes("[Resolve]")); return { y, x: y < 0 ? -1 : ls[y]!.indexOf("[Quote]") }; };
+    await until(() => quoteAt().y >= 0, "the open thread's [Quote]", 5000);
+    const q = quoteAt();
+    press({ kind: "mouse", action: "down", button: 0, x: q.x + 2, y: q.y }); press({ kind: "mouse", action: "up", button: 0, x: q.x + 2, y: q.y });
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label).join() === "in the Inbox,under this note", "the power bar asking where", 5000);
+    press({ kind: "enter" });
+    let mine: string | undefined;
+    const by = Date.now() + 5000;
+    while (!(mine = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the person's quote"); await Bun.sleep(50); }
+    expect((await board.get((await board.get(mine))!.parentId!))!.text).toMatch(/^Inbox/);
+    // ctrl+z in the reader takes the person's quote back.
+    press({ kind: "char", ch: "z", ctrl: true });
+    const gone = Date.now() + 5000;
+    while ((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.length) { if (Date.now() > gone) throw new Error("timed out waiting for ctrl+z to undo the quote"); await Bun.sleep(50); }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
-  }, 30_000);
+  }, 45_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;

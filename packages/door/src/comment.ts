@@ -185,6 +185,8 @@ export class CommentSession {
   writing: DraftSession | null = null;
   target: Target | null = null;
   sel = 0;
+  /** Threads picked (space) for one quote of several (q). */
+  readonly picked = new Set<string>();
   busy: string | null = null;
   error: string | null = null;
   note = "";
@@ -232,7 +234,7 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place) });
-    return "j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · C comment on a passage · esc done";
+    return `j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
@@ -475,7 +477,7 @@ export class CommentSession {
     let selAt = 0, selEnd = 0;
     this.threads.forEach((t, i) => {
       if (i === this.sel) selAt = lines.length;
-      const top = `${t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.open ? "open" : "resolved"}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}`;
+      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.open ? "open" : "resolved"}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
       lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       if (t.quote) for (const l of wrap(`"${t.quote}"`, w - 4).slice(0, 2)) lines.push(fg(t.open ? C.green : C.dark) + "  " + MARK + " " + l + RESET);
       if (t.start === null && t.quote) lines.push(fg(C.brown) + "    (the quoted words moved; the service couldn't place them)" + RESET);

@@ -186,6 +186,67 @@ test("highlight, comment, an answered ask, reply and resolve land in the outline
   expect(stray).toMatchObject({ ok: true, landed: "note" });
 });
 
+test("a mark is a page and a block: quote a comment and a highlight into the Inbox, follow the links both ways, undo once", async () => {
+  const beds = store.create("Raised beds\nThe north bed holds frost longest.\nMulch it before November.", hub.id, "user");
+  const highlight = (await (await write({ page: beds.id, action: "highlight", quote: "holds frost longest", requestId: "quote-hl-0001" })).json()).thread as string;
+  const comment = (await (await write({ page: beds.id, action: "comment", quote: "Mulch it", body: "Straw, not bark.", requestId: "quote-cm-0001" })).json()).thread as string;
+  expect(highlight && comment).toBeTruthy();
+
+  // The comment's own page shows the comment: ((comment)) opens on the web as any block does.
+  const own = await page(`/pub/p/${comment}`);
+  expect(own).toContain("Straw, not bark.");
+
+  // Picked together and quoted into the Inbox, as the person.
+  const quoted = await (await write({ page: beds.id, action: "quote", marks: [comment, highlight], place: "inbox", text: "Frost and mulch" })).json();
+  expect(quoted).toMatchObject({ ok: true, href: `/pub/p/${quoted.block}`, title: "Frost and mulch" });
+  expect(quoted.said).toContain("in the Inbox");
+  const made = store.get(quoted.block)!;
+  expect(made.author).toBe("user");
+  expect(made.text).toContain(`[from::((${comment}))] [from::((${highlight}))]`);
+  // Its page transcludes each mark and links back to it.
+  const quotePage = await page(quoted.href);
+  expect(quotePage).toContain("Straw, not bark.");
+  expect(quotePage).toMatch(/from <a href="[^"]+">Comment on/);
+  expect(hrefs(quotePage)).toEqual(expect.arrayContaining([comment, highlight].map((id) => expect.stringContaining(`/pub/p/${id}`))));
+  // Each mark's card says where it's been quoted, linking the new block's page.
+  const drawn = (await threads(beds.id)).threads as unknown as { id: string; quotedIn: { id: string; href: string; title: string }[] }[];
+  for (const id of [comment, highlight]) expect(drawn.find((thread) => thread.id === id)!.quotedIn).toEqual([{ id: quoted.block, title: "Frost and mulch", href: quoted.href }]);
+
+  // A mark that isn't on the page, or a note the page can't name, is refused with nothing written.
+  expect((await write({ page: beds.id, action: "quote", marks: [survey.id] })).status).toBe(404);
+  expect((await write({ page: beds.id, action: "quote", marks: [comment], place: "under", under: ledger.id })).status).toBe(404);
+
+  // Undo, once: the quote goes to the Trash and the cards stop saying it.
+  const undone = await (await write({ page: beds.id, action: "undo", undo: quoted.undo })).json();
+  expect(undone).toMatchObject({ ok: true, undone: [quoted.block] });
+  expect(store.get(quoted.block)?.effectiveDeletedRootId).toBeTruthy();
+  expect(((await threads(beds.id)).threads as unknown as { id: string; quotedIn: unknown[] }[]).find((thread) => thread.id === comment)!.quotedIn).toEqual([]);
+  expect((await write({ page: beds.id, action: "undo", undo: quoted.undo })).status).toBe(404);
+
+  // Under this note, and under a note found by its words.
+  const found = await (await get(`/pub/_marginalia/find?q=${encodeURIComponent("Seed swap")}&page=${beds.id}`, {})).json() as { notes: { id: string; title: string }[] };
+  expect(found.notes.map((note) => note.id)).toContain(swap.id);
+  const underSwap = await (await write({ page: beds.id, action: "quote", marks: [comment], place: "under", under: swap.id })).json();
+  expect(store.get(underSwap.block)!.parentId).toBe(swap.id);
+  const underNote = await (await write({ page: beds.id, action: "quote", marks: [highlight], place: "note" })).json();
+  expect(store.get(underNote.block)!.parentId).toBe(beds.id);
+});
+
+test("words in a comment are marked like a note's: a highlight on them lands on the comment and is drawn in its card", async () => {
+  const pots = store.create("Pot sizes\nSeedlings move up a size at four leaves.", hub.id, "user");
+  const comment = (await (await write({ page: pots.id, action: "comment", quote: "four leaves", body: "Count them again in October.", requestId: "in-comment-01" })).json()).thread as string;
+  const marked = await write({ page: pots.id, action: "highlight", in: comment, quote: "October", prefix: "Count them again in ", suffix: ".", requestId: "in-comment-02" });
+  expect(marked.status).toBe(200);
+  const on = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: comment }, includeResolved: false } });
+  expect(on.map((thread) => thread.resolvedTarget?.anchor)).toEqual([expect.objectContaining({ kind: "text-quote", exact: "October" })]);
+  // The card draws it on its words, and its own card can be replied to and quoted from this page.
+  const card = ((await threads(pots.id)).threads as unknown as { id: string; marks: { id: string; quote: string }[] }[]).find((thread) => thread.id === comment)!;
+  expect(card.marks).toEqual([expect.objectContaining({ id: on[0]!.block.id, quote: "October" })]);
+  expect((await write({ page: pots.id, action: "reply", thread: on[0]!.block.id, body: "Mid-month.", requestId: "in-comment-03" })).status).toBe(200);
+  // Words that are the comment's heading, not its own, aren't found there.
+  expect((await write({ page: pots.id, action: "highlight", in: comment, quote: "Comment on", requestId: "in-comment-04" })).status).toBe(422);
+});
+
 test("writes come only from the tailnet page itself; the public listener stays read-only and shows marked notes only", async () => {
   const comment = { page: survey.id, action: "comment", quote: "light trap", body: "From elsewhere.", requestId: "elsewhere-01" };
   expect((await write(comment, "https://example.com")).status).toBe(403);
@@ -233,6 +294,11 @@ test("through a share link too: Ask about this gets its answer in the margin, an
     const listed = (await response.json()) as { threads: { id: string; replies: { by: string }[] }[] };
     return listed.threads.find((thread) => thread.id === asked.thread && thread.replies.some((reply) => reply.by === "marginalia"));
   });
+  // Quoted through the share: under the note, linked inside it; its undo is the share's, not the tailnet's.
+  const viaShare = await (await write({ page: survey.id, action: "quote", marks: [asked.thread], place: "note" }, `https://${HOST}`, "public", base)).json();
+  expect(viaShare).toMatchObject({ ok: true, href: `${base}/p/${viaShare.block}` });
+  expect((await write({ page: survey.id, action: "undo", undo: viaShare.undo })).status).toBe(404);
+  expect((await write({ page: survey.id, action: "undo", undo: viaShare.undo }, `https://${HOST}`, "public", base)).status).toBe(200);
   // The tailnet page says what's selected; the agent reads it without opening anything.
   const said = await publisher.handle(new Request(`http://${HOST}/pub/_marginalia/view`, {
     method: "POST", headers: { host: HOST, origin: `https://${HOST}`, "content-type": "application/json" },

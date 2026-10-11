@@ -44,6 +44,7 @@ import { seedDefaultWorkspace } from "./default-workspace";
 import { openSchema } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
+import { markQuoteText, readMarkQuoteInput } from "./mark-quote";
 import {
   BlockQueryError,
   compileQueryExpression,
@@ -1258,6 +1259,36 @@ export class OutlinerStore {
     mutation: MutationProvenance,
   ): AnnotationRecord {
     return this.annotations.setLifecycle(input, mutation);
+  }
+
+  /**
+   * Quote marks into a new block (`marks.quote`, src/mark-quote.ts): each mark (a highlight, comment or reply) checked,
+   * the block placed by the placement rule (the top of the Inbox, under the first mark's note, or under a block named),
+   * written in one transaction as `mutation`.
+   */
+  quoteMarks(input: unknown, mutation: MutationProvenance): { block: Block; placement: Placement; marks: string[] } {
+    const { marks, place, text } = readMarkQuoteInput(input);
+    return this.database.transaction(() => {
+      const records = marks.map((id) => {
+        const block = this.getFromCurrentRead(id);
+        if (!block || block.effectiveDeletedRootId) throw new Error(`No mark ${id}: it's gone or in the Trash`);
+        const type = block.properties.find((property) => property.key === "type")?.value;
+        if (type !== "annotation" && type !== "annotation-reply") throw new Error(`${id} isn't a mark (a highlight, comment or reply); quote a block with ((${id})) or !((${id})) in a note instead`);
+        return this.annotations.get(id);
+      });
+      let intent: NewNoteIntent = { kind: "capture" };
+      if (place.kind === "under") intent = { kind: "note", near: place.blockId, nearOnly: true };
+      else if (place.kind === "note") {
+        const subject = records[0]!.originalTarget.representation.subject;
+        if (subject.kind !== "block") throw new Error("that mark is on a Resource, not a note: quote it into the Inbox or under a block you name");
+        intent = { kind: "note", near: subject.blockId, nearOnly: true };
+      }
+      const placement = this.placementFromCurrentRead(intent);
+      const { author, actorId, sessionId, taskId } = mutation;
+      const provenance = actorId ? { actorId, ...(sessionId ? { sessionId } : {}), ...(taskId ? { taskId } : {}) } : undefined;
+      const block = this.createAt(markQuoteText(records, text), placement.parentId, author, provenance, this.createdTime(), placement.at === "top" ? 0 : undefined);
+      return { block, placement, marks };
+    })();
   }
   validateRoadmapItem(input:RoadmapItemCreateInput):void {
     this.database.transaction(()=>{this.prepareRoadmapItem(input);})();
