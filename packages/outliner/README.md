@@ -1071,6 +1071,18 @@ an agent that discovers WebMCP tools finds them with no change here. Its in-tab 
 only; the WebMCP permissions policy is left at its default (`self`), so nothing embedded reaches the tools. Without the
 polyfill (not installed) or without JavaScript, the page works as before.
 
+#### The door in the browser (spike)
+
+`--door <ptyZZZ checkout>` (or `EP0CH_WEB_DOOR`) serves the real door in a tailnet page (`publish-door.ts`): each
+note's footer gets a `door` link to `/pub/door?open=<id>`, a full-viewport terminal attached to the outline's door
+session (one more terminal on it, like an ssh login) and opening that note in the detail screen. The terminal is
+[ptyZZZ](https://github.com/e-schultz/ptyZZZ) (a pty plus wezterm-term; build it with `cargo build --release`), spawned
+per page; frames go to the page over SSE and keys, paste, mouse and resize come back as its JSONL. The door is told
+it has no Kitty graphics or text sizing (`EP0CH_KITTY=0`, `EP0CH_SIZED=0`). A toolbar has the keys a phone lacks and
+the ones a browser keeps for itself (ctrl+w, ctrl+n); A−/A+ or a pinch sets the font size. It is a terminal, so it
+is served on the tailnet listener alone: never the public listener, a share link or the signed-in origin, and only
+to requests from its own origin. `/pub/door/stats` gives each terminal's frames and bytes.
+
 #### The signed-in web client (my.ep0ch.sh)
 
 The tailnet's web client, whole, on a public origin behind a sign-in: every outline the host serves, every page and

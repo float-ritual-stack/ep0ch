@@ -10,6 +10,7 @@ import { Marked } from "marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
 import type { ShareSession, WebSession } from "@ep0ch/outline-core/protocol";
 import type { ShareResolution } from "./share-sessions";
+import type { WebDoor } from "./publish-door";
 import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
@@ -179,6 +180,11 @@ export interface PublisherOptions {
   presence?: boolean;
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
   shares?: boolean;
+  /**
+   * The door in the browser (publish-door.ts, spike): `<base>/door` on the tailnet listener only, and a `door` link in
+   * each tailnet note's footer. Never on the public listener, a share link or the signed-in origin.
+   */
+  door?: WebDoor;
   log?: (line: string) => void;
 }
 
@@ -882,6 +888,7 @@ export class Publisher {
   }
 
   async stop(): Promise<void> {
+    await this.options.door?.stop();
     await this.tunnels?.stop();
     await this.watcher?.stop();
     this.watcher = null;
@@ -1013,6 +1020,10 @@ export class Publisher {
         this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
         return respond("The outline host could not be reached; try again\n", "text/plain; charset=utf-8", 502);
       }
+    }
+    // The door in the browser: a terminal, so the tailnet listener alone (not the signed-in origin, not the public one).
+    if (audience === "tailnet" && !signedIn && this.options.door && (path === "/door" || path.startsWith("/door/"))) {
+      return await this.options.door.handle(request, path, this.basePath);
     }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
     // tailnet (or signed in at the sign-in listener) is the sign-in; the public listener has none of these.
@@ -1422,7 +1433,8 @@ export class Publisher {
     const other = full ? `<a href="${href("")}">as a folder</a>` : `<a href="${href("?view=full")}">whole page</a>`;
     // On the tailnet, a note can be shared from its page: a short-lived public link (the shares page starts it).
     const sharing = share || this.options.shares === false ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?open=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
-    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}</footer>`;
+    const door = share || !this.options.door ? "" : ` · <a href="${escapeHtml(`${this.basePath}/door?open=${encodeURIComponent(entry.blockId)}`)}">door</a>`;
+    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}${door}</footer>`;
   }
 
   /** The notes above `blockId`, the top level first. A chain longer than the lock walk is cut there. */

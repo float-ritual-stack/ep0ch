@@ -227,6 +227,7 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
  * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767).
  * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin:
  * the same web client, every route behind a Clerk sign-in (EP0CH_WEB_CLIENT_ID, EP0CH_WEB_ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS).
+ * `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves the door in the browser on the tailnet listener (publish-door.ts).
  * `publish list [--json]` prints the same index once, with each public note's public URL.
  */
 if (process.argv[2] === "publish") {
@@ -236,7 +237,7 @@ if (process.argv[2] === "publish") {
 async function runPublishCommand(operation: string | undefined, args: string[]): Promise<number> {
   try {
     if (operation !== "serve" && operation !== "list") {
-      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--signin-port N --signin-url URL] [--ws NAME] | list [--public-url URL] [--json]");
+      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--url URL] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--signin-port N --signin-url URL] [--door PTYZZZ_DIR] [--ws NAME] | list [--public-url URL] [--json]");
     }
     const { values } = parseArgs({
       args, strict: true,
@@ -246,6 +247,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         "artifact-cache": { type: "string" }, "public-port": { type: "string" }, "public-url": { type: "string" },
         "public-bind": { type: "string" }, url: { type: "string" },
         "signin-port": { type: "string" }, "signin-url": { type: "string" },
+        door: { type: "string" },
         json: { type: "boolean" },
       },
     });
@@ -268,6 +270,20 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
     const { Publisher, servePublisher, renderIndexText } = await import("./publish");
+    // The door in the browser (publish-door.ts, spike): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the
+    // tailnet listener, each page a terminal attached to this outline's door session.
+    const doorDir = values.door ?? process.env.EP0CH_WEB_DOOR;
+    let door: import("./publish-door").WebDoor | undefined;
+    if (doorDir && operation === "serve") {
+      const { WebDoor } = await import("./publish-door");
+      const main = resolve(import.meta.dir, "../../door/src/main.ts");
+      const ws = values.ws ?? process.env.EP0CH_WS;
+      door = new WebDoor({
+        ptyzzz: resolve(doorDir),
+        command: open => [process.execPath, main, ...(ws ? ["--ws", ws] : []), ...(open ? ["--screen", "detail", open] : [])],
+        log: line => console.error(line),
+      });
+    }
     const publisher = new Publisher({
       client: createOutlinerClient(resolveClientPaths()),
       roots: (values.root ?? []).map(root => resolve(root)),
@@ -279,6 +295,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       ...(publishUrl ? { url: publishUrl } : {}),
       // Only a serving publisher with a public listener runs `cloudflare` shares' tunnels.
       ...(operation !== "list" && publicPort !== undefined ? { tunnels: true } : {}),
+      ...(door ? { door } : {}),
       log: line => console.error(line),
     });
     const status = await publisher.start();
