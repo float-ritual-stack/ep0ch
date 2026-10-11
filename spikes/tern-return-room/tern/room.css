@@ -1,0 +1,69 @@
+/* Scoped to this scratch block; never replace the window's theme or chrome. */
+[data-surface='plugin.return-room.room'] [data-role='return-room.header'] {
+	border-top: 3px solid var(--accent);
+	margin-bottom: 10px;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.workspace'] {
+	gap: 16px;
+	align-items: flex-start;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.overview'] {
+	min-width: 0;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.literal'] {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.5;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.card'] {
+	min-width: 0;
+	border-radius: 12px;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.actions'] {
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+[data-surface='plugin.return-room.room'] .rr-action {
+	color: var(--tc, var(--t2));
+	background: var(--l1);
+	border: 1px solid var(--l2);
+	border-radius: 6px;
+	padding: 5px 9px;
+	cursor: pointer;
+	font: inherit;
+	white-space: normal;
+}
+
+[data-surface='plugin.return-room.room'] .rr-action:hover {
+	background: var(--l2);
+	border-color: var(--accent);
+}
+
+[data-surface='plugin.return-room.room'] .rr-action:focus-visible {
+	outline: 2px solid var(--accent);
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.reply'] {
+	border-left: 3px solid var(--accent);
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.feedback'] {
+	margin-top: 4px;
+}
+
+[data-surface='plugin.return-room.room'] [data-role='return-room.compare'] {
+	margin-top: 16px;
+	padding-top: 10px;
+	border-top: 1px solid var(--l2);
+}
+
+.sf-dock[data-surface='plugin.return-room.room'] {
+	border-top: 1px solid var(--l2);
+	padding: 8px 12px;
+}

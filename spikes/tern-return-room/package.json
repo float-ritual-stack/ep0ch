@@ -1,0 +1,10 @@
+{
+  "name": "ep0ch-tern-return-room-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scratch-only native Tern Return Room and explicit omp feedback bridge",
+  "omp": {
+    "extensions": ["./omp-extension.ts"]
+  }
+}

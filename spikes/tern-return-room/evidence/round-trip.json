@@ -1,0 +1,124 @@
+{
+  "environment": {
+    "tern": "0.4.5 (1d14241)",
+    "omp": "18.9.1",
+    "display": "Ordinary native Tern window on private Weston headless Wayland and Mesa llvmpipe",
+    "account": "Documented account signed-in test fixture; no Stencil authentication"
+  },
+  "card": {
+    "id": "b7a5471a-2b41-4021-880a-5b9d6e7798e2",
+    "revision": 1,
+    "title": "Carry the receipts home",
+    "body": "This card tests a deliberately persisted empty omp session, created with /new. No model was called.",
+    "kind": "question",
+    "session": "01a12ba3-9331-7410-a09a-d17b2870b20a",
+    "evidence": "",
+    "author": "agent",
+    "updated": "2026-10-11T15:46:37.355Z"
+  },
+  "feedback": [
+    {
+      "id": "6b1d015e-0287-41ba-b42b-c041bf54c671",
+      "card": "b7a5471a-2b41-4021-880a-5b9d6e7798e2",
+      "revision": 1,
+      "verdict": "question",
+      "text": "",
+      "session": "01a12ba3-9331-7410-a09a-d17b2870b20a",
+      "author": "user",
+      "updated": "2026-10-11T15:47:42.179Z"
+    },
+    {
+      "id": "87ca8f50-c029-4021-8c20-d465fea17c9a",
+      "card": "b7a5471a-2b41-4021-880a-5b9d6e7798e2",
+      "revision": 1,
+      "verdict": "reply",
+      "text": "Please keep the receipt separate from permission to continue.",
+      "session": "01a12ba3-9331-7410-a09a-d17b2870b20a",
+      "author": "user",
+      "updated": "2026-10-11T15:48:11.810Z"
+    }
+  ],
+  "delivery": [
+    {
+      "type": "extension_ui_request",
+      "id": "15a23695306a45f6",
+      "method": "notify",
+      "message": "{\n  \"published\": {\n    \"id\": \"b7a5471a-2b41-4021-880a-5b9d6e7798e2\",\n    \"revision\": 1,\n    \"title\": \"Carry the receipts home\",\n    \"body\": \"This card tests a deliberately persisted empty omp session, created with /new. No model was called.\",\n    \"kind\": \"question\",\n    \"session\": \"01a12ba3-9331-7410-a09a-d17b2870b20a\",\n    \"evidence\": \"\",\n    \"author\": \"agent\",\n    \"updated\": \"2026-10-11T15:46:37.355Z\"\n  }\n}",
+      "notifyType": "info"
+    },
+    {
+      "type": "prompt_result",
+      "id": "persisted-publish",
+      "agentInvoked": false,
+      "status": "completed",
+      "sessionSettled": true
+    },
+    {
+      "type": "extension_ui_request",
+      "id": "15a23709eeea45f7",
+      "method": "notify",
+      "message": "Pulled 2 Return Room responses. No model turn started; continue when ready.",
+      "notifyType": "info"
+    },
+    {
+      "type": "prompt_result",
+      "id": "persisted-pull",
+      "agentInvoked": false,
+      "status": "completed",
+      "sessionSettled": true
+    }
+  ],
+  "restart": [
+    {
+      "id": "after-restart",
+      "type": "response",
+      "command": "prompt",
+      "success": true
+    },
+    {
+      "type": "extension_ui_request",
+      "id": "15a237397d357c8d",
+      "method": "notify",
+      "message": "No undelivered Return Room feedback for this session.",
+      "notifyType": "info"
+    },
+    {
+      "type": "prompt_result",
+      "id": "after-restart",
+      "agentInvoked": false,
+      "status": "completed",
+      "sessionSettled": true
+    }
+  ],
+  "unsavedSession": [
+    {
+      "type": "extension_error",
+      "extensionPath": "command:room-publish",
+      "event": "command",
+      "error": "This omp session is not saved yet. Start a normal conversation, or use /new to create a durable empty session, before publishing. Otherwise its return address would disappear on exit."
+    },
+    {
+      "id": "durable-new",
+      "type": "response",
+      "command": "new_session",
+      "success": true,
+      "data": {
+        "cancelled": false
+      }
+    },
+    {
+      "id": "new-publish",
+      "type": "response",
+      "command": "prompt",
+      "success": true
+    },
+    {
+      "type": "prompt_result",
+      "id": "new-publish",
+      "agentInvoked": false,
+      "status": "completed",
+      "sessionSettled": true
+    }
+  ],
+  "agentStartEvents": 0
+}

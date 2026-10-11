@@ -1,0 +1,15 @@
+schema = 1
+id = "return-room"
+name = "Return Room"
+version = "0.1.0"
+description = "A scratch-outline room for comparing agent findings and returning revision-anchored feedback."
+icon = "box"
+host = "host.luau"
+window = "window.luau"
+styles = ["room.css"]
+
+[[blocks]]
+id = "room"
+title = "Return Room"
+icon = "box"
+palette = true
