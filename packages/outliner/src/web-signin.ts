@@ -178,11 +178,22 @@ export class SignInGate {
       const root = this.settings.home.replace(/\/+$/, "");
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
       if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
-      return withGateHeaders(await this.options.serve(request, { sessionId: found.session.id }), renewed);
+      const sessionId = found.session.id;
+      return withGateHeaders(await this.options.serve(request, { sessionId, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {
       this.log(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
       return withGateHeaders(plainPage("Not reachable", `<h1>The outline host could not be reached</h1>\n<p class="dim">Try again in a moment. On the server: <code>systemctl --user status outliner-host outliner-publish</code></p>\n`, 502));
     }
+  }
+
+  /**
+   * Whether a session the gate let a request through on is still live: listed (not signed out or revoked), not expired,
+   * its person still on the list. Asked by an answer that outlasts its request (the door's stream); it doesn't renew it.
+   */
+  private async stillSignedIn(sessionId: string): Promise<boolean> {
+    const { sessions } = await this.options.request<{ sessions: WebSession[] }>({ action: "web.sessions.list" });
+    const session = sessions.find((s) => s.id === sessionId);
+    return !!session && Date.parse(session.expiresAt) > this.now() && this.settings.allowedSubjects.includes(session.subject);
   }
 
   private signInPage(next: string | null, status = 200): Response {
