@@ -14,7 +14,6 @@
 //   ::
 import { ellipsize, fg, RESET } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, type Props } from "./palette";
 
 const MARKER = /\s*(?:\/\/|#|--|;)\s*\((\d+)\)\s*$/;
@@ -35,18 +34,3 @@ export function drawAnnotate(p: Props, w: number): string[] {
   return out;
 }
 
-/** The first fence is the code; the ordered list after it, the notes (numbered as written, or in order). */
-export function annotateMarkdown(md: Markdown): Props {
-  const fence = md.fences[0];
-  const listed = md.rows.filter(r => r.depth === 0);
-  const notes: string[] = [];
-  // Numbered as written while the number is near the list (a gap is a marker with no note); `0.` or a number far
-  // past it follows the others instead of opening a hole.
-  const spill: string[] = [];
-  listed.forEach((r, i) => {
-    const n = r.ordinal ?? i + 1, text = r.text + (r.note ? ` — ${r.note}` : "");
-    if (n >= 1 && n <= listed.length + 10) notes[n - 1] = text; else spill.push(text);
-  });
-  notes.push(...spill);
-  return { ...(fence ? { code: fence.lines.join("\n"), lang: fence.lang } : {}), ...(notes.length ? { notes: Array.from(notes, n => n ?? "") } : {}) };
-}

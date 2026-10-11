@@ -16,7 +16,6 @@
 // cell shows a dot per point and the labels move to a legend beneath.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, ordered, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export interface Point { x: string; y: string; label: string; accent?: boolean; muted?: boolean; block?: string }
@@ -67,9 +66,3 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   return out;
 }
 
-/** `- label: x, y`; a bold row is the accent, an italic one recedes. The YAML's `xs:` and `ys:` order the axes. */
-export function quadrantMarkdown(md: Markdown): Props {
-  return md.rows.length
-    ? { points: md.rows.map(r => ({ label: r.label ?? r.text, x: r.values[0] ?? "", y: r.values[1] ?? "", accent: r.emphasis === "strong", muted: r.emphasis === "em", block: r.block })) }
-    : {};
-}

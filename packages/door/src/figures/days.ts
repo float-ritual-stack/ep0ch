@@ -14,48 +14,14 @@
 //   last: 30), or source: backups                                              live: query + date: <property>
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import { expandRuns } from "@ep0ch/outline-core/figure-markdown";
-import type { Markdown } from "./markdown";
+import { DAY, dayOf, dayState, isoOf, localDay, MONTH_ABBREVIATIONS, MONTH_NAMES, monthOf, today, uptimeDays, WEEKDAY_NAMES, weekday, weekStart, worse, type DayState } from "@ep0ch/outline-core/figure-props";
+export { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays, weekStart, worse, type DayState };
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink, SHADES } from "./palette";
 
-const DAY = 86_400_000;
-/** `YYYY-MM-DD` (or a longer ISO time, or a Date) as a day number, or null. */
-export function dayOf(v: unknown): number | null {
-  if (v instanceof Date) return Math.floor(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()) / DAY);
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? "").trim());
-  return m ? Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY) : null;
-}
-export const isoOf = (day: number) => new Date(day * DAY).toISOString().slice(0, 10);
-/** The day a moment (epoch ms) falls on, as the person's clock says. */
-export const localDay = (ms: number) => { const d = new Date(ms); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY); };
-/** Today, as the person's clock says, as a day number. */
-export const today = () => localDay(Date.now());
-/** A day's weekday, 0 Sunday to 6 Saturday. */
-const weekday = (day: number) => (day + 4) % 7;
-/** `weekStartsOn:` as 0 (Sunday) to 6: a number, or a day's name (`mon`, `Monday`). */
-export function weekStart(v: unknown, fallback = 1): number {
-  if (typeof v === "number" && v >= 0 && v <= 6) return Math.floor(v);
-  const i = ["su", "mo", "tu", "we", "th", "fr", "sa"].indexOf(String(v ?? "").trim().toLowerCase().slice(0, 2));
-  return i >= 0 ? i : fallback;
-}
-const NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = WEEKDAY_NAMES, MONTHS = MONTH_ABBREVIATIONS;
 
 // ── uptime ────────────────────────────────────────────────────────────────────
 
-export type DayState = "ok" | "degraded" | "down" | "empty";
-/** A status as written (ok, up, success; degraded, warn, partial; down, fail, error) as one of the four. */
-export function dayState(v: unknown): DayState {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (["ok", "up", "success", "succeeded", "pass", "passed", "done", "green"].includes(s)) return "ok";
-  if (["degraded", "warn", "warning", "partial", "slow", "amber", "yellow"].includes(s)) return "degraded";
-  if (["down", "fail", "failed", "failure", "error", "missed", "red"].includes(s)) return "down";
-  return "empty";
-}
-const WORSE: Record<DayState, number> = { empty: 0, ok: 1, degraded: 2, down: 3 };
-/** The worse of two days' states (a day with a failed run and a good one was degraded at best). */
-export const worse = (a: DayState, b: DayState): DayState => (WORSE[a] >= WORSE[b] ? a : b);
 const UPTIME_GLYPH: Record<DayState, [string, number]> = { ok: ["█", ACCENT], degraded: ["▒", INK], down: ["·", HI], empty: ["-", DIM] };
 
 export function drawUptime(p: Props, w: number, link?: RowLink): string[] {
@@ -84,34 +50,7 @@ export function drawUptime(p: Props, w: number, link?: RowLink): string[] {
   return out;
 }
 
-/** Every value of the rows and paragraphs (`ok*20 degraded down`), in order; `- 2026-09-01: …` dates the first. */
-export function uptimeMarkdown(md: Markdown): Props {
-  // Each dated row starts at its date (a gap between rows is days with no run); an undated one follows on.
-  const results: { day: number; state: DayState }[] = [], undated: string[] = [];
-  let at: number | null = null;
-  const put = (v: string) => { if (at === null) undated.push(v); else results.push({ day: at++, state: dayState(v) }); };
-  for (const r of md.rows) { const d = dayOf(r.label); if (d !== null) at = d; r.values.forEach(put); }
-  md.paragraphs.flatMap(p => expandRuns(p)).forEach(put);
-  // Values before the first date are the days just before it.
-  if (results.length) return uptimeDays([...undated.map((v, i) => ({ day: results[0]!.day - undated.length + i, state: dayState(v) })), ...results]);
-  return undated.length ? { days: undated } : {};
-}
 
-/** A day per date from `from` to `to` (the results' own first and last when not given), each the worst state that day. */
-export function uptimeDays(results: { day: number; state: DayState; block?: string }[], from?: number | null, to?: number | null): Props {
-  if (!results.length && (from == null || to == null)) return { days: [] };
-  const lo = from ?? Math.min(...results.map(r => r.day)), hi = to ?? Math.max(...results.map(r => r.day));
-  const n = Math.max(0, Math.min(3660, hi - lo + 1));
-  const days: DayState[] = Array(n).fill("empty"), blocks: (string | undefined)[] = Array(n).fill(undefined);
-  for (const r of results) {
-    const i = r.day - lo;
-    if (i < 0 || i >= n) continue;
-    const was = days[i]!;
-    days[i] = worse(was, r.state);
-    if (days[i] !== was || !blocks[i]) blocks[i] = r.block;
-  }
-  return { days, blocks, from: isoOf(lo), to: isoOf(hi) };
-}
 
 // ── activity ──────────────────────────────────────────────────────────────────
 
@@ -143,7 +82,7 @@ export function drawActivity(p: Props, w: number): string[] {
   for (let r = 0; r < 7; r++) {
     const wd = (start + r) % 7;
     // Monday, Wednesday and Friday are named, as GitHub's grid names them.
-    const label = wd === 1 || wd === 3 || wd === 5 ? NAMES[wd]!.padEnd(4) : "    ";
+    const label = wd === 1 || wd === 3 || wd === 5 ? WEEKDAYS[wd]!.padEnd(4) : "    ";
     let line = fg(DIM) + label;
     for (let c = 0; c < weeks; c++) {
       const day = first + c * 7 + r;
@@ -158,16 +97,6 @@ export function drawActivity(p: Props, w: number): string[] {
   return out;
 }
 
-/** `- 2026-03-02: 0 1 4 2 0*3`: counts for that day and the days after it. */
-export function activityMarkdown(md: Markdown): Props {
-  const counts: Record<string, number> = {};
-  for (const r of md.rows) {
-    const d = dayOf(r.label);
-    if (d === null) continue;
-    r.values.forEach((v, i) => { const n = Number(v); if (Number.isFinite(n)) counts[isoOf(d + i)] = (counts[isoOf(d + i)] ?? 0) + n; });
-  }
-  return Object.keys(counts).length ? { counts } : {};
-}
 
 // ── calendar ──────────────────────────────────────────────────────────────────
 
@@ -192,7 +121,7 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
   const out: string[] = [];
   const head = `${MONTH_NAMES[month - 1]} ${year}`;
   out.push(" ".repeat(Math.max(0, Math.floor((cw * 7 - head.length) / 2))) + fg(HI) + BOLD + head + UNBOLD + RESET);
-  out.push(Array.from({ length: 7 }, (_, i) => fg(DIM) + NAMES[(start + i) % 7]!.padStart(cw - 1) + " ").join("") + RESET);
+  out.push(Array.from({ length: 7 }, (_, i) => fg(DIM) + WEEKDAYS[(start + i) % 7]!.padStart(cw - 1) + " ").join("") + RESET);
   const lead = (weekday(first) - start + 7) % 7;
   let line = "    ".repeat(lead);
   for (let d = 1; d <= days; d++) {
@@ -212,23 +141,4 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
   return out.map(l => (vwidth(l) > w ? pad(l, w) : l));
 }
 
-/** `- 12: launch`, `- 2026-03-12: launch` (a date in the month); bold leads, italic recedes. */
-export function calendarMarkdown(md: Markdown): Props {
-  const marks = md.rows.flatMap(r => {
-    if (r.label === null) return [];
-    const date = dayOf(r.label);
-    const day = date !== null ? new Date(date * DAY).getUTCDate() : /^\d{1,2}$/.test(r.label) ? Number(r.label) : NaN;
-    const mark = { day, label: r.value + (r.note ? ` — ${r.note}` : ""), strong: r.emphasis === "strong", muted: r.emphasis === "em", block: r.block };
-    return Number.isFinite(day) ? [date !== null ? { ...mark, date: isoOf(date) } : mark] : [];
-  });
-  const dated = md.rows.map(r => dayOf(r.label)).find(d => d !== null);
-  const ym = dated != null ? new Date(dated * DAY) : null;
-  return { ...(marks.length ? { marks } : {}), ...(ym ? { year: ym.getUTCFullYear(), month: ym.getUTCMonth() + 1 } : {}) };
-}
 
-/** The month a live calendar shows (its `year`/`month`, else today's), as day numbers. */
-export function monthOf(p: Props): { first: number; last: number; year: number; month: number } {
-  const now = new Date((dayOf(p.today) ?? today()) * DAY);
-  const year = Number(p.year) || now.getUTCFullYear(), month = Math.min(12, Math.max(1, Number(p.month) || now.getUTCMonth() + 1));
-  return { first: Math.floor(Date.UTC(year, month - 1, 1) / DAY), last: Math.floor(Date.UTC(year, month, 0) / DAY), year, month };
-}

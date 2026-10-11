@@ -1,17 +1,16 @@
 // The figure kinds in this folder (ideas from mdxcn.dev, none of its code), registered in src/graphs.ts's KINDS beside
-// the first ones: each kind's drawing, and what it makes of Markdown rows (src/figures/markdown.ts says the first
-// kinds'). A new kind is a module here and a line in each map.
-import { annotateMarkdown, drawAnnotate } from "./annotate";
-import { chatMarkdown, drawChat } from "./chat";
-import { activityMarkdown, calendarMarkdown, drawActivity, drawCalendar, drawUptime, uptimeMarkdown } from "./days";
-import { compareMarkdown, drawCompare } from "./compare";
-import { decisionMarkdown, drawDecision } from "./decision";
-import { drawFlow, flowMarkdown } from "./flow";
-import { drawMatrix, matrixMarkdown } from "./matrix";
-import { drawQuadrant, quadrantMarkdown } from "./quadrant";
-import { drawKeys, keysFromRegistry, keysMarkdown } from "./keys";
-import { BASE_MARKDOWN, type Markdown } from "./markdown";
-import type { Draw, Props } from "./palette";
+// the first ones: each kind's drawing. What it makes of Markdown rows is outline-core's figure-props.ts. A new kind
+// is a module here and a line in each map.
+import { drawAnnotate } from "./annotate";
+import { drawChat } from "./chat";
+import { drawActivity, drawCalendar, drawUptime } from "./days";
+import { drawCompare } from "./compare";
+import { drawDecision } from "./decision";
+import { drawFlow } from "./flow";
+import { drawMatrix } from "./matrix";
+import { drawQuadrant } from "./quadrant";
+import { drawKeys, keysFromRegistry } from "./keys";
+import type { Draw } from "./palette";
 
 export const FIGURES: Record<string, Draw> = {
   decision: drawDecision,
@@ -27,18 +26,5 @@ export const FIGURES: Record<string, Draw> = {
   flow: drawFlow,
 };
 
-/** What each kind makes of a figure's Markdown rows: props under its YAML's. */
-export const MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> = {
-  ...BASE_MARKDOWN,
-  decision: decisionMarkdown,
-  chat: chatMarkdown,
-  keys: keysMarkdown,
-  uptime: uptimeMarkdown,
-  activity: activityMarkdown,
-  calendar: calendarMarkdown,
-  annotate: annotateMarkdown,
-  quadrant: quadrantMarkdown,
-  matrix: matrixMarkdown,
-  compare: compareMarkdown,
-  flow: flowMarkdown,
-};
+/** What each kind makes of a figure's Markdown rows: outline-core's, shared with the publisher. */
+export { FIGURE_MARKDOWN as MARKDOWN } from "@ep0ch/outline-core/figure-props";

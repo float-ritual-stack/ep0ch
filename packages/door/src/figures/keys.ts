@@ -13,7 +13,6 @@
 import { allActionSets } from "../surface/actions";
 import { BOLD, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
 /** A key as written (`ctrl+k`, `g then d`, `( ) or f`) drawn as keycaps, its joining words dim. */
@@ -44,11 +43,6 @@ export function drawKeys(p: Props, w: number, link?: RowLink): string[] {
   return out;
 }
 
-/** `- ctrl+k: what it does`; bold learns first. */
-export function keysMarkdown(md: Markdown): Props {
-  const rows = md.rows.filter(r => r.label !== null);
-  return rows.length ? { keys: rows.map(r => ({ keys: r.label, action: r.value, learn: r.emphasis === "strong", block: r.block })) } : {};
-}
 
 /** Words that say a key isn't a key (a click, a drag): such alternatives stay out of a cheat sheet. */
 const NOT_A_KEY = /click|drag|wheel|typing|swipe|button|while|outside|\(on /i;

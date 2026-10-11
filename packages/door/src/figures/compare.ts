@@ -15,7 +15,6 @@
 // label, then one line per column.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export interface Entry { label: string; cells: string[]; accent?: boolean; muted?: boolean; block?: string }
@@ -52,9 +51,3 @@ export function drawCompare(p: Props, w: number, link?: RowLink): string[] {
   return [head, rule, ...body];
 }
 
-/** `- label: a | b | c`: the cells between `|`s. The YAML's `columns:` names them. */
-export function compareMarkdown(md: Markdown): Props {
-  return md.rows.length
-    ? { entries: md.rows.map(r => ({ label: r.label ?? r.text, cells: (r.label === null ? "" : r.value).split(/\s*\|\s*/).map(s => s.trim()), accent: r.emphasis === "strong", muted: r.emphasis === "em", block: r.block })) }
-    : {};
-}

@@ -29,6 +29,8 @@ export const COMPONENT_STYLE = `
 `;
 
 export const componentSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + index)}${MARK}`;
+/** Whether `text` is one component's sentinel and nothing else. */
+export const isComponentSentinel = (text: string) => text.length === 3 && text[0] === MARK && text[2] === MARK;
 
 /** The rendered page with each component's HTML in its sentinel's place. */
 export function drawComponents(html: string, components: readonly string[]): string {

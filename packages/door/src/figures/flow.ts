@@ -13,13 +13,10 @@
 // Each source is a bar sized by its total, its flows under it, the line's weight by the flow's share of the
 // source (═ half or more, ─ a fifth or more, ┄ less); the targets' totals close the figure. The same at any width.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, records, type Props } from "./palette";
 import { wrap } from "../text";
 
 export interface Flow { from: string; to: string; value: number; accent?: boolean }
-
-const PATH = /\s*(?:→|->)\s*/;
 
 export function drawFlow(p: Props, w: number): string[] {
   const flows: Flow[] = records(p.flows).map((f: Props) => ({ from: String(f.from ?? ""), to: String(f.to ?? ""), value: Math.max(0, Number(f.value) || 0), accent: !!f.accent })).filter((f: Flow) => f.from && f.to);
@@ -54,16 +51,3 @@ export function drawFlow(p: Props, w: number): string[] {
   return out;
 }
 
-/** `- a → b: 7` (or `->`): a flow of 7; no number is a flow of 1; a bold row is the accent. */
-export function flowMarkdown(md: Markdown): Props {
-  if (!md.rows.length) return {};
-  const flows = md.rows.flatMap(r => {
-    const steps = (r.label ?? r.text).split(PATH).map(s => s.trim()).filter(Boolean);
-    if (steps.length < 2) return [];
-    // No number is a flow of 1; a written 0 stays 0.
-    const given = r.label === null ? undefined : r.values[0];
-    const value = given === undefined || given === "" ? 1 : Number.isFinite(Number(given)) ? Math.max(0, Number(given)) : 1;
-    return steps.slice(1).map((to, i) => ({ from: steps[i]!, to, value, accent: r.emphasis === "strong" }));
-  });
-  return { flows };
-}
