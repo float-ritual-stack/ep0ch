@@ -82,4 +82,4 @@ The browser journey starts **its own** host on an OS-assigned port. It tests mou
 
 This is headless Chromium with injected inputs. It does not establish physical mouse/keyboard delivery, mobile Safari behavior, or human musical quality. The source corpus is invented; a carefully staged argument is easier to navigate than a real archive.
 
-[Research brief](RESEARCH.md) · [Crossings](evidence/02-crossings.png) · [Revision tension](evidence/04-revision-tension.png) · [Phone](evidence/05-phone.png)
+[Research brief](RESEARCH.md) · [Verification and limits](evidence/VALIDATION.md) · [Crossings](evidence/02-crossings.png) · [Revision tension](evidence/04-revision-tension.png) · [Phone](evidence/05-phone.png)

@@ -42,6 +42,7 @@ function currentReading(n:Note){
  return doc.body.innerHTML;
 }
 function active(){return score.cues.filter(c=>c.start<=beat&&c.start+c.duration>beat&&!muted.has(groupName(c.source))&&(!solo||solo===groupName(c.source)));}
+function numeric(value:string|undefined,label:string){const n=Number(value);if(value===undefined||!Number.isFinite(n))throw new Error(`${label} needs a number.`);return n;}
 function download(blob:Blob,name:string){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function mutate(fn:()=>void){undoStack.push(structuredClone(score));if(undoStack.length>80)undoStack.shift();redoStack=[];fn();dirty=true;restartClock();render();}
 function now(){return sound?instrument.now:performance.now()/1000;}
@@ -148,7 +149,21 @@ async function act(name:string,args:Record<string,string>={}){
  case 'select':await select(args.note!,args.cue);break;
  case 'play':if(playing)pause();else{if(sound)await instrument.enable();if(loop&&(beat<loopStart||beat>=loopEnd))beat=loopStart;playing=true;restartClock();$('play').innerHTML='Ⅱ <span>Pause reading</span><kbd>Space</kbd>';}break;
  case 'stop':pause();beat=0;updateClock();break;
- case 'seek':seek(Number(args.beat));break;
+ case 'seek':seek(numeric(args.beat,'Beat'));break;
+ case 'tempo':{const bpm=numeric(args.value,'Tempo');mutate(()=>{score.bpm=Math.max(35,Math.min(180,bpm));});break;}
+ case 'cue.move':case 'cue.duration':case 'cue.gain':{
+ const c=score.cues.find(c=>c.id===(args.cue??selectedCue));if(!c)throw new Error('Choose a cue in this reading first.');
+ const value=numeric(args.value,name);
+ mutate(()=>{if(name==='cue.move')c.start=Math.max(0,Math.min(64-c.duration,value));if(name==='cue.duration')c.duration=Math.max(1,Math.min(64-c.start,value));if(name==='cue.gain')c.gain=Math.max(0,Math.min(1,value));});break;}
+ case 'query':{if(portable)throw new Error('Queries need the connected outline; this file is a snapshot.');const previous=query;query=args.value??'type=passage';$<HTMLInputElement>('query').value=query;
+ try{await reload();}catch(error){query=previous;$('query-result').textContent=String(error);throw error;}break;}
+ case 'level':instrument.setLevel(Math.max(0,Math.min(.5,numeric(args.value,'Level'))));break;
+ case 'loop.range':{const start=args.start===undefined?loopStart:numeric(args.start,'Loop start'),end=args.end===undefined?loopEnd:numeric(args.end,'Loop end');loopStart=Math.max(0,Math.min(63,start));loopEnd=Math.max(loopStart+1,Math.min(64,end));if(loop)seek(loopStart);render();break;}
+ case 'group':{
+ const previous=score.group;if(!data.facets.some(f=>f.key===args.value))throw new Error('Choose a property present in this rehearsal.');
+ undoStack.push(structuredClone(score));score.group=args.value!;
+ try{await reload();dirty=true;redoStack=[];muted.clear();solo='';restartClock();renderState();}catch(error){score.group=previous;undoStack.pop();throw error;}break;}
+
  case 'sound':if(sound){pause();sound=false;instrument.silence();}else{await instrument.enable();sound=true;restartClock();}$('sound').textContent=sound?'◉ Sound on':'◌ Sound off';$('sound').classList.toggle('enabled',sound);break;
  case 'loop':loop=!loop;$('loop').textContent=loop?'↻ Loop on':'↻ Loop off';$('loop').classList.toggle('enabled',loop);if(loop&&(beat<loopStart||beat>=loopEnd))seek(loopStart);render();break;
  case 'mute':muted.has(args.group!)?muted.delete(args.group!):muted.add(args.group!);restartClock();render();break;
@@ -171,14 +186,14 @@ async function act(name:string,args:Record<string,string>={}){
  case 'reframe':mutate(()=>{for(const c of score.cues)c.start=64-c.start-c.duration;});notice('The chronology is reversed. References and sources have not changed.');break;
  case 'reset':mutate(()=>{score=structuredClone(original);});muted.clear();solo='';await reload();notice('Original arrangement restored. Source edits remain.');break;
  case 'save':{if(portable){await act('portable');break;}const saved=await api('/api/score',{score,revision});revision=saved.revision;dirty=false;renderState();notice('Reading saved to the private outline.');break;}
- case 'add-cue':{const n=note();if(n)mutate(()=>{const c=cueFrom(n,Math.min(63,Math.round(beat*2)/2),Math.min(6,64-Math.min(63,Math.round(beat*2)/2)));score.cues.push(c);selectedCue=c.id;});break;}
+ case 'add-cue':{const n=note(args.note??selected),at=Math.max(0,Math.min(63,Math.round((args.beat===undefined?beat:numeric(args.beat,'Beat'))*2)/2));if(n)mutate(()=>{const c=cueFrom(n,at,Math.min(6,64-at));score.cues.push(c);selected=n.id;selectedCue=c.id;});break;}
  case 'remove-cue':mutate(()=>{score.cues=score.cues.filter(c=>c.id!==selectedCue);selectedCue='';});break;
  case 'adopt':{const n=note(),c=cue();if(n&&c)mutate(()=>{c.body=n.body;c.title=n.title;c.revision=n.revision;});notice('This cue now holds the current words. Other cues keep their revisions.');break;}
  case 'edit-source':{if(portable){notice('This file is a frozen rehearsal. Open the connected instrument to edit sources.');break;}const n=note();if(!n)break;pause();editing=true;editorDraft=n.text;editorSource=n.id;editorRevision=n.revision;
  $('inspector').innerHTML=`<div class="eyebrow">EDIT A REAL SOURCE / r${n.revision}</div><h2 class="reader-title">The source can change.</h2><p class="small">The score keeps its earlier words until you take this revision. Your draft stays here if a save is refused.</p><textarea id="source-editor" class="source-editor" aria-label="Source Blockdown">${escape(editorDraft)}</textarea><div class="reader-controls"><button data-act="save-source" class="primary">Save source</button><button data-act="cancel-edit">Cancel</button></div><div id="edit-error" class="error" role="status"></div>`;break;}
  case 'save-source':try{await api('/api/source',{id:editorSource,revision:editorRevision,text:editorDraft});editing=false;await reload();notice('Source saved. The score still holds its earlier revision.');}catch(e){$('edit-error').textContent=String(e);throw e;}break;
  case 'cancel-edit':editing=false;renderInspector();break;
- case 'query-example':$<HTMLInputElement>('query').value='type=passage (stance=objection OR stance=constraint)';query=$<HTMLInputElement>('query').value;await reload();break;
+ case 'query-example':await act('query',{value:'type=passage (stance=objection OR stance=constraint)'});break;
  case 'capture':{captureCues=structuredClone(active());const chosen=cue();if(chosen&&!captureCues.some(c=>c.id===chosen.id))captureCues.push(structuredClone(chosen));const h=score.cues.find(c=>c.source===held);if(h&&!captureCues.some(c=>c.id===h.id))captureCues.push(structuredClone(h));
  $('capture-context').textContent=`Keep ${captureCues.length} frozen passages with their source revisions and your observation. ${portable?'This downloads a reading; it does not write to an outline.':'This creates a reading note in the private outline.'}`;$<HTMLDialogElement>('capture-dialog').showModal();break;}
  case 'close-capture':$<HTMLDialogElement>('capture-dialog').close();break;
@@ -218,20 +233,20 @@ document.addEventListener('keydown',e=>{
 });
 document.addEventListener('input',e=>{const input=e.target as HTMLInputElement;
  if(input.id==='scrubber')seek(Number(input.value));
- if(input.id==='volume')instrument.setLevel(Number(input.value)/100);
+ if(input.id==='volume')invoke('level',{value:String(Number(input.value)/100)});
  if(input.id==='source-editor')editorDraft=input.value;
  if(input.id==='tempo')$('tempo-value').textContent=input.value;
 });
 document.addEventListener('change',async e=>{const input=e.target as HTMLInputElement;
  try{
- if(input.id==='tempo')mutate(()=>{score.bpm=Number(input.value);});
- if(input.id==='group'){const previous=score.group;undoStack.push(structuredClone(score));score.group=input.value;try{await reload();dirty=true;redoStack=[];muted.clear();solo='';restartClock();renderState();}catch(error){score.group=previous;undoStack.pop();throw error;}}
- if(input.id.startsWith('cue-')){const c=cue();if(!c)return;const v=Number(input.value);if(!Number.isFinite(v))return;mutate(()=>{if(input.id==='cue-start')c.start=Math.max(0,Math.min(64-c.duration,v-1));if(input.id==='cue-duration')c.duration=Math.max(1,Math.min(64-c.start,v));if(input.id==='cue-gain')c.gain=Math.max(0,Math.min(1,v));});}
- if(input.id==='loop-start'){loopStart=Math.max(0,Math.min(loopEnd-1,Number(input.value)-1));if(loop)seek(loopStart);render();}
- if(input.id==='loop-end'){loopEnd=Math.max(loopStart+1,Math.min(64,Number(input.value)));if(loop)seek(loopStart);render();}
+ if(input.id==='tempo')await act('tempo',{value:input.value});
+ if(input.id==='group')await act('group',{value:input.value});
+ if(['cue-start','cue-duration','cue-gain'].includes(input.id))await act(input.id==='cue-start'?'cue.move':input.id==='cue-duration'?'cue.duration':'cue.gain',{value:input.id==='cue-start'?String(Number(input.value)-1):input.value});
+ if(input.id==='loop-start')await act('loop.range',{start:String(Number(input.value)-1)});
+ if(input.id==='loop-end')await act('loop.range',{end:input.value});
  }catch(error){notice(String(error));}
 });
-$('query-form').addEventListener('submit',e=>{e.preventDefault();query=$<HTMLInputElement>('query').value;void reload().catch(error=>{$('query-result').textContent=String(error);notice('The query was refused; the previous reading is still here.');});});
+$('query-form').addEventListener('submit',e=>{e.preventDefault();invoke('query',{value:$<HTMLInputElement>('query').value});});
 $('capture-form').addEventListener('submit',async e=>{e.preventDefault();const text=$<HTMLTextAreaElement>('capture-text').value;try{if(portable){
  const reading=text+'\n\n'+captureCues.map(c=>c.title+'\n'+c.body+'\nSource '+c.source+' revision '+c.revision).join('\n\n');
  download(new Blob([reading],{type:'text/plain'}),'counterpoint-captured-reading.txt');$<HTMLDialogElement>('capture-dialog').close();notice('Downloaded this reading. Portable snapshots do not write to an outline.');return;}
@@ -240,11 +255,11 @@ $('capture-form').addEventListener('submit',async e=>{e.preventDefault();const t
 let drag:{id:string;x:number;start:number;width:number;el:HTMLElement;moved:boolean}|null=null,suppressClick:string|null=null;
 document.addEventListener('pointerdown',e=>{const el=(e.target as Element).closest<HTMLElement>('.cue');if(!el||e.button!==0)return;const c=score.cues.find(c=>c.id===el.dataset.cue);if(!c)return;drag={id:c.id,x:e.clientX,start:c.start,width:el.parentElement!.getBoundingClientRect().width,el,moved:false};el.setPointerCapture(e.pointerId);});
 document.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x;if(Math.abs(dx)<5&&!drag.moved)return;drag.moved=true;const c=score.cues.find(c=>c.id===drag!.id)!;const start=Math.max(0,Math.min(64-c.duration,Math.round((drag.start+dx/drag.width*64)*2)/2));drag.el.style.left=`${start/64*100}%`;});
-document.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(!d.moved)return;suppressClick=d.id;const c=score.cues.find(c=>c.id===d.id)!;const start=Math.max(0,Math.min(64-c.duration,Math.round((d.start+(e.clientX-d.x)/d.width*64)*2)/2));mutate(()=>{c.start=start;selected=c.source;selectedCue=c.id;});setTimeout(()=>suppressClick=null,100);});
+document.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(!d.moved)return;suppressClick=d.id;const c=score.cues.find(c=>c.id===d.id)!;const start=Math.max(0,Math.min(64-c.duration,Math.round((d.start+(e.clientX-d.x)/d.width*64)*2)/2));selected=c.source;selectedCue=c.id;invoke('cue.move',{cue:c.id,value:String(start)});setTimeout(()=>suppressClick=null,100);});
 document.addEventListener('pointercancel',()=>{drag=null;render();});
 document.addEventListener('dragstart',e=>{const source=(e.target as Element).closest<HTMLElement>('.source-card');if(source)e.dataTransfer?.setData('text/counterpoint',source.dataset.note!);});
 document.addEventListener('dragover',e=>{if((e.target as Element).closest('.track-bed'))e.preventDefault();});
-document.addEventListener('drop',e=>{const bed=(e.target as Element).closest<HTMLElement>('.track-bed'),id=e.dataTransfer?.getData('text/counterpoint');if(!bed||!id)return;e.preventDefault();const n=note(id);if(!n)return;const r=bed.getBoundingClientRect(),start=Math.min(63,Math.max(0,Math.round((e.clientX-r.left)/r.width*64*2)/2));mutate(()=>{const c=cueFrom(n,start,Math.min(6,64-start));score.cues.push(c);selected=n.id;selectedCue=c.id;});notice('Cue added to its source’s voice. The drop chooses time, not authorship.');});
+document.addEventListener('drop',e=>{const bed=(e.target as Element).closest<HTMLElement>('.track-bed'),id=e.dataTransfer?.getData('text/counterpoint');if(!bed||!id)return;e.preventDefault();const n=note(id);if(!n)return;const r=bed.getBoundingClientRect(),start=Math.min(63,Math.max(0,Math.round((e.clientX-r.left)/r.width*64*2)/2));invoke('add-cue',{note:n.id,beat:String(start)});notice('Cue added to its source’s voice. The drop chooses time, not authorship.');});
 window.addEventListener('beforeunload',e=>{if(dirty||editing){e.preventDefault();e.returnValue='';}});
 async function init(){
  data=await api('/api/state');score=structuredClone(data.score);original=structuredClone(score);revision=data.scoreRevision;

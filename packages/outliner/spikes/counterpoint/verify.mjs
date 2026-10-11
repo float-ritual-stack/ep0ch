@@ -38,6 +38,8 @@ try{
  assert.equal((await read(cue.source)).revision,before.revision);
  await page.keyboard.press('Control+z');await page.waitForFunction(({id,start})=>window.counterpoint.getState().score.cues.find(c=>c.id===id).start===start,{id:cue.id,start:cue.start});
  proof('Mouse rearrangement and keyboard undo preserve the canonical source revision.');
+ await action('cue.move',{cue:cue.id,value:String(cue.start+1)});assert.equal((await state()).score.cues.find(c=>c.id===cue.id).start,cue.start+1);await action('undo');
+ proof('The in-page action API uses the same cue movement operation as mouse and numeric controls.');
  await page.click('[data-view="loom"]');assert.equal(await page.locator('.loom .node').count(),31);
  assert.equal(await page.locator('.loom .thread').count(),52);
  await page.screenshot({path:join(evidence,'02-crossings.png'),fullPage:true});
@@ -58,6 +60,9 @@ try{
  await page.click('[data-act="query-example"]');await page.waitForFunction(()=>document.querySelectorAll('.source-card').length===5);
  await page.fill('#query','type=passage');await page.locator('#query').press('Enter');await page.waitForFunction(()=>document.querySelectorAll('.source-card').length===31);
  proof('Grouping and filtering use live service facets and query grammar, including arbitrary stance values.');
+ await page.fill('#query','type=passage (');await page.locator('#query').press('Enter');await page.waitForFunction(()=>document.querySelector('#query-result').textContent.length>0);await page.waitForTimeout(3200);assert.doesNotMatch(await page.locator('#score-status').innerText(),/connection unavailable/);
+ await page.fill('#query','type=passage');await page.locator('#query').press('Enter');await page.waitForFunction(()=>document.querySelectorAll('.source-card').length===31);
+ proof('A malformed query keeps the prior reading and is not misreported as a lost connection.');
  // Save a source through the actual editor; cue evidence must stay frozen.
  await action('select',{note:sourceByTitle('The old words still sound')});const old=await read((await state()).selected);
  await page.click('[data-act="edit-source"]');await page.fill('#source-editor',old.text+'\n\nA late correction: the ringing was a radiator. ((unfinished');

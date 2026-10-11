@@ -1,12 +1,14 @@
 {
-  "when": "2026-10-11T15:04:25.592Z",
+  "when": "2026-10-11T15:13:09.546Z",
   "journey": [
     "31 invented source blocks load from the private outline with 52 authored references.",
     "Mouse rearrangement and keyboard undo preserve the canonical source revision.",
+    "The in-page action API uses the same cue movement operation as mouse and numeric controls.",
     "Crossings are the service’s authored links; SVG nodes work by keyboard.",
     "Two accounts remain independently addressable on the listening desk.",
     "A reference-led reading traverses authored sources, ends at the selected account, and can be undone.",
     "Grouping and filtering use live service facets and query grammar, including arbitrary stance values.",
+    "A malformed query keeps the prior reading and is not misreported as a lost connection.",
     "An incomplete reference still saves; the cue visibly retains the earlier source revision.",
     "Another client’s source edit arrives live; a stale save refuses and keeps the entire open draft.",
     "Changing a source property changes the live voice while the cue keeps frozen words; the UI names this contextual drift.",
