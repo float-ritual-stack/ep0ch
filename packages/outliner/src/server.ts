@@ -5,7 +5,7 @@ import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
@@ -132,7 +132,8 @@ import {
   type PublisherAddress,
   type RenderedNote,
 } from "./types";
-import { Publisher, publisherUrl, type PublishClient } from "./publish";
+import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
+import { ReaderPresence, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName } from "./machine-name";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
@@ -315,6 +316,10 @@ export class OutlinerServer {
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
+  /** Short-lived public links (share-sessions.ts), kept in the outline's metadata. */
+  private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+  /** What each reader of the web client has in front of them (presence, in memory). */
+  private readonly readers = new ReaderPresence();
   private extensionRuntime!: ResourceExtensionRuntime;
   private readonly holderAnswers = new Map<string, { clientId: string; resolve: (answer: DraftHolderAnswer) => void; reject: (error: Error) => void; timer: Timer }>();
   /** Holds whose door missed an answer's deadline and hasn't been heard from since: asked again, they fail at once. */
@@ -1904,6 +1909,13 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action.startsWith("shares.") || request.action.startsWith("reader.")) {
+      try {
+        return { id: request.id, ok: true, result: this.shareRequest(request), sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "notes.address" || request.action === "notes.render") {
       try {
         let result: NoteAddress | RenderedNote;
@@ -2346,6 +2358,12 @@ export class OutlinerServer {
         case "extensions.args":
         case "notes.address":
         case "notes.render":
+        case "shares.start":
+        case "shares.list":
+        case "shares.revoke":
+        case "shares.resolve":
+        case "reader.report":
+        case "reader.view":
         case "computed.execute":
         case "resources.open":
         case "resources.refresh":
@@ -3518,6 +3536,67 @@ export class OutlinerServer {
       },
     };
     return Publisher.inService(client, this.publisherAddress());
+  }
+
+  /**
+   * Share sessions and reader presence (share-sessions.ts). A share's link is made from the public listener's URL the
+   * publisher gave; a scope must be a live note that isn't `[publish::never]` (or under one), or the whole outline.
+   */
+  private shareRequest(request: OutlinerRequest): unknown {
+    const publicUrl = this.publisherAddress().publicUrl;
+    switch (request.action) {
+      case "shares.start": {
+        if (request.comments !== undefined && typeof request.comments !== "boolean") throw new Error("comments is true or false");
+        const ttlMs = shareTtlMs(request.ttl);
+        const by = declaredRequester(request, "shares.start");
+        const wanted = typeof request.scope === "string" && request.scope.trim() ? request.scope.trim() : this.readers.view("tailnet").view?.blockId;
+        if (!wanted) throw new Error("name what to share: a note (ep0ch share start <ref>) or the whole outline (ep0ch share start outline)");
+        let scope: ShareSession["scope"];
+        if (wanted === "outline") scope = { kind: "outline" };
+        else {
+          const block = this.store.require(wanted);
+          if (block.effectiveDeletedRootId) throw new Error(`${block.id} is in Trash`);
+          for (let at: string | null = block.id, level = 0; at && level < 256; level++) {
+            const above = this.store.require(at);
+            if (blockPublishIntent(above.properties) === "never") {
+              throw new Error(`${block.id} is [publish::never]${above.id === block.id ? "" : `, under ${above.id}`}: it isn't shared outside the outline`);
+            }
+            at = above.parentId;
+          }
+          scope = { kind: "note", blockId: block.id, title: blockDisplayTitle(block) };
+        }
+        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you" });
+        const shown = shareOnWire(session, publicUrl);
+        return { share: shown, ...(publicUrl ? {} : { said: "no public listener has said where it is opened, so there is no link yet: run the publisher with --public-port and --public-url (systemctl --user restart outliner-publish), then ep0ch share list" }) };
+      }
+      case "shares.list":
+        return { shares: this.shares.list(request.all === true).map((session) => shareOnWire(session, publicUrl)) };
+      case "shares.revoke": {
+        if (request.all === true) {
+          const ended = this.shares.revokeAll();
+          for (const session of ended) this.readers.forget(`share:${session.id}`);
+          return { revoked: ended.map((session) => shareOnWire(session, undefined)) };
+        }
+        if (typeof request.shareId !== "string" || !request.shareId.trim()) throw new Error("name the share to end (shareId, from ep0ch share list), or all: true for every one");
+        const ended = this.shares.revoke(request.shareId.trim());
+        this.readers.forget(`share:${ended.id}`);
+        return { revoked: [shareOnWire(ended, undefined)] };
+      }
+      case "shares.resolve": {
+        const found = typeof request.token === "string" ? this.shares.resolve(request.token) : undefined;
+        const answer: ShareResolution = !found ? { status: "unknown" }
+          : found.state === "active" ? { status: "active", share: shareOnWire(found, undefined) }
+            : { status: "ended", state: found.state };
+        return answer;
+      }
+      case "reader.report":
+        if (!request.view || typeof request.view !== "object") throw new Error("reader.report takes view: { reader, blockId?, title, url, selection? }");
+        return { view: this.readers.report(request.view) };
+      case "reader.view":
+        return this.readers.view(typeof request.reader === "string" ? request.reader : undefined);
+      default:
+        throw new Error(`Unsupported action: ${request.action}`);
+    }
   }
 
   /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */

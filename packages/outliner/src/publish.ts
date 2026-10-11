@@ -5,6 +5,8 @@ import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
+import type { ShareSession } from "@ep0ch/outline-core/protocol";
+import type { ShareResolution } from "./share-sessions";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -19,7 +21,7 @@ import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./pub
 import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
-import { PAGE_ROUTE, PageMarginalia, readerScriptPath, type PageView } from "./publish-page";
+import { PAGE_ROUTE, PageMarginalia, readerScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -48,7 +50,9 @@ import type {
  * children, files.read, the content event feed). It writes only one way: marginalia
  * from a tailnet page (`<base>/_marginalia/write`, publish-page.ts), through the
  * service's own annotation and passage-action paths; being on the tailnet is the
- * sign-in. The public listener never writes. See README "Publishing blocks".
+ * sign-in. The public listener writes only below a share link that takes comments
+ * (`/s/<token>/`, share-sessions.ts), the link being the sign-in, checked with the
+ * service on every request. See README "Publishing blocks" and "Share links".
  */
 
 export const PUBLISH_PROPERTY = "publish";
@@ -354,6 +358,11 @@ ul.replies li.new .t{color:var(--fg);font-weight:600}
 ul.replies .dot{color:var(--link);font-size:.8em}
 ::selection{background:#3b4250;color:inherit}
 main.browse [hidden],.mg-ui[hidden]{display:none!important}
+.mg-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.shares td form{margin:0}
+.shares button,.share-new button{font:14px/1 ui-sans-serif,system-ui,sans-serif;min-height:40px;padding:0 .8rem;border-radius:.4rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer}
+.share-new label{display:block;margin:.5rem 0}
+.share-new select,.share-new input{font:15px ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.3rem;padding:.3rem}
 .mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
 .mg-ui button{font:15px/1 ui-sans-serif,system-ui,sans-serif;min-height:44px;min-width:44px;padding:0 .9rem;border-radius:.5rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer;flex:none}
 .mg-ui button:active{background:#2c2c2a}
@@ -420,6 +429,8 @@ const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * d
  * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
  */
 const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/** The shares page: no script, and its forms post only to this origin. */
+const SHARES_CSP = RENDERED_CSP.replace("form-action 'none'", "form-action 'self'");
 /**
  * An attached `.html` file runs as authored, but in a sandbox without
  * `allow-same-origin`: its scripts get an opaque origin, so they cannot read
@@ -438,6 +449,20 @@ function renderedHtml(body: string, status = 200, csp = RENDERED_CSP): Response 
 
 function notFound(): Response {
   return respond("Not published\n", "text/plain; charset=utf-8", 404);
+}
+
+/** A share link that ended: 410, a plain dark page that names nothing from the outline. */
+function shareGone(state: "expired" | "revoked"): Response {
+  const said = state === "expired" ? "This link has expired." : "This link was turned off.";
+  return renderedHtml(htmlPage("Link ended", `<article>\n<h1>${said}</h1>\n<p class="dim">Ask whoever sent it for a new one.</p>\n</article>\n`, "ep0ch"), 410);
+}
+
+/** A share link's path below the public listener: `/s/<token>`, then the page inside it. */
+const SHARE_PATH = /^\/s\/([A-Za-z0-9_-]{16,128})(\/.*)?$/;
+
+/** A path as it may be logged: a share's token is never written anywhere. */
+export function redactSharePath(path: string): string {
+  return path.replace(/\/s\/[^/?#]+/g, "/s/…");
 }
 
 /** Every public response also asks search engines not to list it: the link is the invitation. */
@@ -536,6 +561,8 @@ export class Publisher {
   private readonly marginalia: PageMarginalia;
   /** The outline's name, the top of a tailnet page's breadcrumbs. */
   private outlineName: string | undefined;
+  /** Each share's view of the published index, until the next change. */
+  private readonly shareIndexes = new Map<string, { generation: number; from: PublishedIndex; value: PublishedIndex }>();
 
   constructor(private readonly options: PublisherOptions) {
     this.client = options.client;
@@ -551,7 +578,9 @@ export class Publisher {
       : null;
     this.marginalia = new PageMarginalia({
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
-      view: (page, full) => this.view(page, full),
+      view: (page, full, share) => this.view(page, full, share),
+      report: (view) => this.client.request({ action: "reader.report", view }),
+      basePath: this.basePath,
       locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,
       changed: (since, ms) => this.changed(since, ms),
@@ -573,11 +602,12 @@ export class Publisher {
    * A tailnet page as its marginalia routes need it (publish-page.ts): the note at `page`, locks read now, with its
    * rows in page order (the note alone on a folder page, its shown subtree with `full`) and the annotations it may show.
    */
-  private async view(page: string, full: boolean): Promise<PageView | undefined> {
+  private async view(page: string, full: boolean, share?: PageShare): Promise<PageView | undefined> {
     if (!page) return undefined;
-    const entry = await this.entryAt(page, await this.readIndex(), "tailnet");
-    if (!entry || entry.type !== "block") return undefined;
+    const entry = await this.entryAt(page, share ? await this.shareIndex(share) : await this.readIndex(), "tailnet");
+    if (!entry || (entry.type !== "block" && !share)) return undefined;
     if ((await this.lockedIds([entry.blockId])).size) return undefined;
+    if (share && !(await this.inScope([entry.blockId], share)).has(entry.blockId)) return undefined;
     const whole = full
       ? await this.client.request<ProjectedBlockCollection>({
         action: "blocks.query", query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT }, fields: ["text", "parent", "properties", "revision"],
@@ -826,6 +856,26 @@ export class Publisher {
     if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
       path = path.slice(basePath.length) || "/";
     }
+    // A share link (share-sessions.ts): on the public listener, below `/s/<token>`, checked against the service on
+    // every request, so an expiry or a revoke holds from the next one.
+    const shared = audience === "public" ? SHARE_PATH.exec(path) : null;
+    if (shared) {
+      try {
+        return await this.answerShare(request, shared[1]!, shared[2] ?? "/");
+      } catch (error) {
+        this.log(redactSharePath(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
+        return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+      }
+    }
+    // The tailnet's list of open shares, where each is ended (and every one at once), and one started from a page.
+    if (audience === "tailnet" && (path === "/shares" || path.startsWith("/shares/"))) {
+      try {
+        return await this.serveShares(request, path);
+      } catch (error) {
+        this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+        return respond("The outline could not be reached; try again\n", "text/plain; charset=utf-8", 502);
+      }
+    }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
     // tailnet is the sign-in; the public listener has none of these.
     if (audience === "tailnet" && path.startsWith(`${PAGE_ROUTE}/`)) {
@@ -876,6 +926,97 @@ export class Publisher {
   }
 
   /**
+   * A share link's request (`/s/<token>/…`): the service says whether the token opens a session now (else 404, or 410
+   * when it ended). Inside, it is the tailnet's web client cut to the session's scope: every note in it a page and a
+   * folder, its links and embeds only to notes inside, and marginalia when the session takes comments.
+   */
+  private async answerShare(request: Request, token: string, rest: string): Promise<Response> {
+    const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
+    if (found.status === "unknown") return notFound();
+    if (found.status === "ended") return shareGone(found.state);
+    const share: PageShare = {
+      id: found.share.id, base: `${this.publicBase.basePath}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
+      active: async () => (await this.client.request<ShareResolution>({ action: "shares.resolve", token })).status === "active",
+    };
+    if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    const index = await this.shareIndex(share);
+    const url = new URL(request.url);
+    const view = url.searchParams.get("view");
+    const shown = view === null && (request.headers.get("accept") ?? "").includes("text/html") ? "html" : view;
+    let address: string;
+    if (rest === "/" || rest === "") {
+      if (share.scope.kind === "outline") return this.serveFolder(null, index, share);
+      address = share.scope.blockId;
+    } else if (rest.startsWith("/p/")) {
+      try { address = decodeURIComponent(rest.slice(3)).replace(/\/+$/, ""); } catch { return notFound(); }
+    } else return notFound();
+    const entry = await this.entryAt(address, index, "tailnet");
+    if (!entry || !(await this.inScope([entry.blockId], share)).has(entry.blockId)) return notFound();
+    return this.serveEntry(entry.type === "block" ? entry : { ...entry, type: "block" }, index, shown, "tailnet", share);
+  }
+
+  /**
+   * The tailnet's shares page (`<base>/shares`): every open share with its scope, link, time left and whether it takes
+   * comments, each with Revoke, and Kill all; with `?scope=<id>`, a form that starts one for that note. Its forms post
+   * here from this page only (Origin), and each answer goes back to the list.
+   */
+  private async serveShares(request: Request, path: string): Promise<Response> {
+    const base = this.basePath;
+    const back = () => new Response(null, { status: 303, headers: { ...COMMON_HEADERS, location: `${base}/shares` } });
+    if (request.method === "POST") {
+      if (!sameOrigin(request)) return respond("A change comes from the shares page itself\n", "text/plain; charset=utf-8", 403);
+      const form = new URLSearchParams((await request.text()).slice(0, 4096));
+      if (path !== "/shares/revoke" && path !== "/shares/start") return notFound();
+      try {
+        await this.client.request(path === "/shares/start"
+          ? { action: "shares.start", scope: form.get("scope") ?? "", ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" } }
+          : form.get("all") === "1" ? { action: "shares.revoke", all: true } : { action: "shares.revoke", shareId: form.get("id") ?? "" });
+      } catch (error) {
+        // Refused (a locked note, a ttl out of range): said, with the way back.
+        const why = `<article>\n<h1>Not done</h1>\n<p>${escapeHtml(error instanceof Error ? error.message : String(error))}</p>\n<p><a href="${escapeHtml(`${base}/shares`)}">back to shares</a></p>\n</article>\n`;
+        return renderedHtml(htmlPage("Not done", why, `<nav class="crumbs"><a href="${escapeHtml(`${base}/shares`)}">Shares</a></nav>`, { browse: true }), 422);
+      }
+      return back();
+    }
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Use GET or POST\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD, POST" });
+    if (path !== "/shares" && path !== "/shares/") return notFound();
+    const { shares } = await this.client.request<{ shares: ShareSession[] }>({ action: "shares.list" });
+    const left = (iso: string) => {
+      const minutes = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60_000));
+      return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+    };
+    const what = (share: ShareSession) => share.scope.kind === "outline"
+      ? `the whole outline`
+      : `<a href="${escapeHtml(`${base}/p/${share.scope.blockId}`)}">${escapeHtml(noteTitle(share.scope.title) || share.scope.blockId)}</a> and what's under it`;
+    const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}</div></td>` +
+      `<td>${share.url ? `<a href="${escapeHtml(share.url)}" rel="noreferrer">${escapeHtml(share.url)}</a>` : `<span class="dim">no public listener has said its address</span>`}</td>` +
+      `<td>${escapeHtml(left(share.expiresAt))}</td><td>${share.comments ? "on" : "off"}</td>` +
+      `<td><form method="post" action="${escapeHtml(`${base}/shares/revoke`)}"><input type="hidden" name="id" value="${escapeHtml(share.id)}"><button type="submit">Revoke</button></form></td></tr>`).join("\n");
+    const list = shares.length
+      ? `<table class="shares"><thead><tr><th>shares</th><th>link</th><th>ends in</th><th>comments</th><th></th></tr></thead><tbody>\n${rows}\n</tbody></table>\n` +
+        `<form method="post" action="${escapeHtml(`${base}/shares/revoke`)}" class="share-new"><input type="hidden" name="all" value="1"><button type="submit">Kill all ${shares.length}</button></form>\n`
+      : `<p class="dim">No share is open. Start one from a note's page (share… at its foot), from chat, or with <code>ep0ch share start &lt;ref&gt;</code>.</p>\n`;
+    const wanted = new URL(request.url).searchParams.get("scope")?.trim();
+    let start = "";
+    if (wanted) {
+      const read = BLOCK_ID.test(wanted) ? await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [wanted], fields: ["title"] }) : { blocks: [] };
+      const block = read.blocks[0];
+      start = block
+        ? `<h2>Share “${escapeHtml(noteTitle(block.title ?? "") || block.id)}”</h2>\n<form method="post" action="${escapeHtml(`${base}/shares/start`)}" class="share-new">` +
+          `<input type="hidden" name="scope" value="${escapeHtml(block.id)}">` +
+          `<label>for <select name="ttl"><option value="15m">15 minutes</option><option value="1h" selected>1 hour</option><option value="4h">4 hours</option><option value="24h">24 hours</option></select></label>` +
+          `<label><input type="checkbox" name="comments" checked> comments (highlight, comment, ask, reply)</label>` +
+          `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads this note and what's under it until it ends; [publish::never] notes stay hidden.</p>\n`
+        : `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
+    }
+    const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Short-lived public links. Each ends by itself; Revoke ends it now.</p>\n${start}${list}</article>\n` +
+      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Shares</span></nav>`;
+    return renderedHtml(htmlPage("Shares", body, crumbs, { browse: true }), 200, SHARES_CSP);
+  }
+
+  /**
    * The entry at `/p/<address>`: a published note by its slug or id; on the tailnet also any other note, by its id or
    * its page name (PIE-782: the whole outline is served there, no `[publish::]` needed). Locks are checked by the caller.
    */
@@ -898,7 +1039,7 @@ export class Publisher {
     return (entry) => this.publicHref(entry);
   }
 
-  private async serveEntry(entry: PublishedEntry, index: PublishedIndex, view: string | null, audience: PublishAudience): Promise<Response> {
+  private async serveEntry(entry: PublishedEntry, index: PublishedIndex, view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
     const asHtml = view === "html";
     // The lock is checked again at request time, so `[publish::never]` holds from the next request
     // even before the change feed has cleared the cached index.
@@ -941,17 +1082,17 @@ export class Publisher {
     }
     // On the tailnet a note's page is a folder that is also a file (PIE-775): its own text, then its children as
     // links. `?view=full` is the whole subtree on one page, as a public page always is.
-    if (audience === "tailnet" && asHtml) return this.serveFolder(entry, index);
+    if (audience === "tailnet" && asHtml) return this.serveFolder(entry, index, share);
     if (asHtml || (audience === "tailnet" && view === "full")) {
       const browse = audience === "tailnet";
-      const rendered = await this.blockMarkdown(entry, index, audience, true, { browse });
-      const base = this.basePathFor(audience);
+      const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, ...(share ? { share } : {}) });
+      const base = share?.base ?? this.basePathFor(audience);
       const article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
-      const crumbs = await this.crumbs(entry, index, true);
-      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true)}`, crumbs, { reader: this.readerTag(entry, true) }), 200, READER_CSP);
+      const crumbs = await this.crumbs(entry, index, true, share);
+      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share) }), 200, READER_CSP);
     }
-    const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown" });
+    const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown", ...(share ? { share } : {}) });
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
   }
 
@@ -960,14 +1101,14 @@ export class Publisher {
    * then its children as links, each with its title and a summary line (the folder). `entry` null is the outline's
    * top level. Annotations are drawn on their words, never listed; a `[publish::never]` child is a locked row.
    */
-  private async serveFolder(entry: PublishedEntry | null, index: PublishedIndex): Promise<Response> {
-    const base = this.basePath;
+  private async serveFolder(entry: PublishedEntry | null, index: PublishedIndex, share?: PageShare): Promise<Response> {
+    const base = share?.base ?? this.basePath;
     let article = `<h1>${escapeHtml(this.outlineName ?? "outline")}</h1>\n`;
     if (entry) {
       if ((await this.lockedIds([entry.blockId])).size) return notFound();
-      const whole = await this.noteWithAnnotations(entry.blockId);
+      const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
-      const rendered = await this.blockMarkdown(entry, index, "tailnet", true, { whole, browse: true });
+      const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, ...(share ? { share } : {}) });
       article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.index, base);
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
@@ -978,11 +1119,12 @@ export class Publisher {
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
       : "";
-    const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false) : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a></footer>`}`;
-    const crumbs = entry ? await this.crumbs(entry, index, false) : `<nav class="crumbs">${escapeHtml(this.outlineName ?? "outline")}</nav>`;
+    const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a></footer>`;
+    const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
+    const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.outlineName ?? "outline")}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
     return entry
-      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false) }), 200, READER_CSP)
+      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share) }), 200, READER_CSP)
       : renderedHtml(htmlPage(title, body, crumbs, { browse: true }));
   }
 
@@ -1038,18 +1180,30 @@ export class Publisher {
   }
 
   /** Breadcrumbs from the outline's top level down to `entry`, each a link but the note itself (on its full page, a link back to the folder). */
-  private async crumbs(entry: PublishedEntry, index: PublishedIndex, full: boolean): Promise<string> {
-    const href = (path: string) => escapeHtml(`${this.basePath}${path}`);
-    const parts = [`<a href="${href("/")}">${escapeHtml(this.outlineName ?? "outline")}</a>`];
-    for (const block of await this.ancestors(entry.blockId)) parts.push(`<a href="${href(notePath(block, index))}">${escapeHtml(noteTitle(block.title ?? "") || block.id)}</a>`);
+  private async crumbs(entry: PublishedEntry, index: PublishedIndex, full: boolean, share?: PageShare): Promise<string> {
+    const href = (path: string) => escapeHtml(`${share?.base ?? this.basePath}${path}`);
+    let above = await this.ancestors(entry.blockId);
+    const parts: string[] = [];
+    // A share's crumbs start at what it shares: nothing above its note is named.
+    if (share?.scope.kind === "note") {
+      const rootId = share.scope.blockId;
+      const at = above.findIndex((block) => block.id === rootId);
+      above = at < 0 ? [] : above.slice(at);
+    } else parts.push(`<a href="${href("/")}">${escapeHtml(this.outlineName ?? "outline")}</a>`);
+    for (const block of above) {
+      const path = share?.scope.kind === "note" && block.id === share.scope.blockId ? "/" : notePath(block, index);
+      parts.push(`<a href="${href(path)}">${escapeHtml(noteTitle(block.title ?? "") || block.id)}</a>`);
+    }
     parts.push(full ? `<a href="${href(entry.path)}">${escapeHtml(entry.title)}</a>` : `<span>${escapeHtml(entry.title)}</span>`);
     return `<nav class="crumbs">${parts.join(" / ")}</nav>`;
   }
 
-  private pageFooter(entry: PublishedEntry, full: boolean): string {
-    const href = (query: string) => escapeHtml(`${this.basePath}${entry.path}${query}`);
+  private pageFooter(entry: PublishedEntry, full: boolean, share?: PageShare): string {
+    const href = (query: string) => escapeHtml(`${share?.base ?? this.basePath}${entry.path}${query}`);
     const other = full ? `<a href="${href("")}">as a folder</a>` : `<a href="${href("?view=full")}">whole page</a>`;
-    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a></footer>`;
+    // On the tailnet, a note can be shared from its page: a short-lived public link (the shares page starts it).
+    const sharing = share ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?scope=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
+    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}</footer>`;
   }
 
   /** The notes above `blockId`, the top level first. A chain longer than the lock walk is cut there. */
@@ -1067,12 +1221,12 @@ export class Publisher {
   }
 
   /** A note and its annotation children, as the rows a folder page renders (its other children are links, not rows). */
-  private async noteWithAnnotations(blockId: string): Promise<ProjectedBlockCollection | undefined> {
+  private async noteWithAnnotations(blockId: string, withAnnotations = true): Promise<ProjectedBlockCollection | undefined> {
     const fields = ["text", "parent", "properties", "author", "revision", "timestamps"] as const;
     const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: [...fields] });
     const root = read.blocks[0];
     if (!root) return undefined;
-    const annotations = (await this.client.request<Block[]>({ action: "children", parentId: blockId })).filter(isAnnotationBlock);
+    const annotations = withAnnotations ? (await this.client.request<Block[]>({ action: "children", parentId: blockId })).filter(isAnnotationBlock) : [];
     return {
       blocks: [{ ...root, depth: 0 }, ...annotations.map((block) => ({ ...block, depth: 1 }))],
       completeness: { kind: "complete" },
@@ -1125,9 +1279,10 @@ export class Publisher {
   }
 
   /** The reader script's tag on a tailnet page: where it is, where it reads and writes, and which note this is. */
-  private readerTag(entry: PublishedEntry, full: boolean): ReaderTag {
+  private readerTag(entry: PublishedEntry, full: boolean, share?: PageShare): ReaderTag {
+    const base = share?.base ?? this.basePath;
     // The reader names its note by id: an address (a slug, a page name) could later name another note.
-    return { src: readerScriptPath(this.basePath), api: `${this.basePath}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
+    return { src: readerScriptPath(base), api: `${base}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
   }
 
   /**
@@ -1181,6 +1336,57 @@ export class Publisher {
    * chain it cannot finish counts as locked.
    */
   private async lockedIds(ids: readonly string[]): Promise<Set<string>> {
+    const known = await this.walkUp(ids);
+    const decided = new Map<string, boolean>();
+    const isLocked = (id: string, depth = 0): boolean => {
+      const cached = decided.get(id);
+      if (cached !== undefined) return cached;
+      if (!known.has(id) || depth > LOCK_WALK_LIMIT) return true;
+      const entry = known.get(id);
+      const value = !!entry && (entry.never || (entry.parentId !== null && isLocked(entry.parentId, depth + 1)));
+      decided.set(id, value);
+      return value;
+    };
+    return new Set(ids.filter((id) => isLocked(id)));
+  }
+
+  /**
+   * Which of `ids` a share shows: all of them for the whole outline; for a note, those it is, or is above (each one's
+   * chain of parents reaches it). A chain the walk can't finish is outside. Locks are checked on their own.
+   */
+  private async inScope(ids: readonly string[], share: PageShare): Promise<Set<string>> {
+    if (share.scope.kind === "outline") return new Set(ids);
+    const rootId = share.scope.blockId;
+    const known = await this.walkUp(ids);
+    const reaches = (id: string): boolean => {
+      for (let at: string | null = id, depth = 0; at && depth <= LOCK_WALK_LIMIT; depth++) {
+        if (at === rootId) return true;
+        at = known.get(at)?.parentId ?? null;
+      }
+      return false;
+    };
+    return new Set(ids.filter(reaches));
+  }
+
+  /**
+   * The published index as a share links it: only the notes inside its scope (kept until the next change). Any other
+   * note a page names stays its label, and its address answers 404 inside the share.
+   */
+  private async shareIndex(share: PageShare): Promise<PublishedIndex> {
+    const index = await this.readIndex();
+    if (share.scope.kind === "outline") return index;
+    const cached = this.shareIndexes.get(share.id);
+    if (cached && cached.generation === this.generation && cached.from === index) return cached.value;
+    const inside = await this.inScope(index.entries.map((entry) => entry.blockId), share);
+    // A note's attached file isn't served inside a share: the note is.
+    const value = { ...index, entries: index.entries.filter((entry) => inside.has(entry.blockId)).map((entry) => entry.type === "block" ? entry : { ...entry, type: "block" as const }) };
+    if (this.shareIndexes.size > 64) this.shareIndexes.clear();
+    this.shareIndexes.set(share.id, { generation: this.generation, from: index, value });
+    return value;
+  }
+
+  /** Each of `ids` and the notes above it: parent and whether it says `[publish::never]`, one level per request. */
+  private async walkUp(ids: readonly string[]): Promise<Map<string, { parentId: string | null; never: boolean } | null>> {
     const known = new Map<string, { parentId: string | null; never: boolean } | null>();
     let frontier = [...new Set(ids)];
     for (let level = 0; frontier.length && level < LOCK_WALK_LIMIT; level++) {
@@ -1198,17 +1404,7 @@ export class Publisher {
         .map((entry) => entry?.parentId)
         .filter((parentId): parentId is string => !!parentId && !known.has(parentId)))];
     }
-    const decided = new Map<string, boolean>();
-    const isLocked = (id: string, depth = 0): boolean => {
-      const cached = decided.get(id);
-      if (cached !== undefined) return cached;
-      if (!known.has(id) || depth > LOCK_WALK_LIMIT) return true;
-      const entry = known.get(id);
-      const value = !!entry && (entry.never || (entry.parentId !== null && isLocked(entry.parentId, depth + 1)));
-      decided.set(id, value);
-      return value;
-    };
-    return new Set(ids.filter((id) => isLocked(id)));
+    return known;
   }
 
   /** `[[page]]` addresses in `texts` resolved through the service's page registry, a few at a time. */
@@ -1239,7 +1435,7 @@ export class Publisher {
    * count, byte budget, cycle and Trash rules apply. Then every embedded note
    * that is locked is found, so it shows as a locked note.
    */
-  private async readEmbeds(texts: readonly string[], hostBlockId: string, shareable?: ShareableNotes): Promise<EmbedExpansion | undefined> {
+  private async readEmbeds(texts: readonly string[], hostBlockId: string, shareable?: ShareableNotes, share?: PageShare): Promise<EmbedExpansion | undefined> {
     const targets = texts.flatMap((text) => embedMatches(text)
       .map((match) => ({ blockId: match[1]!, ...(match[2] ? { fragmentId: match[2] } : {}) })));
     if (!targets.length) return undefined;
@@ -1257,9 +1453,10 @@ export class Publisher {
       return extension ? [[id, extension] as const] : [];
     }));
     // A public note embedded here is read again: the index may be seconds old, and `public` holds per request.
+    // Inside a share of one note, an embed shows only a note inside it.
     const confirmed = shareable
       ? new Set([...shareable.shown, ...await this.publicNow([...ids].filter((id) => shareable.published.has(id) && !shareable.shown.has(id)))])
-      : undefined;
+      : share?.scope.kind === "note" ? await this.inScope([...ids], share) : undefined;
     return {
       read,
       ...(confirmed ? { shareable: confirmed } : {}),
@@ -1338,9 +1535,10 @@ export class Publisher {
    */
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
-    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; format?: "markdown" | "html" } = {},
+    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; format?: "markdown" | "html"; share?: PageShare } = {},
   ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[] }> {
-    const base = options.base ?? this.basePathFor(audience);
+    const { share } = options;
+    const base = options.base ?? share?.base ?? this.basePathFor(audience);
     const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
@@ -1351,13 +1549,18 @@ export class Publisher {
     const rows = shownSubtree(subtree).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
-    const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)));
+    const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)), share);
     const { decorations, lines } = await this.readProjections(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
     let linked = await this.linkable(index, shown, pages, embeds, audience);
     // On a tailnet page every note it names is a page too (PIE-782), not only published ones.
     if (options.browse) linked = await this.browseIndex(linked, shown, pages, embeds);
+    // Inside a share, a link goes only to a note inside it; any other is its label.
+    if (share?.scope.kind === "note") {
+      const inside = await this.inScope(linked.entries.map((candidate) => candidate.blockId), share);
+      linked = { ...linked, entries: linked.entries.filter((candidate) => inside.has(candidate.blockId)) };
+    }
     const components: string[] = [];
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });

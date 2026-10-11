@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(fields(response(4)?.result).serverInfo).toMatchObject({ name: "ep0ch" });
     expect(fields(response(4)?.result).protocolVersion).toBe("2025-11-25");
     const listed = fields(response(5)?.result).tools as { name: string; inputSchema?: any }[];
-    expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_new", "outline_archive"]);
+    expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_new", "outline_archive"]);
     expect(listed[1]!.inputSchema.oneOf).toEqual([{ required: ["ref"] }, { required: ["uri"] }]);
 
     const find = JSON.parse(tool(response(6)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
@@ -172,7 +172,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(names((await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }])).find(r => r.id === 2))).not.toContain("outline_patch");
       await setAccess("read");
       const readOnly = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/list" }, patch(3, await revisionOf(), "Ready for local tools", "Ready")]);
-      expect(names(readOnly.find(r => r.id === 2))).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_new", "outline_archive"]);
+      expect(names(readOnly.find(r => r.id === 2))).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_new", "outline_archive"]);
       expect(called(readOnly.find(r => r.id === 3)).isError).toBe(true);
 
       await setAccess("propose");

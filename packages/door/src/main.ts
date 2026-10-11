@@ -18,6 +18,7 @@ import { EXPORT_USAGE } from "./export";
 import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
+import { SHARE_USAGE } from "./share-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
 import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
@@ -114,6 +115,7 @@ ${BACKUP_USAGE}
 ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
+${SHARE_USAGE}
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
   ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
@@ -190,6 +192,7 @@ if (args[0] === "revisions") process.exit(await revisionsCommand(args));
 if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
+if (args[0] === "share" || args[0] === "reader") { const { shareCommand } = await import("./share-cli"); process.exit(await shareCommand(args)); }
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
 // The outline's extensions (PIE-754): ls (with each schedule's next and last run), add, remove, act and run, through

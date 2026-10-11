@@ -212,6 +212,12 @@ subtree is shown. The public listener has no index, and an embed there of a note
 "not shared", but the note's own text and children are public. `publish list` shows the public URL in its
 PUBLIC column. Removing `public` takes the note off at once.
 
+**A short-lived public link.** When they want to open a note (or the whole outline) as an ordinary public page, or
+show it to someone, start a share: `share_start` over MCP (your tool call is the approval; don't ask again), `ep0ch
+share start <ref> [--ttl 1h]` from a shell. Give them the `url`; it ends by itself (1h default, 24h at most), and
+`share_revoke` / `ep0ch share revoke <id>|--all` ends it now. `[publish::never]` notes stay hidden. To see what they
+have open or selected on any web page of the outline, read `reader_view` (`ep0ch reader`) instead of fetching it.
+
 **Linking a note for them to read on their phone.** On the tailnet every note is already a page, no `[publish::]`
 needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh/p/<id>`). It opens as a folder:
 the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;

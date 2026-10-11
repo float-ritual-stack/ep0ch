@@ -978,6 +978,39 @@ listener is never on the LAN by accident. Caddy keeps the `Host` header, which
 `--public-url` allowed. Turn the Funnel off (`tailscale funnel --https=8443 off`)
 once the domain serves it, or keep both.
 
+#### Share links
+
+A share session is a short-lived public link to a note and what's under it, or to the whole outline, for opening as
+an ordinary public site (a browser that would ask before every tailnet page, a phone, someone else). It's the
+tailnet web client, cut to what's shared, on the public listener:
+
+- **Start one** from chat (the MCP's `share_start`: the tool call is the one approval), from a shell
+  (`ep0ch share start <ref>|outline [--ttl 1h] [--no-comments]`), from the door (`share.start`, `> share.start` in
+  the power bar) or from a note's tailnet page (`share…` at its foot). Left out, the note is the one the person's web
+  client shows now. It lives 1 hour by default (`--ttl` from 1m to 24h) and takes comments unless told not to.
+- **The link** is `<public URL>/s/<token>/` (`https://pie.ep0ch.sh/share/s/<token>/`, or the Funnel's
+  `:8443/share/s/…`): below the public listener's existing mount, so nothing is reconfigured per share. The token
+  is 256 random bits, compared in constant time, never logged (a logged path says `/s/…`).
+- **Inside it** every page, folder, breadcrumb and link stays below the link and inside the scope: a link to a note
+  outside is its label, and that note's address is `404` there; an embed of a note outside shows "not shared".
+  `[publish::never]` notes stay locked. There's no index, no Recent replies, and an attached file shows as its note.
+  With comments on, highlights, comments, asks and replies land as the person's (`author: user`), a comment marked
+  `[via::share:<id>]`; with them off it's a reading copy (no threads, Copy only).
+- **It ends** at its time or when revoked, checked by the service on every request (not by a timer): from then on
+  the link answers `410` with a plain dark page. `ep0ch share list` (and the tailnet's `<base>/shares` page) shows
+  every open one, with its link, what it shares, the time left and comments on or off; `ep0ch share revoke <id>`,
+  Revoke there, `share_revoke` or `share.revoke` ends one, and `--all`, Kill all, `all: true` every one. Sessions are
+  kept in the outline's metadata (no schema of their own); an ended one answers `410` for a week, then `404`.
+- Every response carries `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow` and `Cache-Control:
+  no-store`; a share's writes must come from its own page (`Origin`), as JSON.
+
+**What's on screen.** Every web client page (tailnet and share) says what its reader has in front of them: the page,
+and the words selected (debounced, at most 2,000 characters) with the text either side and the note row they're in.
+The service keeps the latest per reader in memory (`reader.report`); `reader.view`, the MCP's `reader_view` and
+`ep0ch reader` read it, so an agent in chat can say "you have X selected" without fetching or navigating anything.
+A share's address is said without its token. The page also holds the selection in `#ep0ch-selection`
+(`aria-live`), for an agent driving a browser.
+
 #### Artifacts
 
 What claude.ai runs as an artifact runs here when its file is attached to a

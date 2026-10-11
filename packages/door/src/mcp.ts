@@ -18,6 +18,7 @@ import { checkToolArgs, type ToolSchema } from "@ep0ch/outline-core/tool-args";
 import { briefFor } from "./library/brief";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
@@ -770,7 +771,78 @@ function toolsFor(outlines: McpOutlines) {
         outline: outlineProperty(outlines),
       }, additionalProperties: false },
     },
+    {
+      name: "reader_view",
+      description: `What the person's web client shows now in ${which} (a tailnet page or a share link's): the page's note, title and address, and the words they have selected with the text either side and the note row they're in, as the page last said (presence; when is \`at\`). ` +
+        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. A share link's address is given without its secret. Requires ${grant}.`,
+      inputSchema: { type: "object", properties: { outline: outlineProperty(outlines) }, additionalProperties: false },
+    },
   ];
+}
+
+/** The share tools: offered with the write tools (a link opens notes to anyone who has it), to an outline that takes writes. */
+const SHARE_TOOLS = ["share_start", "share_list", "share_revoke"] as const;
+type ShareTool = typeof SHARE_TOOLS[number];
+const isShareTool = (name: string): name is ShareTool => (SHARE_TOOLS as readonly string[]).includes(name);
+const shareToolDefinitions = (outline: Record<string, unknown>) => [
+  {
+    name: "share_start",
+    description: "Start a short-lived public link (a share session) to a note and what's under it, or to the whole outline, for the person to open as an ordinary public web page: anyone with the link reads it until it expires (ttl, 1h by default, at most 24h) or is revoked. " +
+      "[publish::never] notes stay hidden, and every page and link stays inside what's shared. With comments (default true) the reader can highlight, comment, ask and reply, as the person. This call is the approval: nothing asks again. " +
+      "Answers the share with its url (give the person the link), id (for share_revoke) and expiresAt. Leave out ref and whole to share the note the person's web client shows now.",
+    inputSchema: { type: "object", properties: {
+      ref: { type: "string", description: "The note to share, with its subtree: its id, ((id)), [[page]] or Work ID (PIE-123)" },
+      whole: { type: "boolean", default: false, description: "Share the whole outline instead of one note" },
+      ttl: { type: "string", default: "1h", description: "How long it lives: 30m, 1h, 2h30m (1m to 24h)" },
+      comments: { type: "boolean", default: true, description: "Let the link's reader highlight, comment, ask and reply" },
+      outline,
+    }, additionalProperties: false },
+  },
+  {
+    name: "share_list",
+    description: "List the open share sessions: each one's id, url, what it shares (scope), expiresAt, comments on or off, and who started it (all: the ones ended this week too).",
+    inputSchema: { type: "object", properties: { all: { type: "boolean", default: false }, outline }, additionalProperties: false },
+  },
+  {
+    name: "share_revoke",
+    description: "End a share session now (its link answers 410 from the next request): id from share_list or share_start, or all: true to end every open one.",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "The share's id" }, all: { type: "boolean", default: false, description: "End every open share" }, outline }, additionalProperties: false },
+  },
+];
+
+/** reader_view and the share tools: the outline named (or the default), its access checked (reads, or writes for a share). */
+async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view", args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+  const which = namedOutline(args.outline);
+  if (which && "error" in which) return toolError(which.error);
+  if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
+  const target = await outlines.board(which);
+  if ("error" in target) return toolError(target.error);
+  const { board } = target;
+  const status = withLevel(await board.mcpAccessStatus(), caller);
+  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
+  if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
+  try {
+    if (name === "reader_view") {
+      const seen = await readerView(board);
+      return toolText({ ...seen, said: readerLine(seen.view) });
+    }
+    if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+    if (name === "share_start") {
+      if (args.whole === true && args.ref !== undefined) return toolError("Give ref (one note) or whole: true (the whole outline), not both.");
+      const ref = args.whole === true ? "outline" : typeof args.ref === "string" ? args.ref : undefined;
+      const started = await startShare(board, { ...(ref ? { ref } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}) }, { kind: "agent", id: actorOf(caller).actorId });
+      outlines.log?.(`mcp share_start: ${actorOf(caller).actorId} (${caller.sub}) ${started.share.id} ${started.share.scope.kind === "note" ? started.share.scope.blockId : "outline"} until ${started.share.expiresAt}`);
+      return toolText({ ...started, said: [shareLine(started.share), started.said].filter(Boolean).join("\n") });
+    }
+    if (name === "share_list") {
+      const { shares } = await listShares(board, args.all === true);
+      return toolText({ shares, said: shares.length ? shares.map(s => shareLine(s)).join("\n") : "no share is open" });
+    }
+    if (args.all !== true && typeof args.id !== "string") return toolError("Give id (from share_list) or all: true.");
+    const { revoked } = await revokeShares(board, args.all === true ? { all: true } : { id: args.id as string });
+    outlines.log?.(`mcp share_revoke: ${actorOf(caller).actorId} (${caller.sub}) ${revoked.map(s => s.id).join(",") || "none"}`);
+    return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links answer 410 now` : "no share was open" });
+  } catch (e) { return toolError((e as Error).message); }
 }
 
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
@@ -818,6 +890,10 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
   outline_assign_id: { ref: "PIE-123", revision: 3 },
   outline_write_status: { queueId: "q-1" },
+  reader_view: {},
+  share_start: { ref: "PIE-123", ttl: "1h" },
+  share_list: {},
+  share_revoke: { id: "3fa9c1d2" },
   ...OUTLINE_ADMIN_EXAMPLES,
 };
 
@@ -828,7 +904,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  */
 function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
   const writes = !!caller;
-  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : []), ...adminTools(outlines, caller)];
+  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
   const definition = definitions.find(d => d.name === name);
   if (!definition) return undefined;
   // `limit` keeps limitOf's own answer, which names the tool's default and maximum.
@@ -858,6 +934,8 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
+  if (params.name === "reader_view") return shareTool(outlines, "reader_view", args, caller);
+  if (isShareTool(params.name) && caller) return shareTool(outlines, params.name, args, caller);
   if (isWriteTool(params.name) && caller) return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
 }
@@ -962,7 +1040,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
     case "ping":
       return {};
     case "tools/list":
-      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition] : []), ...adminTools(outlines, caller)] }));
+      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)] }));
     case "tools/call":
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":

@@ -11,6 +11,10 @@
 //   it lands in the outline; the note itself is fetched again then, so new marks show.
 // - Opening a thread marks it read (the `/replies` page's unread marks clear): arriving at `#thread=<id>` from Recent
 //   replies (its card opens and comes into view), tapping its words, or replying in it.
+// - What's in front of the reader is said (presence): the page, and the words selected on it (debounced, at most 2,000
+//   characters), posted to `view`, so an agent in chat can say "you have X selected" (`reader.view`). The same words are
+//   in the page itself, in `#ep0ch-selection` (aria-live), for an agent driving a browser.
+// - The same script runs on a share link's pages (share-sessions.ts), below the link; one without comments offers Copy.
 //
 // Dark throughout, no animation, nothing that flashes (Evan is photosensitive). Plain DOM, no build, no eval: text is
 // set as text, never as HTML.
@@ -57,6 +61,9 @@
 
   const margin = el("div", { id: "mg-margin", class: "mg-ui" });
   main.append(margin);
+  // The selection as words in the page, for a reader of the page that isn't a person (an agent driving a browser).
+  const shown = el("div", { id: "ep0ch-selection", class: "mg-sr", "aria-live": "polite", "data-page": noteId || "" });
+  document.body.append(shown);
   const bar = el("div", { id: "mg-bar", class: "mg-ui", hidden: "" });
   const toast = el("div", { id: "mg-toast", class: "mg-ui", role: "status", hidden: "" });
   document.body.append(bar, toast);
@@ -103,8 +110,29 @@
     return { quote, prefix: before.slice(-64), suffix: after.slice(0, 64) };
   }
 
+  // ---- Presence: what's in front of the reader, said when it changes (and when the page comes back into view).
+
+  const SELECTION_MAX = 2000;
+  let said = "";
+  let sayTimer = 0;
+  function present() {
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(() => {
+      const now = readSelection();
+      const words = now ? { quote: now.quote.slice(0, SELECTION_MAX), prefix: now.prefix, suffix: now.suffix } : null;
+      shown.textContent = words ? words.quote : "";
+      const body = JSON.stringify({ page, ...(full ? { view: "full" } : {}), title: document.title, url: location.href, ...(words || {}) });
+      if (body === said || document.hidden) return;
+      said = body;
+      fetch(`${api}/view`, { method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", keepalive: true, body }).catch(() => { said = ""; });
+    }, 600);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { said = ""; present(); } });
+  present();
+
   let selectTimer = 0;
   document.addEventListener("selectionchange", () => {
+    present();
     clearTimeout(selectTimer);
     selectTimer = setTimeout(() => {
       if (busy()) return;
@@ -340,7 +368,9 @@
       if (wide.matches) margin.prepend(...whole);
       else host.append(el("div", { class: "mg-whole" }, el("h2", { text: "On this note" }), ...whole));
     }
-    host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }))));
+    if (choices.some((choice) => choice.action === "comment")) {
+      host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }))));
+    }
     place();
     arrive();
   }

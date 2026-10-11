@@ -1,4 +1,5 @@
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
+import { endsIn, listShares, revokeShares, startShare } from "./share-cli";
 import { ART_ACTIONS, type ArtOn } from "./art-actions";
 import { nothingToClose, registerShellKey } from "./shell-keys";
 import { basename } from "node:path";
@@ -476,6 +477,51 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       const mark = ctx.backupAlert?.() ?? null;
       ctx.flash(mark ? mark.say : "no backup alert: every backup this machine checks is current (ep0ch backup status)", mark ? 20_000 : 4000);
       return { alert: mark?.say ?? null };
+    },
+  }),
+  "share.start": def({
+    summary: "start a short-lived public link (a share session) to a note and what's under it (ref=: an id, ((id)), [[page]] or PIE-123; outline for the whole outline; left out, the note your web client shows now), for ttl= (30m, 1h by default, at most 24h), taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
+    keys: "> share.start in the power bar",
+    touches: "nothing", replay: "ask", says: out => (out?.share ? { text: `· shared ${out.share.scope.kind === "outline" ? "the whole outline" : `“${out.share.scope.title}”`} for ${endsIn(out.share.expiresAt)}: ${out.share.url ?? out.share.id}`, ms: 15_000 } : null),
+    args: {
+      ref: { type: "string", optional: true, about: "the note to share with its subtree (id, ((id)), [[page]], PIE-123), or outline for the whole outline; default: the note your web client shows now" },
+      ttl: { type: "string", optional: true, about: "how long it lives: 30m, 1h (the default), 2h30m, up to 24h" },
+      comments: { type: "boolean", optional: true, about: "false: a reading copy (no highlights, comments or asks); default true" },
+    },
+    async run({ ref, ttl, comments }, { ctx }, actor) {
+      const started = await startShare(ctx.board, { ...(ref ? { ref } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}) }, actor);
+      const { share } = started;
+      if (actor.kind === "user") {
+        if (share.url) ctx.copy?.(share.url, "share link");
+        ctx.flash(`${share.url ? "copied the link · " : ""}shared ${share.scope.kind === "outline" ? "the whole outline" : `“${share.scope.title}”`} for ${endsIn(share.expiresAt)}${share.url ? `: ${share.url}` : ` · ${started.said ?? ""}`} · share.revoke id=${share.id} ends it`, 15_000);
+      }
+      return started;
+    },
+  }),
+  "share.list": def({
+    summary: "the open share sessions: each one's id, link, what it shares, when it ends and whether it takes comments; the status bar says how many and the soonest to end. Read-only. `ep0ch share list` from a shell; the tailnet's /pub/shares page shows the same, with Revoke and Kill all",
+    keys: "> share.list in the power bar",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { ctx }) {
+      const { shares } = await listShares(ctx.board);
+      ctx.flash(shares.length ? `${shares.length} open share${shares.length === 1 ? "" : "s"}: ${shares.map(s => `${s.id} (${s.scope.kind === "outline" ? "outline" : s.scope.title}, ${endsIn(s.expiresAt)})`).join(" · ")} · share.revoke all=true ends them` : "no share is open", 12_000);
+      return { shares };
+    },
+  }),
+  "share.revoke": def({
+    summary: "end a share session now (id= from share.list), or every open one (all=true): its link answers 410 from the next request. `ep0ch share revoke <id> | --all` from a shell",
+    keys: "> share.revoke in the power bar",
+    touches: "nothing", replay: "ask", says: out => (out?.revoked ? `· ended ${out.revoked.length} share${out.revoked.length === 1 ? "" : "s"}` : null),
+    args: {
+      id: { type: "string", optional: true, about: "the share's id (share.list)" },
+      all: { type: "boolean", optional: true, about: "true: end every open share" },
+    },
+    async run({ id, all }, { ctx }) {
+      if (!all && !id) throw new ActionRefused("name the share (id= from share.list) or all=true");
+      const { revoked } = await revokeShares(ctx.board, all ? { all: true } : { id: id! });
+      ctx.flash(revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the link${revoked.length === 1 ? "" : "s"} answer 410 now` : "no share was open", 8000);
+      return { revoked: revoked.map(s => s.id) };
     },
   }),
   "screen.open": def({

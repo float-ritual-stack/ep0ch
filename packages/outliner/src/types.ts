@@ -2475,7 +2475,24 @@ export type OutlinerRequestAction =
    * published or not: Markdown, or the HTML article (`RenderedNote`). `audience: "public"` links only public notes;
    * `marks` draws its open highlights and margin notes in the HTML. A `[publish::never]` note is refused. Reads only.
    */
-  | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean };
+  | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean }
+  /**
+   * A share session (`ShareSession`): a short-lived public link to `scope` (a block id, with its subtree; `outline`
+   * for the whole outline; left out, the note the person's web client shows now). `ttl`: `30m`, `1h` (the default), up
+   * to `24h`, or seconds. `comments` (default true) lets the link's reader highlight, comment, ask and reply. `mutation`
+   * names who started it. Answers the session with its `url` (when a public listener has said where it is opened).
+   */
+  | { id: string; action: "shares.start"; scope?: string; ttl?: string | number; comments?: boolean; mutation?: MutationProvenance }
+  /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
+  | { id: string; action: "shares.list"; all?: boolean }
+  /** Ends one share session now (its link answers 410), or with `all: true` every open one. */
+  | { id: string; action: "shares.revoke"; shareId?: string; all?: boolean }
+  /** The publisher's per-request check of a link's token (`ShareResolution` in share-sessions.ts). */
+  | { id: string; action: "shares.resolve"; token: string }
+  /** A web client page's presence (the publisher posts it): the page and the words selected on it (`ReaderView`). */
+  | { id: string; action: "reader.report"; view: Record<string, unknown> }
+  /** What a reader of the web client has in front of them now: the latest reader's view (or `reader`'s), and every reader seen lately. */
+  | { id: string; action: "reader.view"; reader?: string };
 
 /** Machine-readable detail for a rejected request, such as a query syntax position. */
 export interface SelectionContext {
