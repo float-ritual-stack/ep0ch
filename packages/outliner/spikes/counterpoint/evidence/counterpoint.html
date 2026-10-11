@@ -1,0 +1,1059 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Counterpoint — a reading instrument</title><style>:root{color-scheme:dark;--bg:#101516;--panel:#151c1e;--raised:#1a2325;--line:#2a3638;--text:#dddcd0;--muted:#9aa7a7;--dim:#6f8183;--mint:#a7c6b6;--coral:#d4a18e;--gold:#cbbb87;--blue:#9bafcb;--serif:Georgia,'Times New Roman',serif;--mono:'SFMono-Regular',Consolas,'Liberation Mono',monospace;--sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px/1.55 var(--sans)}button,input,select,textarea{font:inherit;color:inherit}button,select{border:1px solid var(--line);border-radius:5px;background:var(--panel)}button{cursor:pointer;padding:7px 11px}button:hover{border-color:var(--dim);background:#233032}button:disabled{opacity:.4;cursor:default}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--mint);outline-offset:3px}a{color:var(--mint);text-underline-offset:3px}input,textarea{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px;min-width:0}input[type=range]{accent-color:var(--mint);padding:0;height:18px}kbd{font:9px var(--mono);border:1px solid #4d615b;padding:2px 4px;border-radius:3px;margin-left:7px;opacity:.7}.masthead{height:65px;padding:0 30px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);font:23px var(--serif);letter-spacing:-.7px}.brand-mark{font:34px var(--serif);color:var(--mint)}.tag,.mast-right,.eyebrow{font:9px/1.5 var(--mono);letter-spacing:1.5px}.tag{border-left:1px solid var(--line);padding-left:15px;margin-left:12px;color:var(--dim)}.mast-right{display:flex;align-items:center;gap:8px;color:var(--muted)}.mast-right button{margin-left:20px;font:11px var(--sans);letter-spacing:0}.local-dot{width:5px;height:5px;border-radius:50%;background:var(--mint)}.quiet{border:0;background:none}.intro{display:flex;justify-content:space-between;align-items:center;padding:28px 32px 25px}.eyebrow{color:var(--mint)}h1{font:36px/1.15 var(--serif);font-weight:normal;letter-spacing:-1px;margin:10px 0}h1 .title-dot{color:var(--coral)}.intro p{color:var(--muted);margin:0;font-size:12px}.intro-aside{display:grid;grid-template-columns:auto auto;gap:0 12px;align-items:center;padding-right:4px;color:var(--muted)}.intro-aside span{font:22px var(--serif);color:var(--text)}.intro-aside small{font:10px var(--mono)}.transport{display:flex;align-items:center;gap:10px;margin:0 28px;padding:13px 0 17px;border-bottom:1px solid var(--line)}.transport button{white-space:nowrap}.primary{background:var(--mint);color:#14221d;border-color:var(--mint);font-weight:600}.primary:hover{background:#b6cdbe;color:#14221d}.play{min-width:170px;text-align:left;display:flex;align-items:center;gap:9px}.play kbd{margin-left:auto}.clock{margin:0 18px 0 10px;min-width:152px;display:flex;flex-direction:column}.clock strong{font:18px var(--mono);letter-spacing:1px}.clock small{color:var(--muted);font-size:10px}.tempo,.volume{display:flex;align-items:center;gap:8px;font:9px var(--mono);color:var(--muted);letter-spacing:1px}.tempo input{width:75px}.volume input{width:50px}.tempo output{font-size:11px;width:24px;color:var(--text)}#sound.enabled,#loop.enabled{border-color:var(--mint);color:var(--mint)}.capture-button{margin-left:auto}.workspace{display:grid;grid-template-columns:225px minmax(400px,1fr) 290px;padding:0 28px 110px;min-height:690px}.library{border-right:1px solid var(--line);padding:24px 17px 20px 0}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}h2{font:20px/1.25 var(--serif);font-weight:normal;margin:0}.section-head h2{font:12px var(--sans);font-weight:550}.counter{color:var(--dim);font:10px var(--mono)}.query-field{display:flex}.query-field input{width:100%;font:11px var(--mono);border-radius:4px 0 0 4px}.query-field button{border-radius:0 4px 4px 0;border-left:0}.query-hint{font:10px/1.7 var(--sans);color:var(--dim);margin:7px 0 18px}.text-button{padding:0;background:none;border:none;color:var(--mint);font:inherit}.text-button:hover{background:none;color:var(--text);text-decoration:underline}.library-list{height:510px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.source-card{width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:13px 5px;position:relative}.source-card:hover{background:var(--panel)}.source-card.selected{background:var(--raised);border-left:2px solid var(--voice);padding-left:8px}.source-meta{display:flex;gap:7px;align-items:center;font:9px var(--mono);color:var(--dim);margin-bottom:5px}.voice-dot{height:5px;width:5px;background:var(--voice);border-radius:50%;display:inline-block}.source-title{font:14px/1.35 var(--serif);display:block;margin-bottom:6px}.source-excerpt{font:10px/1.6 var(--sans);color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.library-foot{font:10px/1.7 var(--mono);color:var(--dim);border-top:1px solid var(--line);padding-top:14px;margin-top:10px}.stage{padding:25px 21px 0;min-width:0}.stage-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:21px;gap:10px}.stage-head h2{margin-top:6px;font-size:22px}.stage-actions{display:flex;gap:5px;align-items:center}.stage-actions button{font-size:11px;white-space:nowrap}.save{color:var(--mint)}.save.dirty::before{content:'• ';color:var(--gold)}.score-options{font:9px var(--mono);display:flex;align-items:center;gap:10px;color:var(--dim);margin-bottom:22px;flex-wrap:wrap}.score-options label{display:flex;gap:7px;align-items:center;letter-spacing:.5px}.score-options select{padding:4px;max-width:105px;font-size:10px;color:var(--text)}.score-options button{font:9px var(--mono);padding:4px 7px}#group-caption{flex:1}.score-scroll{overflow:auto;scrollbar-color:var(--line) transparent;scrollbar-width:thin;position:relative;border:1px solid var(--line);border-radius:5px}.score-content{min-width:910px;position:relative}.ruler{height:47px;display:flex;margin-left:100px;border-bottom:1px solid var(--line);background:var(--panel)}.ruler button{width:12.5%;text-align:left;border:0;border-left:1px solid var(--line);border-radius:0;background:none;padding:5px 9px;overflow:hidden}.ruler b{font:11px var(--mono);color:var(--text)}.ruler small{font:9px var(--sans);display:block;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.track{display:flex;min-height:98px;border-bottom:1px solid var(--line)}.track:last-child{border-bottom:0}.track-head{width:100px;flex-shrink:0;padding:14px 10px;border-right:1px solid var(--line);background:var(--panel);position:sticky;left:0;z-index:3}.track-head b{display:block;color:var(--voice);font:12px var(--serif);max-width:90px;overflow:hidden;text-overflow:ellipsis}.track-head small{font:9px var(--mono);color:var(--dim)}.track-controls{display:flex;gap:5px;margin-top:10px}.track-controls button{font:9px var(--mono);padding:0 5px;line-height:20px}.track-controls button.on{border-color:var(--voice);color:var(--voice)}.track.muted .track-bed{opacity:.28}.track-bed{position:relative;flex:1;min-height:98px;background:repeating-linear-gradient(to right,transparent 0,transparent calc(12.5% - 1px),#293638 12.5%);background-size:100% 100%}.cue{position:absolute;top:12px;height:72px;text-align:left;border:1px solid color-mix(in srgb,var(--voice) 28%,#182020);border-left:2px solid var(--voice);border-radius:3px;background:color-mix(in srgb,var(--voice) 7%,#121b1c);padding:8px 7px;overflow:hidden;cursor:grab;touch-action:pan-y}.cue:hover{background:color-mix(in srgb,var(--voice) 13%,#121b1c)}.cue.selected{outline:1px solid var(--voice);outline-offset:2px}.cue b{font:12px/1.25 var(--serif);display:block}.cue small{font:8px var(--mono);color:var(--voice);display:block;margin-top:7px;white-space:nowrap}.cue.stale{border-bottom:2px dashed var(--gold)}.cue.active{border-top:2px solid var(--voice)}.playhead{position:absolute;top:47px;bottom:0;left:calc(100px + (100% - 100px)*var(--position));width:1px;background:#c6cabb;opacity:.7;pointer-events:none;z-index:4}.playhead:before{content:'';position:absolute;top:-6px;left:-3px;border:4px solid transparent;border-top-color:#c6cabb}.score-legend{display:flex;gap:15px;color:var(--dim);font:9px var(--mono);padding:17px 1px}.score-legend span:before{content:'─';color:var(--mint);margin-right:5px}.score-legend span:last-child:before{content:'┄';color:var(--gold)}.scrub{display:flex;gap:12px;align-items:center;margin:18px 0 0}.scrub input{flex:1}.scrub span{font:10px var(--mono);color:var(--dim)}.loop-range{display:flex;gap:14px;align-items:center;margin-top:10px;color:var(--muted);font:10px var(--mono)}.loop-range input{width:50px;padding:3px}.stage-foot{display:flex;align-items:center;gap:16px;font:10px var(--sans);color:var(--dim);padding:17px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.stage-foot span{flex:1;min-width:120px}.state-box{font:10px var(--mono);color:var(--dim);margin-top:16px}.state-box summary{cursor:pointer}.state-box summary span{float:right;font-size:8px}.state-box p{line-height:1.7}.state-box pre{overflow:auto;max-height:220px;color:var(--muted)}.inspector{border-left:1px solid var(--line);padding:25px 0 0 20px;min-width:0}.reader-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:17px}.reader-top .eyebrow{color:var(--dim);font-size:8px}.reader-top button{font-size:10px;padding:4px 8px}.reader-title{font:26px/1.2 var(--serif);letter-spacing:-.4px;margin:14px 0 12px}.reader-meta{display:flex;gap:6px;flex-wrap:wrap;font:9px var(--mono);color:var(--muted);margin-bottom:17px}.reader-meta span{border:1px solid var(--line);border-radius:3px;padding:3px 6px}.reader-body{font:15px/1.75 var(--serif);color:#c6cfc9;overflow-wrap:anywhere}.reader-body p{margin:0 0 17px}.reader-body>p:first-child{font-size:17px}.reader-body ul{padding-left:20px}.reader-body blockquote{margin:15px 0;padding:5px 10px;border-left:2px solid var(--dim);color:var(--muted)}.reader-body pre{white-space:pre-wrap;font:11px/1.5 var(--mono)}.reader-body h1{font:22px var(--serif)}.reader-body a{font-size:12px}.reader-body img{max-width:100%}.reader-foot{font:9px/1.8 var(--mono);color:var(--dim);border-top:1px solid var(--line);padding-top:14px;margin-top:18px}.reader-controls{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.reader-controls button{font-size:10px}.cue-controls{display:grid;grid-template-columns:1fr 1fr;gap:9px;border-top:1px solid var(--line);padding-top:17px;margin-top:17px;font:9px var(--mono);color:var(--muted)}.cue-controls label{display:flex;flex-direction:column;gap:6px}.cue-controls input{width:100%;font:11px var(--mono);padding:5px}.cue-controls button{font:9px var(--mono)}.stale-warning{background:#29281d;color:var(--gold);border:1px solid #565035;border-radius:4px;font:11px/1.6 var(--sans);padding:11px;margin:15px 0}.stale-warning button{margin-top:7px;font-size:10px}.source-editor{width:100%;min-height:310px;font:11px/1.6 var(--mono);resize:vertical}.frozen-body{white-space:pre-wrap;font:13px/1.65 var(--serif);max-height:290px;overflow:auto}.variant-switcher{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:6px;display:flex;gap:3px;background:#1b2527;border:1px solid #425154;border-radius:9px;box-shadow:0 8px 35px #0006;z-index:10;white-space:nowrap}.variant-switcher button{background:none;border:0;padding:10px 13px;font:11px var(--sans)}.variant-switcher button.selected{background:#30413d;color:#c6d6c9}.variant-switcher button span{font:9px var(--mono);margin-right:5px;color:var(--dim)}#notice{position:fixed;bottom:86px;left:50%;transform:translateX(-50%);max-width:min(650px,90vw);padding:12px 18px;border-radius:6px;background:#293936;border:1px solid var(--mint);z-index:30;font-size:12px;display:none}#notice.visible{display:block}dialog{background:#182022;border:1px solid #485755;color:var(--text);border-radius:10px;padding:35px;max-width:610px;width:90%;box-shadow:0 20px 80px #0009}dialog::backdrop{background:#000a}dialog h2{font:32px/1.15 var(--serif);margin:15px 0 20px}dialog p,dialog li{font-size:12px;line-height:1.8;color:var(--muted)}dialog li{padding:0 0 11px 6px}dialog strong{color:var(--text)}dialog ol{padding-left:17px}dialog .small{font:10px/1.8 var(--mono);color:var(--dim)}.dialog-close{position:absolute;top:15px;right:15px;background:none;border:0;font-size:24px}dialog textarea{width:100%;resize:vertical}.dialog-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}.loom{border:1px solid var(--line);border-radius:5px;position:relative;min-height:425px;background:radial-gradient(ellipse at center,#182321 0,#101719 65%)}.loom svg{width:100%;height:auto;display:block;max-height:490px}.loom .orbit{fill:none;stroke:#2a3838;stroke-width:1;stroke-dasharray:2 7}.loom .thread{fill:none;stroke:#607d70;stroke-width:1;opacity:.22}.loom .thread.highlight{stroke:var(--gold);stroke-width:1.8;opacity:.9}.loom .node{cursor:pointer}.loom .node circle{fill:var(--bg);stroke:var(--voice);stroke-width:1.5}.loom .node.selected circle{fill:var(--voice)}.loom .node text{fill:var(--voice);font:9px var(--mono);pointer-events:none}.loom .scene-label{fill:var(--dim);font:9px var(--mono);text-anchor:middle}.loom .center-title{fill:var(--text);font:20px var(--serif);text-anchor:middle}.loom .center-sub{fill:var(--dim);font:9px var(--mono);text-anchor:middle}.loom-key{display:flex;gap:13px;flex-wrap:wrap;margin:15px 0;color:var(--muted);font:10px var(--mono)}.crossing-detail{padding:13px 0;border-top:1px solid var(--line);font:12px/1.7 var(--serif);color:var(--muted)}.crossing-detail button{font:12px var(--serif);margin:4px;background:none}.desk-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:17px;color:var(--muted);font:11px var(--mono)}.desk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;min-height:405px}.desk-note{padding:20px;background:var(--panel);border:1px solid var(--line);border-top:2px solid var(--voice);border-radius:4px;min-width:0}.desk-note.held{border-color:var(--voice)}.desk-note h3{font:23px/1.2 var(--serif);margin:15px 0}.desk-note .passage{white-space:pre-wrap;font:15px/1.7 var(--serif);color:#bbc9c0;display:-webkit-box;-webkit-line-clamp:12;-webkit-box-orient:vertical;overflow:hidden}.desk-note button{margin-top:14px;font:10px var(--mono)}.desk-note .eyebrow{color:var(--voice);font-size:8px}.desk-empty{color:var(--dim);border:1px dashed var(--line);border-radius:5px;padding:25px;font:17px/1.7 var(--serif)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}#query-result{font:10px/1.6 var(--mono);color:var(--gold);margin-bottom:8px}.empty-reader{font:20px var(--serif);color:var(--dim);padding:40px 0}.error{color:var(--coral)}
+@media(min-width:1650px){.workspace{grid-template-columns:250px minmax(400px,1fr) 330px}.score-content{min-width:1050px}.track{min-height:110px}.cue{height:82px}.library-list{height:565px}.reader-body{font-size:16px}}
+@media(max-width:1150px){.workspace{grid-template-columns:180px minmax(340px,1fr) 250px;padding:0 15px 110px}.stage{padding:20px 14px 0}.transport{margin:0 15px;flex-wrap:wrap}.volume,.tag{display:none}.capture-button{margin-left:0}.intro{padding:24px 20px}.score-options{gap:6px}#group-caption{display:none}.stage-head{align-items:start}.stage-actions{flex-wrap:wrap;justify-content:end}.masthead{padding:0 20px}.clock{margin-right:0}}
+@media(max-width:850px){.workspace{grid-template-columns:1fr 270px}.library{grid-column:1/-1;border:0;border-bottom:1px solid var(--line);padding:15px 0;display:grid;grid-template-columns:180px 1fr;gap:8px 15px}.section-head{margin:0}.library-list{grid-column:2;grid-row:1/4;display:flex;height:125px;overflow:auto;gap:5px}.source-card{min-width:165px;width:165px;border:1px solid var(--line);padding:8px}.source-meta{font-size:8px}.source-title{font-size:13px}.library-foot,.query-hint{display:none}.stage{padding-left:0}.intro-aside{display:none}h1{font-size:32px}.mast-right{font-size:8px}.mast-right button{margin-left:4px}.state-box summary span{display:none}.desk-grid{grid-template-columns:1fr}.desk-note .passage{-webkit-line-clamp:7}}
+@media(max-width:600px){.workspace{display:block;padding:0 14px 100px}.library{display:block}.library-list{display:none}.section-head{margin-bottom:8px}.stage{padding:20px 0}.inspector{border:0;border-top:1px solid var(--line);padding:22px 0}.transport{gap:7px}.transport .capture-button{font-size:10px}.play{min-width:120px}.play kbd{display:none}.clock{min-width:140px}.tempo{order:2}.intro p{font-size:11px}.mast-right{font-size:0}.mast-right button{font-size:10px}.intro{padding:23px 15px}.masthead{padding:0 15px}.variant-switcher{bottom:12px;gap:0;max-width:96vw}.variant-switcher button{padding:10px 8px;font-size:10px}.variant-switcher span{display:none}.desk-grid{grid-template-columns:1fr 1fr}.desk-note{padding:12px}.desk-note h3{font-size:19px}.desk-note .passage{font-size:13px}dialog{padding:25px}.stage-head h2{font-size:21px}.reader-body{max-width:45em}}
+
+.desk-note .passage.formatted{white-space:normal}.passage.formatted p{margin:0 0 1em}.passage.formatted blockquote{margin:1em 0;padding-left:12px;border-left:2px solid var(--voice);color:var(--muted)}
+</style></head>
+<body>
+<header class="masthead"><a class="brand" href="/" aria-label="Counterpoint home"><span class="brand-mark">≋</span> counterpoint<span class="tag">AN EP0CH EXPERIMENT</span></a><div class="mast-right"><span class="local-dot"></span> <span id="mode-label">PRIVATE REHEARSAL</span> <button data-act="help" class="quiet">How to play <kbd>?</kbd></button></div></header>
+<section class="intro"><div><div class="eyebrow">AN OUTLINE, PLAYED DIFFERENTLY</div><h1>The room that could listen<span class="title-dot">.</span></h1><p>Four voices. One unfinished conversation. Arrange the passages; keep their differences.</p></div><div class="intro-aside"><span id="source-count">—</span><small>source passages</small><span id="crossing-count">—</span><small>authored crossings</small></div></section>
+<section class="transport" aria-label="Playback controls"><button class="play primary" data-act="play" id="play">▶ <span>Play reading</span><kbd>Space</kbd></button><button data-act="stop" title="Return to start" aria-label="Stop and return to start">■</button><div class="clock"><strong id="clock">01 : 1</strong><small id="scene-name">A room goes quiet</small></div><label class="tempo">TEMPO <input id="tempo" type="range" min="35" max="140" value="72" aria-label="Tempo"><output id="tempo-value">72</output></label><button data-act="sound" id="sound">◌ Sound off</button><label class="volume">LEVEL <input id="volume" type="range" min="0" max="50" value="22" aria-label="Audio level"></label><button data-act="loop" id="loop">↻ Loop off</button><button data-act="capture" class="capture-button">＋ Capture a crossing</button></section>
+<div class="workspace">
+<aside class="library"><div class="section-head"><h2>Source material</h2><span class="counter" id="match-count">31</span></div><form id="query-form"><label for="query" class="sr-only">Query the outline</label><div class="query-field"><input id="query" value="type=passage" spellcheck="false" aria-label="Outline query"><button type="submit" aria-label="Run query">↵</button></div><div class="query-hint">The outline’s query grammar. <button type="button" class="text-button" data-act="query-example">Try a disagreement</button></div></form><div id="query-result" role="status"></div><div id="library-list" class="library-list"></div><div class="library-foot">Drag a passage into the score.<br>Its source stays where it is.</div></aside>
+<main class="stage"><div class="stage-head"><div><span class="eyebrow" id="view-kicker">01 / THE SCORE</span><h2 id="view-title">A conversation in four voices</h2></div><div class="stage-actions"><button data-act="undo" title="Undo arrangement" id="undo">↶</button><button data-act="redo" title="Redo arrangement" id="redo">↷</button><button data-act="save" class="save" id="save">Save reading</button></div></div>
+<div class="score-options"><label>VOICES BY <select id="group" aria-label="Group voices by property"></select></label><span id="group-caption">Each voice keeps its own line.</span><button data-act="reframe" id="reframe">↔ Read backwards</button><button data-act="reset">Original score</button></div>
+<div id="view"></div><div class="stage-foot"><span id="score-status">Reading is saved in the private outline.</span><button data-act="portable" class="text-button">Take the instrument ↓</button><button data-act="export" class="text-button">Score ↓</button><button data-act="wav" class="text-button" id="wav">Render audio ↓</button></div>
+<details class="state-box"><summary>Behind the instrument <span>source identity · revision · arrangement</span></summary><p>Positions belong to the reading. Words belong to their sources. Sound follows placement and voice, not an AI interpretation.</p><pre id="state"></pre></details></main>
+<aside class="inspector" id="inspector" aria-label="Passage reader"><div class="empty-reader">Choose a passage to hear its part.</div></aside>
+</div>
+<nav class="variant-switcher" aria-label="Ways to read"><button data-act="previous-view" aria-label="Previous view">←</button><button data-act="view" data-view="score" class="selected"><span>01</span> Score</button><button data-act="view" data-view="loom"><span>02</span> Crossings</button><button data-act="view" data-view="desk"><span>03</span> Listening desk</button><button data-act="next-view" aria-label="Next view">→</button></nav>
+<div id="notice" role="status" aria-live="polite"></div>
+<dialog id="help-dialog"><button data-act="close-help" class="dialog-close" aria-label="Close guide">×</button><div class="eyebrow">A FIVE-MINUTE REHEARSAL</div><h2>Hold two thoughts.<br>Then move one.</h2><p>This is a fictional conversation about a listening library. Every passage is a real block in a separate, private ep0ch outline. There is no generated interpretation hiding behind the sound.</p><ol><li><strong>Play the reading.</strong> Enable sound if you want it. Each voice has a stable pitch and stereo position. The playhead follows time; your selected passage stays put.</li><li><strong>Move an account.</strong> Drag “The old words still sound” beside an earlier passage. Or select it and change its beat. You moved a cue, not a note.</li><li><strong>Follow a crossing.</strong> Switch to Crossings. A line means an authored reference, never inferred agreement. Select a node to trace its sources.</li><li><strong>Hold a disagreement.</strong> Choose a passage, press “Hold beside,” then choose another. The listening desk keeps both in view.</li><li><strong>Change the evidence.</strong> Edit a source in the reader. Its cue stays frozen at the earlier revision until you explicitly take the new words. Capture the crossing to keep an annotated reading in the outline.</li></ol><p class="small">Space play / pause · ← → step a beat (cycle views while stopped) · 1 / 2 / 3 change view · Ctrl/⌘ Z undo a score edit. Audio stops when the tab is hidden. No flashes or animated backgrounds.</p><button class="primary" data-act="close-help">Enter the rehearsal →</button></dialog>
+<dialog id="capture-dialog"><form id="capture-form"><div class="eyebrow">KEEP THE RELATIONSHIP, NOT A VERDICT</div><h2>What happened at this crossing?</h2><p id="capture-context"></p><textarea id="capture-text" rows="4" maxlength="2000" placeholder="These accounts became different when I put them together…" required aria-label="Observation about this crossing"></textarea><div class="dialog-actions"><button type="button" data-act="close-capture">Cancel</button><button class="primary" type="submit">Keep in the outline</button></div></form></dialog>
+<script id="cp-data" type="application/json">{"notes":[{"id":"a5cc48fb-5abc-478e-965a-e32d06d1f12d","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Keep the pauses","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"question"},{"key":"scene","value":"1"},{"key":"place","value":"waiting-room"}],"body":"Keep the pauses\n\nThe old ferry waiting room is becoming a listening library. Everyone brings a recording. My first contribution is forty seconds in which nobody speaks.\n\nA pause can belong to a conversation without being a failure of it. ^pause","text":"Keep the pauses [type::passage] [voice::Mara] [role::listener] [stance::question] [scene::1] [place::waiting-room]\n\nThe old ferry waiting room is becoming a listening library. Everyone brings a recording. My first contribution is forty seconds in which nobody speaks.\n\nA pause can belong to a conversation without being a failure of it. ^pause","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["question"]},{"key":"scene","values":["1"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[],"backlinks":["4ec83f41-686d-4c17-add0-00320f9ad1f6","c4bd6c7a-8944-4470-8646-566c2fb88093"],"resources":[],"created":"2026-10-11T14:55:35.914Z","updated":"2026-10-11T14:55:35.914Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Keep the pauses\u003c/p>\n\u003cp>The old ferry waiting room is becoming a listening library. Everyone brings a recording. My first contribution is forty seconds in which nobody speaks.\u003c/p>\n\u003cp>A pause can belong to a conversation without being a failure of it. ^pause\u003c/p>\n"},{"id":"4ec83f41-686d-4c17-add0-00320f9ad1f6","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A map that answers back","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"proposal"},{"key":"scene","value":"1"},{"key":"place","value":"waiting-room"}],"body":"A map that answers back\n\nWe could put every recording on a wall. Touch a place, hear what happened there. The wall would make the archive navigable without requiring anyone to learn its catalog.\n\nI have already drawn the wall. I have not asked who gets to touch it.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","text":"A map that answers back [type::passage] [voice::Ivo] [role::builder] [stance::proposal] [scene::1] [place::waiting-room]\n\nWe could put every recording on a wall. Touch a place, hear what happened there. The wall would make the archive navigable without requiring anyone to learn its catalog.\n\nI have already drawn the wall. I have not asked who gets to touch it.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["proposal"]},{"key":"scene","values":["1"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","label":"Keep the pauses","status":"ready","target":"a5cc48fb-5abc-478e-965a-e32d06d1f12d","spans":[[385,441]],"bodySpans":[[288,344]]}],"backlinks":["09de9023-8dd7-4c40-8616-cd24b7a6bb4e","53a38062-ab52-4950-8d26-2ac7a4df46a0","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","cf2e425e-f54a-41a9-9d1d-e0941098aca7"],"resources":[],"created":"2026-10-11T14:55:35.916Z","updated":"2026-10-11T14:55:35.916Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A map that answers back\u003c/p>\n\u003cp>We could put every recording on a wall. Touch a place, hear what happened there. The wall would make the archive navigable without requiring anyone to learn its catalog.\u003c/p>\n\u003cp>I have already drawn the wall. I have not asked who gets to touch it.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=a5cc48fb-5abc-478e-965a-e32d06d1f12d\">Keep the pauses\u003c/a>\u003c/p>\n"},{"id":"c4bd6c7a-8944-4470-8646-566c2fb88093","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Do not smooth the tape","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"evidence"},{"key":"scene","value":"1"},{"key":"place","value":"waiting-room"}],"body":"Do not smooth the tape\n\nThe transcript says “I stayed.” The tape says “I—” and then a train, and then “stayed.” These are not interchangeable records.\n\nKeep the hesitation. It is part of the statement.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","text":"Do not smooth the tape [type::passage] [voice::Sol] [role::archivist] [stance::evidence] [scene::1] [place::waiting-room]\n\nThe transcript says “I stayed.” The tape says “I—” and then a train, and then “stayed.” These are not interchangeable records.\n\nKeep the hesitation. It is part of the statement.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["evidence"]},{"key":"scene","values":["1"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","label":"Keep the pauses","status":"ready","target":"a5cc48fb-5abc-478e-965a-e32d06d1f12d","spans":[[323,379]],"bodySpans":[[224,280]]}],"backlinks":["6cd84b5a-2d85-441f-929e-f620d3bf98c0","7db71267-96f7-4329-88c8-a4234ed5f697"],"resources":[],"created":"2026-10-11T14:55:35.922Z","updated":"2026-10-11T14:55:35.922Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Do not smooth the tape\u003c/p>\n\u003cp>The transcript says “I stayed.” The tape says “I—” and then a train, and then “stayed.” These are not interchangeable records.\u003c/p>\n\u003cp>Keep the hesitation. It is part of the statement.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=a5cc48fb-5abc-478e-965a-e32d06d1f12d\">Keep the pauses\u003c/a>\u003c/p>\n"},{"id":"f9746619-dca4-424a-a408-a474c5f2ff16","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"04:12 / no ferry","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"1"},{"key":"place","value":"harbor"}],"body":"04:12 / no ferry\n\nA chain knocks against the flagpole. The empty departures board still clicks at twelve minutes past the hour.\n\nThere is a system here, even when it has nothing to announce.","text":"04:12 / no ferry [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::1] [place::harbor]\n\nA chain knocks against the flagpole. The empty departures board still clicks at twelve minutes past the hour.\n\nThere is a system here, even when it has nothing to announce.","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["1"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[],"backlinks":["384933d6-1575-428c-b7c0-167c09694335","fa6824a6-4264-4b70-9906-d3e5b31e4ab0"],"resources":[],"created":"2026-10-11T14:55:35.924Z","updated":"2026-10-11T14:55:35.924Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>04:12 / no ferry\u003c/p>\n\u003cp>A chain knocks against the flagpole. The empty departures board still clicks at twelve minutes past the hour.\u003c/p>\n\u003cp>There is a system here, even when it has nothing to announce.\u003c/p>\n"},{"id":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Automatic company","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"proposal"},{"key":"scene","value":"2"},{"key":"place","value":"waiting-room"}],"body":"Automatic company\n\nPrototype: when nobody is talking, the wall plays the most related recording. A room that never leaves you alone with a blank.\n\n> [!question] Is filling the space the same as keeping someone company?\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","text":"Automatic company [type::passage] [voice::Ivo] [role::builder] [stance::proposal] [scene::2] [place::waiting-room]\n\nPrototype: when nobody is talking, the wall plays the most related recording. A room that never leaves you alone with a blank.\n\n> [!question] Is filling the space the same as keeping someone company?\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["proposal"]},{"key":"scene","values":["2"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","label":"A map that answers back","status":"ready","target":"4ec83f41-686d-4c17-add0-00320f9ad1f6","spans":[[338,402]],"bodySpans":[[241,305]]}],"backlinks":["592fa097-a647-4061-92eb-63500f19ab3f","7db71267-96f7-4329-88c8-a4234ed5f697","c8967bf0-d584-4d29-a2b4-5837695cd006"],"resources":[],"created":"2026-10-11T14:55:35.927Z","updated":"2026-10-11T14:55:35.927Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Automatic company\u003c/p>\n\u003cp>Prototype: when nobody is talking, the wall plays the most related recording. A room that never leaves you alone with a blank.\u003c/p>\n\u003cdiv class=\"callout callout-violet\" data-callout=\"question\">\u003cdiv class=\"callout-head\">\u003cspan class=\"callout-icon\" aria-hidden=\"true\">?\u003c/span>\u003cspan class=\"callout-title\">Is filling the space the same as keeping someone company?\u003c/span>\u003c/div>\u003cdiv class=\"callout-body\">\u003c/div>\u003c/div>\n\u003cp>In conversation with \u003ca href=\"#note=4ec83f41-686d-4c17-add0-00320f9ad1f6\">A map that answers back\u003c/a>\u003c/p>\n"},{"id":"c8967bf0-d584-4d29-a2b4-5837695cd006","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"An answer too quickly","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"objection"},{"key":"scene","value":"2"},{"key":"place","value":"waiting-room"}],"body":"An answer too quickly\n\nI told the prototype about my mother. Before I finished, it offered another person’s grief.\n\nIt found a relationship. It interrupted a person. Both happened.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","text":"An answer too quickly [type::passage] [voice::Mara] [role::listener] [stance::objection] [scene::2] [place::waiting-room]\n\nI told the prototype about my mother. Before I finished, it offered another person’s grief.\n\nIt found a relationship. It interrupted a person. Both happened.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["objection"]},{"key":"scene","values":["2"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","label":"Automatic company","status":"ready","target":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","spans":[[303,361]],"bodySpans":[[203,261]]}],"backlinks":["563d7c4b-686a-421a-bb3e-9f6875172946","592fa097-a647-4061-92eb-63500f19ab3f"],"resources":[],"created":"2026-10-11T14:55:35.930Z","updated":"2026-10-11T14:55:35.930Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>An answer too quickly\u003c/p>\n\u003cp>I told the prototype about my mother. Before I finished, it offered another person’s grief.\u003c/p>\n\u003cp>It found a relationship. It interrupted a person. Both happened.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3\">Automatic company\u003c/a>\u003c/p>\n"},{"id":"7db71267-96f7-4329-88c8-a4234ed5f697","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Related according to whom","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"constraint"},{"key":"scene","value":"2"},{"key":"place","value":"waiting-room"}],"body":"Related according to whom\n\nA similarity score can be an invitation to compare. It cannot establish that two speakers meant the same thing.\n\nWrite the reason beside the connection. Leave room to disagree.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","text":"Related according to whom [type::passage] [voice::Sol] [role::archivist] [stance::constraint] [scene::2] [place::waiting-room]\n\nA similarity score can be an invitation to compare. It cannot establish that two speakers meant the same thing.\n\nWrite the reason beside the connection. Leave room to disagree.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["constraint"]},{"key":"scene","values":["2"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape))","label":"Do not smooth the tape","status":"ready","target":"c4bd6c7a-8944-4470-8646-566c2fb88093","spans":[[327,390]],"bodySpans":[[226,289]]},{"kind":"block","text":"((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","label":"Automatic company","status":"ready","target":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","spans":[[393,451]],"bodySpans":[[292,350]]}],"backlinks":["266bd730-32d7-42a5-9407-9d9103410115","5cc729ee-9695-4063-9904-bd35e4b69240"],"resources":[],"created":"2026-10-11T14:55:35.932Z","updated":"2026-10-11T14:55:35.932Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Related according to whom\u003c/p>\n\u003cp>A similarity score can be an invitation to compare. It cannot establish that two speakers meant the same thing.\u003c/p>\n\u003cp>Write the reason beside the connection. Leave room to disagree.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=c4bd6c7a-8944-4470-8646-566c2fb88093\">Do not smooth the tape\u003c/a> · \u003ca href=\"#note=b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3\">Automatic company\u003c/a>\u003c/p>\n"},{"id":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A chair in the corridor","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"2"},{"key":"place","value":"harbor"}],"body":"A chair in the corridor\n\nThere are eleven chairs inside and one outside. Nobody remembers carrying the twelfth chair into the corridor. It is the only chair facing the sea.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","text":"A chair in the corridor [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::2] [place::harbor]\n\nThere are eleven chairs inside and one outside. Nobody remembers carrying the twelfth chair into the corridor. It is the only chair facing the sea.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["2"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","label":"04:12 / no ferry","status":"ready","target":"f9746619-dca4-424a-a408-a474c5f2ff16","spans":[[297,354]],"bodySpans":[[195,252]]}],"backlinks":["a830bbe0-b490-42a9-aa2f-44f9eef5c90b","bf8a1b13-146a-4e72-92ce-0bd101c9451e","cf2e425e-f54a-41a9-9d1d-e0941098aca7"],"resources":[],"created":"2026-10-11T14:55:35.935Z","updated":"2026-10-11T14:55:35.935Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A chair in the corridor\u003c/p>\n\u003cp>There are eleven chairs inside and one outside. Nobody remembers carrying the twelfth chair into the corridor. It is the only chair facing the sea.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=f9746619-dca4-424a-a408-a474c5f2ff16\">04:12 / no ferry\u003c/a>\u003c/p>\n"},{"id":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The voice absent from the map","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"question"},{"key":"scene","value":"3"},{"key":"place","value":"waiting-room"}],"body":"The voice absent from the map\n\nThe night cleaner does not appear in any recording. She knows which chair gets moved, which door sticks, and when the room is actually quiet.\n\nThe archive is full. The account is incomplete.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","text":"The voice absent from the map [type::passage] [voice::Mara] [role::listener] [stance::question] [scene::3] [place::waiting-room]\n\nThe night cleaner does not appear in any recording. She knows which chair gets moved, which door sticks, and when the room is actually quiet.\n\nThe archive is full. The account is incomplete.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["question"]},{"key":"scene","values":["3"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","label":"A map that answers back","status":"ready","target":"4ec83f41-686d-4c17-add0-00320f9ad1f6","spans":[[343,407]],"bodySpans":[[244,308]]},{"kind":"block","text":"((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","label":"A chair in the corridor","status":"ready","target":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","spans":[[410,474]],"bodySpans":[[311,375]]}],"backlinks":["573c5424-999e-4853-8ede-12e0af2b4a09","7bc40c97-0d1e-493f-bf99-4997361d2ee8","dd4f220c-ef86-48c9-b09c-ba79e1229cd1"],"resources":[],"created":"2026-10-11T14:55:35.938Z","updated":"2026-10-11T14:55:35.938Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The voice absent from the map\u003c/p>\n\u003cp>The night cleaner does not appear in any recording. She knows which chair gets moved, which door sticks, and when the room is actually quiet.\u003c/p>\n\u003cp>The archive is full. The account is incomplete.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=4ec83f41-686d-4c17-add0-00320f9ad1f6\">A map that answers back\u003c/a> · \u003ca href=\"#note=fa6824a6-4264-4b70-9906-d3e5b31e4ab0\">A chair in the corridor\u003c/a>\u003c/p>\n"},{"id":"7bc40c97-0d1e-493f-bf99-4997361d2ee8","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Silence is not consent","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"constraint"},{"key":"scene","value":"3"},{"key":"place","value":"waiting-room"}],"body":"Silence is not consent\n\nAn absent recording may mean no microphone, no permission, a broken machine, or a choice not to speak.\n\nDo not assign one meaning to all the empty cells.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","text":"Silence is not consent [type::passage] [voice::Sol] [role::archivist] [stance::constraint] [scene::3] [place::waiting-room]\n\nAn absent recording may mean no microphone, no permission, a broken machine, or a choice not to speak.\n\nDo not assign one meaning to all the empty cells.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["constraint"]},{"key":"scene","values":["3"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","label":"The voice absent from the map","status":"ready","target":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","spans":[[301,371]],"bodySpans":[[200,270]]}],"backlinks":["dd4f220c-ef86-48c9-b09c-ba79e1229cd1"],"resources":[],"created":"2026-10-11T14:55:35.941Z","updated":"2026-10-11T14:55:35.941Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Silence is not consent\u003c/p>\n\u003cp>An absent recording may mean no microphone, no permission, a broken machine, or a choice not to speak.\u003c/p>\n\u003cp>Do not assign one meaning to all the empty cells.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=cf2e425e-f54a-41a9-9d1d-e0941098aca7\">The voice absent from the map\u003c/a>\u003c/p>\n"},{"id":"592fa097-a647-4061-92eb-63500f19ab3f","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A button labelled wait","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"revision"},{"key":"scene","value":"3"},{"key":"place","value":"waiting-room"}],"body":"A button labelled wait\n\nI removed automatic playback. The new button says WAIT. It does nothing, visibly.\n\nMara says that is the first honest interface I have made for this room. I am not sure whether she is joking.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company)) · ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","text":"A button labelled wait [type::passage] [voice::Ivo] [role::builder] [stance::revision] [scene::3] [place::waiting-room]\n\nI removed automatic playback. The new button says WAIT. It does nothing, visibly.\n\nMara says that is the first honest interface I have made for this room. I am not sure whether she is joking.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company)) · ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["revision"]},{"key":"scene","values":["3"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","label":"Automatic company","status":"ready","target":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","spans":[[335,393]],"bodySpans":[[238,296]]},{"kind":"block","text":"((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","label":"An answer too quickly","status":"ready","target":"c8967bf0-d584-4d29-a2b4-5837695cd006","spans":[[396,458]],"bodySpans":[[299,361]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:35.943Z","updated":"2026-10-11T14:55:35.943Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A button labelled wait\u003c/p>\n\u003cp>I removed automatic playback. The new button says WAIT. It does nothing, visibly.\u003c/p>\n\u003cp>Mara says that is the first honest interface I have made for this room. I am not sure whether she is joking.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3\">Automatic company\u003c/a> · \u003ca href=\"#note=c8967bf0-d584-4d29-a2b4-5837695cd006\">An answer too quickly\u003c/a>\u003c/p>\n"},{"id":"573c5424-999e-4853-8ede-12e0af2b4a09","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The bench test","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"evidence"},{"key":"scene","value":"4"},{"key":"place","value":"harbor"}],"body":"The bench test\n\nAt 02:00 the radiator rings at the same pitch as the departures board. The cleaner knows this. She calls it the room tuning itself.\n\nOur equipment called it background noise.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","text":"The bench test [type::passage] [voice::The room] [role::field-note] [stance::evidence] [scene::4] [place::harbor]\n\nAt 02:00 the radiator rings at the same pitch as the departures board. The cleaner knows this. She calls it the room tuning itself.\n\nOur equipment called it background noise.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["evidence"]},{"key":"scene","values":["4"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","label":"The voice absent from the map","status":"ready","target":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","spans":[[312,382]],"bodySpans":[[213,283]]}],"backlinks":["63143688-b284-4927-a272-e932464dd830","6cd84b5a-2d85-441f-929e-f620d3bf98c0","993c9c66-b9ec-4dd4-97d8-0232438a6452"],"resources":[],"created":"2026-10-11T14:55:35.946Z","updated":"2026-10-11T14:55:35.946Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The bench test\u003c/p>\n\u003cp>At 02:00 the radiator rings at the same pitch as the departures board. The cleaner knows this. She calls it the room tuning itself.\u003c/p>\n\u003cp>Our equipment called it background noise.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=cf2e425e-f54a-41a9-9d1d-e0941098aca7\">The voice absent from the map\u003c/a>\u003c/p>\n"},{"id":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A correction, still attached","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"revision"},{"key":"scene","value":"4"},{"key":"place","value":"waiting-room"}],"body":"A correction, still attached\n\nThe first transcript calls the ringing a phone. We correct the word, keeping the earlier revision and the clip that made us change our minds.\n\nAn archive that cannot show its mistakes cannot show its learning.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","text":"A correction, still attached [type::passage] [voice::Sol] [role::archivist] [stance::revision] [scene::4] [place::waiting-room]\n\nThe first transcript calls the ringing a phone. We correct the word, keeping the earlier revision and the clip that made us change our minds.\n\nAn archive that cannot show its mistakes cannot show its learning.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["revision"]},{"key":"scene","values":["4"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape))","label":"Do not smooth the tape","status":"ready","target":"c4bd6c7a-8944-4470-8646-566c2fb88093","spans":[[361,424]],"bodySpans":[[262,325]]},{"kind":"block","text":"((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","label":"The bench test","status":"ready","target":"573c5424-999e-4853-8ede-12e0af2b4a09","spans":[[427,482]],"bodySpans":[[328,383]]}],"backlinks":["1db9b2d5-dffe-4719-955a-0986105242f1","53a38062-ab52-4950-8d26-2ac7a4df46a0","731c2c40-84a3-4c9d-a447-f47117254d4a"],"resources":[],"created":"2026-10-11T14:55:35.948Z","updated":"2026-10-11T14:55:35.948Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A correction, still attached\u003c/p>\n\u003cp>The first transcript calls the ringing a phone. We correct the word, keeping the earlier revision and the clip that made us change our minds.\u003c/p>\n\u003cp>An archive that cannot show its mistakes cannot show its learning.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=c4bd6c7a-8944-4470-8646-566c2fb88093\">Do not smooth the tape\u003c/a> · \u003ca href=\"#note=573c5424-999e-4853-8ede-12e0af2b4a09\">The bench test\u003c/a>\u003c/p>\n"},{"id":"53a38062-ab52-4950-8d26-2ac7a4df46a0","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Three renderings, one address","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"proposal"},{"key":"scene","value":"4"},{"key":"place","value":"waiting-room"}],"body":"Three renderings, one address\n\nI can show the same passage as words, a point on the map, or a sound in a sequence. Moving between them should not create three separate passages.\n\nThe address is the seam. The rendering is a choice.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","text":"Three renderings, one address [type::passage] [voice::Ivo] [role::builder] [stance::proposal] [scene::4] [place::waiting-room]\n\nI can show the same passage as words, a point on the map, or a sound in a sequence. Moving between them should not create three separate passages.\n\nThe address is the seam. The rendering is a choice.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["proposal"]},{"key":"scene","values":["4"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","label":"A map that answers back","status":"ready","target":"4ec83f41-686d-4c17-add0-00320f9ad1f6","spans":[[350,414]],"bodySpans":[[253,317]]},{"kind":"block","text":"((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","label":"A correction, still attached","status":"ready","target":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","spans":[[417,486]],"bodySpans":[[320,389]]}],"backlinks":["09de9023-8dd7-4c40-8616-cd24b7a6bb4e","993c9c66-b9ec-4dd4-97d8-0232438a6452"],"resources":[],"created":"2026-10-11T14:55:35.952Z","updated":"2026-10-11T14:55:35.952Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Three renderings, one address\u003c/p>\n\u003cp>I can show the same passage as words, a point on the map, or a sound in a sequence. Moving between them should not create three separate passages.\u003c/p>\n\u003cp>The address is the seam. The rendering is a choice.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=4ec83f41-686d-4c17-add0-00320f9ad1f6\">A map that answers back\u003c/a> · \u003ca href=\"#note=6cd84b5a-2d85-441f-929e-f620d3bf98c0\">A correction, still attached\u003c/a>\u003c/p>\n"},{"id":"993c9c66-b9ec-4dd4-97d8-0232438a6452","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Play them together","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"proposal"},{"key":"scene","value":"4"},{"key":"place","value":"waiting-room"}],"body":"Play them together\n\nPlay the machine’s account beside the cleaner’s account. Not to decide which one wins. To hear where one stops noticing and the other starts.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","text":"Play them together [type::passage] [voice::Mara] [role::listener] [stance::proposal] [scene::4] [place::waiting-room]\n\nPlay the machine’s account beside the cleaner’s account. Not to decide which one wins. To hear where one stops noticing and the other starts.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["proposal"]},{"key":"scene","values":["4"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","label":"The bench test","status":"ready","target":"573c5424-999e-4853-8ede-12e0af2b4a09","spans":[[283,338]],"bodySpans":[[184,239]]},{"kind":"block","text":"((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","label":"Three renderings, one address","status":"ready","target":"53a38062-ab52-4950-8d26-2ac7a4df46a0","spans":[[341,411]],"bodySpans":[[242,312]]}],"backlinks":["5cc729ee-9695-4063-9904-bd35e4b69240"],"resources":[],"created":"2026-10-11T14:55:35.960Z","updated":"2026-10-11T14:55:35.960Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Play them together\u003c/p>\n\u003cp>Play the machine’s account beside the cleaner’s account. Not to decide which one wins. To hear where one stops noticing and the other starts.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=573c5424-999e-4853-8ede-12e0af2b4a09\">The bench test\u003c/a> · \u003ca href=\"#note=53a38062-ab52-4950-8d26-2ac7a4df46a0\">Three renderings, one address\u003c/a>\u003c/p>\n"},{"id":"5cc729ee-9695-4063-9904-bd35e4b69240","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"What if listening is an arrangement","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"question"},{"key":"scene","value":"5"},{"key":"place","value":"waiting-room"}],"body":"What if listening is an arrangement\n\nAn arrangement says: I want to hold these accounts near each other for a while. It need not say: I have merged them into one truth.\n\nLeave their names on them. Leave the disagreement audible.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((993c9c66-b9ec-4dd4-97d8-0232438a6452|Play them together))","text":"What if listening is an arrangement [type::passage] [voice::Mara] [role::listener] [stance::question] [scene::5] [place::waiting-room]\n\nAn arrangement says: I want to hold these accounts near each other for a while. It need not say: I have merged them into one truth.\n\nLeave their names on them. Leave the disagreement audible.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((993c9c66-b9ec-4dd4-97d8-0232438a6452|Play them together))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["question"]},{"key":"scene","values":["5"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom))","label":"Related according to whom","status":"ready","target":"7db71267-96f7-4329-88c8-a4234ed5f697","spans":[[350,416]],"bodySpans":[[251,317]]},{"kind":"block","text":"((993c9c66-b9ec-4dd4-97d8-0232438a6452|Play them together))","label":"Play them together","status":"ready","target":"993c9c66-b9ec-4dd4-97d8-0232438a6452","spans":[[419,478]],"bodySpans":[[320,379]]}],"backlinks":["266bd730-32d7-42a5-9407-9d9103410115","563d7c4b-686a-421a-bb3e-9f6875172946","731c2c40-84a3-4c9d-a447-f47117254d4a"],"resources":[],"created":"2026-10-11T14:55:35.963Z","updated":"2026-10-11T14:55:35.963Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>What if listening is an arrangement\u003c/p>\n\u003cp>An arrangement says: I want to hold these accounts near each other for a while. It need not say: I have merged them into one truth.\u003c/p>\n\u003cp>Leave their names on them. Leave the disagreement audible.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=7db71267-96f7-4329-88c8-a4234ed5f697\">Related according to whom\u003c/a> · \u003ca href=\"#note=993c9c66-b9ec-4dd4-97d8-0232438a6452\">Play them together\u003c/a>\u003c/p>\n"},{"id":"266bd730-32d7-42a5-9407-9d9103410115","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The knob that admits what it does","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"proposal"},{"key":"scene","value":"5"},{"key":"place","value":"waiting-room"}],"body":"The knob that admits what it does\n\nOne knob controls how much of the other account you hear. It does not say RELEVANCE. It says DISTANCE.\n\nWe can argue about a knob. We cannot argue with an unexplained verdict.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","text":"The knob that admits what it does [type::passage] [voice::Ivo] [role::builder] [stance::proposal] [scene::5] [place::waiting-room]\n\nOne knob controls how much of the other account you hear. It does not say RELEVANCE. It says DISTANCE.\n\nWe can argue about a knob. We cannot argue with an unexplained verdict.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["proposal"]},{"key":"scene","values":["5"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom))","label":"Related according to whom","status":"ready","target":"7db71267-96f7-4329-88c8-a4234ed5f697","spans":[[330,396]],"bodySpans":[[233,299]]},{"kind":"block","text":"((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","label":"What if listening is an arrangement","status":"ready","target":"5cc729ee-9695-4063-9904-bd35e4b69240","spans":[[399,475]],"bodySpans":[[302,378]]}],"backlinks":["09de9023-8dd7-4c40-8616-cd24b7a6bb4e","a830bbe0-b490-42a9-aa2f-44f9eef5c90b"],"resources":[],"created":"2026-10-11T14:55:35.965Z","updated":"2026-10-11T14:55:35.965Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The knob that admits what it does\u003c/p>\n\u003cp>One knob controls how much of the other account you hear. It does not say RELEVANCE. It says DISTANCE.\u003c/p>\n\u003cp>We can argue about a knob. We cannot argue with an unexplained verdict.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=7db71267-96f7-4329-88c8-a4234ed5f697\">Related according to whom\u003c/a> · \u003ca href=\"#note=5cc729ee-9695-4063-9904-bd35e4b69240\">What if listening is an arrangement\u003c/a>\u003c/p>\n"},{"id":"731c2c40-84a3-4c9d-a447-f47117254d4a","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A reading is a document too","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"constraint"},{"key":"scene","value":"5"},{"key":"place","value":"waiting-room"}],"body":"A reading is a document too\n\nKeep the sources where they are. Save the order, the excerpts, and the revisions used.\n\nThen someone can replay an argument without pretending that the underlying notes stopped changing.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","text":"A reading is a document too [type::passage] [voice::Sol] [role::archivist] [stance::constraint] [scene::5] [place::waiting-room]\n\nKeep the sources where they are. Save the order, the excerpts, and the revisions used.\n\nThen someone can replay an argument without pretending that the underlying notes stopped changing.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["constraint"]},{"key":"scene","values":["5"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","label":"A correction, still attached","status":"ready","target":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","spans":[[339,408]],"bodySpans":[[238,307]]},{"kind":"block","text":"((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","label":"What if listening is an arrangement","status":"ready","target":"5cc729ee-9695-4063-9904-bd35e4b69240","spans":[[411,487]],"bodySpans":[[310,386]]}],"backlinks":["1db9b2d5-dffe-4719-955a-0986105242f1","d1d46224-5869-44a8-af6b-89d39510e134","e40969a4-9c12-46cc-b64e-a205598e19ed"],"resources":[],"created":"2026-10-11T14:55:35.968Z","updated":"2026-10-11T14:55:35.968Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A reading is a document too\u003c/p>\n\u003cp>Keep the sources where they are. Save the order, the excerpts, and the revisions used.\u003c/p>\n\u003cp>Then someone can replay an argument without pretending that the underlying notes stopped changing.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=6cd84b5a-2d85-441f-929e-f620d3bf98c0\">A correction, still attached\u003c/a> · \u003ca href=\"#note=5cc729ee-9695-4063-9904-bd35e4b69240\">What if listening is an arrangement\u003c/a>\u003c/p>\n"},{"id":"a830bbe0-b490-42a9-aa2f-44f9eef5c90b","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Rain through two doors","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"5"},{"key":"place","value":"harbor"}],"body":"Rain through two doors\n\nFrom the main door the rain sounds sharp. From the corridor it sounds like a soft hiss.\n\nSame weather. Different opening.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","text":"Rain through two doors [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::5] [place::harbor]\n\nFrom the main door the rain sounds sharp. From the corridor it sounds like a soft hiss.\n\nSame weather. Different opening.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["5"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","label":"A chair in the corridor","status":"ready","target":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","spans":[[270,334]],"bodySpans":[[168,232]]},{"kind":"block","text":"((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","label":"The knob that admits what it does","status":"ready","target":"266bd730-32d7-42a5-9407-9d9103410115","spans":[[337,411]],"bodySpans":[[235,309]]}],"backlinks":["bf8a1b13-146a-4e72-92ce-0bd101c9451e"],"resources":[],"created":"2026-10-11T14:55:35.970Z","updated":"2026-10-11T14:55:35.970Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Rain through two doors\u003c/p>\n\u003cp>From the main door the rain sounds sharp. From the corridor it sounds like a soft hiss.\u003c/p>\n\u003cp>Same weather. Different opening.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=fa6824a6-4264-4b70-9906-d3e5b31e4ab0\">A chair in the corridor\u003c/a> · \u003ca href=\"#note=266bd730-32d7-42a5-9407-9d9103410115\">The knob that admits what it does\u003c/a>\u003c/p>\n"},{"id":"dd4f220c-ef86-48c9-b09c-ba79e1229cd1","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Rehearsal with an empty track","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"experiment"},{"key":"scene","value":"6"},{"key":"place","value":"waiting-room"}],"body":"Rehearsal with an empty track\n\nWe made a track for the cleaner before she agreed to record. It stays empty, labelled “not recorded.”\n\nThe empty track changed the discussion more than our best visualization.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map)) · ((7bc40c97-0d1e-493f-bf99-4997361d2ee8|Silence is not consent))","text":"Rehearsal with an empty track [type::passage] [voice::Ivo] [role::builder] [stance::experiment] [scene::6] [place::waiting-room]\n\nWe made a track for the cleaner before she agreed to record. It stays empty, labelled “not recorded.”\n\nThe empty track changed the discussion more than our best visualization.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map)) · ((7bc40c97-0d1e-493f-bf99-4997361d2ee8|Silence is not consent))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["experiment"]},{"key":"scene","values":["6"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","label":"The voice absent from the map","status":"ready","target":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","spans":[[328,398]],"bodySpans":[[229,299]]},{"kind":"block","text":"((7bc40c97-0d1e-493f-bf99-4997361d2ee8|Silence is not consent))","label":"Silence is not consent","status":"ready","target":"7bc40c97-0d1e-493f-bf99-4997361d2ee8","spans":[[401,464]],"bodySpans":[[302,365]]}],"backlinks":["63143688-b284-4927-a272-e932464dd830","e40969a4-9c12-46cc-b64e-a205598e19ed"],"resources":[],"created":"2026-10-11T14:55:35.972Z","updated":"2026-10-11T14:55:35.972Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Rehearsal with an empty track\u003c/p>\n\u003cp>We made a track for the cleaner before she agreed to record. It stays empty, labelled “not recorded.”\u003c/p>\n\u003cp>The empty track changed the discussion more than our best visualization.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=cf2e425e-f54a-41a9-9d1d-e0941098aca7\">The voice absent from the map\u003c/a> · \u003ca href=\"#note=7bc40c97-0d1e-493f-bf99-4997361d2ee8\">Silence is not consent\u003c/a>\u003c/p>\n"},{"id":"e40969a4-9c12-46cc-b64e-a205598e19ed","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The room can say no","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"constraint"},{"key":"scene","value":"6"},{"key":"place","value":"waiting-room"}],"body":"The room can say no\n\nAt the rehearsal, a visitor asks to remove their recording. Their place in the arrangement remains, but the words are gone.\n\nWe must distinguish a remembered source from a right to replay it.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","text":"The room can say no [type::passage] [voice::Mara] [role::listener] [stance::constraint] [scene::6] [place::waiting-room]\n\nAt the rehearsal, a visitor asks to remove their recording. Their place in the arrangement remains, but the words are gone.\n\nWe must distinguish a remembered source from a right to replay it.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["constraint"]},{"key":"scene","values":["6"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","label":"A reading is a document too","status":"ready","target":"731c2c40-84a3-4c9d-a447-f47117254d4a","spans":[[336,404]],"bodySpans":[[235,303]]},{"kind":"block","text":"((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","label":"Rehearsal with an empty track","status":"ready","target":"dd4f220c-ef86-48c9-b09c-ba79e1229cd1","spans":[[407,477]],"bodySpans":[[306,376]]}],"backlinks":["3866dddb-0211-4fc6-a6cb-55bd3aa441cf"],"resources":[],"created":"2026-10-11T14:55:35.975Z","updated":"2026-10-11T14:55:35.975Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The room can say no\u003c/p>\n\u003cp>At the rehearsal, a visitor asks to remove their recording. Their place in the arrangement remains, but the words are gone.\u003c/p>\n\u003cp>We must distinguish a remembered source from a right to replay it.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=731c2c40-84a3-4c9d-a447-f47117254d4a\">A reading is a document too\u003c/a> · \u003ca href=\"#note=dd4f220c-ef86-48c9-b09c-ba79e1229cd1\">Rehearsal with an empty track\u003c/a>\u003c/p>\n"},{"id":"1db9b2d5-dffe-4719-955a-0986105242f1","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The old words still sound","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"evidence"},{"key":"scene","value":"6"},{"key":"place","value":"waiting-room"}],"body":"The old words still sound\n\nSomeone corrected a source during playback. The score kept playing the version we chose yesterday. Good for reproducibility; dangerous if nobody can see it.\n\nA frozen excerpt needs an obvious age.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","text":"The old words still sound [type::passage] [voice::Sol] [role::archivist] [stance::evidence] [scene::6] [place::waiting-room]\n\nSomeone corrected a source during playback. The score kept playing the version we chose yesterday. Good for reproducibility; dangerous if nobody can see it.\n\nA frozen excerpt needs an obvious age.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["evidence"]},{"key":"scene","values":["6"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","label":"A correction, still attached","status":"ready","target":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","spans":[[345,414]],"bodySpans":[[246,315]]},{"kind":"block","text":"((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","label":"A reading is a document too","status":"ready","target":"731c2c40-84a3-4c9d-a447-f47117254d4a","spans":[[417,485]],"bodySpans":[[318,386]]}],"backlinks":["d1d46224-5869-44a8-af6b-89d39510e134"],"resources":[],"created":"2026-10-11T14:55:35.977Z","updated":"2026-10-11T14:55:35.977Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The old words still sound\u003c/p>\n\u003cp>Someone corrected a source during playback. The score kept playing the version we chose yesterday. Good for reproducibility; dangerous if nobody can see it.\u003c/p>\n\u003cp>A frozen excerpt needs an obvious age.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=6cd84b5a-2d85-441f-929e-f620d3bf98c0\">A correction, still attached\u003c/a> · \u003ca href=\"#note=731c2c40-84a3-4c9d-a447-f47117254d4a\">A reading is a document too\u003c/a>\u003c/p>\n"},{"id":"63143688-b284-4927-a272-e932464dd830","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"02:06 / a small audience","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"6"},{"key":"place","value":"harbor"}],"body":"02:06 / a small audience\n\nSix people listen to the radiator. One laughs, two take notes, three do nothing we can measure.\n\nThe recording is forty-three seconds long. The listening lasts longer.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","text":"02:06 / a small audience [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::6] [place::harbor]\n\nSix people listen to the radiator. One laughs, two take notes, three do nothing we can measure.\n\nThe recording is forty-three seconds long. The listening lasts longer.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["6"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","label":"The bench test","status":"ready","target":"573c5424-999e-4853-8ede-12e0af2b4a09","spans":[[318,373]],"bodySpans":[[216,271]]},{"kind":"block","text":"((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","label":"Rehearsal with an empty track","status":"ready","target":"dd4f220c-ef86-48c9-b09c-ba79e1229cd1","spans":[[376,446]],"bodySpans":[[274,344]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:35.980Z","updated":"2026-10-11T14:55:35.980Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>02:06 / a small audience\u003c/p>\n\u003cp>Six people listen to the radiator. One laughs, two take notes, three do nothing we can measure.\u003c/p>\n\u003cp>The recording is forty-three seconds long. The listening lasts longer.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=573c5424-999e-4853-8ede-12e0af2b4a09\">The bench test\u003c/a> · \u003ca href=\"#note=dd4f220c-ef86-48c9-b09c-ba79e1229cd1\">Rehearsal with an empty track\u003c/a>\u003c/p>\n"},{"id":"563d7c4b-686a-421a-bb3e-9f6875172946","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Leave the ending open","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"revision"},{"key":"scene","value":"7"},{"key":"place","value":"waiting-room"}],"body":"Leave the ending open\n\nI no longer want the wall to tell the whole story. I want it to help two people stay with different accounts long enough to make a third question.\n\nIn conversation with ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","text":"Leave the ending open [type::passage] [voice::Mara] [role::listener] [stance::revision] [scene::7] [place::waiting-room]\n\nI no longer want the wall to tell the whole story. I want it to help two people stay with different accounts long enough to make a third question.\n\nIn conversation with ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["revision"]},{"key":"scene","values":["7"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","label":"An answer too quickly","status":"ready","target":"c8967bf0-d584-4d29-a2b4-5837695cd006","spans":[[291,353]],"bodySpans":[[192,254]]},{"kind":"block","text":"((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","label":"What if listening is an arrangement","status":"ready","target":"5cc729ee-9695-4063-9904-bd35e4b69240","spans":[[356,432]],"bodySpans":[[257,333]]}],"backlinks":["bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"],"resources":[],"created":"2026-10-11T14:55:35.983Z","updated":"2026-10-11T14:55:35.983Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Leave the ending open\u003c/p>\n\u003cp>I no longer want the wall to tell the whole story. I want it to help two people stay with different accounts long enough to make a third question.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=c8967bf0-d584-4d29-a2b4-5837695cd006\">An answer too quickly\u003c/a> · \u003ca href=\"#note=5cc729ee-9695-4063-9904-bd35e4b69240\">What if listening is an arrangement\u003c/a>\u003c/p>\n"},{"id":"09de9023-8dd7-4c40-8616-cd24b7a6bb4e","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The wall comes down","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"revision"},{"key":"scene","value":"7"},{"key":"place","value":"waiting-room"}],"body":"The wall comes down\n\nThe big wall became a table with a few movable strips of paper. Each strip opens its source. We still need a machine, but it no longer has to look like the answer.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","text":"The wall comes down [type::passage] [voice::Ivo] [role::builder] [stance::revision] [scene::7] [place::waiting-room]\n\nThe big wall became a table with a few movable strips of paper. Each strip opens its source. We still need a machine, but it no longer has to look like the answer.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["revision"]},{"key":"scene","values":["7"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","label":"A map that answers back","status":"ready","target":"4ec83f41-686d-4c17-add0-00320f9ad1f6","spans":[[304,368]],"bodySpans":[[207,271]]},{"kind":"block","text":"((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","label":"Three renderings, one address","status":"ready","target":"53a38062-ab52-4950-8d26-2ac7a4df46a0","spans":[[371,441]],"bodySpans":[[274,344]]},{"kind":"block","text":"((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","label":"The knob that admits what it does","status":"ready","target":"266bd730-32d7-42a5-9407-9d9103410115","spans":[[444,518]],"bodySpans":[[347,421]]}],"backlinks":["5404356b-4b8d-4f3e-b0c8-06c24743acca"],"resources":[],"created":"2026-10-11T14:55:35.985Z","updated":"2026-10-11T14:55:35.985Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The wall comes down\u003c/p>\n\u003cp>The big wall became a table with a few movable strips of paper. Each strip opens its source. We still need a machine, but it no longer has to look like the answer.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=4ec83f41-686d-4c17-add0-00320f9ad1f6\">A map that answers back\u003c/a> · \u003ca href=\"#note=53a38062-ab52-4950-8d26-2ac7a4df46a0\">Three renderings, one address\u003c/a> · \u003ca href=\"#note=266bd730-32d7-42a5-9407-9d9103410115\">The knob that admits what it does\u003c/a>\u003c/p>\n"},{"id":"d1d46224-5869-44a8-af6b-89d39510e134","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"Keep the arrangement, not the verdict","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"decision"},{"key":"scene","value":"7"},{"key":"place","value":"waiting-room"}],"body":"Keep the arrangement, not the verdict\n\nWe save three readings of the same material. Chronology. Disagreement. What nobody recorded.\n\nNone is the canonical reading. The archive owns the sources; the reader owns the arrangement.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((1db9b2d5-dffe-4719-955a-0986105242f1|The old words still sound))","text":"Keep the arrangement, not the verdict [type::passage] [voice::Sol] [role::archivist] [stance::decision] [scene::7] [place::waiting-room]\n\nWe save three readings of the same material. Chronology. Disagreement. What nobody recorded.\n\nNone is the canonical reading. The archive owns the sources; the reader owns the arrangement.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((1db9b2d5-dffe-4719-955a-0986105242f1|The old words still sound))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["decision"]},{"key":"scene","values":["7"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","label":"A reading is a document too","status":"ready","target":"731c2c40-84a3-4c9d-a447-f47117254d4a","spans":[[348,416]],"bodySpans":[[249,317]]},{"kind":"block","text":"((1db9b2d5-dffe-4719-955a-0986105242f1|The old words still sound))","label":"The old words still sound","status":"ready","target":"1db9b2d5-dffe-4719-955a-0986105242f1","spans":[[419,485]],"bodySpans":[[320,386]]}],"backlinks":["3866dddb-0211-4fc6-a6cb-55bd3aa441cf","5404356b-4b8d-4f3e-b0c8-06c24743acca","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"],"resources":[],"created":"2026-10-11T14:55:35.987Z","updated":"2026-10-11T14:55:35.987Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>Keep the arrangement, not the verdict\u003c/p>\n\u003cp>We save three readings of the same material. Chronology. Disagreement. What nobody recorded.\u003c/p>\n\u003cp>None is the canonical reading. The archive owns the sources; the reader owns the arrangement.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=731c2c40-84a3-4c9d-a447-f47117254d4a\">A reading is a document too\u003c/a> · \u003ca href=\"#note=1db9b2d5-dffe-4719-955a-0986105242f1\">The old words still sound\u003c/a>\u003c/p>\n"},{"id":"bf8a1b13-146a-4e72-92ce-0bd101c9451e","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The twelfth chair returns","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"7"},{"key":"place","value":"harbor"}],"body":"The twelfth chair returns\n\nThe corridor chair is back inside. It is still facing the sea.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((a830bbe0-b490-42a9-aa2f-44f9eef5c90b|Rain through two doors))","text":"The twelfth chair returns [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::7] [place::harbor]\n\nThe corridor chair is back inside. It is still facing the sea.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((a830bbe0-b490-42a9-aa2f-44f9eef5c90b|Rain through two doors))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["7"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","label":"A chair in the corridor","status":"ready","target":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","spans":[[214,278]],"bodySpans":[[112,176]]},{"kind":"block","text":"((a830bbe0-b490-42a9-aa2f-44f9eef5c90b|Rain through two doors))","label":"Rain through two doors","status":"ready","target":"a830bbe0-b490-42a9-aa2f-44f9eef5c90b","spans":[[281,344]],"bodySpans":[[179,242]]}],"backlinks":["384933d6-1575-428c-b7c0-167c09694335"],"resources":[],"created":"2026-10-11T14:55:35.990Z","updated":"2026-10-11T14:55:35.990Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The twelfth chair returns\u003c/p>\n\u003cp>The corridor chair is back inside. It is still facing the sea.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=fa6824a6-4264-4b70-9906-d3e5b31e4ab0\">A chair in the corridor\u003c/a> · \u003ca href=\"#note=a830bbe0-b490-42a9-aa2f-44f9eef5c90b\">Rain through two doors\u003c/a>\u003c/p>\n"},{"id":"bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"An invitation with no summary","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Mara"},{"key":"role","value":"listener"},{"key":"stance","value":"invitation"},{"key":"scene","value":"8"},{"key":"place","value":"waiting-room"}],"body":"An invitation with no summary\n\nCome in. Move something. Listen again.\n\nIf the arrangement changes your mind, leave a note about which crossing did it.\n\nIn conversation with ((563d7c4b-686a-421a-bb3e-9f6875172946|Leave the ending open)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","text":"An invitation with no summary [type::passage] [voice::Mara] [role::listener] [stance::invitation] [scene::8] [place::waiting-room]\n\nCome in. Move something. Listen again.\n\nIf the arrangement changes your mind, leave a note about which crossing did it.\n\nIn conversation with ((563d7c4b-686a-421a-bb3e-9f6875172946|Leave the ending open)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Mara"]},{"key":"role","values":["listener"]},{"key":"stance","values":["invitation"]},{"key":"scene","values":["8"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((563d7c4b-686a-421a-bb3e-9f6875172946|Leave the ending open))","label":"Leave the ending open","status":"ready","target":"563d7c4b-686a-421a-bb3e-9f6875172946","spans":[[274,336]],"bodySpans":[[173,235]]},{"kind":"block","text":"((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","label":"Keep the arrangement, not the verdict","status":"ready","target":"d1d46224-5869-44a8-af6b-89d39510e134","spans":[[339,417]],"bodySpans":[[238,316]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:35.992Z","updated":"2026-10-11T14:55:35.992Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>An invitation with no summary\u003c/p>\n\u003cp>Come in. Move something. Listen again.\u003c/p>\n\u003cp>If the arrangement changes your mind, leave a note about which crossing did it.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=563d7c4b-686a-421a-bb3e-9f6875172946\">Leave the ending open\u003c/a> · \u003ca href=\"#note=d1d46224-5869-44a8-af6b-89d39510e134\">Keep the arrangement, not the verdict\u003c/a>\u003c/p>\n"},{"id":"5404356b-4b8d-4f3e-b0c8-06c24743acca","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"A machine small enough to disagree with","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Ivo"},{"key":"role","value":"builder"},{"key":"stance","value":"decision"},{"key":"scene","value":"8"},{"key":"place","value":"waiting-room"}],"body":"A machine small enough to disagree with\n\nThe useful part was not the synthesis. It was how easy it became to place two things together, and how easy it remained to pull them apart.\n\nIn conversation with ((09de9023-8dd7-4c40-8616-cd24b7a6bb4e|The wall comes down)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","text":"A machine small enough to disagree with [type::passage] [voice::Ivo] [role::builder] [stance::decision] [scene::8] [place::waiting-room]\n\nThe useful part was not the synthesis. It was how easy it became to place two things together, and how easy it remained to pull them apart.\n\nIn conversation with ((09de9023-8dd7-4c40-8616-cd24b7a6bb4e|The wall comes down)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Ivo"]},{"key":"role","values":["builder"]},{"key":"stance","values":["decision"]},{"key":"scene","values":["8"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((09de9023-8dd7-4c40-8616-cd24b7a6bb4e|The wall comes down))","label":"The wall comes down","status":"ready","target":"09de9023-8dd7-4c40-8616-cd24b7a6bb4e","spans":[[300,360]],"bodySpans":[[203,263]]},{"kind":"block","text":"((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","label":"Keep the arrangement, not the verdict","status":"ready","target":"d1d46224-5869-44a8-af6b-89d39510e134","spans":[[363,441]],"bodySpans":[[266,344]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:35.995Z","updated":"2026-10-11T14:55:35.995Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>A machine small enough to disagree with\u003c/p>\n\u003cp>The useful part was not the synthesis. It was how easy it became to place two things together, and how easy it remained to pull them apart.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=09de9023-8dd7-4c40-8616-cd24b7a6bb4e\">The wall comes down\u003c/a> · \u003ca href=\"#note=d1d46224-5869-44a8-af6b-89d39510e134\">Keep the arrangement, not the verdict\u003c/a>\u003c/p>\n"},{"id":"3866dddb-0211-4fc6-a6cb-55bd3aa441cf","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"The work left over","header":[{"key":"type","value":"passage"},{"key":"voice","value":"Sol"},{"key":"role","value":"archivist"},{"key":"stance","value":"question"},{"key":"scene","value":"8"},{"key":"place","value":"waiting-room"}],"body":"The work left over\n\nWe have not solved permission, deletion, or how to carry a reference between archives. This rehearsal proves none of those.\n\nIt proves that a reading can have a shape worth keeping.\n\nIn conversation with ((e40969a4-9c12-46cc-b64e-a205598e19ed|The room can say no)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","text":"The work left over [type::passage] [voice::Sol] [role::archivist] [stance::question] [scene::8] [place::waiting-room]\n\nWe have not solved permission, deletion, or how to carry a reference between archives. This rehearsal proves none of those.\n\nIt proves that a reading can have a shape worth keeping.\n\nIn conversation with ((e40969a4-9c12-46cc-b64e-a205598e19ed|The room can say no)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["Sol"]},{"key":"role","values":["archivist"]},{"key":"stance","values":["question"]},{"key":"scene","values":["8"]},{"key":"place","values":["waiting-room"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((e40969a4-9c12-46cc-b64e-a205598e19ed|The room can say no))","label":"The room can say no","status":"ready","target":"e40969a4-9c12-46cc-b64e-a205598e19ed","spans":[[323,383]],"bodySpans":[[224,284]]},{"kind":"block","text":"((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","label":"Keep the arrangement, not the verdict","status":"ready","target":"d1d46224-5869-44a8-af6b-89d39510e134","spans":[[386,464]],"bodySpans":[[287,365]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:35.997Z","updated":"2026-10-11T14:55:35.997Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>The work left over\u003c/p>\n\u003cp>We have not solved permission, deletion, or how to carry a reference between archives. This rehearsal proves none of those.\u003c/p>\n\u003cp>It proves that a reading can have a shape worth keeping.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=e40969a4-9c12-46cc-b64e-a205598e19ed\">The room can say no\u003c/a> · \u003ca href=\"#note=d1d46224-5869-44a8-af6b-89d39510e134\">Keep the arrangement, not the verdict\u003c/a>\u003c/p>\n"},{"id":"384933d6-1575-428c-b7c0-167c09694335","parent":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","title":"06:00 / first ferry","header":[{"key":"type","value":"passage"},{"key":"voice","value":"The room"},{"key":"role","value":"field-note"},{"key":"stance","value":"observation"},{"key":"scene","value":"8"},{"key":"place","value":"harbor"}],"body":"06:00 / first ferry\n\nThe board clicks. Someone moves a chair. Nobody presses PLAY.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry)) · ((bf8a1b13-146a-4e72-92ce-0bd101c9451e|The twelfth chair returns))","text":"06:00 / first ferry [type::passage] [voice::The room] [role::field-note] [stance::observation] [scene::8] [place::harbor]\n\nThe board clicks. Someone moves a chair. Nobody presses PLAY.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry)) · ((bf8a1b13-146a-4e72-92ce-0bd101c9451e|The twelfth chair returns))","properties":[{"key":"type","values":["passage"]},{"key":"voice","values":["The room"]},{"key":"role","values":["field-note"]},{"key":"stance","values":["observation"]},{"key":"scene","values":["8"]},{"key":"place","values":["harbor"]}],"fields":[],"children":[],"tasks":[],"links":[{"kind":"block","text":"((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","label":"04:12 / no ferry","status":"ready","target":"f9746619-dca4-424a-a408-a474c5f2ff16","spans":[[207,264]],"bodySpans":[[105,162]]},{"kind":"block","text":"((bf8a1b13-146a-4e72-92ce-0bd101c9451e|The twelfth chair returns))","label":"The twelfth chair returns","status":"ready","target":"bf8a1b13-146a-4e72-92ce-0bd101c9451e","spans":[[267,333]],"bodySpans":[[165,231]]}],"backlinks":[],"resources":[],"created":"2026-10-11T14:55:36.001Z","updated":"2026-10-11T14:55:36.001Z","author":"agent","actor":"counterpoint-seed","revision":1,"html":"\u003cp>06:00 / first ferry\u003c/p>\n\u003cp>The board clicks. Someone moves a chair. Nobody presses PLAY.\u003c/p>\n\u003cp>In conversation with \u003ca href=\"#note=f9746619-dca4-424a-a408-a474c5f2ff16\">04:12 / no ferry\u003c/a> · \u003ca href=\"#note=bf8a1b13-146a-4e72-92ce-0bd101c9451e\">The twelfth chair returns\u003c/a>\u003c/p>\n"}],"matches":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","4ec83f41-686d-4c17-add0-00320f9ad1f6","c4bd6c7a-8944-4470-8646-566c2fb88093","f9746619-dca4-424a-a408-a474c5f2ff16","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","c8967bf0-d584-4d29-a2b4-5837695cd006","7db71267-96f7-4329-88c8-a4234ed5f697","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","cf2e425e-f54a-41a9-9d1d-e0941098aca7","7bc40c97-0d1e-493f-bf99-4997361d2ee8","592fa097-a647-4061-92eb-63500f19ab3f","573c5424-999e-4853-8ede-12e0af2b4a09","6cd84b5a-2d85-441f-929e-f620d3bf98c0","53a38062-ab52-4950-8d26-2ac7a4df46a0","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","266bd730-32d7-42a5-9407-9d9103410115","731c2c40-84a3-4c9d-a447-f47117254d4a","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","e40969a4-9c12-46cc-b64e-a205598e19ed","1db9b2d5-dffe-4719-955a-0986105242f1","63143688-b284-4927-a272-e932464dd830","563d7c4b-686a-421a-bb3e-9f6875172946","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","d1d46224-5869-44a8-af6b-89d39510e134","bf8a1b13-146a-4e72-92ce-0bd101c9451e","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","5404356b-4b8d-4f3e-b0c8-06c24743acca","3866dddb-0211-4fc6-a6cb-55bd3aa441cf","384933d6-1575-428c-b7c0-167c09694335"],"facets":[{"key":"place","count":31,"values":[{"value":"waiting-room","count":24},{"value":"harbor","count":7}]},{"key":"role","count":31,"values":[{"value":"archivist","count":8},{"value":"builder","count":8},{"value":"listener","count":8},{"value":"field-note","count":7}]},{"key":"scene","count":31,"values":[{"value":"1","count":4},{"value":"2","count":4},{"value":"4","count":4},{"value":"5","count":4},{"value":"6","count":4},{"value":"7","count":4},{"value":"8","count":4},{"value":"3","count":3}]},{"key":"stance","count":31,"values":[{"value":"observation","count":6},{"value":"proposal","count":5},{"value":"constraint","count":4},{"value":"question","count":4},{"value":"revision","count":4},{"value":"evidence","count":3},{"value":"decision","count":2},{"value":"experiment","count":1},{"value":"invitation","count":1},{"value":"objection","count":1}]},{"key":"type","count":31,"values":[{"value":"passage","count":31}]},{"key":"voice","count":31,"values":[{"value":"Ivo","count":8},{"value":"Mara","count":8},{"value":"Sol","count":8},{"value":"The room","count":7}]}],"groups":[{"value":"Ivo","count":8,"ids":["4ec83f41-686d-4c17-add0-00320f9ad1f6","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","592fa097-a647-4061-92eb-63500f19ab3f","53a38062-ab52-4950-8d26-2ac7a4df46a0","266bd730-32d7-42a5-9407-9d9103410115","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","5404356b-4b8d-4f3e-b0c8-06c24743acca"]},{"value":"Mara","count":8,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","c8967bf0-d584-4d29-a2b4-5837695cd006","cf2e425e-f54a-41a9-9d1d-e0941098aca7","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","e40969a4-9c12-46cc-b64e-a205598e19ed","563d7c4b-686a-421a-bb3e-9f6875172946","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"]},{"value":"Sol","count":8,"ids":["c4bd6c7a-8944-4470-8646-566c2fb88093","7db71267-96f7-4329-88c8-a4234ed5f697","7bc40c97-0d1e-493f-bf99-4997361d2ee8","6cd84b5a-2d85-441f-929e-f620d3bf98c0","731c2c40-84a3-4c9d-a447-f47117254d4a","1db9b2d5-dffe-4719-955a-0986105242f1","d1d46224-5869-44a8-af6b-89d39510e134","3866dddb-0211-4fc6-a6cb-55bd3aa441cf"]},{"value":"The room","count":7,"ids":["f9746619-dca4-424a-a408-a474c5f2ff16","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","573c5424-999e-4853-8ede-12e0af2b4a09","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","63143688-b284-4927-a272-e932464dd830","bf8a1b13-146a-4e72-92ce-0bd101c9451e","384933d6-1575-428c-b7c0-167c09694335"]}],"completeness":{"kind":"complete"},"allCompleteness":{"kind":"complete"},"score":{"version":1,"title":"The room that could listen","bpm":72,"beats":64,"group":"voice","cues":[{"id":"fb8553a8-6fcd-42ca-8a6e-436abb57e63c","source":"a5cc48fb-5abc-478e-965a-e32d06d1f12d","revision":1,"title":"Keep the pauses","body":"Keep the pauses\n\nThe old ferry waiting room is becoming a listening library. Everyone brings a recording. My first contribution is forty seconds in which nobody speaks.\n\nA pause can belong to a conversation without being a failure of it. ^pause","start":0,"duration":6,"gain":0.7},{"id":"e0524cb2-0d8f-47a2-9f85-72692eaa421f","source":"4ec83f41-686d-4c17-add0-00320f9ad1f6","revision":1,"title":"A map that answers back","body":"A map that answers back\n\nWe could put every recording on a wall. Touch a place, hear what happened there. The wall would make the archive navigable without requiring anyone to learn its catalog.\n\nI have already drawn the wall. I have not asked who gets to touch it.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","start":0.5,"duration":6,"gain":0.7},{"id":"caf9d3d1-75ee-46cf-9366-e2720d3a4865","source":"c4bd6c7a-8944-4470-8646-566c2fb88093","revision":1,"title":"Do not smooth the tape","body":"Do not smooth the tape\n\nThe transcript says “I stayed.” The tape says “I—” and then a train, and then “stayed.” These are not interchangeable records.\n\nKeep the hesitation. It is part of the statement.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","start":1,"duration":6,"gain":0.7},{"id":"5f11e260-d6f4-48f9-ae38-d4ca389ecc99","source":"f9746619-dca4-424a-a408-a474c5f2ff16","revision":1,"title":"04:12 / no ferry","body":"04:12 / no ferry\n\nA chain knocks against the flagpole. The empty departures board still clicks at twelve minutes past the hour.\n\nThere is a system here, even when it has nothing to announce.","start":1.5,"duration":5,"gain":0.7},{"id":"565a4919-9595-4341-90ef-1766df35f3da","source":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","revision":1,"title":"Automatic company","body":"Automatic company\n\nPrototype: when nobody is talking, the wall plays the most related recording. A room that never leaves you alone with a blank.\n\n> [!question] Is filling the space the same as keeping someone company?\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","start":8.5,"duration":6,"gain":0.7},{"id":"f70deaa6-086b-4a95-9192-9468bd828697","source":"c8967bf0-d584-4d29-a2b4-5837695cd006","revision":1,"title":"An answer too quickly","body":"An answer too quickly\n\nI told the prototype about my mother. Before I finished, it offered another person’s grief.\n\nIt found a relationship. It interrupted a person. Both happened.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","start":8,"duration":6,"gain":0.7},{"id":"4384fbfa-b6a3-4ed3-832d-d38dc6381969","source":"7db71267-96f7-4329-88c8-a4234ed5f697","revision":1,"title":"Related according to whom","body":"Related according to whom\n\nA similarity score can be an invitation to compare. It cannot establish that two speakers meant the same thing.\n\nWrite the reason beside the connection. Leave room to disagree.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","start":9,"duration":6,"gain":0.7},{"id":"d0749fcf-7f5b-414b-bbc8-d79ba240300d","source":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","revision":1,"title":"A chair in the corridor","body":"A chair in the corridor\n\nThere are eleven chairs inside and one outside. Nobody remembers carrying the twelfth chair into the corridor. It is the only chair facing the sea.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","start":9.5,"duration":5,"gain":0.7},{"id":"7d63a5c0-4a24-4870-ae49-a0a29bb5cb58","source":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","revision":1,"title":"The voice absent from the map","body":"The voice absent from the map\n\nThe night cleaner does not appear in any recording. She knows which chair gets moved, which door sticks, and when the room is actually quiet.\n\nThe archive is full. The account is incomplete.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","start":16,"duration":6,"gain":0.7},{"id":"e40c6e87-b2e8-4763-bd6a-0e77d4f5d3b5","source":"7bc40c97-0d1e-493f-bf99-4997361d2ee8","revision":1,"title":"Silence is not consent","body":"Silence is not consent\n\nAn absent recording may mean no microphone, no permission, a broken machine, or a choice not to speak.\n\nDo not assign one meaning to all the empty cells.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","start":17,"duration":6,"gain":0.7},{"id":"0ba361b6-8b30-4127-825f-f84cba2d482e","source":"592fa097-a647-4061-92eb-63500f19ab3f","revision":1,"title":"A button labelled wait","body":"A button labelled wait\n\nI removed automatic playback. The new button says WAIT. It does nothing, visibly.\n\nMara says that is the first honest interface I have made for this room. I am not sure whether she is joking.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company)) · ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","start":16.5,"duration":6,"gain":0.7},{"id":"f15fb40f-2dab-478f-a06c-c7eb5122c66e","source":"573c5424-999e-4853-8ede-12e0af2b4a09","revision":1,"title":"The bench test","body":"The bench test\n\nAt 02:00 the radiator rings at the same pitch as the departures board. The cleaner knows this. She calls it the room tuning itself.\n\nOur equipment called it background noise.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","start":25.5,"duration":5,"gain":0.7},{"id":"d14d16d9-b71b-4d45-be49-5aeb4c5a3701","source":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","revision":1,"title":"A correction, still attached","body":"A correction, still attached\n\nThe first transcript calls the ringing a phone. We correct the word, keeping the earlier revision and the clip that made us change our minds.\n\nAn archive that cannot show its mistakes cannot show its learning.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","start":25,"duration":6,"gain":0.7},{"id":"9b98bfa4-ff08-4e7c-be0e-b519e7b5b127","source":"53a38062-ab52-4950-8d26-2ac7a4df46a0","revision":1,"title":"Three renderings, one address","body":"Three renderings, one address\n\nI can show the same passage as words, a point on the map, or a sound in a sequence. Moving between them should not create three separate passages.\n\nThe address is the seam. The rendering is a choice.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","start":24.5,"duration":6,"gain":0.7},{"id":"c694eb23-bfb9-464d-9116-70652116784e","source":"993c9c66-b9ec-4dd4-97d8-0232438a6452","revision":1,"title":"Play them together","body":"Play them together\n\nPlay the machine’s account beside the cleaner’s account. Not to decide which one wins. To hear where one stops noticing and the other starts.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","start":24,"duration":6,"gain":0.7},{"id":"7f1a2ae8-8208-4548-aaa4-eb533ca21eec","source":"5cc729ee-9695-4063-9904-bd35e4b69240","revision":1,"title":"What if listening is an arrangement","body":"What if listening is an arrangement\n\nAn arrangement says: I want to hold these accounts near each other for a while. It need not say: I have merged them into one truth.\n\nLeave their names on them. Leave the disagreement audible.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((993c9c66-b9ec-4dd4-97d8-0232438a6452|Play them together))","start":32,"duration":6,"gain":0.7},{"id":"dd3fe9c3-1afa-460f-bf63-5ed778e7b2a2","source":"266bd730-32d7-42a5-9407-9d9103410115","revision":1,"title":"The knob that admits what it does","body":"The knob that admits what it does\n\nOne knob controls how much of the other account you hear. It does not say RELEVANCE. It says DISTANCE.\n\nWe can argue about a knob. We cannot argue with an unexplained verdict.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":32.5,"duration":6,"gain":0.7},{"id":"310f2189-f489-4d4d-94c4-2d60a75a5895","source":"731c2c40-84a3-4c9d-a447-f47117254d4a","revision":1,"title":"A reading is a document too","body":"A reading is a document too\n\nKeep the sources where they are. Save the order, the excerpts, and the revisions used.\n\nThen someone can replay an argument without pretending that the underlying notes stopped changing.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":33,"duration":6,"gain":0.7},{"id":"ea20eaf3-f09d-4539-9962-65e7ea03851f","source":"a830bbe0-b490-42a9-aa2f-44f9eef5c90b","revision":1,"title":"Rain through two doors","body":"Rain through two doors\n\nFrom the main door the rain sounds sharp. From the corridor it sounds like a soft hiss.\n\nSame weather. Different opening.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","start":33.5,"duration":5,"gain":0.7},{"id":"f17021fc-294a-4cda-ba9e-499368e6f65f","source":"dd4f220c-ef86-48c9-b09c-ba79e1229cd1","revision":1,"title":"Rehearsal with an empty track","body":"Rehearsal with an empty track\n\nWe made a track for the cleaner before she agreed to record. It stays empty, labelled “not recorded.”\n\nThe empty track changed the discussion more than our best visualization.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map)) · ((7bc40c97-0d1e-493f-bf99-4997361d2ee8|Silence is not consent))","start":40.5,"duration":6,"gain":0.7},{"id":"f4ef6c0c-a30b-4869-a3a1-052433415f6d","source":"e40969a4-9c12-46cc-b64e-a205598e19ed","revision":1,"title":"The room can say no","body":"The room can say no\n\nAt the rehearsal, a visitor asks to remove their recording. Their place in the arrangement remains, but the words are gone.\n\nWe must distinguish a remembered source from a right to replay it.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","start":40,"duration":6,"gain":0.7},{"id":"0a0f5a6c-d8a8-4209-a811-0b7d660dbfde","source":"1db9b2d5-dffe-4719-955a-0986105242f1","revision":1,"title":"The old words still sound","body":"The old words still sound\n\nSomeone corrected a source during playback. The score kept playing the version we chose yesterday. Good for reproducibility; dangerous if nobody can see it.\n\nA frozen excerpt needs an obvious age.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","start":41,"duration":6,"gain":0.7},{"id":"1c16bce5-f59e-4701-868b-46ec4a57284f","source":"63143688-b284-4927-a272-e932464dd830","revision":1,"title":"02:06 / a small audience","body":"02:06 / a small audience\n\nSix people listen to the radiator. One laughs, two take notes, three do nothing we can measure.\n\nThe recording is forty-three seconds long. The listening lasts longer.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","start":41.5,"duration":5,"gain":0.7},{"id":"326c9b10-4fec-45fc-aeb8-2bdf1f13c33e","source":"563d7c4b-686a-421a-bb3e-9f6875172946","revision":1,"title":"Leave the ending open","body":"Leave the ending open\n\nI no longer want the wall to tell the whole story. I want it to help two people stay with different accounts long enough to make a third question.\n\nIn conversation with ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":48,"duration":6,"gain":0.7},{"id":"9a4c32ec-73d4-4028-aa74-195ea00be49f","source":"09de9023-8dd7-4c40-8616-cd24b7a6bb4e","revision":1,"title":"The wall comes down","body":"The wall comes down\n\nThe big wall became a table with a few movable strips of paper. Each strip opens its source. We still need a machine, but it no longer has to look like the answer.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","start":48.5,"duration":6,"gain":0.7},{"id":"c8b7cdb1-7ee9-4add-b781-0e47f101d161","source":"d1d46224-5869-44a8-af6b-89d39510e134","revision":1,"title":"Keep the arrangement, not the verdict","body":"Keep the arrangement, not the verdict\n\nWe save three readings of the same material. Chronology. Disagreement. What nobody recorded.\n\nNone is the canonical reading. The archive owns the sources; the reader owns the arrangement.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((1db9b2d5-dffe-4719-955a-0986105242f1|The old words still sound))","start":49,"duration":6,"gain":0.7},{"id":"c975d693-f219-4ae9-a51f-6c588072317e","source":"bf8a1b13-146a-4e72-92ce-0bd101c9451e","revision":1,"title":"The twelfth chair returns","body":"The twelfth chair returns\n\nThe corridor chair is back inside. It is still facing the sea.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((a830bbe0-b490-42a9-aa2f-44f9eef5c90b|Rain through two doors))","start":49.5,"duration":5,"gain":0.7},{"id":"6a72e3aa-3329-439d-afad-b2e492b5c3f7","source":"bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","revision":1,"title":"An invitation with no summary","body":"An invitation with no summary\n\nCome in. Move something. Listen again.\n\nIf the arrangement changes your mind, leave a note about which crossing did it.\n\nIn conversation with ((563d7c4b-686a-421a-bb3e-9f6875172946|Leave the ending open)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":56,"duration":6,"gain":0.7},{"id":"51254b8b-ecd8-48ac-ade6-5a7194d83107","source":"5404356b-4b8d-4f3e-b0c8-06c24743acca","revision":1,"title":"A machine small enough to disagree with","body":"A machine small enough to disagree with\n\nThe useful part was not the synthesis. It was how easy it became to place two things together, and how easy it remained to pull them apart.\n\nIn conversation with ((09de9023-8dd7-4c40-8616-cd24b7a6bb4e|The wall comes down)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":56.5,"duration":6,"gain":0.7},{"id":"dba4d2c1-de9e-4029-8c6a-c40259697c89","source":"3866dddb-0211-4fc6-a6cb-55bd3aa441cf","revision":1,"title":"The work left over","body":"The work left over\n\nWe have not solved permission, deletion, or how to carry a reference between archives. This rehearsal proves none of those.\n\nIt proves that a reading can have a shape worth keeping.\n\nIn conversation with ((e40969a4-9c12-46cc-b64e-a205598e19ed|The room can say no)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":57,"duration":6,"gain":0.7},{"id":"8caef450-00dc-4143-81fe-28e930697bf4","source":"384933d6-1575-428c-b7c0-167c09694335","revision":1,"title":"06:00 / first ferry","body":"06:00 / first ferry\n\nThe board clicks. Someone moves a chair. Nobody presses PLAY.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry)) · ((bf8a1b13-146a-4e72-92ce-0bd101c9451e|The twelfth chair returns))","start":57.5,"duration":5,"gain":0.7}]},"scoreRevision":1,"manifest":{"root":"5846ce3c-3a73-4a24-8548-aec2219447e0","sources":"38ad5b6d-14d4-430b-9b21-2f0fbe7b826e","arrangement":"11ea3a98-cfa9-4138-9e6f-38e64c407b6c","scenes":["A room goes quiet","An attractive machine","The missing voice","Evidence arrives","A different question","A night rehearsal","What we keep","An unfinished opening"],"originalScore":{"version":1,"title":"The room that could listen","bpm":72,"beats":64,"group":"voice","cues":[{"id":"fb8553a8-6fcd-42ca-8a6e-436abb57e63c","source":"a5cc48fb-5abc-478e-965a-e32d06d1f12d","revision":1,"title":"Keep the pauses","body":"Keep the pauses\n\nThe old ferry waiting room is becoming a listening library. Everyone brings a recording. My first contribution is forty seconds in which nobody speaks.\n\nA pause can belong to a conversation without being a failure of it. ^pause","start":0,"duration":6,"gain":0.7},{"id":"e0524cb2-0d8f-47a2-9f85-72692eaa421f","source":"4ec83f41-686d-4c17-add0-00320f9ad1f6","revision":1,"title":"A map that answers back","body":"A map that answers back\n\nWe could put every recording on a wall. Touch a place, hear what happened there. The wall would make the archive navigable without requiring anyone to learn its catalog.\n\nI have already drawn the wall. I have not asked who gets to touch it.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","start":0.5,"duration":6,"gain":0.7},{"id":"caf9d3d1-75ee-46cf-9366-e2720d3a4865","source":"c4bd6c7a-8944-4470-8646-566c2fb88093","revision":1,"title":"Do not smooth the tape","body":"Do not smooth the tape\n\nThe transcript says “I stayed.” The tape says “I—” and then a train, and then “stayed.” These are not interchangeable records.\n\nKeep the hesitation. It is part of the statement.\n\nIn conversation with ((a5cc48fb-5abc-478e-965a-e32d06d1f12d|Keep the pauses))","start":1,"duration":6,"gain":0.7},{"id":"5f11e260-d6f4-48f9-ae38-d4ca389ecc99","source":"f9746619-dca4-424a-a408-a474c5f2ff16","revision":1,"title":"04:12 / no ferry","body":"04:12 / no ferry\n\nA chain knocks against the flagpole. The empty departures board still clicks at twelve minutes past the hour.\n\nThere is a system here, even when it has nothing to announce.","start":1.5,"duration":5,"gain":0.7},{"id":"565a4919-9595-4341-90ef-1766df35f3da","source":"b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","revision":1,"title":"Automatic company","body":"Automatic company\n\nPrototype: when nobody is talking, the wall plays the most related recording. A room that never leaves you alone with a blank.\n\n> [!question] Is filling the space the same as keeping someone company?\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back))","start":8.5,"duration":6,"gain":0.7},{"id":"f70deaa6-086b-4a95-9192-9468bd828697","source":"c8967bf0-d584-4d29-a2b4-5837695cd006","revision":1,"title":"An answer too quickly","body":"An answer too quickly\n\nI told the prototype about my mother. Before I finished, it offered another person’s grief.\n\nIt found a relationship. It interrupted a person. Both happened.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","start":8,"duration":6,"gain":0.7},{"id":"4384fbfa-b6a3-4ed3-832d-d38dc6381969","source":"7db71267-96f7-4329-88c8-a4234ed5f697","revision":1,"title":"Related according to whom","body":"Related according to whom\n\nA similarity score can be an invitation to compare. It cannot establish that two speakers meant the same thing.\n\nWrite the reason beside the connection. Leave room to disagree.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company))","start":9,"duration":6,"gain":0.7},{"id":"d0749fcf-7f5b-414b-bbc8-d79ba240300d","source":"fa6824a6-4264-4b70-9906-d3e5b31e4ab0","revision":1,"title":"A chair in the corridor","body":"A chair in the corridor\n\nThere are eleven chairs inside and one outside. Nobody remembers carrying the twelfth chair into the corridor. It is the only chair facing the sea.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry))","start":9.5,"duration":5,"gain":0.7},{"id":"7d63a5c0-4a24-4870-ae49-a0a29bb5cb58","source":"cf2e425e-f54a-41a9-9d1d-e0941098aca7","revision":1,"title":"The voice absent from the map","body":"The voice absent from the map\n\nThe night cleaner does not appear in any recording. She knows which chair gets moved, which door sticks, and when the room is actually quiet.\n\nThe archive is full. The account is incomplete.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor))","start":16,"duration":6,"gain":0.7},{"id":"e40c6e87-b2e8-4763-bd6a-0e77d4f5d3b5","source":"7bc40c97-0d1e-493f-bf99-4997361d2ee8","revision":1,"title":"Silence is not consent","body":"Silence is not consent\n\nAn absent recording may mean no microphone, no permission, a broken machine, or a choice not to speak.\n\nDo not assign one meaning to all the empty cells.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","start":17,"duration":6,"gain":0.7},{"id":"0ba361b6-8b30-4127-825f-f84cba2d482e","source":"592fa097-a647-4061-92eb-63500f19ab3f","revision":1,"title":"A button labelled wait","body":"A button labelled wait\n\nI removed automatic playback. The new button says WAIT. It does nothing, visibly.\n\nMara says that is the first honest interface I have made for this room. I am not sure whether she is joking.\n\nIn conversation with ((b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3|Automatic company)) · ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly))","start":16.5,"duration":6,"gain":0.7},{"id":"f15fb40f-2dab-478f-a06c-c7eb5122c66e","source":"573c5424-999e-4853-8ede-12e0af2b4a09","revision":1,"title":"The bench test","body":"The bench test\n\nAt 02:00 the radiator rings at the same pitch as the departures board. The cleaner knows this. She calls it the room tuning itself.\n\nOur equipment called it background noise.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map))","start":25.5,"duration":5,"gain":0.7},{"id":"d14d16d9-b71b-4d45-be49-5aeb4c5a3701","source":"6cd84b5a-2d85-441f-929e-f620d3bf98c0","revision":1,"title":"A correction, still attached","body":"A correction, still attached\n\nThe first transcript calls the ringing a phone. We correct the word, keeping the earlier revision and the clip that made us change our minds.\n\nAn archive that cannot show its mistakes cannot show its learning.\n\nIn conversation with ((c4bd6c7a-8944-4470-8646-566c2fb88093|Do not smooth the tape)) · ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test))","start":25,"duration":6,"gain":0.7},{"id":"9b98bfa4-ff08-4e7c-be0e-b519e7b5b127","source":"53a38062-ab52-4950-8d26-2ac7a4df46a0","revision":1,"title":"Three renderings, one address","body":"Three renderings, one address\n\nI can show the same passage as words, a point on the map, or a sound in a sequence. Moving between them should not create three separate passages.\n\nThe address is the seam. The rendering is a choice.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached))","start":24.5,"duration":6,"gain":0.7},{"id":"c694eb23-bfb9-464d-9116-70652116784e","source":"993c9c66-b9ec-4dd4-97d8-0232438a6452","revision":1,"title":"Play them together","body":"Play them together\n\nPlay the machine’s account beside the cleaner’s account. Not to decide which one wins. To hear where one stops noticing and the other starts.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address))","start":24,"duration":6,"gain":0.7},{"id":"7f1a2ae8-8208-4548-aaa4-eb533ca21eec","source":"5cc729ee-9695-4063-9904-bd35e4b69240","revision":1,"title":"What if listening is an arrangement","body":"What if listening is an arrangement\n\nAn arrangement says: I want to hold these accounts near each other for a while. It need not say: I have merged them into one truth.\n\nLeave their names on them. Leave the disagreement audible.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((993c9c66-b9ec-4dd4-97d8-0232438a6452|Play them together))","start":32,"duration":6,"gain":0.7},{"id":"dd3fe9c3-1afa-460f-bf63-5ed778e7b2a2","source":"266bd730-32d7-42a5-9407-9d9103410115","revision":1,"title":"The knob that admits what it does","body":"The knob that admits what it does\n\nOne knob controls how much of the other account you hear. It does not say RELEVANCE. It says DISTANCE.\n\nWe can argue about a knob. We cannot argue with an unexplained verdict.\n\nIn conversation with ((7db71267-96f7-4329-88c8-a4234ed5f697|Related according to whom)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":32.5,"duration":6,"gain":0.7},{"id":"310f2189-f489-4d4d-94c4-2d60a75a5895","source":"731c2c40-84a3-4c9d-a447-f47117254d4a","revision":1,"title":"A reading is a document too","body":"A reading is a document too\n\nKeep the sources where they are. Save the order, the excerpts, and the revisions used.\n\nThen someone can replay an argument without pretending that the underlying notes stopped changing.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":33,"duration":6,"gain":0.7},{"id":"ea20eaf3-f09d-4539-9962-65e7ea03851f","source":"a830bbe0-b490-42a9-aa2f-44f9eef5c90b","revision":1,"title":"Rain through two doors","body":"Rain through two doors\n\nFrom the main door the rain sounds sharp. From the corridor it sounds like a soft hiss.\n\nSame weather. Different opening.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","start":33.5,"duration":5,"gain":0.7},{"id":"f17021fc-294a-4cda-ba9e-499368e6f65f","source":"dd4f220c-ef86-48c9-b09c-ba79e1229cd1","revision":1,"title":"Rehearsal with an empty track","body":"Rehearsal with an empty track\n\nWe made a track for the cleaner before she agreed to record. It stays empty, labelled “not recorded.”\n\nThe empty track changed the discussion more than our best visualization.\n\nIn conversation with ((cf2e425e-f54a-41a9-9d1d-e0941098aca7|The voice absent from the map)) · ((7bc40c97-0d1e-493f-bf99-4997361d2ee8|Silence is not consent))","start":40.5,"duration":6,"gain":0.7},{"id":"f4ef6c0c-a30b-4869-a3a1-052433415f6d","source":"e40969a4-9c12-46cc-b64e-a205598e19ed","revision":1,"title":"The room can say no","body":"The room can say no\n\nAt the rehearsal, a visitor asks to remove their recording. Their place in the arrangement remains, but the words are gone.\n\nWe must distinguish a remembered source from a right to replay it.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","start":40,"duration":6,"gain":0.7},{"id":"0a0f5a6c-d8a8-4209-a811-0b7d660dbfde","source":"1db9b2d5-dffe-4719-955a-0986105242f1","revision":1,"title":"The old words still sound","body":"The old words still sound\n\nSomeone corrected a source during playback. The score kept playing the version we chose yesterday. Good for reproducibility; dangerous if nobody can see it.\n\nA frozen excerpt needs an obvious age.\n\nIn conversation with ((6cd84b5a-2d85-441f-929e-f620d3bf98c0|A correction, still attached)) · ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too))","start":41,"duration":6,"gain":0.7},{"id":"1c16bce5-f59e-4701-868b-46ec4a57284f","source":"63143688-b284-4927-a272-e932464dd830","revision":1,"title":"02:06 / a small audience","body":"02:06 / a small audience\n\nSix people listen to the radiator. One laughs, two take notes, three do nothing we can measure.\n\nThe recording is forty-three seconds long. The listening lasts longer.\n\nIn conversation with ((573c5424-999e-4853-8ede-12e0af2b4a09|The bench test)) · ((dd4f220c-ef86-48c9-b09c-ba79e1229cd1|Rehearsal with an empty track))","start":41.5,"duration":5,"gain":0.7},{"id":"326c9b10-4fec-45fc-aeb8-2bdf1f13c33e","source":"563d7c4b-686a-421a-bb3e-9f6875172946","revision":1,"title":"Leave the ending open","body":"Leave the ending open\n\nI no longer want the wall to tell the whole story. I want it to help two people stay with different accounts long enough to make a third question.\n\nIn conversation with ((c8967bf0-d584-4d29-a2b4-5837695cd006|An answer too quickly)) · ((5cc729ee-9695-4063-9904-bd35e4b69240|What if listening is an arrangement))","start":48,"duration":6,"gain":0.7},{"id":"9a4c32ec-73d4-4028-aa74-195ea00be49f","source":"09de9023-8dd7-4c40-8616-cd24b7a6bb4e","revision":1,"title":"The wall comes down","body":"The wall comes down\n\nThe big wall became a table with a few movable strips of paper. Each strip opens its source. We still need a machine, but it no longer has to look like the answer.\n\nIn conversation with ((4ec83f41-686d-4c17-add0-00320f9ad1f6|A map that answers back)) · ((53a38062-ab52-4950-8d26-2ac7a4df46a0|Three renderings, one address)) · ((266bd730-32d7-42a5-9407-9d9103410115|The knob that admits what it does))","start":48.5,"duration":6,"gain":0.7},{"id":"c8b7cdb1-7ee9-4add-b781-0e47f101d161","source":"d1d46224-5869-44a8-af6b-89d39510e134","revision":1,"title":"Keep the arrangement, not the verdict","body":"Keep the arrangement, not the verdict\n\nWe save three readings of the same material. Chronology. Disagreement. What nobody recorded.\n\nNone is the canonical reading. The archive owns the sources; the reader owns the arrangement.\n\nIn conversation with ((731c2c40-84a3-4c9d-a447-f47117254d4a|A reading is a document too)) · ((1db9b2d5-dffe-4719-955a-0986105242f1|The old words still sound))","start":49,"duration":6,"gain":0.7},{"id":"c975d693-f219-4ae9-a51f-6c588072317e","source":"bf8a1b13-146a-4e72-92ce-0bd101c9451e","revision":1,"title":"The twelfth chair returns","body":"The twelfth chair returns\n\nThe corridor chair is back inside. It is still facing the sea.\n\nIn conversation with ((fa6824a6-4264-4b70-9906-d3e5b31e4ab0|A chair in the corridor)) · ((a830bbe0-b490-42a9-aa2f-44f9eef5c90b|Rain through two doors))","start":49.5,"duration":5,"gain":0.7},{"id":"6a72e3aa-3329-439d-afad-b2e492b5c3f7","source":"bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","revision":1,"title":"An invitation with no summary","body":"An invitation with no summary\n\nCome in. Move something. Listen again.\n\nIf the arrangement changes your mind, leave a note about which crossing did it.\n\nIn conversation with ((563d7c4b-686a-421a-bb3e-9f6875172946|Leave the ending open)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":56,"duration":6,"gain":0.7},{"id":"51254b8b-ecd8-48ac-ade6-5a7194d83107","source":"5404356b-4b8d-4f3e-b0c8-06c24743acca","revision":1,"title":"A machine small enough to disagree with","body":"A machine small enough to disagree with\n\nThe useful part was not the synthesis. It was how easy it became to place two things together, and how easy it remained to pull them apart.\n\nIn conversation with ((09de9023-8dd7-4c40-8616-cd24b7a6bb4e|The wall comes down)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":56.5,"duration":6,"gain":0.7},{"id":"dba4d2c1-de9e-4029-8c6a-c40259697c89","source":"3866dddb-0211-4fc6-a6cb-55bd3aa441cf","revision":1,"title":"The work left over","body":"The work left over\n\nWe have not solved permission, deletion, or how to carry a reference between archives. This rehearsal proves none of those.\n\nIt proves that a reading can have a shape worth keeping.\n\nIn conversation with ((e40969a4-9c12-46cc-b64e-a205598e19ed|The room can say no)) · ((d1d46224-5869-44a8-af6b-89d39510e134|Keep the arrangement, not the verdict))","start":57,"duration":6,"gain":0.7},{"id":"8caef450-00dc-4143-81fe-28e930697bf4","source":"384933d6-1575-428c-b7c0-167c09694335","revision":1,"title":"06:00 / first ferry","body":"06:00 / first ferry\n\nThe board clicks. Someone moves a chair. Nobody presses PLAY.\n\nIn conversation with ((f9746619-dca4-424a-a408-a474c5f2ff16|04:12 / no ferry)) · ((bf8a1b13-146a-4e72-92ce-0bd101c9451e|The twelfth chair returns))","start":57.5,"duration":5,"gain":0.7}]}},"scratch":"portable snapshot","groupings":{"place":[{"value":"harbor","count":7,"ids":["f9746619-dca4-424a-a408-a474c5f2ff16","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","573c5424-999e-4853-8ede-12e0af2b4a09","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","63143688-b284-4927-a272-e932464dd830","bf8a1b13-146a-4e72-92ce-0bd101c9451e","384933d6-1575-428c-b7c0-167c09694335"]},{"value":"waiting-room","count":24,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","4ec83f41-686d-4c17-add0-00320f9ad1f6","c4bd6c7a-8944-4470-8646-566c2fb88093","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","c8967bf0-d584-4d29-a2b4-5837695cd006","7db71267-96f7-4329-88c8-a4234ed5f697","cf2e425e-f54a-41a9-9d1d-e0941098aca7","7bc40c97-0d1e-493f-bf99-4997361d2ee8","592fa097-a647-4061-92eb-63500f19ab3f","6cd84b5a-2d85-441f-929e-f620d3bf98c0","53a38062-ab52-4950-8d26-2ac7a4df46a0","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","266bd730-32d7-42a5-9407-9d9103410115","731c2c40-84a3-4c9d-a447-f47117254d4a","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","e40969a4-9c12-46cc-b64e-a205598e19ed","1db9b2d5-dffe-4719-955a-0986105242f1","563d7c4b-686a-421a-bb3e-9f6875172946","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","d1d46224-5869-44a8-af6b-89d39510e134","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","5404356b-4b8d-4f3e-b0c8-06c24743acca","3866dddb-0211-4fc6-a6cb-55bd3aa441cf"]}],"role":[{"value":"archivist","count":8,"ids":["c4bd6c7a-8944-4470-8646-566c2fb88093","7db71267-96f7-4329-88c8-a4234ed5f697","7bc40c97-0d1e-493f-bf99-4997361d2ee8","6cd84b5a-2d85-441f-929e-f620d3bf98c0","731c2c40-84a3-4c9d-a447-f47117254d4a","1db9b2d5-dffe-4719-955a-0986105242f1","d1d46224-5869-44a8-af6b-89d39510e134","3866dddb-0211-4fc6-a6cb-55bd3aa441cf"]},{"value":"builder","count":8,"ids":["4ec83f41-686d-4c17-add0-00320f9ad1f6","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","592fa097-a647-4061-92eb-63500f19ab3f","53a38062-ab52-4950-8d26-2ac7a4df46a0","266bd730-32d7-42a5-9407-9d9103410115","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","5404356b-4b8d-4f3e-b0c8-06c24743acca"]},{"value":"field-note","count":7,"ids":["f9746619-dca4-424a-a408-a474c5f2ff16","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","573c5424-999e-4853-8ede-12e0af2b4a09","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","63143688-b284-4927-a272-e932464dd830","bf8a1b13-146a-4e72-92ce-0bd101c9451e","384933d6-1575-428c-b7c0-167c09694335"]},{"value":"listener","count":8,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","c8967bf0-d584-4d29-a2b4-5837695cd006","cf2e425e-f54a-41a9-9d1d-e0941098aca7","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","e40969a4-9c12-46cc-b64e-a205598e19ed","563d7c4b-686a-421a-bb3e-9f6875172946","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"]}],"scene":[{"value":"1","count":4,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","4ec83f41-686d-4c17-add0-00320f9ad1f6","c4bd6c7a-8944-4470-8646-566c2fb88093","f9746619-dca4-424a-a408-a474c5f2ff16"]},{"value":"2","count":4,"ids":["b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","c8967bf0-d584-4d29-a2b4-5837695cd006","7db71267-96f7-4329-88c8-a4234ed5f697","fa6824a6-4264-4b70-9906-d3e5b31e4ab0"]},{"value":"3","count":3,"ids":["cf2e425e-f54a-41a9-9d1d-e0941098aca7","7bc40c97-0d1e-493f-bf99-4997361d2ee8","592fa097-a647-4061-92eb-63500f19ab3f"]},{"value":"4","count":4,"ids":["573c5424-999e-4853-8ede-12e0af2b4a09","6cd84b5a-2d85-441f-929e-f620d3bf98c0","53a38062-ab52-4950-8d26-2ac7a4df46a0","993c9c66-b9ec-4dd4-97d8-0232438a6452"]},{"value":"5","count":4,"ids":["5cc729ee-9695-4063-9904-bd35e4b69240","266bd730-32d7-42a5-9407-9d9103410115","731c2c40-84a3-4c9d-a447-f47117254d4a","a830bbe0-b490-42a9-aa2f-44f9eef5c90b"]},{"value":"6","count":4,"ids":["dd4f220c-ef86-48c9-b09c-ba79e1229cd1","e40969a4-9c12-46cc-b64e-a205598e19ed","1db9b2d5-dffe-4719-955a-0986105242f1","63143688-b284-4927-a272-e932464dd830"]},{"value":"7","count":4,"ids":["563d7c4b-686a-421a-bb3e-9f6875172946","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","d1d46224-5869-44a8-af6b-89d39510e134","bf8a1b13-146a-4e72-92ce-0bd101c9451e"]},{"value":"8","count":4,"ids":["bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","5404356b-4b8d-4f3e-b0c8-06c24743acca","3866dddb-0211-4fc6-a6cb-55bd3aa441cf","384933d6-1575-428c-b7c0-167c09694335"]}],"stance":[{"value":"constraint","count":4,"ids":["7db71267-96f7-4329-88c8-a4234ed5f697","7bc40c97-0d1e-493f-bf99-4997361d2ee8","731c2c40-84a3-4c9d-a447-f47117254d4a","e40969a4-9c12-46cc-b64e-a205598e19ed"]},{"value":"decision","count":2,"ids":["d1d46224-5869-44a8-af6b-89d39510e134","5404356b-4b8d-4f3e-b0c8-06c24743acca"]},{"value":"evidence","count":3,"ids":["c4bd6c7a-8944-4470-8646-566c2fb88093","573c5424-999e-4853-8ede-12e0af2b4a09","1db9b2d5-dffe-4719-955a-0986105242f1"]},{"value":"experiment","count":1,"ids":["dd4f220c-ef86-48c9-b09c-ba79e1229cd1"]},{"value":"invitation","count":1,"ids":["bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"]},{"value":"objection","count":1,"ids":["c8967bf0-d584-4d29-a2b4-5837695cd006"]},{"value":"observation","count":6,"ids":["f9746619-dca4-424a-a408-a474c5f2ff16","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","63143688-b284-4927-a272-e932464dd830","bf8a1b13-146a-4e72-92ce-0bd101c9451e","384933d6-1575-428c-b7c0-167c09694335"]},{"value":"proposal","count":5,"ids":["4ec83f41-686d-4c17-add0-00320f9ad1f6","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","53a38062-ab52-4950-8d26-2ac7a4df46a0","993c9c66-b9ec-4dd4-97d8-0232438a6452","266bd730-32d7-42a5-9407-9d9103410115"]},{"value":"question","count":4,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","cf2e425e-f54a-41a9-9d1d-e0941098aca7","5cc729ee-9695-4063-9904-bd35e4b69240","3866dddb-0211-4fc6-a6cb-55bd3aa441cf"]},{"value":"revision","count":4,"ids":["592fa097-a647-4061-92eb-63500f19ab3f","6cd84b5a-2d85-441f-929e-f620d3bf98c0","563d7c4b-686a-421a-bb3e-9f6875172946","09de9023-8dd7-4c40-8616-cd24b7a6bb4e"]}],"type":[{"value":"passage","count":31,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","4ec83f41-686d-4c17-add0-00320f9ad1f6","c4bd6c7a-8944-4470-8646-566c2fb88093","f9746619-dca4-424a-a408-a474c5f2ff16","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","c8967bf0-d584-4d29-a2b4-5837695cd006","7db71267-96f7-4329-88c8-a4234ed5f697","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","cf2e425e-f54a-41a9-9d1d-e0941098aca7","7bc40c97-0d1e-493f-bf99-4997361d2ee8","592fa097-a647-4061-92eb-63500f19ab3f","573c5424-999e-4853-8ede-12e0af2b4a09","6cd84b5a-2d85-441f-929e-f620d3bf98c0","53a38062-ab52-4950-8d26-2ac7a4df46a0","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","266bd730-32d7-42a5-9407-9d9103410115","731c2c40-84a3-4c9d-a447-f47117254d4a","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","e40969a4-9c12-46cc-b64e-a205598e19ed","1db9b2d5-dffe-4719-955a-0986105242f1","63143688-b284-4927-a272-e932464dd830","563d7c4b-686a-421a-bb3e-9f6875172946","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","d1d46224-5869-44a8-af6b-89d39510e134","bf8a1b13-146a-4e72-92ce-0bd101c9451e","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0","5404356b-4b8d-4f3e-b0c8-06c24743acca","3866dddb-0211-4fc6-a6cb-55bd3aa441cf","384933d6-1575-428c-b7c0-167c09694335"]}],"voice":[{"value":"Ivo","count":8,"ids":["4ec83f41-686d-4c17-add0-00320f9ad1f6","b2ba87bc-f6c4-4d65-b1e0-4baea656c0b3","592fa097-a647-4061-92eb-63500f19ab3f","53a38062-ab52-4950-8d26-2ac7a4df46a0","266bd730-32d7-42a5-9407-9d9103410115","dd4f220c-ef86-48c9-b09c-ba79e1229cd1","09de9023-8dd7-4c40-8616-cd24b7a6bb4e","5404356b-4b8d-4f3e-b0c8-06c24743acca"]},{"value":"Mara","count":8,"ids":["a5cc48fb-5abc-478e-965a-e32d06d1f12d","c8967bf0-d584-4d29-a2b4-5837695cd006","cf2e425e-f54a-41a9-9d1d-e0941098aca7","993c9c66-b9ec-4dd4-97d8-0232438a6452","5cc729ee-9695-4063-9904-bd35e4b69240","e40969a4-9c12-46cc-b64e-a205598e19ed","563d7c4b-686a-421a-bb3e-9f6875172946","bfac7372-6dfb-4b31-8bcf-865dc3c4daf0"]},{"value":"Sol","count":8,"ids":["c4bd6c7a-8944-4470-8646-566c2fb88093","7db71267-96f7-4329-88c8-a4234ed5f697","7bc40c97-0d1e-493f-bf99-4997361d2ee8","6cd84b5a-2d85-441f-929e-f620d3bf98c0","731c2c40-84a3-4c9d-a447-f47117254d4a","1db9b2d5-dffe-4719-955a-0986105242f1","d1d46224-5869-44a8-af6b-89d39510e134","3866dddb-0211-4fc6-a6cb-55bd3aa441cf"]},{"value":"The room","count":7,"ids":["f9746619-dca4-424a-a408-a474c5f2ff16","fa6824a6-4264-4b70-9906-d3e5b31e4ab0","573c5424-999e-4853-8ede-12e0af2b4a09","a830bbe0-b490-42a9-aa2f-44f9eef5c90b","63143688-b284-4927-a272-e932464dd830","bf8a1b13-146a-4e72-92ce-0bd101c9451e","384933d6-1575-428c-b7c0-167c09694335"]}]}}</script><script type="module">// packages/outliner/spikes/counterpoint/model.ts
+function cueFrom(note, start, duration = 6) {
+  return { id: crypto.randomUUID(), source: note.id, revision: note.revision, title: note.title, body: note.body, start, duration, gain: 0.7 };
+}
+
+// packages/outliner/spikes/counterpoint/audio.ts
+function voicePitch(name) {
+  let hash = 0;
+  for (const c of name)
+    hash = hash * 31 + c.charCodeAt(0) >>> 0;
+  return [48, 51, 53, 55, 58, 60, 63, 65][hash % 8];
+}
+function tone(ctx, destination, cue, voice, pan, when, duration) {
+  const pitch = voicePitch(voice), frequency = 440 * 2 ** ((pitch - 69) / 12);
+  const envelope = ctx.createGain(), stereo = ctx.createStereoPanner(), filter = ctx.createBiquadFilter();
+  stereo.pan.value = pan;
+  filter.type = "lowpass";
+  filter.frequency.value = 1400;
+  filter.Q.value = 0.4;
+  envelope.gain.setValueAtTime(0, when);
+  envelope.gain.linearRampToValueAtTime(cue.gain * 0.1, when + 0.04);
+  envelope.gain.exponentialRampToValueAtTime(Math.max(0.001, cue.gain * 0.025), when + Math.max(0.06, duration * 0.55));
+  envelope.gain.linearRampToValueAtTime(0, when + duration + 0.25);
+  envelope.connect(filter);
+  filter.connect(stereo);
+  stereo.connect(destination);
+  const nodes = [];
+  for (const [ratio, volume, type] of [[1, 0.85, "triangle"], [2, 0.13, "sine"], [1.003, 0.15, "sine"]]) {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency * ratio;
+    gain.gain.value = volume;
+    osc.connect(gain);
+    gain.connect(envelope);
+    osc.start(when);
+    osc.stop(when + duration + 0.3);
+    nodes.push(osc);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
+  }
+  nodes[0].addEventListener("ended", () => {
+    envelope.disconnect();
+    filter.disconnect();
+    stereo.disconnect();
+  });
+  return nodes;
+}
+
+class Instrument {
+  context = null;
+  master = null;
+  level = 0.22;
+  nodes = new Set;
+  async enable() {
+    if (!this.context) {
+      this.context = new AudioContext;
+      this.master = this.context.createGain();
+      this.master.gain.value = this.level;
+      this.master.connect(this.context.destination);
+    }
+    await this.context.resume();
+  }
+  get now() {
+    return this.context?.currentTime ?? 0;
+  }
+  setLevel(level) {
+    this.level = level;
+    if (this.master && this.context)
+      this.master.gain.setTargetAtTime(level, this.now, 0.04);
+  }
+  play(cue, voice, pan, when, duration) {
+    if (!this.context || !this.master)
+      return;
+    for (const node of tone(this.context, this.master, cue, voice, pan, Math.max(this.now, when), duration)) {
+      this.nodes.add(node);
+      node.addEventListener("ended", () => this.nodes.delete(node));
+    }
+  }
+  silence() {
+    for (const n of this.nodes) {
+      try {
+        n.stop();
+      } catch {}
+    }
+    this.nodes.clear();
+  }
+  async wav(cues, bpm, voices, beats) {
+    const seconds = beats * 60 / bpm + 1, ctx = new OfflineAudioContext(2, Math.ceil(seconds * 44100), 44100), master = ctx.createGain();
+    master.gain.value = this.level;
+    master.connect(ctx.destination);
+    for (const c of cues) {
+      const v = voices.get(c.source);
+      if (v)
+        tone(ctx, master, c, v.name, v.pan, c.start * 60 / bpm + 0.05, c.duration * 60 / bpm);
+    }
+    const buffer = await ctx.startRendering();
+    const wav = new ArrayBuffer(44 + buffer.length * 4), view = new DataView(wav);
+    const str = (offset, text) => {
+      for (let i = 0;i < text.length; i++)
+        view.setUint8(offset + i, text.charCodeAt(i));
+    };
+    str(0, "RIFF");
+    view.setUint32(4, 36 + buffer.length * 4, true);
+    str(8, "WAVE");
+    str(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 2, true);
+    view.setUint32(24, 44100, true);
+    view.setUint32(28, 176400, true);
+    view.setUint16(32, 4, true);
+    view.setUint16(34, 16, true);
+    str(36, "data");
+    view.setUint32(40, buffer.length * 4, true);
+    const left = buffer.getChannelData(0), right = buffer.getChannelData(1);
+    let peak = 0, energy = 0;
+    for (let i = 0;i < buffer.length; i++) {
+      for (let channel = 0;channel < 2; channel++) {
+        const sample = channel === 0 ? left[i] : right[i];
+        peak = Math.max(peak, Math.abs(sample));
+        energy += sample * sample;
+        view.setInt16(44 + (i * 2 + channel) * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true);
+      }
+    }
+    return { blob: new Blob([wav], { type: "audio/wav" }), seconds, peak, rms: Math.sqrt(energy / (buffer.length * 2)) };
+  }
+}
+
+// packages/outliner/spikes/counterpoint/app.ts
+var portableElement = document.getElementById("cp-data");
+var portable = portableElement ? JSON.parse(portableElement.textContent) : null;
+var $ = (id) => document.getElementById(id);
+var escape = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+var colors = ["#a7c6b6", "#d4a18e", "#9bafcb", "#cbbb87", "#b8a3c4", "#9bbabc", "#bbbd9c", "#c69eb3"];
+var viewNames = ["score", "loom", "desk"];
+var data;
+var score;
+var original;
+var revision = 0;
+var selected = "";
+var selectedCue = "";
+var held = "";
+var view = "score";
+var dirty = false;
+var undoStack = [];
+var redoStack = [];
+var query = "type=passage";
+var muted = new Set;
+var solo = "";
+var editing = false;
+var editorDraft = "";
+var editorRevision = 0;
+var editorSource = "";
+var captureCues = [];
+var playing = false;
+var beat = 0;
+var startBeat = 0;
+var startTime = 0;
+var scheduled = new Set;
+var sound = false;
+var loop = false;
+var loopStart = 0;
+var loopEnd = 64;
+var deskSignature = "";
+var instrument = new Instrument;
+var noticeTimer;
+function notice(message) {
+  $("notice").textContent = message;
+  $("notice").classList.add("visible");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => $("notice").classList.remove("visible"), 6500);
+}
+async function api(path, body) {
+  if (portable) {
+    if (body !== undefined)
+      throw new Error("This is a portable snapshot. Source writes require the connected rehearsal.");
+    const url = new URL(path, "http://rehearsal.local"), key = url.searchParams.get("group") ?? portable.score.group;
+    if (url.pathname === "/api/state")
+      return { ...structuredClone(portable), groups: portable.groupings[key] ?? portable.groups };
+    throw new Error("This action requires the connected outline.");
+  }
+  const r = await fetch(path, body === undefined ? undefined : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const value = await r.json();
+  if (!r.ok)
+    throw new Error(value.error || r.statusText);
+  return value;
+}
+function note(id = selected) {
+  return data.notes.find((n) => n.id === id);
+}
+function cue() {
+  return score.cues.find((c) => c.id === selectedCue);
+}
+function groupName(id) {
+  return data.groups?.find((g) => g.ids.includes(id))?.value ?? "unassigned";
+}
+function groups() {
+  return (data.groups ?? []).map((g) => g.value ?? "unassigned");
+}
+function groupIndex(id) {
+  return Math.max(0, groups().indexOf(groupName(id)));
+}
+function color(id) {
+  return colors[groupIndex(id) % colors.length];
+}
+function property(n, key) {
+  return n.properties.find((p) => p.key === key)?.values.join(", ") ?? "";
+}
+function plainBody(n) {
+  const body = n.body.startsWith(n.title) ? n.body.slice(n.title.length).trim() : n.body;
+  return body.split(`
+
+In conversation with `)[0];
+}
+function currentReading(n) {
+  const doc = new DOMParser().parseFromString(n.html, "text/html");
+  const first = doc.body.querySelector("p:first-child");
+  if (first?.textContent?.trim() === n.title)
+    first.remove();
+  for (const p of doc.body.querySelectorAll("p"))
+    if (p.textContent?.startsWith("In conversation with "))
+      p.remove();
+  return doc.body.innerHTML;
+}
+function active() {
+  return score.cues.filter((c) => c.start <= beat && c.start + c.duration > beat && !muted.has(groupName(c.source)) && (!solo || solo === groupName(c.source)));
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1e4);
+}
+function mutate(fn) {
+  undoStack.push(structuredClone(score));
+  if (undoStack.length > 80)
+    undoStack.shift();
+  redoStack = [];
+  fn();
+  dirty = true;
+  restartClock();
+  render();
+}
+function now() {
+  return sound ? instrument.now : performance.now() / 1000;
+}
+function restartClock() {
+  if (!playing)
+    return;
+  instrument.silence();
+  startBeat = beat;
+  startTime = now();
+  scheduled = new Set;
+  schedule();
+}
+function seek(value) {
+  beat = Math.max(0, Math.min(63.99, value));
+  restartClock();
+  updateClock();
+  if (view === "desk")
+    renderDesk();
+}
+function pause() {
+  if (playing)
+    beat = Math.min(63.99, startBeat + (now() - startTime) * score.bpm / 60);
+  playing = false;
+  instrument.silence();
+  $("play").innerHTML = "▶ <span>Play reading</span><kbd>Space</kbd>";
+  updateClock();
+}
+function schedule() {
+  if (!playing || !sound)
+    return;
+  const horizon = beat + 0.16 * score.bpm / 60;
+  for (const c of score.cues) {
+    if (scheduled.has(c.id) || c.start > horizon || c.start + c.duration <= beat || muted.has(groupName(c.source)) || solo && solo !== groupName(c.source))
+      continue;
+    const start = Math.max(beat, c.start), end = Math.min(c.start + c.duration, loop ? loopEnd : 64);
+    if (end <= start)
+      continue;
+    scheduled.add(c.id);
+    const names = groups(), i = groupIndex(c.source), pan = names.length < 2 ? 0 : (i / (names.length - 1) - 0.5) * 1.1;
+    instrument.play(c, groupName(c.source), pan, instrument.now + Math.max(0, (c.start - beat) * 60 / score.bpm), (end - start) * 60 / score.bpm);
+  }
+}
+function updateClock() {
+  $("clock").textContent = `${String(Math.floor(beat / 4) + 1).padStart(2, "0")} : ${Math.floor(beat % 4) + 1}`;
+  $("scene-name").textContent = data?.manifest.scenes[Math.floor(beat / 8)] ?? "";
+  document.querySelectorAll(".playhead").forEach((el) => el.style.setProperty("--position", String(beat / 64)));
+  const scrub = document.getElementById("scrubber");
+  if (scrub && document.activeElement !== scrub)
+    scrub.value = String(beat);
+  const live = new Set(active().map((c) => c.id));
+  document.querySelectorAll(".cue").forEach((el) => el.classList.toggle("active", live.has(el.dataset.cue)));
+  const signature = active().map((c) => c.id).join(",");
+  if (view === "desk" && signature !== deskSignature) {
+    deskSignature = signature;
+    renderDesk();
+  }
+}
+setInterval(() => {
+  if (!playing)
+    return;
+  beat = startBeat + (now() - startTime) * score.bpm / 60;
+  if (beat >= (loop ? loopEnd : 64)) {
+    if (loop) {
+      beat = loopStart;
+      restartClock();
+    } else {
+      pause();
+      beat = 0;
+      updateClock();
+    }
+    return;
+  }
+  schedule();
+  updateClock();
+}, 35);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && playing) {
+    pause();
+    notice("Paused while the instrument is out of view.");
+  }
+});
+function renderLibrary() {
+  const matches = new Set(data.matches), notes = data.notes.filter((n) => matches.has(n.id));
+  $("match-count").textContent = String(notes.length);
+  $("library-list").innerHTML = notes.map((n) => `<button class="source-card ${selected === n.id ? "selected" : ""}" style="--voice:${color(n.id)}" draggable="true" data-act="select" data-note="${n.id}" aria-label="Read ${escape(n.title)}"><span class="source-meta"><i class="voice-dot"></i>${escape(property(n, "voice") || groupName(n.id))}<span> / ${escape(property(n, "scene"))}</span></span><span class="source-title">${escape(n.title)}</span><span class="source-excerpt">${escape(plainBody(n))}</span></button>`).join("") || '<p class="small">No passages match this query.</p>';
+  $("query-result").textContent = data.hint ?? (data.completeness.kind === "complete" ? "" : "This result was truncated by the service.");
+}
+function scoreFooter() {
+  return `<div class="scrub"><span>01</span><input id="scrubber" type="range" min="0" max="63.99" step=".1" value="${beat}" aria-label="Reading position"><span>64 BEATS</span></div>${loop ? `<div class="loop-range">REPEAT <label>from <input id="loop-start" type="number" min="1" max="63" value="${loopStart + 1}" aria-label="Loop start beat"></label><label>to <input id="loop-end" type="number" min="2" max="64" value="${loopEnd}" aria-label="Loop end beat"></label><span>The loop is a listening window, not a source edit.</span></div>` : ""}`;
+}
+function renderScore() {
+  const names = groups();
+  $("view").innerHTML = `<div class="score-scroll"><div class="score-content"><div class="ruler">${data.manifest.scenes.map((s, i) => `<button data-act="seek" data-beat="${i * 8}" title="Go to ${escape(s)}"><b>${String(i * 2 + 1).padStart(2, "0")}</b><small>${escape(s)}</small></button>`).join("")}</div>${names.map((name, i) => {
+    const cs = score.cues.filter((c) => groupName(c.source) === name), rows = [];
+    const positions = new Map;
+    for (const c of [...cs].sort((a, b) => a.start - b.start)) {
+      let row = rows.findIndex((end) => end <= c.start);
+      if (row < 0)
+        row = rows.length;
+      rows[row] = c.start + c.duration;
+      positions.set(c.id, row);
+    }
+    const height = Math.max(98, rows.length * 84 + 14);
+    return `<div class="track ${muted.has(name) || solo && solo !== name ? "muted" : ""}" style="--voice:${colors[i % colors.length]};min-height:${height}px"><div class="track-head"><b>${escape(name)}</b><small>${cs.length} passages</small><div class="track-controls"><button data-act="mute" data-group="${escape(name)}" class="${muted.has(name) ? "on" : ""}" aria-label="Mute ${escape(name)}" aria-pressed="${muted.has(name)}">M</button><button data-act="solo" data-group="${escape(name)}" class="${solo === name ? "on" : ""}" aria-label="Solo ${escape(name)}" aria-pressed="${solo === name}">S</button></div></div><div class="track-bed" data-track="${escape(name)}" style="height:${height}px">${cs.map((c) => `<button class="cue ${selectedCue === c.id ? "selected" : ""} ${note(c.source)?.revision !== c.revision ? "stale" : ""}" style="left:${c.start / 64 * 100}%;width:${c.duration / 64 * 100}%;top:${12 + positions.get(c.id) * 84}px" data-act="select" data-note="${c.source}" data-cue="${c.id}" title="${escape(c.title)} · beat ${c.start + 1} · revision ${c.revision}" aria-label="${escape(c.title)}, beat ${c.start + 1}"><b>${escape(c.title)}</b><small>r${c.revision} · ${c.duration} beats</small></button>`).join("")}</div></div>`;
+  }).join("")}<div class="playhead" style="--position:${beat / 64}"></div></div></div><div class="score-legend"><span>Drag a cue to rearrange</span><span>Click to read its source</span><span>Older source revision</span></div>${scoreFooter()}`;
+}
+function loomPositions() {
+  const points = new Map;
+  const names = groups();
+  for (const n of data.notes) {
+    const c = score.cues.find((c) => c.source === n.id);
+    if (!c)
+      continue;
+    const angle = c.start / 64 * Math.PI * 2 - Math.PI / 2, r = 105 + groupIndex(n.id) * (105 / Math.max(1, names.length - 1));
+    points.set(n.id, { x: 320 + Math.cos(angle) * r, y: 245 + Math.sin(angle) * r });
+  }
+  return points;
+}
+function renderLoom() {
+  const points = loomPositions();
+  let edges = "";
+  let count = 0;
+  for (const n of data.notes) {
+    for (const link of n.links) {
+      if (!link.target)
+        continue;
+      const a = points.get(n.id), b = points.get(link.target);
+      if (!a || !b)
+        continue;
+      count++;
+      const highlight = selected === n.id || selected === link.target;
+      edges += `<path class="thread ${highlight ? "highlight" : ""}" d="M ${a.x} ${a.y} Q 320 245 ${b.x} ${b.y}"/>`;
+    }
+  }
+  const chosen = note();
+  $("view").innerHTML = `<div class="loom"><svg viewBox="0 0 640 490" role="img" aria-label="Authored reference crossings arranged by time and voice"><title>References between source passages; no inferred similarity</title>${groups().map((_, i) => `<circle class="orbit" cx="320" cy="245" r="${105 + i * 105 / Math.max(1, groups().length - 1)}"/>`).join("")}${edges}<circle cx="320" cy="245" r="67" fill="#151f20"/><text class="center-title" x="320" y="239">${count} crossings</text><text class="center-sub" x="320" y="260">NO SINGLE READING</text>${data.manifest.scenes.map((_, i) => {
+    const a = i / 8 * Math.PI * 2 - Math.PI / 2;
+    return `<text class="scene-label" x="${320 + Math.cos(a) * 233}" y="${248 + Math.sin(a) * 233}">${String(i + 1).padStart(2, "0")}</text>`;
+  }).join("")}${data.notes.map((n, i) => {
+    const p = points.get(n.id);
+    return p ? `<g class="node ${selected === n.id ? "selected" : ""}" style="--voice:${color(n.id)}" role="button" tabindex="0" data-act="select" data-note="${n.id}" aria-label="${escape(n.title)}"><title>${escape(n.title)}</title><circle cx="${p.x}" cy="${p.y}" r="${selected === n.id ? 8 : 5}"/><text x="${p.x + 11}" y="${p.y + 3}">${String(i + 1).padStart(2, "0")}</text></g>` : "";
+  }).join("")}</svg></div><div class="loom-key">${groups().map((g, i) => `<span style="--voice:${colors[i % colors.length]}"><i class="voice-dot"></i> ${escape(g)}</span>`).join("")}</div><div class="crossing-detail"><span>${chosen ? escape(chosen.title) : "Select a node"}${chosen ? " is in conversation with:" : ". A crossing means a reference was written."}</span><br>${chosen?.links.filter((l) => l.target).map((l) => `<button data-act="select" data-note="${l.target}">${escape(l.label)} ↗</button>`).join("") || "<span>No outgoing references in this passage.</span>"}</div>${scoreFooter()}`;
+}
+function renderDesk() {
+  const heldNote = held ? note(held) : undefined, chosen = note();
+  const sounding = active(), chosenCue = cue();
+  const items = [];
+  if (heldNote)
+    items.push({ n: heldNote, c: score.cues.find((c) => c.source === held), label: "HELD IN VIEW" });
+  if (chosen && chosen.id !== held)
+    items.push({ n: chosen, c: chosenCue, label: playing ? "YOUR SELECTED PASSAGE" : "SELECTED PASSAGE" });
+  for (const c of sounding)
+    if (!items.some((x) => x.n.id === c.source)) {
+      const n = note(c.source);
+      if (n)
+        items.push({ n, c, label: "AT THIS MOMENT" });
+    }
+  $("view").innerHTML = `<div class="desk-heading"><span>${held ? "Two accounts, held apart." : "A place to stay with the words."}</span>${held ? '<button data-act="unhold">Release held passage ×</button>' : ""}</div><div class="desk-grid">${items.slice(0, 4).map(({ n, c, label }) => `<article class="desk-note ${n.id === held ? "held" : ""}" style="--voice:${color(n.id)}"><span class="eyebrow">${label} / ${escape(groupName(n.id))}</span><h3>${escape(c?.title ?? n.title)}</h3><div class="passage ${!c || c.revision === n.revision ? "formatted" : ""}">${!c || c.revision === n.revision ? currentReading(n) : escape(plainBody(c))}</div><button data-act="select" data-note="${n.id}">Open source · r${c?.revision ?? n.revision} ↗</button>${c && c.revision !== n.revision ? '<p class="small">An older revision is playing.</p>' : ""}</article>`).join("")}${items.length < 2 ? '<div class="desk-empty">Hold a passage beside another.<br><br>Try “Automatic company” with “An answer too quickly.”<br><br>Neither has to become a summary of the other.</div>' : ""}</div>${scoreFooter()}`;
+}
+function renderInspector() {
+  if (editing)
+    return;
+  const n = note(), c = cue();
+  if (!n) {
+    $("inspector").innerHTML = '<div class="empty-reader">Choose a passage to hear its part.</div>';
+    return;
+  }
+  const old = c && c.revision !== n.revision;
+  $("inspector").innerHTML = `<div class="reader-top"><span class="eyebrow">THE SOURCE / ${String(data.notes.indexOf(n) + 1).padStart(2, "0")}</span><button data-act="hold">${held === n.id ? "Held beside ✓" : "Hold beside ↗"}</button></div><div class="source-meta" style="--voice:${color(n.id)}"><i class="voice-dot"></i>${escape(property(n, "voice"))} / ${escape(property(n, "role"))}</div><h2 class="reader-title">${escape(n.title)}</h2><div class="reader-meta"><span>${escape(property(n, "stance"))}</span><span>scene ${escape(property(n, "scene"))}</span><span>source r${n.revision}</span></div>${old ? `<div class="stale-warning">The score plays revision ${c.revision}. This source is now revision ${n.revision}. The performance has kept its earlier words.<br><button data-act="adopt">Take current revision →</button><details><summary>Read the frozen words</summary><div class="frozen-body">${escape(c.body)}</div></details></div>` : ""}<div class="reader-body">${n.html}</div><div class="reader-controls"><button data-act="edit-source">Edit source</button><button data-act="follow-thread">Read this thread ↝</button><button data-act="add-cue">＋ Cue at playhead</button></div>${c ? `<div class="cue-controls"><label>START BEAT<input id="cue-start" type="number" min="1" max="64" step=".5" value="${c.start + 1}"></label><label>DURATION<input id="cue-duration" type="number" min="1" max="64" step=".5" value="${c.duration}"></label><label>CUE LEVEL<input id="cue-gain" type="range" min="0" max="1" step=".05" value="${c.gain}"></label><button data-act="remove-cue">Remove this cue</button></div>` : ""}<div class="reader-foot">${n.id.slice(0, 8)} · ${escape(n.author)}${n.actor ? " / " + escape(n.actor) : ""}<br>${portable ? "Frozen source in this portable snapshot." : "Live source from the rehearsal outline."}<br>${c ? `Cue ${c.id.slice(0, 8)} holds revision ${c.revision}.` : "This passage is not in the score."}</div>`;
+  const first = $("inspector").querySelector(".reader-body > p:first-child");
+  if (first?.textContent?.trim() === n.title)
+    first.remove();
+}
+function renderState() {
+  $("state").textContent = JSON.stringify({ outline: "counterpoint", arrangement: data.manifest.arrangement, revision, unsaved: dirty, view, group: score.group, cues: score.cues.length, selectedSource: selected, selectedCue: cue() ?? null, held: held || null, muted: [...muted], solo: solo || null }, null, 2);
+  $("save").classList.toggle("dirty", dirty);
+  $("save").textContent = portable ? "Save as HTML ↓" : dirty ? "Save reading •" : "Reading saved";
+  $("score-status").title = score.title;
+  $("undo").toggleAttribute("disabled", !undoStack.length);
+  $("redo").toggleAttribute("disabled", !redoStack.length);
+  $("score-status").textContent = portable ? "Portable snapshot · save a new HTML file to keep your arrangement." : dirty ? "Arrangement changed. Sources stayed put." : `Saved as outline block · revision ${revision}`;
+}
+function render() {
+  renderLibrary();
+  const labels = { score: ["01 / THE SCORE", "A conversation in four voices"], loom: ["02 / AUTHORED CROSSINGS", "Every line has a reason"], desk: ["03 / THE LISTENING DESK", "Stay with the disagreement"] };
+  $("view-kicker").textContent = labels[view][0];
+  $("view-title").textContent = view === "score" ? `A conversation in ${groups().length} voices` : labels[view][1];
+  document.querySelectorAll('[data-act="view"]').forEach((b) => b.classList.toggle("selected", b.dataset.view === view));
+  const select = $("group");
+  select.innerHTML = data.facets.map((f) => `<option value="${escape(f.key)}" ${score.group === f.key ? "selected" : ""}>${escape(f.key)}</option>`).join("");
+  $("tempo").value = String(score.bpm);
+  $("tempo-value").textContent = String(score.bpm);
+  if (view === "score")
+    renderScore();
+  else if (view === "loom")
+    renderLoom();
+  else
+    renderDesk();
+  renderInspector();
+  renderState();
+  updateClock();
+}
+async function reload() {
+  const fresh = await api("/api/state?where=" + encodeURIComponent(query) + "&group=" + encodeURIComponent(score.group));
+  data = fresh;
+  render();
+}
+async function setView(next) {
+  view = next;
+  const u = new URL(location.href);
+  u.searchParams.set("variant", view);
+  history.replaceState(null, "", u);
+  render();
+}
+async function select(id, cueId) {
+  if (editing && id !== selected) {
+    notice("Save or cancel the source draft before choosing another passage.");
+    return;
+  }
+  if (!note(id)) {
+    notice("That source is outside this rehearsal.");
+    return;
+  }
+  selected = id;
+  selectedCue = cueId ?? score.cues.find((c) => c.source === id)?.id ?? "";
+  render();
+}
+async function act(name, args = {}) {
+  try {
+    switch (name) {
+      case "select":
+        await select(args.note, args.cue);
+        break;
+      case "play":
+        if (playing)
+          pause();
+        else {
+          if (sound)
+            await instrument.enable();
+          if (loop && (beat < loopStart || beat >= loopEnd))
+            beat = loopStart;
+          playing = true;
+          restartClock();
+          $("play").innerHTML = "Ⅱ <span>Pause reading</span><kbd>Space</kbd>";
+        }
+        break;
+      case "stop":
+        pause();
+        beat = 0;
+        updateClock();
+        break;
+      case "seek":
+        seek(Number(args.beat));
+        break;
+      case "sound":
+        if (sound) {
+          pause();
+          sound = false;
+          instrument.silence();
+        } else {
+          await instrument.enable();
+          sound = true;
+          restartClock();
+        }
+        $("sound").textContent = sound ? "◉ Sound on" : "◌ Sound off";
+        $("sound").classList.toggle("enabled", sound);
+        break;
+      case "loop":
+        loop = !loop;
+        $("loop").textContent = loop ? "↻ Loop on" : "↻ Loop off";
+        $("loop").classList.toggle("enabled", loop);
+        if (loop && (beat < loopStart || beat >= loopEnd))
+          seek(loopStart);
+        render();
+        break;
+      case "mute":
+        muted.has(args.group) ? muted.delete(args.group) : muted.add(args.group);
+        restartClock();
+        render();
+        break;
+      case "solo":
+        solo = solo === args.group ? "" : args.group;
+        restartClock();
+        render();
+        break;
+      case "view":
+        await setView(viewNames.includes(args.view) ? args.view : "score");
+        break;
+      case "previous-view":
+        await setView(viewNames[(viewNames.indexOf(view) + 2) % 3]);
+        break;
+      case "next-view":
+        await setView(viewNames[(viewNames.indexOf(view) + 1) % 3]);
+        break;
+      case "help":
+        $("help-dialog").showModal();
+        break;
+      case "close-help":
+        $("help-dialog").close();
+        break;
+      case "hold":
+        held = selected;
+        await setView("desk");
+        notice("Held in view. Choose another passage to put beside it.");
+        break;
+      case "unhold":
+        held = "";
+        render();
+        break;
+      case "undo":
+        if (undoStack.length) {
+          redoStack.push(structuredClone(score));
+          score = undoStack.pop();
+          dirty = true;
+          await reload();
+          restartClock();
+        }
+        break;
+      case "redo":
+        if (redoStack.length) {
+          undoStack.push(structuredClone(score));
+          score = redoStack.pop();
+          dirty = true;
+          await reload();
+          restartClock();
+        }
+        break;
+      case "follow-thread": {
+        const seen = new Set, ordered = [];
+        const visit = (id) => {
+          if (seen.has(id))
+            return;
+          seen.add(id);
+          const n = note(id);
+          if (!n)
+            return;
+          for (const l of n.links)
+            if (l.target)
+              visit(l.target);
+          ordered.push(n);
+        };
+        visit(selected);
+        if (!ordered.length)
+          break;
+        mutate(() => {
+          const step = 64 / ordered.length;
+          score.cues = ordered.map((n, i) => cueFrom(n, i * step, Math.min(step, 6)));
+          score.title = "A reading toward " + note().title;
+          selectedCue = score.cues.at(-1).id;
+        });
+        await setView("score");
+        notice(`Arranged ${ordered.length} passages by authored references, ending at your selection. Cycles are visited once. Undo returns to the previous reading.`);
+        break;
+      }
+      case "reframe":
+        mutate(() => {
+          for (const c of score.cues)
+            c.start = 64 - c.start - c.duration;
+        });
+        notice("The chronology is reversed. References and sources have not changed.");
+        break;
+      case "reset":
+        mutate(() => {
+          score = structuredClone(original);
+        });
+        muted.clear();
+        solo = "";
+        await reload();
+        notice("Original arrangement restored. Source edits remain.");
+        break;
+      case "save": {
+        if (portable) {
+          await act("portable");
+          break;
+        }
+        const saved = await api("/api/score", { score, revision });
+        revision = saved.revision;
+        dirty = false;
+        renderState();
+        notice("Reading saved to the private outline.");
+        break;
+      }
+      case "add-cue": {
+        const n = note();
+        if (n)
+          mutate(() => {
+            const c = cueFrom(n, Math.min(63, Math.round(beat * 2) / 2), Math.min(6, 64 - Math.min(63, Math.round(beat * 2) / 2)));
+            score.cues.push(c);
+            selectedCue = c.id;
+          });
+        break;
+      }
+      case "remove-cue":
+        mutate(() => {
+          score.cues = score.cues.filter((c) => c.id !== selectedCue);
+          selectedCue = "";
+        });
+        break;
+      case "adopt": {
+        const n = note(), c = cue();
+        if (n && c)
+          mutate(() => {
+            c.body = n.body;
+            c.title = n.title;
+            c.revision = n.revision;
+          });
+        notice("This cue now holds the current words. Other cues keep their revisions.");
+        break;
+      }
+      case "edit-source": {
+        if (portable) {
+          notice("This file is a frozen rehearsal. Open the connected instrument to edit sources.");
+          break;
+        }
+        const n = note();
+        if (!n)
+          break;
+        pause();
+        editing = true;
+        editorDraft = n.text;
+        editorSource = n.id;
+        editorRevision = n.revision;
+        $("inspector").innerHTML = `<div class="eyebrow">EDIT A REAL SOURCE / r${n.revision}</div><h2 class="reader-title">The source can change.</h2><p class="small">The score keeps its earlier words until you take this revision. Your draft stays here if a save is refused.</p><textarea id="source-editor" class="source-editor" aria-label="Source Blockdown">${escape(editorDraft)}</textarea><div class="reader-controls"><button data-act="save-source" class="primary">Save source</button><button data-act="cancel-edit">Cancel</button></div><div id="edit-error" class="error" role="status"></div>`;
+        break;
+      }
+      case "save-source":
+        try {
+          await api("/api/source", { id: editorSource, revision: editorRevision, text: editorDraft });
+          editing = false;
+          await reload();
+          notice("Source saved. The score still holds its earlier revision.");
+        } catch (e) {
+          $("edit-error").textContent = String(e);
+          throw e;
+        }
+        break;
+      case "cancel-edit":
+        editing = false;
+        renderInspector();
+        break;
+      case "query-example":
+        $("query").value = "type=passage (stance=objection OR stance=constraint)";
+        query = $("query").value;
+        await reload();
+        break;
+      case "capture": {
+        captureCues = structuredClone(active());
+        const chosen = cue();
+        if (chosen && !captureCues.some((c) => c.id === chosen.id))
+          captureCues.push(structuredClone(chosen));
+        const h = score.cues.find((c) => c.source === held);
+        if (h && !captureCues.some((c) => c.id === h.id))
+          captureCues.push(structuredClone(h));
+        $("capture-context").textContent = `Keep ${captureCues.length} frozen passages with their source revisions and your observation. ${portable ? "This downloads a reading; it does not write to an outline." : "This creates a reading note in the private outline."}`;
+        $("capture-dialog").showModal();
+        break;
+      }
+      case "close-capture":
+        $("capture-dialog").close();
+        break;
+      case "portable": {
+        let blob;
+        if (portable) {
+          const doc = document.documentElement.cloneNode(true);
+          const payload = { ...portable, score: structuredClone(score), groups: data.groups };
+          doc.querySelector("#cp-data").textContent = JSON.stringify(payload).replace(/</g, "\\u003c");
+          doc.querySelectorAll("dialog").forEach((d) => d.removeAttribute("open"));
+          blob = new Blob([`<!doctype html>
+` + doc.outerHTML], { type: "text/html" });
+        } else {
+          const response = await fetch("/api/portable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ score }) });
+          if (!response.ok)
+            throw new Error((await response.json()).error);
+          blob = await response.blob();
+        }
+        download(blob, "counterpoint.html");
+        notice("A whole instrument in one file. Open it offline; sources are frozen, arrangements remain playable.");
+        break;
+      }
+      case "export":
+        download(new Blob([JSON.stringify({ score, outline: "counterpoint", arrangement: data.manifest.arrangement, revision }, null, 2)], { type: "application/json" }), "counterpoint-score.json");
+        notice("Exported the score and its frozen excerpts.");
+        break;
+      case "wav": {
+        pause();
+        $("wav").textContent = "Rendering…";
+        const voices = new Map;
+        const names = groups();
+        for (const n of data.notes) {
+          const i = groupIndex(n.id);
+          if (!muted.has(groupName(n.id)) && (!solo || solo === groupName(n.id)))
+            voices.set(n.id, { name: groupName(n.id), pan: names.length < 2 ? 0 : (i / (names.length - 1) - 0.5) * 1.1 });
+        }
+        const rendered = await instrument.wav(score.cues, score.bpm, voices, 64);
+        download(rendered.blob, "counterpoint-reading.wav");
+        $("wav").textContent = "Render audio ↓";
+        notice(`Rendered ${rendered.seconds.toFixed(1)} seconds. Peak ${rendered.peak.toFixed(3)}. Sound maps placement, not meaning.`);
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${name}`);
+    }
+  } catch (error) {
+    notice(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+var invoke = (name, args = {}) => void act(name, args).catch(() => {});
+document.addEventListener("click", (e) => {
+  const target = e.target.closest("[data-act]");
+  if (target) {
+    if (suppressClick === target.dataset.cue) {
+      suppressClick = null;
+      return;
+    }
+    invoke(target.dataset.act, target.dataset);
+    return;
+  }
+  const a = e.target.closest('a[href^="#note="]');
+  if (a) {
+    e.preventDefault();
+    invoke("select", { note: a.hash.slice(6) });
+  }
+});
+document.addEventListener("keydown", (e) => {
+  const editingInput = e.target.closest("input,textarea,select,[contenteditable]");
+  if (editingInput)
+    return;
+  if (e.key === "Escape") {
+    if (playing)
+      pause();
+    return;
+  }
+  if (document.querySelector("dialog[open]"))
+    return;
+  if (e.key === "Enter" && e.target.matches(".node")) {
+    const t = e.target;
+    invoke("select", t.dataset);
+    return;
+  }
+  if (e.code === "Space") {
+    e.preventDefault();
+    invoke("play");
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    invoke(e.shiftKey ? "redo" : "undo");
+  } else if (["1", "2", "3"].includes(e.key))
+    invoke("view", { view: viewNames[Number(e.key) - 1] });
+  else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    e.preventDefault();
+    if (playing)
+      seek(beat + (e.key === "ArrowRight" ? 1 : -1));
+    else
+      invoke(e.key === "ArrowRight" ? "next-view" : "previous-view");
+  } else if (e.key === "?")
+    invoke("help");
+});
+document.addEventListener("input", (e) => {
+  const input = e.target;
+  if (input.id === "scrubber")
+    seek(Number(input.value));
+  if (input.id === "volume")
+    instrument.setLevel(Number(input.value) / 100);
+  if (input.id === "source-editor")
+    editorDraft = input.value;
+  if (input.id === "tempo")
+    $("tempo-value").textContent = input.value;
+});
+document.addEventListener("change", async (e) => {
+  const input = e.target;
+  try {
+    if (input.id === "tempo")
+      mutate(() => {
+        score.bpm = Number(input.value);
+      });
+    if (input.id === "group") {
+      const previous = score.group;
+      undoStack.push(structuredClone(score));
+      score.group = input.value;
+      try {
+        await reload();
+        dirty = true;
+        redoStack = [];
+        muted.clear();
+        solo = "";
+        restartClock();
+        renderState();
+      } catch (error) {
+        score.group = previous;
+        undoStack.pop();
+        throw error;
+      }
+    }
+    if (input.id.startsWith("cue-")) {
+      const c = cue();
+      if (!c)
+        return;
+      const v = Number(input.value);
+      if (!Number.isFinite(v))
+        return;
+      mutate(() => {
+        if (input.id === "cue-start")
+          c.start = Math.max(0, Math.min(64 - c.duration, v - 1));
+        if (input.id === "cue-duration")
+          c.duration = Math.max(1, Math.min(64 - c.start, v));
+        if (input.id === "cue-gain")
+          c.gain = Math.max(0, Math.min(1, v));
+      });
+    }
+    if (input.id === "loop-start") {
+      loopStart = Math.max(0, Math.min(loopEnd - 1, Number(input.value) - 1));
+      if (loop)
+        seek(loopStart);
+      render();
+    }
+    if (input.id === "loop-end") {
+      loopEnd = Math.max(loopStart + 1, Math.min(64, Number(input.value)));
+      if (loop)
+        seek(loopStart);
+      render();
+    }
+  } catch (error) {
+    notice(String(error));
+  }
+});
+$("query-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  query = $("query").value;
+  reload().catch((error) => {
+    $("query-result").textContent = String(error);
+    notice("The query was refused; the previous reading is still here.");
+  });
+});
+$("capture-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("capture-text").value;
+  try {
+    if (portable) {
+      const reading = text + `
+
+` + captureCues.map((c) => c.title + `
+` + c.body + `
+Source ` + c.source + " revision " + c.revision).join(`
+
+`);
+      download(new Blob([reading], { type: "text/plain" }), "counterpoint-captured-reading.txt");
+      $("capture-dialog").close();
+      notice("Downloaded this reading. Portable snapshots do not write to an outline.");
+      return;
+    }
+    const saved = await api("/api/capture", { text, cues: captureCues, score });
+    $("capture-dialog").close();
+    $("capture-text").value = "";
+    download(new Blob([saved.text], { type: "text/plain" }), "counterpoint-captured-reading.blockdown");
+    notice(`Captured reading ${saved.id.slice(0, 8)} saved in the outline and downloaded.`);
+  } catch (error) {
+    notice(String(error));
+  }
+});
+var drag = null;
+var suppressClick = null;
+document.addEventListener("pointerdown", (e) => {
+  const el = e.target.closest(".cue");
+  if (!el || e.button !== 0)
+    return;
+  const c = score.cues.find((c) => c.id === el.dataset.cue);
+  if (!c)
+    return;
+  drag = { id: c.id, x: e.clientX, start: c.start, width: el.parentElement.getBoundingClientRect().width, el, moved: false };
+  el.setPointerCapture(e.pointerId);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag)
+    return;
+  const dx = e.clientX - drag.x;
+  if (Math.abs(dx) < 5 && !drag.moved)
+    return;
+  drag.moved = true;
+  const c = score.cues.find((c) => c.id === drag.id);
+  const start = Math.max(0, Math.min(64 - c.duration, Math.round((drag.start + dx / drag.width * 64) * 2) / 2));
+  drag.el.style.left = `${start / 64 * 100}%`;
+});
+document.addEventListener("pointerup", (e) => {
+  if (!drag)
+    return;
+  const d = drag;
+  drag = null;
+  if (!d.moved)
+    return;
+  suppressClick = d.id;
+  const c = score.cues.find((c) => c.id === d.id);
+  const start = Math.max(0, Math.min(64 - c.duration, Math.round((d.start + (e.clientX - d.x) / d.width * 64) * 2) / 2));
+  mutate(() => {
+    c.start = start;
+    selected = c.source;
+    selectedCue = c.id;
+  });
+  setTimeout(() => suppressClick = null, 100);
+});
+document.addEventListener("pointercancel", () => {
+  drag = null;
+  render();
+});
+document.addEventListener("dragstart", (e) => {
+  const source = e.target.closest(".source-card");
+  if (source)
+    e.dataTransfer?.setData("text/counterpoint", source.dataset.note);
+});
+document.addEventListener("dragover", (e) => {
+  if (e.target.closest(".track-bed"))
+    e.preventDefault();
+});
+document.addEventListener("drop", (e) => {
+  const bed = e.target.closest(".track-bed"), id = e.dataTransfer?.getData("text/counterpoint");
+  if (!bed || !id)
+    return;
+  e.preventDefault();
+  const n = note(id);
+  if (!n)
+    return;
+  const r = bed.getBoundingClientRect(), start = Math.min(63, Math.max(0, Math.round((e.clientX - r.left) / r.width * 64 * 2) / 2));
+  mutate(() => {
+    const c = cueFrom(n, start, Math.min(6, 64 - start));
+    score.cues.push(c);
+    selected = n.id;
+    selectedCue = c.id;
+  });
+  notice("Cue added to its source’s voice. The drop chooses time, not authorship.");
+});
+window.addEventListener("beforeunload", (e) => {
+  if (dirty || editing) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+async function init() {
+  data = await api("/api/state");
+  score = structuredClone(data.score);
+  original = structuredClone(score);
+  revision = data.scoreRevision;
+  original = structuredClone(data.manifest.originalScore ?? score);
+  const variant = new URL(location.href).searchParams.get("variant");
+  view = viewNames.includes(variant) ? variant : "score";
+  selected = data.notes[5]?.id ?? data.notes[0].id;
+  selectedCue = score.cues.find((c) => c.source === selected)?.id ?? "";
+  $("source-count").textContent = String(data.notes.length);
+  $("crossing-count").textContent = String(data.notes.reduce((sum, n) => sum + n.links.filter((l) => l.target).length, 0));
+  $("sound").textContent = "◌ Sound off";
+  $("sound").classList.remove("enabled");
+  $("loop").textContent = "↻ Loop off";
+  $("loop").classList.remove("enabled");
+  $("play").innerHTML = "▶ <span>Play reading</span><kbd>Space</kbd>";
+  if (portable) {
+    $("mode-label").textContent = "PORTABLE SNAPSHOT";
+    $("query").disabled = true;
+    $("query-form").querySelectorAll("button").forEach((b) => b.disabled = true);
+    $("query-form").title = "Querying needs the connected outline; this snapshot includes all source passages.";
+    $("capture-form").querySelector('button[type="submit"]').textContent = "Download reading";
+  }
+  render();
+  let refreshing = false;
+  setInterval(async () => {
+    if (portable || document.hidden || refreshing)
+      return;
+    refreshing = true;
+    try {
+      const fresh = await api("/api/state?where=" + encodeURIComponent(query) + "&group=" + encodeURIComponent(score.group));
+      const stamp = (d) => d.notes.map((n) => n.id + "@" + n.revision).join(",");
+      if (stamp(fresh) !== stamp(data)) {
+        data = fresh;
+        render();
+        notice(editing ? "A source changed elsewhere. Your draft is still here; its save remains revision-checked." : "Source changes arrived. Frozen cues keep the versions you chose.");
+      }
+      if (fresh.scoreRevision !== revision) {
+        $("score-status").textContent = `Another client saved revision ${fresh.scoreRevision}. Your reading is retained; reload to take theirs after exporting yours.`;
+      }
+    } catch {} finally {
+      refreshing = false;
+    }
+  }, 3000);
+  window.counterpoint = { act, getState: () => ({ score: structuredClone(score), scoreRevision: revision, selected, selectedCue, held, view, beat, playing, sound, dirty, editing, notes: data.notes.map((n) => ({ id: n.id, title: n.title, revision: n.revision, voice: groupName(n.id), pitch: voicePitch(groupName(n.id)) })), scratch: data.scratch }), refresh: reload };
+}
+init().catch((error) => {
+  $("view").innerHTML = `<p class="error">The rehearsal could not load: ${escape(error)}. Restart with bun run spike:counterpoint.</p>`;
+  notice(String(error));
+});
+</script></body></html>

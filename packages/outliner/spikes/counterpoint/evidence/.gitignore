@@ -1,0 +1,4 @@
+# The lossless render and the second-generation browser artifacts can be regenerated.
+*.wav
+reexport.html
+journey.html

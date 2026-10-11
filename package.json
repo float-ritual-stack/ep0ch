@@ -5,9 +5,15 @@
   "workspaces": ["packages/*", "site"],
   "scripts": {
     "check": "bun run --filter '*' check",
-    "test": "bun run --filter '*' test"
+    "test": "bun run --filter '*' test",
+    "check:counterpoint": "bun packages/outliner/node_modules/typescript/bin/tsc --project packages/outliner/spikes/counterpoint/tsconfig.json",
+    "verify:counterpoint": "node packages/outliner/spikes/counterpoint/verify.mjs",
+    "spike:counterpoint": "bun packages/outliner/spikes/counterpoint/run.ts"
   },
   "patchedDependencies": {
     "@earendil-works/pi-tui@0.84.2": "packages/outliner/patches/@earendil-works%2Fpi-tui@0.84.2.patch"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.0"
   }
 }
