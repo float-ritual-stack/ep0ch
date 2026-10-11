@@ -12,6 +12,7 @@
 // A **highlight** is an annotation with no body. It's drawn as a span (`place: span`) on its words; an annotation
 // with a body is drawn as a span too, and as a card in the margin (`place: margin`). Pure: no I/O.
 
+import { propertyTokensInLine, withoutPropertyTokens } from "./property-grammar";
 import { RULE_TONES, type RuleTone } from "./rules";
 
 /** The keys the annotation store writes for its own bookkeeping: never shown as an annotation's properties. */
@@ -63,4 +64,28 @@ export function annotationPropertyProblem(props: Readonly<Record<string, string 
     }
   }
   return null;
+}
+
+/** A mark's generated heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone. */
+export const MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
+
+const MARK_TYPES: ReadonlySet<string> = new Set(["annotation", "annotation-reply"]);
+
+/**
+ * A mark's title (a highlight, comment, question or reply): its own words, never the generated heading, whose quote is
+ * the anchored passage's raw Blockdown cut short (`Comment on “Then:** netmail…”`). The first line of its body with
+ * its properties taken out; a mark with no body (a highlight) is its heading with the passage's emphasis marks
+ * dropped. `line` is the line the title is on. Null when the text isn't a mark: a generated heading, then the
+ * store's `[type::annotation]` or `[type::annotation-reply]` line.
+ */
+export function markTitleLine(text: string): { line: number; text: string } | null {
+  if (!MARK_HEADING.test(text)) return null;
+  const lines = text.split("\n");
+  const meta = lines[1] ?? "";
+  if (!propertyTokensInLine(meta).some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim()))) return null;
+  for (let i = 2; i < lines.length; i++) {
+    const words = withoutPropertyTokens(lines[i]!).replace(/\s+/g, " ").trim();
+    if (words) return { line: i, text: words };
+  }
+  return { line: 0, text: lines[0]!.replace(/\*\*|__|`+/g, "").replace(/\s+/g, " ").trim() };
 }

@@ -26,6 +26,7 @@ import { drawAnchors, placeAnchor } from "./publish-anchors";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
+import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
@@ -360,8 +361,11 @@ main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
 ul.kids li{border-bottom:1px solid var(--rule)}
-ul.kids a{display:block;padding:.75rem .35rem;min-height:2.75rem;text-decoration:none;color:var(--fg)}
-ul.kids a:hover,ul.kids a:active{background:#18181a}
+ul.kids li>a{display:block;padding:.75rem .35rem;min-height:2.75rem;text-decoration:none;color:var(--fg)}
+ul.kids li>a:hover,ul.kids li>a:active{background:#18181a}
+ul.kids li>a:has(+.m){padding-bottom:0;min-height:0}
+ul.kids li>.m{padding:0 .35rem .75rem}
+ul.kids .m a{color:var(--link)}
 ul.kids .t{display:block;color:var(--link)}
 ul.kids .s{display:block;color:#c9c7bf;font-size:15px;line-height:1.45;margin-top:.15rem}
 ul.kids .m{display:block;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);margin-top:.2rem;overflow-wrap:anywhere}
@@ -1197,8 +1201,14 @@ export class Publisher {
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     const listed = children.slice(0, MAX_LISTED_CHILDREN);
-    const [counts, titles] = await Promise.all([this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)), this.titles(listed.map((block) => block.id))]);
-    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id)));
+    const named = [...new Set(listed.flatMap(rowReferences))].slice(0, MAX_BLOCK_READ_IDS);
+    const [counts, titles, notes] = await Promise.all([
+      this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)),
+      this.titles(listed.map((block) => block.id)),
+      this.linkableNotes(named, share),
+    ]);
+    const links = new Map(notes.map((note) => [note.id, note]));
+    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links));
     const more = children.length > MAX_LISTED_CHILDREN ? `<p class="dim">and ${children.length - MAX_LISTED_CHILDREN} more (open it in the door to see them all)</p>\n` : "";
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
@@ -1541,9 +1551,11 @@ export class Publisher {
    * The embeds in `texts` (in the order a page shows them), projected by the
    * service's `transclusions.read` as one document: its depth, per-document
    * count, byte budget, cycle and Trash rules apply. Then every embedded note
-   * that is locked is found, so it shows as a locked note.
+   * that is locked is found, so it shows as a locked note. Where marks are read (`marksReadable`: the tailnet, a share
+   * that takes comments) an embedded mark is shown whoever wrote it: a reply @margin wrote is a mark, not an
+   * extension's record.
    */
-  private async readEmbeds(texts: readonly string[], hostBlockId: string, shareable?: ShareableNotes, share?: PageShare): Promise<EmbedExpansion | undefined> {
+  private async readEmbeds(texts: readonly string[], hostBlockId: string, marksReadable: boolean, shareable?: ShareableNotes, share?: PageShare): Promise<EmbedExpansion | undefined> {
     const targets = texts.flatMap((text) => embedMatches(text)
       .map((match) => ({ blockId: match[1]!, ...(match[2] ? { fragmentId: match[2] } : {}) })));
     if (!targets.length) return undefined;
@@ -1557,7 +1569,8 @@ export class Publisher {
     };
     for (const node of read.results) visit(node);
     const extensionBlocks = new Map([...ids].flatMap((id) => {
-      const extension = read.blocks[id] ? extensionSource(read.blocks[id]!) : undefined;
+      const block = read.blocks[id];
+      const extension = block && !(marksReadable && isAnnotationBlock(block)) ? extensionSource(block) : undefined;
       return extension ? [[id, extension] as const] : [];
     }));
     // A public note embedded here is read again: the index may be seconds old, and `public` holds per request.
@@ -1659,7 +1672,8 @@ export class Publisher {
     const rows = shownSubtree(subtree).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
-    const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)), share);
+    const marksReadable = share ? share.comments : audience === "tailnet";
+    const embeds = await this.readEmbeds(shown, entry.blockId, marksReadable, this.shareable(audience, index, rows.map((row) => row.block.id)), share);
     const { decorations, lines } = await this.readProjections(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
@@ -1763,7 +1777,7 @@ export class Publisher {
   /** An attached markdown file rendered: its `((block))` and `[[page]]` links and its embeds, as a block's. */
   private async attachedMarkdown(entry: PublishedEntry, index: PublishedIndex, text: string, audience: PublishAudience): Promise<string> {
     const pages = await this.resolvePages([text]);
-    const embeds = await this.readEmbeds([text], entry.blockId, this.shareable(audience, index, [entry.blockId]));
+    const embeds = await this.readEmbeds([text], entry.blockId, audience === "tailnet", this.shareable(audience, index, [entry.blockId]));
     const linkable = await this.linkable(index, [text], pages, embeds, audience);
     return publishedText(text, { index: linkable, basePath: this.basePathFor(audience), pages, ...(embeds ? { embeds } : {}) }, { keepProperties: true });
   }
@@ -1842,10 +1856,12 @@ function renderEmbed(node: TransclusionNode | undefined, context: TextContext): 
   if (node.kind === "view") return placeholder("a view; views are not published");
   const block = expansion.read.blocks[node.blockId];
   if (!block) return placeholder("missing note");
+  // A mark shows its own words, from its title's line: not its generated heading and the store's line under it.
+  const from = !node.fragment && isAnnotationBlock(block) ? markTitleLine(block.text)?.line ?? 0 : 0;
   // Anchors (`^spring`) are hidden as a fragment's text hides them; the lines stay line for line.
-  const text = node.fragment ? node.fragment.text : stripFragmentAnchors(block.text);
+  const text = node.fragment ? node.fragment.text : stripFragmentAnchors(from ? block.text.split("\n").slice(from).join("\n") : block.text);
   return publishedText(text, context, {}, {
-    nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine: node.fragment?.startLine ?? 0,
+    nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine: node.fragment?.startLine ?? from,
   }) || placeholder("empty note");
 }
 
@@ -1963,10 +1979,10 @@ function browseEntry(block: ProjectedBlock, index: PublishedIndex): PublishedEnt
   return { blockId: block.id, title: noteTitle(block.title ?? "") || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
 }
 
-/** A note's summary line in a folder: its first line of text after the title, as words, cut short. */
-function summaryLine(text: string): string {
+/** A note's summary line in a folder: its first line of text after the title, as words (a reference or an embed by its note's title), cut short. */
+function summaryLine(text: string, links: ReadonlyMap<string, LinkedNote>): string {
   for (const raw of text.split("\n").slice(1)) {
-    const line = plainBody(stripFragmentAnchors(stripPropertyTokens(raw)))
+    const line = plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), (id) => links.get(id)?.title)
       .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
       .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
     if (!line || /^`{3,}|^~{3,}/.test(raw.trim())) continue;
@@ -1975,17 +1991,45 @@ function summaryLine(text: string): string {
   return "";
 }
 
-/** One child in a folder: its title, a summary line, and what's inside, when it changed and its first properties. */
-function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined): string {
+/** A note a folder row names, as `linkableNotes` gives it: its title, and its page unless it's locked or outside a share. */
+type LinkedNote = { title: string; href: string | null };
+
+/** The properties a folder row shows: its first three, the page address and publish intent left out. */
+const rowProperties = (child: Block) => child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3);
+
+/** The notes a folder row names, in its summary line's neighbourhood and its shown properties' values. */
+function rowReferences(child: Block): string[] {
+  const lines = child.text.split("\n").slice(1, 6).join("\n");
+  return [lines, ...rowProperties(child).map((property) => property.value)]
+    .flatMap((text) => blockReferenceOccurrences(text).map((reference) => reference.blockId));
+}
+
+/** A property value in a row's meta line: each reference a link labelled by its note's words, as the body draws it. */
+function metaValue(value: string, links: ReadonlyMap<string, LinkedNote>): string {
+  let out = "", cursor = 0;
+  for (const reference of blockReferenceOccurrences(value)) {
+    const note = links.get(reference.blockId);
+    const label = reference.label ?? note?.title ?? "a note";
+    out += escapeHtml(value.slice(cursor, reference.start)) +
+      (note?.href ? `<a href="${escapeHtml(note.href)}">${escapeHtml(label)}</a>` : escapeHtml(label));
+    cursor = reference.end;
+  }
+  return out + escapeHtml(value.slice(cursor));
+}
+
+/**
+ * One child in a folder: its title and a summary line (the row's link), then what's inside, when it changed and its
+ * first properties. The meta line is outside the row's link, so a reference in it can be a link of its own.
+ */
+function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined, links: ReadonlyMap<string, LinkedNote>): string {
   if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
   // `data-block`: the page's script finds the row by its note (ep0ch.view(), ep0ch.reveal()).
   const title = noteTitle(serviceTitle) || "untitled";
-  const summary = summaryLine(child.text);
-  const properties = child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3)
-    .map((property) => `${property.key}: ${property.value}`);
-  const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", child.updatedAt.slice(0, 10), ...properties].filter(Boolean).join(" · ");
+  const summary = summaryLine(child.text, links);
+  const properties = rowProperties(child).map((property) => `${escapeHtml(property.key)}: ${metaValue(property.value, links)}`);
+  const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", escapeHtml(child.updatedAt.slice(0, 10)), ...properties].filter(Boolean).join(" · ");
   return `<li data-block="${escapeHtml(child.id)}"><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
-    `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`;
+    `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}</a><span class="m">${meta}</span></li>`;
 }
 
 /** At most this many blocks of one page are asked for their decorations. */
