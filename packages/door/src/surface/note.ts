@@ -119,6 +119,11 @@ export interface SurfaceHost {
    */
   header?(m: Msg, w: number, info: HeaderInfo): string[];
   /**
+   * A view's own rows after the note's body (EchoNet's FidoNet footer: the tear line, the origin, SEEN-BY): read and
+   * scrolled with the note, never its elements.
+   */
+  footer?(m: Msg, w: number): string[];
+  /**
    * Back and forward kept by the view instead of the surface (PIE-453), where a followed link doesn't open in
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
    */
@@ -579,8 +584,11 @@ export class NoteSurface {
   marginMode: MarginMode = "trim";
   /** `a` was pressed with text selected: the passage toolbar has the next key. */
   passageMenu = false;
-  /** The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. */
-  writeNext: { props: Record<string, string> | null; text: string } | null = null;
+  /**
+   * The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. `at`:
+   * the passage it's on when that isn't the selection (passage.act's quote=: EchoNet's reply and quote-reply).
+   */
+  writeNext: { props: Record<string, string> | null; text: string; at?: { from: number; to: number } } | null = null;
   /**
    * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
    * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
@@ -1440,7 +1448,9 @@ export class NoteSurface {
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const writing = this.composing();
-    const key = `${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
+    // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
+    const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
+    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight - mcols);
@@ -1542,6 +1552,7 @@ export class NoteSurface {
       const k = marks.find(x => x.thread === c.id);
       return k && !this.expanded.has(c.id) ? [{ thread: c.id, row: k.row, rows: cardRows(c, mcols - 2, this.marginMode, t => this.said(t)) }] : [];
     })) : [];
+    if (footRows.length) body.push(...footRows.map(l => pad(inset + l, w) + RESET));
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems, margin: { cols: mcols, cards }, composer });
   }
 
@@ -2246,7 +2257,7 @@ export class NoteSurface {
     this.replyOn = null;
     if (!m || this.editing) return;
     // Text selected in the reader is where the passage picker starts: the same text, as a quote.
-    const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
+    const picked = mine && mode === "select" ? this.writeNext?.at ?? (this.selection ? this.sourceOf(this.selection) : null) : null;
     const read = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
     const fresh = read ? rereadResource(read, m) : read;
     if (still && !still()) return;
@@ -6298,7 +6309,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ] ({ } in an EchoNet reader, whose [ ] step messages), click, esc lets go",
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
@@ -6560,10 +6571,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
       body: { type: "string", optional: true, about: "comment: its text, sent at once (left out, the person writes it)" },
+      text: { type: "string", optional: true, about: "comment written by the person: what the composer starts with (a quote-reply's > lines); quote= then names the passage, without a selection" },
       question: { type: "string", optional: true, about: "ask: the question, sent at once (left out, the person writes it after @name)" },
       color: { type: "string", optional: true, about: "a theme tone the extension may use (highlight's colour): default, good, warn, bad, dim, accent" },
     },
-    async run({ action, quote, near, body, question, color }, { surface, host }, actor) {
+    async run({ action, quote, near, body, question, color, text: start }, { surface, host }, actor) {
       const m = surface.requireNote();
       if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to act on a passage of");
       const p = surface.passageFor(actor, quote, near);
@@ -6591,7 +6603,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
         // As the person's C opens it (their session, entered as it opens), straight to writing on the selected words.
-        surface.writeNext = { props: props ?? null, text: agent ? `@${agent.name} ` : "" };
+        surface.writeNext = { props: props ?? null, text: `${agent ? `@${agent.name} ` : ""}${start ?? ""}`, ...(quote !== undefined ? { at: { from: p.note.start, to: p.note.start + p.note.quote.length } } : {}) };
         if (host.startSession) host.startSession("select");
         else await personComments(surface, host, "select");
         host.redraw();

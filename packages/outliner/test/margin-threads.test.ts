@@ -181,6 +181,24 @@ test("Recent replies: replies on the reader's threads, not their own; unread unt
   await expect(ids("unread:[[x]]")).rejects.toThrow(/names no reader: write unread:me/);
 });
 
+test("blocks.markRead (EchoNet's reader): blocks read leave unread:me until they change; an agent's marks are its own; a bad call is refused", async () => {
+  const { client, store, ids } = await setup(false);
+  const area = store.create("Plot chat [type::echo-sub] [echo::plot.chat]", null, "user");
+  const a = store.create("Frost tonight [echo::plot.chat]", area.id, "agent");
+  const b = store.create("Seed swap Sunday [echo::plot.chat]", area.id, "agent");
+  const unread = async (reader = "me") => (await ids(`parent:((${area.id})) unread:${reader}`)).sort();
+  expect(await unread()).toEqual([a.id, b.id].sort());
+  expect(await client.request<{ marked: number }>({ action: "blocks.markRead", blockIds: [a.id, "no-such-block"] })).toEqual({ marked: 1 });
+  expect(await unread()).toEqual([b.id]);
+  expect(await unread("fern")).toEqual([a.id, b.id].sort());
+  await client.request({ action: "blocks.markRead", blockIds: [b.id], reader: "fern" });
+  expect(await unread("fern")).toEqual([a.id]);
+  // A copy updated since it was read is new again.
+  store.update(a.id, "Frost tonight, cover the beans [echo::plot.chat]", a.revision, { author: "agent", actorId: "echo-tosser" });
+  expect(await unread()).toEqual([a.id, b.id].sort());
+  await expect(client.request({ action: "blocks.markRead", blockIds: "nope" } as never)).rejects.toThrow(/needs blockIds/);
+});
+
 test("a mark quoted into a block of its own (marks.quote): a reply under its note as an agent, transcluded and linked back; the mark says quoted in until it's undone; a note that isn't a mark is refused", async () => {
   const { client, comment, reply, threads, store, note } = await setup(false);
   const thread = await comment("q1", "tomatoes at dawn", "Dawn, or before?");

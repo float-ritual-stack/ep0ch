@@ -256,6 +256,8 @@ const ITEMS: MenuItem[] = [
   { key: "I", label: "Library", open: () => openScreen("library"), one: "library" },
   // A blank screen (PIE-565): one tile to build from, saved as a screen note with ^W w; its o opens the ones you made.
   { key: "M", label: "Make a screen", open: () => openScreen("blank") },
+  // EchoNet's message areas (the spike): every echo area and subscription the door reaches, their messages, the nodelist.
+  { key: "A", label: "Areas", open: () => openScreen("echonet"), one: "echonet" },
 ];
 
 /** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
