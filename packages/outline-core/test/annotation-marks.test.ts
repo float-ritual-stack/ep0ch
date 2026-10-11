@@ -7,6 +7,10 @@ describe("markTitleLine", () => {
     expect(markTitleLine(text)).toEqual({ line: 2, text: "Light it before the ferry docks." });
   });
 
+  test("a mark under a plain kind heading (its quote couldn't be one) is titled by its words too", () => {
+    expect(markTitleLine("Question\n[type::annotation] [kind::question]\nWho rings the bell?")).toEqual({ line: 2, text: "Who rings the bell?" });
+  });
+
   test("a highlight (no body) is its heading without emphasis marks", () => {
     const text = "Highlight on “Next:** the lantern room”\n[type::annotation] [annotation-source::user]";
     expect(markTitleLine(text)).toEqual({ line: 0, text: "Highlight on “Next: the lantern room”" });

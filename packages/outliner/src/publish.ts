@@ -1979,16 +1979,22 @@ function browseEntry(block: ProjectedBlock, index: PublishedIndex): PublishedEnt
   return { blockId: block.id, title: noteTitle(block.title ?? "") || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
 }
 
-/** A note's summary line in a folder: its first line of text after the title, as words (a reference or an embed by its note's title), cut short. */
+/** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
+const summaryWords = (raw: string, titleOf: (blockId: string) => string | undefined = () => undefined) =>
+  plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf)
+    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
+    .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+
+/** The line a folder row summarises a note by: its first line of text after the title. */
+function summarySource(text: string): string | undefined {
+  return text.split("\n").slice(1).find((raw) => !/^`{3,}|^~{3,}/.test(raw.trim()) && summaryWords(raw));
+}
+
+/** A note's summary line in a folder: its summary source as words (a reference or an embed by its note's title), cut short. */
 function summaryLine(text: string, links: ReadonlyMap<string, LinkedNote>): string {
-  for (const raw of text.split("\n").slice(1)) {
-    const line = plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), (id) => links.get(id)?.title)
-      .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
-      .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
-    if (!line || /^`{3,}|^~{3,}/.test(raw.trim())) continue;
-    return line.length > 160 ? `${line.slice(0, 159).trimEnd()}…` : line;
-  }
-  return "";
+  const raw = summarySource(text);
+  const line = raw ? summaryWords(raw, (id) => links.get(id)?.title) : "";
+  return line.length > 160 ? `${line.slice(0, 159).trimEnd()}…` : line;
 }
 
 /** A note a folder row names, as `linkableNotes` gives it: its title, and its page unless it's locked or outside a share. */
@@ -1997,10 +2003,9 @@ type LinkedNote = { title: string; href: string | null };
 /** The properties a folder row shows: its first three, the page address and publish intent left out. */
 const rowProperties = (child: Block) => child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3);
 
-/** The notes a folder row names, in its summary line's neighbourhood and its shown properties' values. */
+/** The notes a folder row names: in its summary line and its shown properties' values. */
 function rowReferences(child: Block): string[] {
-  const lines = child.text.split("\n").slice(1, 6).join("\n");
-  return [lines, ...rowProperties(child).map((property) => property.value)]
+  return [summarySource(child.text) ?? "", ...rowProperties(child).map((property) => property.value)]
     .flatMap((text) => blockReferenceOccurrences(text).map((reference) => reference.blockId));
 }
 

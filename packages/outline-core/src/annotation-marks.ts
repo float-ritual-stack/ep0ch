@@ -79,8 +79,8 @@ const MARK_TYPES: ReadonlySet<string> = new Set(["annotation", "annotation-reply
  * store's `[type::annotation]` or `[type::annotation-reply]` line.
  */
 export function markTitleLine(text: string): { line: number; text: string } | null {
-  if (!MARK_HEADING.test(text)) return null;
   const lines = text.split("\n");
+  if (!MARK_HEADING.test(lines[0]!)) return null;
   const meta = lines[1] ?? "";
   if (!propertyTokensInLine(meta).some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim()))) return null;
   for (let i = 2; i < lines.length; i++) {
