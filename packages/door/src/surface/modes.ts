@@ -10,16 +10,16 @@ import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
 
-export type ModeName = "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "ask";
+export type ModeName = "picker" | "panel" | "draft" | "comment" | "links" | "grip";
 
 /**
  * Which mode takes a reader's keys first, when more than one is open: a step's status choice or an inline `::links`
  * component the person went into (each opened on top of whatever was there, and closes at the next key that isn't its
  * own), then the property panel, then
- * the edit or the comment (one at a time: each refuses to open while the other is). Over a comment being written: the
- * choice asked before leaving it unsent first (PIE-785), then moving its box by keys (ctrl+g).
+ * the edit or the comment (one at a time: each refuses to open while the other is). Over a comment being written: moving
+ * its box by keys (ctrl+g, PIE-785).
  */
-export const PRECEDENCE: Record<ModeName, number> = { ask: 4, grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
+export const PRECEDENCE: Record<ModeName, number> = { grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
 
 /** One mode, as the reader asks it. `H` is the reader's host. */
 export interface ReaderMode<H> extends Mode<H> {

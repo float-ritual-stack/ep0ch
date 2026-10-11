@@ -1477,11 +1477,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // An agent following the link never asks the person.
     await expect(app.act({ action: "link.follow", tile: "floating", args: { n: 1 }, as: "test-agent" })).rejects.toThrow();
     expect(surf().state()).toBe("writing · unsent");
-    // The person's follow of [[Bike shed]] asks; a click on "save and continue" keeps it unsent and goes.
+    // The person's follow of [[Bike shed]] asks in the power bar; ⏎ on its first row, save and continue, keeps it
+    // unsent and goes.
     await stage().dispatch.press("link.follow", { n: 1 }, "floating");
-    await until(() => rows().some(l => l.includes("about to leave an unsent comment")), "asked");
-    const save = find("[s save and continue]");
-    click(save.x + 3, save.y);
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label.split(" (")[0]).join() === "save and continue,keep writing,discard", "asked in the power bar");
+    press({ kind: "enter" });
     await until(() => stage().pane("floating").msg?.id === shed, "the reader on the shed");
     expect(cs()).toBeNull();
     expect(unsent(`comment:${note}`)?.text).toBe("Clear the gutter!?");

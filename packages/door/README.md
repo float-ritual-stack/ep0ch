@@ -1780,7 +1780,7 @@ in the lanes comments in the preview.
 | `ctrl+o`, or a click on the box's `[inline ▸]` chip | move the box being written: **inline** (under the passage) → **floating** (over the note, beside the passage) → **split** (the reader shared: the note beside the composer, or over it when narrow) → **popup** (a box in the middle, the passage quoted) (`comment.place`). Where new ones open is yours to set: `ep0ch act composer.place place=floating`, kept for the next start |
 | drag a floating box's top edge (`≡ move`) or its `◢` corner; `ctrl+g` then arrows or `h j k l` (shift or `H J K L`: size), `0`, `⏎` | move or size the floating box (`comment.move`; `ctrl+g` is `comment.grip`), for this sitting only: opened again, it's in its usual place. The passage it's on never moves (PIE-785) |
 | a click on another tile, then back | the box stays as it was, unsent text and all; the keys are in it again when the reader has them (PIE-785) |
-| a link, a comment mark, back or forward while the comment is unsent | asks: `s` save and continue (kept as unsent), `k` or esc keep writing, `d` discard (a copy stays on disk), `⏎` saves and goes; or a click on a chip (`comment.leaving`). An agent's action never asks |
+| a link, a comment mark, back or forward while the comment is unsent | asks in the power bar: save and continue (kept as unsent), keep writing, discard (a copy stays on disk); `⏎` or a click on a row, esc keeps writing (`comment.leaving`). An agent's action never asks |
 | `C`, nothing selected | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
 | `j k` | move to the next / previous line with text (the whole line, without its indent) |
 | `J K` | extend / shrink the passage by a line |
