@@ -281,6 +281,18 @@ export class DraftSession {
   }
 
   /**
+   * Let it go on purpose (the person answered "discard" to leaving it, PIE-785): nothing is put aside to come back,
+   * and a copy of changed text stays on disk all the same.
+   */
+  discard(): { said: string } {
+    if (!this.open) return { said: "" };
+    if (this.draft.busy) throw new ActionRefused(`the ${this.target.verb} is still landing`);
+    const copy = this.draft.dirty ? this.draft.copyOut(this.target.label) : null;
+    this.end("closed");
+    return { said: copy ? `discarded ${this.target.what} · a copy is at ${tidy(copy)}` : "closed" };
+  }
+
+  /**
    * One of the draft's own actions (DRAFT_ACTIONS: the list keys, a click, the wheel, the preview, copy, undo) as
    * `actor`: the person's always; an agent's only in a draft it opened and alone typed in (undo: its own patches).
    */

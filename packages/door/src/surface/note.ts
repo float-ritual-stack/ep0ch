@@ -51,7 +51,7 @@ import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type Acti
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy, type EditFrame } from "./editor";
-import { COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox } from "./composer";
+import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, passageActions, runExtensionAction, threadAgents } from "../extensions";
@@ -449,6 +449,20 @@ interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, Surfa
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
+/** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
+type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { moving: true; float: FloatRect | null } };
+/** comment.move's arguments: steps, a place, a size (the reader's cells), or back to the usual place. */
+type ComposerMove = { dx?: number; dy?: number; col?: number; row?: number; dcols?: number; drows?: number; cols?: number; rows?: number; reset?: boolean };
+/** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
+interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
+type AskMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { ask: LeaveAsk; describe(): { asking: string; then: string; choices: string[] } };
+/** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
+export type LeaveChoice = "save" | "keep" | "discard";
+const LEAVE_CHOICES: { choice: LeaveChoice; key: string; label: string }[] = [
+  { choice: "save", key: "s", label: "save and continue" },
+  { choice: "keep", key: "k", label: "keep writing" },
+  { choice: "discard", key: "d", label: "discard" },
+];
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
@@ -626,6 +640,13 @@ export class NoteSurface {
   private revealComposer = false;
   /** The rows of the comment's passage in the last paint, in the reader's cells (a floating box goes beside them). */
   private composerRows: [number, number] | null = null;
+  /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
+  private boxRect: FloatRect | null = null;
+  private boxRoom: { w: number; h: number } | null = null;
+  /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
+  private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
+  /** The "about to leave an unsent comment" choice's chips, where the last paint drew them (in the reader's cells). */
+  private askChips: { row: number; from: number; to: number; choice: LeaveChoice }[] = [];
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
   private draftSelecting: Promise<void> | null = null;
   /** The last press in a draft was a shift+click (it extended the selection). */
@@ -663,7 +684,7 @@ export class NoteSurface {
   }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
-  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else this.modes.drop("comment"); }
+  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); this.modes.drop("ask"); this.frameDrag = null; this.boxRect = null; } }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
@@ -898,10 +919,42 @@ export class NoteSurface {
    * every click on it, is that many rows down.
    */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing();
-    if (writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H) return this.renderSplit(w, h, host, writing);
-    return this.renderReading(w, h, host, writing);
+    const v = writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
+    return this.modes.get("ask") ? this.overAsk(v, w, h) : v;
+  }
+
+  /**
+   * The "about to leave an unsent comment" choice (PIE-785), in a small box over the reader's middle: save and continue,
+   * keep writing, discard, each a chip a click chooses (and its key).
+   */
+  private overAsk(v: SurfaceView, w: number, h: number): SurfaceView {
+    const a = (this.modes.get("ask") as AskMode).ask, lines = [...v.lines];
+    const chips: { choice: LeaveChoice; text: string }[] = LEAVE_CHOICES.map(c => ({ choice: c.choice, text: `[${c.key} ${c.label}]` }));
+    const row1 = chips.map(c => c.text).join(" ");
+    const title = `about to leave an unsent ${a.what}`;
+    const iw = Math.min(w - 2, Math.max(width(row1), title.length) + 2);
+    if (iw < 12) { this.askChips = []; return v; }
+    const edge = fg(C.yellow);
+    // ⏎'s choice (save and continue) in white, the others in the chips' cyan.
+    const shown = chips.map(c => (c.choice === "save" ? fg(C.white) : fg(C.lcyan)) + c.text + RESET).join(" ");
+    const box = [
+      edge + "┌" + "─".repeat(iw) + "┐" + RESET,
+      edge + "│" + RESET + pad(" " + fg(C.yellow) + title + RESET, iw) + edge + "│" + RESET,
+      edge + "│" + RESET + pad(" " + shown, iw) + edge + "│" + RESET,
+      edge + "│" + RESET + pad(" " + fg(C.dark) + "⏎ saves and goes on · esc keeps writing" + RESET, iw) + edge + "│" + RESET,
+      edge + "└" + "─".repeat(iw) + "┘" + RESET,
+    ];
+    const room = Math.max(lines.length, h);
+    const top = Math.max(0, Math.floor((room - box.length) / 2)), col = Math.max(0, Math.floor((w - iw - 2) / 2));
+    overlayBox(lines, box, top, col, w);
+    this.askChips = [];
+    let x = col + 2;
+    for (const c of chips) { this.askChips.push({ row: top + 2, from: x, to: x + c.text.length, choice: c.choice }); x += c.text.length + 1; }
+    const under = (p: Placement) => p.row < top + box.length && p.row + p.rows > top && p.col < col + iw + 2 && p.col + p.cols > col;
+    return { ...v, lines, placements: (v.placements ?? []).filter(p => !under(p)) };
   }
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
@@ -931,12 +984,19 @@ export class NoteSurface {
       box = composerBox(c.d, c.f, Math.min(w - 2, 80), Math.max(6, room - 2));
       row = Math.max(0, Math.floor((room - box.lines.length) / 2));
       col = Math.max(0, Math.floor((w - box.width) / 2));
+    } else if (c.cs.float) {
+      // Where the person dragged or sized it (PIE-785), kept inside the reader; the passage it's on doesn't move.
+      const r = clampFloat(c.cs.float, w, room);
+      box = composerBox(c.d, c.f, r.cols, r.rows, true, true);
+      row = r.row; col = r.col;
     } else {
-      box = composerBox(c.d, c.f, Math.min(w - 2, 72), Math.max(6, Math.floor(room * 0.6)));
+      box = composerBox(c.d, c.f, Math.min(w - 2, 72), Math.max(6, Math.floor(room * 0.6)), false, true);
       const d = this.drawn, from = d?.top ?? 0, to = Math.min(room, from + (d?.room ?? room));
       row = floatRow(this.composerRows, box.lines.length, from, to);
       col = Math.max(0, Math.min((d?.bx ?? 1) + 2, w - box.width));
     }
+    this.boxRect = { row, col, cols: box.width, rows: box.lines.length };
+    this.boxRoom = { w, h: room };
     overlayBox(lines, box.lines, row, col, w);
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < row + box.lines.length && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
@@ -2311,8 +2371,17 @@ export class NoteSurface {
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       editing: () => true, covers: () => cs.mode !== "compose",
       key: (k, host) => this.commentKey(cs, k, host),
-      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) : false; },
-      press: (x, y, _host, drag) => { const d = writing(); return !!d && this.writePress(d, x, y, drag); },
+      // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
+      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : false; },
+      press: (x, y, host, drag) => {
+        const d = writing();
+        if (!d) return false;
+        // The floating box's top edge moves it, its ◢ corner and edges size it (PIE-785): comment.move, as ctrl+g's keys run it.
+        if (this.frameDrag) { if (drag) this.dragFrame(x, y, host); return true; }
+        const r = !drag && cs.place === "floating" ? this.boxRect : null, z = r && frameZone(r, x, y);
+        if (z) { this.frameDrag = { zone: z, x, y, from: r! }; return true; }
+        return this.writePress(d, x, y, drag);
+      },
       // While a comment is written the wheel scrolls the note around it (its open completion's candidates first).
       wheel: dir => {
         const d = writing();
@@ -2530,6 +2599,186 @@ export class NoteSurface {
     };
   }
 
+  /**
+   * A comment the person is writing here, left open when their keys move to another tile (PIE-785): it stays on screen
+   * as it was, and is theirs again the moment this reader has the keys back. Only the person's own, while it's written.
+   */
+  keepsOnFocusAway(): boolean {
+    const cs = this.session, w = cs?.writing;
+    return !!cs && cs.mode === "compose" && !!w && w.openedBy.kind === "user" && !cs.busy && !this.modes.leaveRefusal();
+  }
+
+  /**
+   * The person asked to go elsewhere (`name` with `args`) while a comment of theirs is unsent here (PIE-785): ask, save
+   * and continue / keep writing / discard, instead of refusing. Null when there's nothing to ask (no comment written,
+   * or `actor` is an agent: an agent's action never asks the person, and never takes their keys).
+   */
+  askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): { asking: string } | null {
+    const cs = this.session;
+    if (actor.kind === "agent" || !cs || cs.mode !== "compose" || !cs.writing) return null;
+    // Nothing typed yet: nothing to lose, so it closes and the reader goes.
+    if (!cs.dirty && !cs.busy) { cs.writing.close(); this.closeSession(); return null; }
+    if (cs.busy) throw new ActionRefused(`${cs.busy} · wait for it to land`);
+    const what = cs.target?.kind === "reply" ? "reply" : cs.props?.kind === "question" ? "question" : "comment";
+    this.modes.drop("grip");
+    this.modes.push(this.askMode({ what, name, args, ...(elem ? { elem } : {}) }, cs));
+    host.redraw();
+    return { asking: `about to leave an unsent ${what}` };
+  }
+
+  /**
+   * The person's answer (comment.leaving): `save` keeps the comment as unsent where it was written (opening it again
+   * brings it back) and goes where they asked; `keep` goes back to writing; `discard` lets it go (a copy stays on disk)
+   * and goes.
+   */
+  async answerLeave(choice: LeaveChoice, host: SurfaceHost): Promise<{ choice: LeaveChoice; said?: string; then?: unknown }> {
+    const m = this.modes.get("ask") as AskMode | null;
+    if (!m) throw new ActionRefused("nothing is being asked here: the choice comes up when you follow a link while a comment is unsent");
+    this.modes.drop("ask");
+    const cs = this.session, w = cs?.writing;
+    if (choice === "keep" || !cs || !w) { this.revealComposer = true; host.redraw(); return { choice }; }
+    let said: string | undefined;
+    if (choice === "save") { const r = await w.leave(USER); said = leaveSaid(r) ?? undefined; }
+    else said = w.discard().said;
+    this.closeSession();
+    host.redraw();
+    if (said) host.ctx.flash(said, 8000);
+    // An element is found again by its key: what's drawn above it may have changed (the kept comment's line).
+    const n = m.ask.elem ? this.elems.findIndex(e => e.key === m.ask.elem) + 1 : 0;
+    if (m.ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
+    const then = await this.runKey(m.ask.name, (n ? { ...m.ask.args, n } : m.ask.args) as never, host);
+    return { choice, ...(said ? { said } : {}), then };
+  }
+
+  /** The choice the person is asked before leaving an unsent comment (PIE-785): its keys and its chips take theirs. */
+  private askMode(ask: LeaveAsk, cs: CommentSession): AskMode {
+    const pick = (c: LeaveChoice, host: SurfaceHost) => void this.runKey("comment.leaving", { choice: c }, host, true);
+    return {
+      name: "ask", of: ask, ask, holdsKeys: true, word: "unsent comment choice",
+      editing: () => true, covers: () => false,
+      // (The session closing drops it too: `session = null`.)
+      ended: () => cs.mode !== "compose",
+      key: (k, host) => {
+        const c = ch(k);
+        const hit = LEAVE_CHOICES.find(x => x.key === c);
+        if (hit) pick(hit.choice, host);
+        else if (k.kind === "enter") pick("save", host);
+        else if (k.kind === "esc") pick("keep", host);
+        return true;
+      },
+      click: (x, y, host) => {
+        const at = y + (this.drawn?.heroRows ?? 0);
+        const c = this.askChips.find(a => a.row === at && x >= a.from && x < a.to);
+        if (c) pick(c.choice, host);
+        return true;
+      },
+      press: () => true,
+      rows: () => null,
+      leave: async () => { this.modes.drop("ask"); return { left: "nothing" }; },
+      hint: () => "s save and continue · k keep writing · d discard · ⏎ save and continue · esc keep writing",
+      state: () => `leaving an unsent ${ask.what}?`,
+      describe: () => ({ asking: `about to leave an unsent ${ask.what}`, then: ask.name, choices: LEAVE_CHOICES.map(c => c.choice) }),
+    };
+  }
+
+  /** ctrl+g in a comment being written: its box floats, and the arrows move it and shift+arrows size it until ⏎ or esc (PIE-785). */
+  private gripMode(cs: CommentSession): GripMode {
+    const move = (args: ComposerMove, host: SurfaceHost) => void this.runKey("comment.move", args, host, true);
+    return {
+      name: "grip", of: cs, holdsKeys: true, word: "composer move",
+      editing: () => false, covers: () => false,
+      ended: () => cs.mode !== "compose" || cs.place !== "floating",
+      key: (k, host) => {
+        const c = ch(k);
+        const step = (dx: number, dy: number) => move({ dx, dy }, host), size = (dcols: number, drows: number) => move({ dcols, drows }, host);
+        const shift = "shift" in k && !!k.shift;
+        if (k.kind === "left" || c === "h") shift ? size(-2, 0) : step(-2, 0);
+        else if (k.kind === "right" || c === "l") shift ? size(2, 0) : step(2, 0);
+        else if (k.kind === "up" || c === "k") shift ? size(0, -1) : step(0, -1);
+        else if (k.kind === "down" || c === "j") shift ? size(0, 1) : step(0, 1);
+        else if (c === "H") size(-2, 0);
+        else if (c === "L") size(2, 0);
+        else if (c === "K") size(0, -1);
+        else if (c === "J") size(0, 1);
+        else if (c === "0") move({ reset: true }, host);
+        else if (k.kind === "enter" || k.kind === "esc" || (k.kind === "char" && k.ctrl && k.ch === "g")) { this.modes.drop("grip"); host.redraw(); }
+        else { this.modes.drop("grip"); return this.modes.key(k, host) ?? false; }
+        return true;
+      },
+      click: () => { this.modes.drop("grip"); return undefined; },
+      rows: () => null,
+      leave: async () => { this.modes.drop("grip"); return { left: "nothing" }; },
+      hint: () => "moving the comment · ← → ↑ ↓ or h j k l move · shift+arrows or H J K L size · 0 its usual place · ⏎ done",
+      state: () => "moving the comment",
+      describe: () => ({ moving: true, float: cs.float }),
+    };
+  }
+
+  /** Open moving by keys (ctrl+g, comment.grip): the box floats first if it was elsewhere. */
+  grip(host: SurfaceHost) {
+    const cs = this.session;
+    if (!cs || cs.mode !== "compose" || !cs.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
+    if (cs.place !== "floating") { cs.place = "floating"; cs.float = null; }
+    this.modes.push(this.gripMode(cs));
+    host.redraw();
+  }
+
+  /**
+   * The floating composer moved or sized (comment.move, PIE-785): by steps (`dx` `dy` `dcols` `drows`), to a place (`row`
+   * `col` `cols` `rows`, the reader's cells), or back to its usual place (`reset`). Kept inside the reader; only for this
+   * comment while it's written.
+   */
+  moveComposer(a: ComposerMove, host: SurfaceHost): FloatRect | null {
+    const cs = this.session;
+    if (!cs || cs.mode !== "compose" || !cs.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
+    if (cs.place !== "floating") throw new ActionRefused(`the comment is ${cs.place}, not floating · comment.place place=floating (ctrl+o) floats it, ctrl+g floats and moves it`);
+    if (a.reset) { cs.float = null; this.revealComposer = true; host.redraw(); return null; }
+    const was = cs.float ?? this.boxRect, room = this.boxRoom;
+    if (!was || !room) throw new ActionRefused("the comment isn't drawn yet; try again once it is");
+    const row = a.row ?? was.row + (a.dy ?? 0), col = a.col ?? was.col + (a.dx ?? 0);
+    const cols = a.cols ?? was.cols + (a.dcols ?? 0), rows = a.rows ?? was.rows + (a.drows ?? 0);
+    // Sized, it grows from where it is (its top left stays) up to the reader's edge; moved, it keeps its size (clampFloat
+    // keeps it on the reader).
+    const next = clampFloat({
+      row, col,
+      cols: cols !== was.cols ? Math.min(cols, Math.max(0, room.w - col)) : cols,
+      rows: rows !== was.rows ? Math.min(rows, Math.max(0, room.h - row)) : rows,
+    }, room.w, room.h);
+    cs.float = next;
+    host.redraw();
+    return next;
+  }
+
+  /** A drag from the floating box's top edge or ◢ corner (PIE-785): comment.move to where the pointer is. */
+  private dragFrame(x: number, y: number, host: SurfaceHost) {
+    const g = this.frameDrag!, f = g.from, dx = x - g.x, dy = y - g.y;
+    const to = g.zone.kind === "move" ? { row: f.row + dy, col: f.col + dx, cols: f.cols, rows: f.rows }
+      : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
+    const now = this.session?.float ?? this.boxRect;
+    if (now && now.row === to.row && now.col === to.col && now.cols === to.cols && now.rows === to.rows) return;
+    void this.runKey("comment.move", to, host, true);
+  }
+
+  /**
+   * A click beside the composer's box on something that goes elsewhere (a link, a row, an embed, a comment mark, back or
+   * forward): that element's action as the person, which asks first while the comment is unsent (askLeave, PIE-785).
+   */
+  private followFromComposer(x: number, y: number, host: SurfaceHost): boolean {
+    const b = this.boxRect;
+    if (b && x >= b.col && x < b.col + b.cols && y >= b.row && y < b.row + b.rows) return false;
+    const h = this.hitAt(x, y);
+    if (!h) return false;
+    if ("history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
+    if (!("link" in h || "thread" in h)) return false;
+    const e = h.elem ? this.elems.find(x => x.key === h.elem) : undefined;
+    if (e && (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment")) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); return true; }
+    if (e || !("link" in h) || h.value !== undefined) return false;
+    const i = this.links.findIndex(l => sameLink(l, h.link));
+    if (i < 0 || h.link.role) return false;
+    void this.runKey("link.follow", { n: i + 1 }, host);
+    return true;
+  }
+
   /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
   private commentKey(s: CommentSession, k: Key, host: SurfaceHost): boolean {
     const writing = s.writing;
@@ -2541,6 +2790,8 @@ export class NoteSurface {
     if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
     // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770).
     if (sessionKey(s, k, "o")) { void this.runKey("comment.place", {}, host, true); return true; }
+    // ctrl+g: move and size it by keys (it floats, PIE-785).
+    if (sessionKey(s, k, "g")) { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings the composer back into view after the wheel took the note elsewhere.
     if (s.mode === "compose") this.revealComposer = true;
     const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
@@ -4677,6 +4928,8 @@ export class NoteSurface {
   release(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
     this.dragging = false;
+    // The end of a drag that moved or sized the floating composer: nothing else (not a click in it).
+    if (this.frameDrag) { this.frameDrag = null; this.editPress = false; host.redraw(); return true; }
     // A shift+click in a draft extended its selection: the release copies it (copy on select), never places the cursor again.
     if (this.shiftPress) {
       this.shiftPress = false;
@@ -5808,6 +6061,9 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   const word = dir < 0 ? "back" : "forward";
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
   if (actor.kind === "agent" && host.history) throw new ActionRefused(host.history.agentRefusal);
+  // The person's comment unsent here: asked first (PIE-785).
+  const asked = surface.askLeave(word, {}, actor, host);
+  if (asked) return asked;
   const why = await surface.travel(dir, host);
   if (why) throw new ActionRefused(why);
   surface.noteAgent(actor, `went ${word} here`);
@@ -6066,6 +6322,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
     async run({ n, fresh }, { surface, host }, actor) {
       surface.requireNote();
+      // While the person's comment is unsent here, they're asked first (PIE-785).
+      const asked = surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
+      if (asked) return asked;
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
       if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
       const links = surface.describe().links;
@@ -6129,6 +6388,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // A code block or a quote has nothing to open: ⏎ copies it (the person's to their clipboard, an agent's returned).
       if (e.kind === "block") { const r: unknown = await NOTE_ACTIONS.run("block.copy", { n: e.block! + 1 }, on, actor); return r; }
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
+      // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
+      if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
+        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
+        if (asked) return asked;
+      }
       // A step's box opens the person's status choice; an agent sets the status itself.
       // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
       if (e.kind === "figure" && e.link?.figure) {
@@ -6452,6 +6716,41 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.revealComposerNext();
       host.redraw();
       return { place: want };
+    },
+  }),
+  "comment.grip": def({
+    summary: "move and size the comment being written by keys (PIE-785): it floats (if it was elsewhere), then ← → ↑ ↓ or h j k l move it, shift+arrows or H J K L size it, 0 puts it back in its usual place, ⏎ or esc is done. Each step is comment.move. For this sitting only: opened again, it's in its usual place",
+    keys: "ctrl+g while writing a comment",
+    touches: "draft", draft: "type", replay: "ask",
+    args: {},
+    run(_, { surface, host }) {
+      surface.grip(host);
+      return { moving: true };
+    },
+  }),
+  "comment.move": def({
+    summary: "move or size the floating comment being written (PIE-785): dx dy step it (columns, rows), col row put its corner there, dcols drows or cols rows size it (the reader's cells); reset=true puts it back in its usual place beside the passage. Moving it never changes the passage it's on. For this sitting only: never kept, so a comment opened again (or read later) is in its usual place",
+    keys: "drag its top edge (≡ move), drag its ◢ corner or edges; ctrl+g then arrows (shift: size)",
+    touches: "draft", draft: "type", replay: "ask",
+    args: {
+      dx: { type: "number", optional: true, about: "columns to move right (negative: left)" }, dy: { type: "number", optional: true, about: "rows to move down (negative: up)" },
+      col: { type: "number", optional: true, about: "its left column" }, row: { type: "number", optional: true, about: "its top row" },
+      dcols: { type: "number", optional: true, about: "columns wider (negative: narrower)" }, drows: { type: "number", optional: true, about: "rows taller (negative: shorter)" },
+      cols: { type: "number", optional: true, about: "its width" }, rows: { type: "number", optional: true, about: "its height" },
+      reset: { type: "boolean", optional: true, about: "back to its usual place and size" },
+    },
+    run(args, { surface, host }) {
+      return { float: surface.moveComposer(args, host) };
+    },
+  }),
+  "comment.leaving": def({
+    summary: "answer \"about to leave an unsent comment\" (PIE-785), asked when the person follows a link, a comment mark, back or forward while their comment is unsent: save keeps it as unsent where it was written (opening it again brings it back) and goes on; keep goes back to writing; discard lets it go (a copy stays on disk) and goes on. The person's choice: an agent's action never asks it",
+    keys: "s, k (esc), d, ⏎; a click on a chip",
+    touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
+    args: { choice: { type: "string", about: "save, keep or discard" } },
+    run({ choice }, { surface, host }) {
+      if (choice !== "save" && choice !== "keep" && choice !== "discard") throw new ActionRefused(`choice is save, keep or discard, not ${JSON.stringify(choice)}`);
+      return surface.answerLeave(choice, host);
     },
   }),
   "threads": def({

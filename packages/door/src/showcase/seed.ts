@@ -603,6 +603,7 @@ const MARGIN = [
   "",
   "- **Four places:** inline (the default), floating beside the passage, split (the note beside the composer) or a popup. ctrl+o, or a click on the box's chip, moves the one you're writing; `composer.place` sets where new ones open.",
   "- **One editor:** the mouse selects and deletes, ctrl+z undoes, `((` links a note and `^` after it picks a passage; ctrl+p previews references and embeds as the reader draws them.",
+  `- **It stays with you:** click another tile and back, and the box is there as you left it. Drag a floating box by its top edge, size it by its ◢ corner (or ctrl+g, then the arrows), for this sitting only. Follow a link like [[${SEED.shed}]] with a comment unsent and you're asked: save and continue, keep writing, or discard.`,
   "",
   ...Object.values(MARGIN_LINES).flatMap(l => [l, ""]),
 ].join("\n").trimEnd();

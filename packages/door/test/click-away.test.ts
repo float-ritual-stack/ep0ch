@@ -1,6 +1,6 @@
 // Leaving an edit by a click elsewhere, as in any editor (session.leave): a changed edit is saved, an
-// unchanged one closes, one the service refuses is kept as unsent, a comment is kept as unsent (never
-// sent), an agent never leaves the person's draft for them, and the draft's hold goes with it. Runs a desk
+// unchanged one closes, one the service refuses is kept as unsent, a comment stays open where it is (PIE-785,
+// never sent), an agent never leaves the person's draft for them, and the draft's hold goes with it. Runs a desk
 // in the App against a scratch outliner service (never a real outline), with fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -126,24 +126,80 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     key({ kind: "esc" }); key({ kind: "esc" });
   }, 30_000);
 
-  test("a comment being written is kept as unsent, never sent", async () => {
+  test("a comment being written stays open when the keys go elsewhere, and is the person's again when they come back (PIE-785)", async () => {
     const id = await create("Mulch the roses\nwith bark from the heap");
     desk.openBlock((await board.get(id))!);
     desk.focusOn("reader");
     await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the reader");
-    const rd = reader();
+    const rd = reader(), name = D().nameOf(D().focus) as string;
     key(char("C"));
     await until(() => !!rd.surface.session, "the passage picker");
     key({ kind: "enter" });
     await until(() => !!rd.surface.session?.composer, "the comment composer");
     type("How much bark?");
-    clickElsewhere();
-    expect(rd.surface.session).toBeNull();
-    await Bun.sleep(0);                                                 // said after the click's own flash, so it stays on screen
-    expect(message()).toBe("the comment on “Mulch the roses” is kept here, not sent · C and a passage bring it back");
-    expect(unsent(`comment:${id}`)?.text).toBe("How much bark?");
+    const went = clickElsewhere();
+    // The other tile has the keys; the comment is still open, on screen, as it was, and nothing was sent or put aside.
+    expect(D().nameOf(D().focus)).toBe(went);
+    expect([rd.surface.session?.mode, rd.surface.session?.composer?.text]).toEqual(["compose", "How much bark?"]);
+    expect(D().isIn(rd)).toBe(false);
+    expect(unsent(`comment:${id}`)).toBeNull();
+    // The keys back on the reader: the person is in the comment again, no reopening.
+    desk.focusOn(name);
+    expect(D().isIn(rd)).toBe(true);
+    type(" Two sacks");
+    expect(rd.surface.session?.composer?.text).toBe("How much bark? Two sacks");
     await Bun.sleep(150);
     expect(await board.comments(id)).toEqual([]);
+    // Leaving it on purpose: esc twice puts it aside as unsent (back to picking the passage), esc again closes.
+    key({ kind: "esc" }); key({ kind: "esc" });
+    expect(unsent(`comment:${id}`)?.text).toBe("How much bark? Two sacks");
+    key({ kind: "esc" });
+    expect(rd.surface.session).toBeNull();
+  }, 30_000);
+
+  test("following a link with a comment unsent asks: save and continue keeps it unsent and goes; keep writing stays; an agent never asks (PIE-785)", async () => {
+    const shed = await create("The potting shed");
+    const id = await create(`Repot the figs\nin the ((${shed}))`);
+    desk.openBlock((await board.get(id))!);
+    desk.focusOn("reader");
+    await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the reader");
+    const rd = reader(), name = D().nameOf(D().focus) as string;
+    key(char("C"));
+    await until(() => !!rd.surface.session, "the passage picker");
+    key({ kind: "enter" });
+    await until(() => !!rd.surface.session?.composer, "the comment composer");
+    type("Which pots?");
+    // An agent's follow never asks the person (and doesn't move their reader).
+    await expect(app.act({ action: "link.follow", tile: name, args: { n: 1 }, as: "tidy" })).rejects.toThrow();
+    expect(rd.surface.state()).toBe("writing · unsent");
+    // The person's: asked. k keeps writing.
+    expect(await D().dispatch.press("link.follow", { n: 1 }, name)).toMatchObject({ asking: "about to leave an unsent comment" });
+    D().render(D().ctx);
+    expect(rd.surface.state()).toBe("leaving an unsent comment?");
+    key(char("k"));
+    await until(() => rd.surface.state() !== "leaving an unsent comment?", "back to writing");
+    type(" Clay");
+    expect(rd.surface.session?.composer?.text).toBe("Which pots? Clay");
+    // Asked again, s: kept as unsent, and the reader goes where the link goes.
+    await D().dispatch.press("link.follow", { n: 1 }, name);
+    key(char("s"));
+    await until(() => rd.msg?.id === shed, "the reader on the linked note");
+    expect(rd.surface.session).toBeNull();
+    expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
+    expect(await board.comments(id)).toEqual([]);
+    // On the shed, another comment, then back: d discards it (nothing kept to come back) and the reader goes.
+    key(char("C"));
+    await until(() => !!rd.surface.session, "the passage picker on the shed");
+    key({ kind: "enter" });
+    await until(() => !!rd.surface.session?.composer, "a second composer");
+    type("Never mind");
+    await D().dispatch.press("back", {}, name);
+    key(char("d"));
+    await until(() => rd.msg?.id === id, "back on the figs");
+    expect(unsent(`comment:${shed}`)).toBeNull();
+    expect(await board.comments(shed)).toEqual([]);
+    // The figs' comment put aside before is still there to come back.
+    expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
   }, 30_000);
 
   test("an agent can't leave, save or move off the person's draft; ^W then a window key leaves it", async () => {
