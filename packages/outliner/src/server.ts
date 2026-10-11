@@ -294,6 +294,23 @@ function normalizePublisherAddress(address: unknown): PublisherAddress {
   return out;
 }
 
+/**
+ * The grant another machine's host relayed with its extension's request (`relayed`, spike/echonet): the extension as
+ * `<id>@<node>`, so what it writes here reads `ext:echonet@echo-cafe@float-2`. The socket has no per-client access, so
+ * this claims nothing a client couldn't already do; it says who, and holds the request to this outline's access level.
+ */
+function relayedGrant(relayed: unknown): ExtensionGrant | undefined {
+  if (relayed === undefined) return undefined;
+  const r = relayed as { extension?: unknown; node?: unknown; label?: unknown; writes?: unknown };
+  if (typeof r.extension !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(r.extension) || typeof r.node !== "string" || !/^[a-z0-9][a-z0-9-]*@[A-Za-z0-9][\w.-]*$/.test(r.node)) {
+    throw new Error("relayed needs { extension, node: <outline>@<machine>, label, writes }: what another machine's host sends for its extension");
+  }
+  return {
+    extensionId: `${r.extension}@${r.node}`, outline: r.node, relayed: true, secrets: [],
+    label: typeof r.label === "string" ? r.label : `ext.${r.extension}`, writes: r.writes === true,
+  };
+}
+
 /** A grant's actor: the extension (`ext:<id>`), as an agent. */
 function grantActor(grant: ExtensionGrant): MutationProvenance {
   return { author: "agent", actorId: extensionActorId(grant.extensionId) };
@@ -3714,10 +3731,11 @@ export class OutlinerServer {
   private asExtension(request: OutlinerRequest, grant: ExtensionGrant): OutlinerRequest {
     const action = String(request.action);
     const actor = grantActor(grant);
-    const { grant: _grant, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown };
+    const { grant: _grant, relayed: _relayed, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown; relayed?: unknown };
     // What it writes never carries a secret it was given (its answers are scrubbed the same way).
     const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
-    if (action !== "secrets.group") this.crossOutlineAccess(action, grant);
+    // Asking an outline's access level is what finds out what it allows.
+    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -3774,7 +3792,7 @@ export class OutlinerServer {
    */
   private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
     const here = this.outline?.name;
-    if (!grant.outline || !here || grant.outline === here || !this.store.mcpAccessConfigured()) return;
+    if (!grant.outline || !here || grant.outline === here || (!grant.relayed && !this.store.mcpAccessConfigured())) return;
     const level = this.store.mcpAccessStatus().level;
     const writes = EXTENSION_WRITES.has(action);
     const marks = action.startsWith("annotations.");
@@ -3856,6 +3874,7 @@ export class OutlinerServer {
       if (grantToken !== undefined && !grant) {
         throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
       }
+      grant ??= relayedGrant((request as { relayed?: unknown }).relayed);
       if (grant) request = this.asExtension(request, grant);
       const claimed = grant ? undefined : claimedExtensionActor(request);
       if (claimed) {

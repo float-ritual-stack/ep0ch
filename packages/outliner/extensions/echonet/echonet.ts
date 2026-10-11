@@ -11,13 +11,11 @@
 //   4. netmail in: a reply written in the origin on such a thread is carried back into the copy's thread.
 //   5. the nodelist (`Nodelist [type::nodelist]`) is written again, with a `[type::toss]` log under it.
 //
-// Offline is normal: a node that can't be reached (no forward to its machine, or `offline` in config.json) is said in
+// Offline is normal: a node that can't be reached (its machine or its host doesn't answer, or `offline` in config.json) is said in
 // the nodelist, and what this node would send it stays here, counted as queued, until a toss reaches it. The one access
 // rule is the origin's own (`ep0ch mcp access`): `none` refuses, `read` lets this node copy, `propose` and `full` also
 // let it write marks there (seen-by and netmail). Everything is written over the extension's connection, as
 // `ext:echonet`.
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { outline, type OutlineRequest, type Route } from "./outline";
 
 interface Property { key: string; value: string }
@@ -36,7 +34,7 @@ type Level = "none" | "read" | "propose" | "full";
 interface Request {
   operation: "act";
   input: { action: "toss" | "nodelist"; context: { now: string }; scheduled?: { at: string } };
-  config: { offline?: string[]; outlines?: string; keepLogs?: number };
+  config: { offline?: string[]; keepLogs?: number };
 }
 
 const answer = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
@@ -54,7 +52,6 @@ function parseNode(text: string | undefined): Node | undefined {
 
 const address = await outline<{ outline?: string; machine: string }>({ action: "notes.address" });
 const self = nodeOf(process.env.EP0CH_WS ?? address.outline ?? "unknown", address.machine);
-const outlinesFolder = config.outlines ?? (process.env.EP0CH_SOCKET ? dirname(dirname(process.env.EP0CH_SOCKET)) : join(process.env.HOME ?? "~", "outlines"));
 const sameMachine = (a: string, b: string) => a.toLowerCase().split(".")[0] === b.toLowerCase().split(".")[0];
 
 /** How this node reaches another, and what that node lets it do. Learned once per toss. */
@@ -71,38 +68,24 @@ const links = new Map<string, Link>();
 async function linkTo(node: Node): Promise<Link> {
   const known = links.get(node.id);
   if (known) return known;
-  let route: Route = { outline: node.outline };
   let link: Link;
   const unreachable = (why: string): Link => ({ node, reachable: false, why, level: "none", call: () => Promise.reject(new Error(`${node.id} is unreachable: ${why}`)) });
   if ((config.offline ?? []).includes(node.id)) link = unreachable("offline (config.json's offline list)");
   else {
-    if (!sameMachine(node.machine, self.machine)) {
-      // Another machine: through the shared ssh forward a client started (outline-core's ensureForward). An extension
-      // doesn't start one: a machine nobody has dialled is offline for this toss.
-      const socket = join(outlinesFolder, ".remote", `${node.machine}.sock`);
-      route = { ...route, socket, timeoutMs: 8000 };
-      if (!existsSync(socket)) link = unreachable(`no forward to ${node.machine} (${socket})`);
+    // Another machine: the host sends the request through the shared ssh forward, starting it when nobody has (the
+    // first contact waits for ssh); a machine or host that doesn't answer is offline for this toss.
+    const remote = !sameMachine(node.machine, self.machine);
+    const route: Route = { outline: node.outline, ...(remote ? { machine: node.machine, timeoutMs: 60_000 } : {}) };
+    const call = <T>(request: OutlineRequest) => outline<T>(request, route);
+    try {
+      const status = await call<{ level: Level }>({ action: "mcp.access.status" });
+      link = { node, reachable: true, level: status.level, call };
+    } catch (error) {
+      link = unreachable(error instanceof Error ? error.message.split("\n")[0]! : String(error));
     }
-    link ??= await (async () => {
-      const call = <T>(request: OutlineRequest) => outline<T>(route.socket ? asRemoteAgent(request) : request, route);
-      try {
-        const status = await call<{ level: Level }>({ action: "mcp.access.status" });
-        return { node, reachable: true, level: status.level, call } as Link;
-      } catch (error) {
-        return unreachable(error instanceof Error ? error.message.split("\n")[0]! : String(error));
-      }
-    })();
   }
   links.set(node.id, link);
   return link;
-}
-
-/** A write to another machine's host goes without a grant, so it says who it is (the host attributes it). */
-function asRemoteAgent(request: OutlineRequest): OutlineRequest {
-  const actor = { author: "agent", provenance: { actorId: `echonet:${self.id}` } };
-  if (request.action === "create" || request.action.startsWith("annotations.")) return { ...request, ...actor };
-  if (request.action === "update") return { ...request, mutation: { author: "agent", actorId: `echonet:${self.id}` } };
-  return request;
 }
 
 const mine = <T>(request: OutlineRequest) => outline<T>(request);

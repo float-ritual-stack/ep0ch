@@ -10,7 +10,8 @@
 // socket, held by one ssh connection (`-M`, its control socket `<machine>.ctl`, ControlPersist, its log
 // `<machine>.log`) that outlives the client that started it, so every client on this machine shares it: the first one
 // to need it starts it, the rest find it answering. The other machine's socket isn't assumed: it is asked once per
-// start (`ep0ch status --json` there, in a login shell so its PATH is the person's). ExitOnForwardFailure makes a start
+// start (`ep0ch status --json` there, in a login shell so its PATH is the person's), unless the machine's file
+// `<machine>.json` beside the forward names its outlines folder there. ExitOnForwardFailure makes a start
 // that couldn't forward fail at once; StreamLocalBindUnlink replaces a dead socket file; ServerAlive drops a connection
 // whose network went, so the next client to need it starts it again (the door does, as its connection comes back, and
 // says so). A connection that is up is never ended here: its host may be restarting, and other clients share it.
@@ -44,7 +45,7 @@ export interface MachineIO {
 }
 
 /** Where a machine's forward is, on this machine. */
-export interface ForwardPaths { machine: string; socket: string; control: string; log: string; dir: string }
+export interface ForwardPaths { machine: string; socket: string; control: string; log: string; dir: string; config: string }
 
 /** A Unix socket's path, with ssh's temporary suffix for a control socket (`.` and 16 characters), fits macOS's 104 bytes. */
 const SOCKET_ROOM = 104 - 17;
@@ -111,6 +112,21 @@ export function statusRefusal(machine: string, r: { code: number; out: string; e
   return `${machine} says: ${said || `exit ${r.code}`}`;
 }
 
+/**
+ * The machine's host socket as its file in `.remote/` names it (`<machine>.json`, `{ "outlines": "/abs/folder" }`):
+ * that folder's `.host/host.sock`. Undefined when there's no file; a file that doesn't say an absolute folder throws.
+ */
+export function configuredRemoteSocket(p: ForwardPaths, io: Pick<MachineIO, "read">): string | undefined {
+  const text = io.read(p.config);
+  if (text === null) return undefined;
+  let outlines: unknown;
+  try { outlines = (JSON.parse(text) as { outlines?: unknown }).outlines; } catch { outlines = undefined; }
+  if (typeof outlines !== "string" || !outlines.startsWith("/") || outlines.includes(":")) {
+    throw new Error(`${p.config} should be { "outlines": "/absolute/folder/on/${p.machine}" } (no ":" in it)`);
+  }
+  return outlineLayout(outlines).socket;
+}
+
 /** How a forward came to answer: it already did, or it was started. */
 export type ForwardHow = "up" | "started";
 export interface Forward { socket: string; how: ForwardHow; remote?: RemoteStatus }
@@ -134,9 +150,15 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
     }
     // A control socket left by a connection that died would turn the new one's -M off.
     o.io.remove(p.control);
-    const asked = await o.io.run(sshArgv.status(o.ssh, machine), 30_000);
-    if (asked.code !== 0) throw new Error(statusRefusal(machine, asked));
-    const remote = parseRemoteStatus(asked.out, machine);
+    // Its socket: where the machine's file says its outlines are, else asked of its own `ep0ch status`.
+    const named = configuredRemoteSocket(p, o.io);
+    let remote: RemoteStatus;
+    if (named) remote = { socket: named, outlines: [] };
+    else {
+      const asked = await o.io.run(sshArgv.status(o.ssh, machine), 30_000);
+      if (asked.code !== 0) throw new Error(statusRefusal(machine, asked));
+      remote = parseRemoteStatus(asked.out, machine);
+    }
     o.io.remove(p.log);
     const started = await o.io.run(sshArgv.forward(o.ssh, p, remote.socket), 30_000, { detached: true });
     if (started.code !== 0) throw new Error(`ssh ${machine} couldn't forward its host socket ${remote.socket}: ${lastLine(o.io.read(p.log)) || `exit ${started.code}`}`);

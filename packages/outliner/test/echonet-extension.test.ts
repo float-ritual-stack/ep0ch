@@ -2,7 +2,7 @@
 // and an attic), the repo's extensions/echonet copied into its user folder, areas and subscriptions between them, and
 // tosses driven by hand. Every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +85,39 @@ async function setup() {
     writeFileSync(join(userExtensions, "echonet", "config.json"), JSON.stringify({ config: value }));
     await call("cafe", { action: "extensions.list", reload: true });
   };
-  return { socket, call, machine, toss, create, get, children, threads, comment, reply, access, config };
+  return { root, outlines: outlines.root, socket, call, machine, toss, create, get, children, threads, comment, reply, access, config };
+}
+
+/**
+ * A second machine, `box-b`: an outline host in a scratch folder of its own, reached through the fake ssh
+ * (test/fake-ssh.ts as EP0CH_SSH), its outlines folder named in this machine's `.remote/box-b.json`.
+ */
+async function farMachine(root: string, outlines: string) {
+  const far = join(root, "far");
+  for (const dir of ["home", "outlines", "bin"]) mkdirSync(join(far, dir), { recursive: true, mode: 0o700 });
+  mkdirSync(join(outlines, ".remote"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(outlines, ".remote", "box-b.json"), JSON.stringify({ outlines: join(far, "outlines") }));
+  writeFileSync(join(far, "bin", "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "fake-ssh.ts")} "$@"\n`);
+  chmodSync(join(far, "bin", "ssh"), 0o755);
+  const vars = { EP0CH_SSH: join(far, "bin", "ssh"), FAKE_SSH_HOME: join(far, "home"), FAKE_SSH_OUTLINES: join(far, "outlines"), FAKE_SSH_BIN: join(far, "bin") };
+  const saved = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, vars);
+  let host = new OutlineHost({ outlinesFolder: join(far, "outlines"), log: () => {} });
+  await host.start();
+  cleanups.push(async () => {
+    try { process.kill(Number(readFileSync(join(outlines, ".remote", "box-b.ctl"), "utf8"))); } catch { /* not running */ }
+    await host.close();
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const call = <T>(outline: string, request: Record<string, unknown>) => send<T>(host.socketPath, { outline, ...request });
+  return {
+    call,
+    stop: () => host.close(),
+    start: async () => { host = new OutlineHost({ outlinesFolder: join(far, "outlines"), log: () => {} }); await host.start(); },
+  };
 }
 
 test("a subscription copies an area's messages once, keeps a trashed copy trashed, marks newer upstream and leaves seen-by on the original", async () => {
@@ -230,3 +262,44 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: JSON.stringify
   await access("shack", "full");
   expect(await poke()).toEqual({ read: "ok", comment: "ok", create: "ok" });
 }, 60_000);
+
+test("another machine: the host sends the extension's request through the ssh forward, and that outline's access level holds there", async () => {
+  const { root, outlines, machine, toss, create, children, threads, comment } = await setup();
+  const far = await farMachine(root, outlines);
+  await send(join(root, "far", "outlines", ".host", "host.sock"), { action: "outlines.create", name: "field" });
+  const farCreate = (text: string) => far.call<Block>("field", { action: "create", text, author: "user" });
+  await farCreate("Field notes [type::echo-area] [echo::field] [query::type=field]");
+  const hedge = await farCreate("Field: the hedge by the gate flowers late [type::field]");
+  await farCreate("Field: two new hives on the east slope [type::field]");
+  const sub = await create("cafe", "Field from the box [type::echo-sub] [subscribe::field@box-b] [echo::field]");
+
+  // The field never set a level: for another machine's extension that is none.
+  expect(await toss("cafe")).toContain("copies 0");
+  expect(await children("cafe", sub.id)).toEqual([]);
+
+  await far.call("field", { action: "mcp.access.configure", level: "propose" });
+  expect(await toss("cafe")).toContain("copies 2");
+  const copies = await children("cafe", sub.id);
+  expect(copies[0]!.text).toContain(`[from::field@box-b/${hedge.id}]`);
+  // Seen-by on the far original, written as the extension from its node.
+  const seen = (await far.call<Thread[]>("field", { action: "annotations.list", query: { subject: { kind: "block", blockId: hedge.id }, includeResolved: true } }))[0]!;
+  expect(seen.body).toBe(`also in: cafe@${machine} (Field from the box)`);
+  expect(seen.block.actorId).toBe(`ext:echonet@cafe@${machine}`);
+
+  // Netmail while the far host is down: queued, then delivered once it is back.
+  const mark = await comment("cafe", copies[0]!, "which week, roughly?", "flowers late");
+  await far.stop();
+  expect(await toss("cafe")).toContain("queued 1");
+  await far.start();
+  expect(await toss("cafe")).toContain("netmail out 1");
+  const there = (await far.call<Thread[]>("field", { action: "annotations.list", query: { subject: { kind: "block", blockId: hedge.id }, includeResolved: true } }))
+    .find((thread) => thread.properties?.["netmail-from"])!;
+  expect(there.body).toBe("which week, roughly?");
+  expect(there.properties?.["netmail-from"]).toEqual([`cafe@${machine}/${mark.id}`]);
+
+  // A reply on the far machine comes back.
+  await far.call("field", { action: "annotations.reply", requestId: crypto.randomUUID(), author: "user", input: { annotationId: there.block.id, body: "the third week of June", source: "user" } });
+  expect(await toss("cafe")).toContain("in 1");
+  const local = (await threads("cafe", copies[0]!.id)).find((thread) => thread.block.id === mark.id)!;
+  expect(local.replies.map((r) => r.body)).toEqual(["the third week of June"]);
+}, 90_000);
