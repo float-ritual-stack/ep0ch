@@ -146,10 +146,12 @@ export interface PublisherOptions {
    */
   url?: string;
   /**
-   * Where the public listener is reached from this machine (`http://127.0.0.1:8791`), when it has one: `cloudflare`
-   * shares' tunnels point there, and the publisher tells the service it runs them.
+   * Run `cloudflare` shares' tunnels (publish-tunnels.ts), each to a loopback ingress of its own, and tell the
+   * service so. A serving publisher with a public listener does.
    */
-  publicListener?: string;
+  tunnels?: boolean;
+  /** How often the tunnels read the share list again (tests shorten it). */
+  tunnelSweepMs?: number;
   /** cloudflared's path (tests give a fake); else EP0CH_CLOUDFLARED, else PATH. */
   cloudflared?: () => string | undefined;
   log?: (line: string) => void;
@@ -569,7 +571,7 @@ export class Publisher {
   private readonly marginalia: PageMarginalia;
   /** The outline's name, the top of a tailnet page's breadcrumbs. */
   private outlineName: string | undefined;
-  /** The `cloudflare` shares' tunnels, when there's a public listener to point them at. */
+  /** The `cloudflare` shares' tunnels, when this publisher runs them. */
   private tunnels: ShareTunnels | null = null;
   /** Each share's view of the published index, until the next change. */
   private readonly shareIndexes = new Map<string, { generation: number; from: PublishedIndex; value: PublishedIndex }>();
@@ -644,7 +646,7 @@ export class Publisher {
       return false;
     }
     return host === "127.0.0.1" || host === "localhost" || host === "[::1]" ||
-      host.endsWith(".ts.net") || this.allowedHosts.has(host) || (audience === "public" && (host === this.publicHost || !!this.tunnels?.serves(host)));
+      host.endsWith(".ts.net") || this.allowedHosts.has(host) || (audience === "public" && host === this.publicHost);
   }
 
   /**
@@ -671,10 +673,17 @@ export class Publisher {
       maxBytes: this.maxBytes,
       ...(local ? {} : { remoteService: true }),
     };
-    if (this.options.publicListener !== undefined) {
+    if (this.options.tunnels) {
       this.tunnels = new ShareTunnels({
         request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
-        origin: this.options.publicListener, log: this.log, ...(this.options.cloudflared ? { binary: this.options.cloudflared } : {}),
+        // A tunnel's own way in: this share alone, on loopback, whatever Host a request names.
+        ingress: (shareId) => {
+          const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 30, fetch: (request) => this.handle(request, "public", shareId) });
+          return { port: server.port!, stop: () => { void server.stop(true); } };
+        },
+        log: this.log,
+        ...(this.options.cloudflared ? { binary: this.options.cloudflared } : {}),
+        ...(this.options.tunnelSweepMs ? { sweepMs: this.options.tunnelSweepMs } : {}),
       });
     }
     const connected = Promise.withResolvers<void>();
@@ -705,7 +714,7 @@ export class Publisher {
   address(): PublisherAddress {
     const url = this.options.url?.trim().replace(/\/+$/, "");
     const publicUrl = this.publicBase.origin ? `${this.publicBase.origin}${this.publicBase.basePath}` : undefined;
-    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}), ...(this.options.publicListener !== undefined ? { tunnels: true } : {}) };
+    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}), ...(this.options.tunnels ? { tunnels: true } : {}) };
   }
 
   /**
@@ -787,7 +796,7 @@ export class Publisher {
   }
 
   /** The running tunnels' processes (publish-tunnels.ts), for the log and tests. */
-  tunnelProcesses(): { shareId: string; pid: number; host?: string }[] {
+  tunnelProcesses(): { shareId: string; pid: number; port: number; host?: string }[] {
     return this.tunnels?.processes() ?? [];
   }
 
@@ -866,12 +875,23 @@ export class Publisher {
    * (PIE-782) and a page's marginalia routes (`/_marginalia/…`, publish-page.ts). The public audience has no index,
    * sees only public notes and takes no writes.
    */
-  async handle(request: Request, audience: PublishAudience = "tailnet"): Promise<Response> {
-    const response = await this.answer(request, audience);
+  async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string): Promise<Response> {
+    const response = await this.answer(request, audience, tunnel);
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
-  private async answer(request: Request, audience: PublishAudience): Promise<Response> {
+  private async answer(request: Request, audience: PublishAudience, tunnel?: string): Promise<Response> {
+    // A tunnel's ingress answers its one share and nothing else; its Host is the tunnel's, whatever that is.
+    if (tunnel !== undefined) {
+      const shared = SHARE_PATH.exec(new URL(request.url).pathname);
+      if (!shared) return notFound();
+      try {
+        return await this.answerShare(request, shared[1]!, shared[2] ?? "/", "", tunnel);
+      } catch (error) {
+        this.log(redactSharePath(`publish: tunnel ${request.method} ${new URL(request.url).pathname}: ${error instanceof Error ? error.message : String(error)}`));
+        return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+      }
+    }
     if (!this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
       return respond("Host not allowed\n", "text/plain; charset=utf-8", 421);
     }
@@ -957,14 +977,13 @@ export class Publisher {
    * when it ended). Inside, it is the tailnet's web client cut to the session's scope: every note in it a page and a
    * folder, its links and embeds only to notes inside, and marginalia when the session takes comments.
    */
-  private async answerShare(request: Request, token: string, rest: string, mount: string): Promise<Response> {
+  private async answerShare(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
     if (found.status === "ended") return shareGone(found.state);
-    // A tunnel's share is answered on its tunnel's host only (its email gate is there), and an edge share never on a tunnel's.
-    let host = "";
-    try { host = new URL(`http://${request.headers.get("host") ?? new URL(request.url).host}`).hostname.toLowerCase(); } catch { /* not a host */ }
-    if (found.share.via === "cloudflare" ? !host || host !== found.share.tunnel?.host || !this.tunnels?.serves(host) : !!this.tunnels?.serves(host)) return notFound();
+    // A tunnel's share is answered on its own tunnel's ingress only (its email gate is in front of it), never on the
+    // public listener; and a tunnel's ingress answers nothing but its share.
+    if (found.share.via === "cloudflare" ? found.share.id !== tunnel : tunnel !== undefined) return notFound();
     const share: PageShare = {
       // Links stay as the request came: at the host's root (`/s/<token>`), or under the listener's mount when it was asked there.
       id: found.share.id, base: `${mount}/s/${token}`, scope: found.share.scope, comments: found.share.comments,

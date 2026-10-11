@@ -1,31 +1,28 @@
 // The `cloudflare` way to a share (share-sessions.ts): one Cloudflare Quick Tunnel per open share, run by the
-// publisher that has the public listener, from a random trycloudflare.com host to that listener. With `allowMail`
-// the tunnel is protected (`--allowed-mail`): Cloudflare lets in only those who sign in with a one-time PIN sent to
-// one of those emails; without it the tunnel is public and the share's token gates every page, as on the edge.
+// publisher, on a random trycloudflare.com host. With `allowMail` the tunnel is protected (`--allowed-mail`):
+// Cloudflare lets in only those who sign in with a one-time PIN sent to one of those emails; without it the tunnel is
+// public and the share's token gates every page, as on the edge.
 //
-// The publisher owns each process: it starts one when the service says shares changed (or when it connects, or on
-// its own clock), says its host back (`shares.tunnel`), and kills it when its share is revoked, killed with all the
-// others, or expires. A tunnel that fails to come up, or dies, ends its share (the service marks it failed), so no
-// token is left open with nothing behind it. Restarting the publisher kills its tunnels with it (systemd stops the
-// unit's processes); a share still open then gets a new tunnel, on a new host.
+// Each tunnel has an ingress of its own: a listener on 127.0.0.1 (a free port) that answers that one share and
+// nothing else, and cloudflared points there. A `cloudflare` share is never answered on the public listener, so its
+// email gate can't be walked around by sending its link there with the tunnel's Host (a header proves nothing).
+//
+// The publisher owns each process: it starts one when the service says shares changed (or when it connects, or on its
+// own clock), says its host back (`shares.tunnel`) once the name resolves, and kills it when its share is revoked,
+// killed with all the others, or expires (by the service's list, and by its own clock should the service not answer).
+// A tunnel that fails to come up, or dies, ends its share (the service marks it failed), so no token is left open with
+// nothing behind it. Restarting the publisher kills its tunnels with it; a share still open gets a new tunnel, on a new
+// host.
 import type { Subprocess } from "bun";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 
 /** How long cloudflared has to say its host. */
 const START_MS = 40_000;
-/** The share list is read again at least this often, so an expiry stops its tunnel without any event. */
+/** The share list is read again at least this often, and again this soon after a read that failed. */
 const SWEEP_MS = 15_000;
+/** A cloudflared that ignores the first signal gets SIGKILL after this. */
+const KILL_GRACE_MS = 5_000;
 const TRYCLOUDFLARE = /https:\/\/([a-z0-9-]+\.trycloudflare\.com)\b/g;
-
-/** Waits until `host` resolves (at most 20s), so a link isn't handed out before anyone can open it. */
-async function resolvable(host: string): Promise<void> {
-  if (process.env.EP0CH_TUNNEL_SKIP_DNS === "1") return;
-  const end = Date.now() + 20_000;
-  while (Date.now() < end) {
-    try { if ((await Bun.dns.lookup(host)).length) return; } catch { /* not yet */ }
-    await Bun.sleep(1000);
-  }
-}
 
 export const CLOUDFLARED_MISSING = "cloudflared isn't installed here: install it (brew install cloudflared, or https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), or set EP0CH_CLOUDFLARED to its path; 2026.9.3 or later for --allowed-mail";
 
@@ -34,18 +31,40 @@ export function cloudflaredPath(env: Record<string, string | undefined> = proces
   return env.EP0CH_CLOUDFLARED?.trim() || Bun.which("cloudflared", { PATH: env.PATH ?? "" }) || undefined;
 }
 
+/** Waits until `host` resolves (at most 15s), so a link isn't handed out before anyone can open it. */
+async function resolvable(host: string): Promise<void> {
+  if (process.env.EP0CH_TUNNEL_SKIP_DNS === "1") return;
+  const end = Date.now() + 15_000;
+  while (Date.now() < end) {
+    try { if ((await Bun.dns.lookup(host)).length) return; } catch { /* not yet */ }
+    await Bun.sleep(1000);
+  }
+}
+
+/** A tunnel's own ingress: a loopback listener answering one share. */
+export interface TunnelIngress {
+  port: number;
+  stop(): void;
+}
+
 interface Running {
   proc: Subprocess;
+  ingress: TunnelIngress;
+  expiresAt: number;
   host?: string;
+  /** Its own clock: killed at its expiry even if the service never says so. */
+  expiry: ReturnType<typeof setTimeout>;
 }
 
 export interface TunnelHost {
   request<T>(request: Record<string, unknown>): Promise<T>;
-  /** Where the public listener is reached from this machine (`http://127.0.0.1:8791`): every tunnel points there. */
-  origin: string;
+  /** Opens a share's own ingress (the publisher answering that share alone) on 127.0.0.1. */
+  ingress(shareId: string): TunnelIngress;
   log(line: string): void;
   /** cloudflared's path now (tests give a fake). */
   binary?: () => string | undefined;
+  /** How often the list is read again (tests shorten it). */
+  sweepMs?: number;
 }
 
 export class ShareTunnels {
@@ -56,53 +75,54 @@ export class ShareTunnels {
 
   constructor(private readonly host: TunnelHost) {}
 
-  /** Hosts of the tunnels that are up, by share id. */
-  hostOf(shareId: string): string | undefined {
-    return this.running.get(shareId)?.host;
-  }
-
-  /** Whether `host` is one of this publisher's tunnels now. */
-  serves(host: string): boolean {
-    for (const running of this.running.values()) if (running.host === host) return true;
-    return false;
-  }
-
-  /** Each running tunnel's share and process id (for tests and the log). */
-  processes(): { shareId: string; pid: number; host?: string }[] {
-    return [...this.running].map(([shareId, running]) => ({ shareId, pid: running.proc.pid, ...(running.host ? { host: running.host } : {}) }));
+  /** Each running tunnel's share, process id, ingress port and host (for the log and tests). */
+  processes(): { shareId: string; pid: number; port: number; host?: string }[] {
+    return [...this.running].map(([shareId, running]) => ({ shareId, pid: running.proc.pid, port: running.ingress.port, ...(running.host ? { host: running.host } : {}) }));
   }
 
   /** Reads the open shares and makes the tunnels match: one per open `cloudflare` share, none for any other. One at a time. */
   reconcile(): Promise<void> {
-    this.chain = this.chain.then(() => this.match()).catch((error) => this.host.log(`publish: tunnels: ${error instanceof Error ? error.message : String(error)}`));
+    this.chain = this.chain.then(() => this.match()).catch((error) => {
+      this.host.log(`publish: tunnels: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => this.schedule());
     return this.chain;
+  }
+
+  /** The next read: at the soonest expiry, else after the sweep (a failed read is tried again then too). */
+  private schedule(): void {
+    if (this.stopped) return;
+    if (this.timer) clearTimeout(this.timer);
+    const now = Date.now();
+    const next = Math.min(this.host.sweepMs ?? SWEEP_MS, ...[...this.running.values()].map((running) => running.expiresAt - now + 250));
+    this.timer = setTimeout(() => { void this.reconcile(); }, Math.max(100, next));
   }
 
   private async match(): Promise<void> {
     if (this.stopped) return;
     const { shares } = await this.host.request<{ shares: ShareSession[] }>({ action: "shares.list" });
+    // Stopped while the list was on its way: nothing new is started.
+    if (this.stopped) return;
     const now = Date.now();
     const wanted = new Map(shares.filter((share) => share.via === "cloudflare" && share.state === "active" && Date.parse(share.expiresAt) > now).map((share) => [share.id, share]));
     for (const id of [...this.running.keys()]) if (!wanted.has(id)) this.kill(id);
     for (const share of wanted.values()) if (!this.running.has(share.id) && share.tunnel?.state !== "failed") this.open(share);
-    // The next expiry stops its tunnel on time; a sweep catches anything else.
-    if (this.timer) clearTimeout(this.timer);
-    const next = Math.min(SWEEP_MS, ...[...wanted.values()].map((share) => Date.parse(share.expiresAt) - now + 250));
-    this.timer = setTimeout(() => { void this.reconcile(); }, Math.max(250, next));
   }
 
   private open(share: ShareSession): void {
     const binary = (this.host.binary ?? cloudflaredPath)();
     if (!binary) { void this.report(share.id, { error: CLOUDFLARED_MISSING }); return; }
-    const args = ["tunnel", "--no-autoupdate", "--url", this.host.origin, ...(share.allowMail?.length ? ["--allowed-mail", share.allowMail.join(",")] : [])];
+    const ingress = this.host.ingress(share.id);
+    const args = ["tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${ingress.port}`, ...(share.allowMail?.length ? ["--allowed-mail", share.allowMail.join(",")] : [])];
     let proc: Subprocess;
     try {
       proc = Bun.spawn([binary, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     } catch (error) {
+      ingress.stop();
       void this.report(share.id, { error: `cloudflared didn't start (${binary}): ${error instanceof Error ? error.message : String(error)}` });
       return;
     }
-    const running: Running = { proc };
+    const expiresAt = Date.parse(share.expiresAt);
+    const running: Running = { proc, ingress, expiresAt, expiry: setTimeout(() => this.kill(share.id), Math.max(0, expiresAt - Date.now())) };
     this.running.set(share.id, running);
     this.host.log(`publish: tunnel for share ${share.id}: cloudflared pid ${proc.pid}${share.allowMail?.length ? `, allowed ${share.allowMail.length} email(s)` : ", public"}`);
     const deadline = setTimeout(() => {
@@ -121,7 +141,7 @@ export class ShareTunnels {
         if (found && this.running.get(share.id) === running) {
           running.host = found;
           clearTimeout(deadline);
-          // A new trycloudflare.com name takes a few seconds to resolve: the link is given once it does (or after 20s).
+          // A new trycloudflare.com name takes a few seconds to resolve: the link is given once it does (or after 15s).
           void resolvable(found).then(() => { if (this.running.get(share.id) === running) void this.report(share.id, { host: found, pid: proc.pid }); });
         }
       }
@@ -132,16 +152,24 @@ export class ShareTunnels {
       clearTimeout(deadline);
       // Killed by us: already gone from the map. Died on its own: its share ends, said why.
       if (this.running.get(share.id) !== running) return;
-      this.running.delete(share.id);
+      this.forget(share.id, running);
       if (!this.stopped) void this.report(share.id, { error: `cloudflared exited (${code}) ${running.host ? "after" : "before"} its tunnel was up` });
     });
+  }
+
+  private forget(shareId: string, running: Running): void {
+    this.running.delete(shareId);
+    clearTimeout(running.expiry);
+    running.ingress.stop();
   }
 
   private kill(shareId: string): void {
     const running = this.running.get(shareId);
     if (!running) return;
-    this.running.delete(shareId);
+    this.forget(shareId, running);
     running.proc.kill();
+    const hard = setTimeout(() => { if (running.proc.exitCode === null && running.proc.signalCode === null) running.proc.kill("SIGKILL"); }, KILL_GRACE_MS);
+    void running.proc.exited.then(() => clearTimeout(hard));
     this.host.log(`publish: tunnel for share ${shareId} stopped (cloudflared pid ${running.proc.pid})`);
   }
 
@@ -154,10 +182,11 @@ export class ShareTunnels {
     }
   }
 
-  /** Kills every tunnel (the publisher stops). */
+  /** Kills every tunnel (the publisher stops), after any read in flight, so nothing it starts outlives this. */
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    await this.chain;
     const procs = [...this.running.values()].map((running) => running.proc);
     for (const id of [...this.running.keys()]) this.kill(id);
     await Promise.all(procs.map((proc) => proc.exited));

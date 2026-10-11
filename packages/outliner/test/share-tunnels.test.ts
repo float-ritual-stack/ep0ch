@@ -40,7 +40,7 @@ beforeAll(async () => {
   client = new OutlinerClient(paths.socket, 60_000);
   hub = store.create("Field notes\nWhat the garden did this autumn.", null, "user");
   swap = store.create("Seed swap\nBring the saved marigold seed.", hub.id, "user");
-  publisher = new Publisher({ client, basePath: "/pub", publicUrl: `https://${EDGE}`, publicListener: "http://127.0.0.1:9", cloudflared: () => binary });
+  publisher = new Publisher({ client, basePath: "/pub", publicUrl: `https://${EDGE}`, tunnels: true, tunnelSweepMs: 300, cloudflared: () => binary });
   await publisher.start();
 });
 
@@ -53,6 +53,11 @@ afterAll(async () => {
 
 const browser = { accept: "text/html" };
 const get = (host: string, path: string) => publisher.handle(new Request(`http://${host}${path}`, { headers: { host, ...browser } }), "public");
+/** Through a tunnel: its own ingress on loopback, as cloudflared reaches it (the Host is the tunnel's). */
+const viaTunnel = (share: ShareSession, path: string) => {
+  const running = publisher.tunnelProcesses().find((candidate) => candidate.shareId === share.id)!;
+  return fetch(`http://127.0.0.1:${running.port}${path}`, { headers: { host: new URL(share.url!).host, ...browser } });
+};
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const launched = () => existsSync(fakeLog) ? readFileSync(fakeLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { pid: number; args: string[] }) : [];
 async function until<T>(what: string, check: () => T | undefined | false, ms = 10_000): Promise<T> {
@@ -73,22 +78,24 @@ test("a tunnel per share: the start answers with its trycloudflare link, email-g
   expect(share).toMatchObject({ via: "cloudflare", allowMail: ["fern@example.org", "@allotment.example"], tunnel: { state: "up" } });
   expect(share.url).toMatch(/^https:\/\/fake-[a-z0-9]+-tunnel\.trycloudflare\.com\/s\/[A-Za-z0-9_-]{43}\/$/);
   const run = launched().at(-1)!;
-  expect(run.args).toEqual(["tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:9", "--allowed-mail", "fern@example.org,@allotment.example"]);
+  const port = publisher.tunnelProcesses().find((running) => running.shareId === share.id)!.port;
+  expect(run.args).toEqual(["tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${port}`, "--allowed-mail", "fern@example.org,@allotment.example"]);
   expect(share.tunnel?.pid).toBe(run.pid);
   expect(alive(run.pid)).toBe(true);
 
   const host = new URL(share.url!).host;
-  const page = await get(host, pathOf(share));
+  const page = await viaTunnel(share, pathOf(share));
   expect(page.status).toBe(200);
   expect(await page.text()).toContain("What the garden did this autumn.");
-  // The same token by the edge would skip the email gate: not there.
+  expect(page.headers.get("x-robots-tag")).toContain("noindex");
+  // The same token on the public listener would skip the email gate: not there, by the edge's name or the tunnel's.
   expect((await get(EDGE, pathOf(share))).status).toBe(404);
-  // And an edge share isn't served on a tunnel's host; a tunnel's host answers nothing else.
+  expect((await get(host, pathOf(share))).status).toBe(421);
+  // And a tunnel's ingress answers its share alone: not an edge share's token, nor any other page.
   const { share: edge } = await client.request<{ share: ShareSession }>({ action: "shares.start", scope: hub.id });
   expect((await get(EDGE, pathOf(edge))).status).toBe(200);
-  expect((await get(host, pathOf(edge))).status).toBe(404);
-  expect((await get(host, "/p/" + hub.id)).status).toBe(404);
-  expect((await get("other.trycloudflare.com", pathOf(share))).status).toBe(421);
+  expect((await viaTunnel(share, pathOf(edge))).status).toBe(404);
+  expect((await viaTunnel(share, "/p/" + hub.id)).status).toBe(404);
 
   // Revoke: the process is killed, and the link answers 410... from nowhere: the host is gone with it.
   await client.request({ action: "shares.revoke", shareId: share.id });
@@ -109,8 +116,7 @@ test("kill all stops every tunnel; expiry stops one without being asked", async 
   const kept = JSON.parse(store.readMetadata(SHARES_METADATA_KEY)!) as { sessions: ShareSession[] };
   for (const session of kept.sessions) if (session.id === late.id) session.expiresAt = new Date(Date.now() + 500).toISOString();
   store.writeMetadata(SHARES_METADATA_KEY, JSON.stringify(kept));
-  // Any change makes the publisher read the list again and set its clock to the next expiry.
-  await client.request({ action: "shares.revoke", all: true }).catch(() => {});
+  // Nothing tells the publisher: its own reading of the list stops the tunnel at its time.
   await until("the expired tunnel to stop", () => !alive(pid));
 });
 

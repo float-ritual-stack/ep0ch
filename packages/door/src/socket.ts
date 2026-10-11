@@ -443,12 +443,13 @@ export class SocketBoard implements Board {
     return s;
   }
 
-  request<T = any>(action: string, params: Record<string, unknown> = {}): Promise<T> {
+  /** `timeoutMs`: this request's own wait, for one the service answers slowly on purpose (a tunnel coming up). */
+  request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
     this.sent.push(action);
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, this.timeoutMs);
+      const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
       sock.write(jsonLine({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }));

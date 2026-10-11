@@ -998,7 +998,7 @@ tailnet web client, cut to what's shared, on the public listener:
     is a protected tunnel (`--allowed-mail`): Cloudflare lets in only those who sign in with a one-time PIN sent to
     one of them. Without, the tunnel is public and the token gates every page. The publisher that has the public
     listener runs one cloudflared per share (`publish-tunnels.ts`), says its host back once it resolves (the start
-    waits for it, up to 45s), and kills it when the share is revoked, killed with the rest, or expires; a tunnel that
+    waits for it, up to 35s), and kills it when the share is revoked, killed with the rest, or expires; a tunnel that
     fails or dies ends its share. The token opens pages only on its tunnel's host (never on the edge, which would
     skip the email gate). Needs cloudflared 2026.9.3 or later on the publisher's PATH (or `EP0CH_CLOUDFLARED`):
     `brew install cloudflared`.

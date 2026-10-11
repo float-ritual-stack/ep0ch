@@ -25,7 +25,7 @@ export const SHARE_USAGE = `  ep0ch share start [<ref> | outline] [--ttl 1h] [--
 
 /** The calls a share verb makes, on a board's connection to its outline. */
 export interface ShareBoard {
-  request<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
+  request<T = unknown>(action: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
   info(): Promise<unknown>;
 }
 
@@ -37,7 +37,7 @@ export async function startShare(board: ShareBoard, input: { ref?: string; ttl?:
     ...(scope ? { scope } : {}), ...(input.ttl !== undefined ? { ttl: input.ttl } : {}), ...(input.comments !== undefined ? { comments: input.comments } : {}),
     ...(input.via ? { via: input.via } : {}), ...(input.allowMail?.length ? { allowMail: input.allowMail } : {}),
     mutation: actor.kind === "agent" ? { author: "agent", actorId: actor.id } : { author: "user" },
-  });
+  }, input.via === "cloudflare" ? 45_000 : undefined);
 }
 
 export const listShares = (board: ShareBoard, all = false) => board.request<{ shares: ShareSession[] }>("shares.list", all ? { all: true } : {});

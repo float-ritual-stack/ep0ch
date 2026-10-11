@@ -277,7 +277,7 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
 ]);
 
 /** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
-const TUNNEL_WAIT_MS = 45_000;
+const TUNNEL_WAIT_MS = 35_000;
 
 /** A publisher's address as it registers (PIE-767): each URL a full http(s) URL (`publisherUrl`), or refused. */
 function normalizePublisherAddress(address: unknown): PublisherAddress {
