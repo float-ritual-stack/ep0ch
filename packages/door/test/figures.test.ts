@@ -7,7 +7,7 @@ import { figureAscii, figureSource, reframeAscii, renderGraph } from "../src/gra
 import { figuresAsAscii } from "../src/export";
 import { registryKeys } from "../src/figures/keys";
 import { uptimeDays } from "../src/figures/days";
-import { annotateMarkdown } from "../src/figures/annotate";
+import { FIGURE_MARKDOWN } from "@ep0ch/outline-core/figure-props";
 import { parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { runNote, took } from "../scripts/backup-runs";
@@ -141,7 +141,7 @@ describe("ep0ch export's ASCII twin", () => {
     expect(figureAscii("rank", figureSource(["---", "title: a · b", "---", "- a: 1"]))[0]).toMatch(/^\+-+ \[ A · B \] -+\+$/);
   });
   test("annotate: a note numbered 0 or far past the rows is placed among them, never a hole of a million", () => {
-    const md = (rows: string[]) => annotateMarkdown(parseFigureMarkdown(rows) as any).notes;
+    const md = (rows: string[]) => FIGURE_MARKDOWN.annotate!(parseFigureMarkdown(rows) as any, {}).notes;
     expect(md(["0. zero", "1000000. far"])).toEqual(["zero", "far"]);
     expect(md(["2. two", "1. one"])).toEqual(["one", "two"]);
   });

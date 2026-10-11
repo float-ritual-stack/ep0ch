@@ -12,7 +12,6 @@
 //   ::
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
 export function drawChat(p: Props, w: number, link?: RowLink): string[] {
@@ -36,14 +35,3 @@ export function drawChat(p: Props, w: number, link?: RowLink): string[] {
   return out;
 }
 
-/** `- speaker: message`; a row without a speaker is the last one's again; an italic row is an aside. */
-export function chatMarkdown(md: Markdown): Props {
-  if (!md.rows.length) return {};
-  let from = "";
-  return {
-    messages: md.rows.map(r => {
-      if (r.label !== null) from = r.label;
-      return { from, text: r.label !== null ? r.value : r.text, aside: r.emphasis === "em", block: r.block };
-    }),
-  };
-}

@@ -15,7 +15,8 @@
 // Cells are toned by their share of the largest; an empty cell is a dot. Narrow, the column heads are cut to fit.
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
+import { addCell, cellsOf, type Cells } from "@ep0ch/outline-core/figure-props";
+export { addCell, cellsOf, type Cells };
 import { ACCENT, DIM, HI, INK, ordered, type Props, SHADES } from "./palette";
 
 const shade = (n: number, max: number) => (n <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / Math.max(1, max)) * 4))));
@@ -44,39 +45,4 @@ export function drawMatrix(p: Props, w: number): string[] {
   return [head, ...body, fg(DIM) + "·".repeat(Math.min(w, lw + 1 + cw * cols.length)) + RESET, foot, ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
 }
 
-export type Cells = Map<string, Map<string, number>>;
 
-/** `cells` as a map of maps, from a Map, a YAML map of maps, or nothing. */
-export function cellsOf(v: unknown): Cells {
-  if (v instanceof Map) return v as Cells;
-  const out: Cells = new Map();
-  if (v && typeof v === "object" && !Array.isArray(v)) {
-    for (const [r, cols] of Object.entries(v as Record<string, unknown>)) {
-      if (!cols || typeof cols !== "object" || Array.isArray(cols)) continue;
-      out.set(r, new Map(Object.entries(cols as Record<string, unknown>).map(([c, n]) => [c, Number(n) || 0])));
-    }
-  }
-  return out;
-}
-
-/** Add `n` to a cell, making its row and column as needed. */
-export function addCell(cells: Cells, row: string, col: string, n: number): void {
-  const r = cells.get(row) ?? new Map<string, number>();
-  cells.set(row, r);
-  r.set(col, (r.get(col) ?? 0) + n);
-}
-
-/** `- row: col=3 col2=1`: a cell per `name=n`; a bare number is the `value` column. */
-export function matrixMarkdown(md: Markdown): Props {
-  if (!md.rows.length) return {};
-  const cells: Cells = new Map();
-  for (const r of md.rows) {
-    const row = r.label ?? r.text;
-    for (const tok of r.values) {
-      const m = /^(.+?)=(-?\d+(?:\.\d+)?)$/.exec(tok);
-      if (m) addCell(cells, row, m[1]!, Number(m[2]));
-      else if (tok && Number.isFinite(Number(tok))) addCell(cells, row, "value", Number(tok));
-    }
-  }
-  return { cells };
-}

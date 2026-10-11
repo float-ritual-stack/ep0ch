@@ -5,14 +5,12 @@
 import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { wrap } from "./text";
 import { childRows, resolveLive, setLiveSource } from "./live";
-import { figureRow, parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
-import { FIGURES, MARKDOWN } from "./figures/index";
-import type { Markdown } from "./figures/markdown";
+import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
+import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./figures/palette";
 export type { RowLink } from "./figures/palette";
 import { setLinksSource } from "./links";
 import type { SocketBoard } from "./socket";
-import type { ComponentBlock } from "@ep0ch/outline-core/component-block";
 
 /**
  * The outline a note's live parts ask (a figure's `query:` or `view:`, the `::links` components) and what repaints
@@ -349,59 +347,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 /** Every `::graph-*` kind drawn here (the showcase seed has one of each). */
 export const GRAPH_KINDS: readonly string[] = Object.keys(KINDS);
 
-/** A component block's figure kind (`::graph-rank` is `rank`), or null when it isn't a live figure (one takes no arguments). */
-export function graphKind(block: ComponentBlock): string | null {
-  return block.args === null && /^graph-./.test(block.name) ? block.name.slice("graph-".length) : null;
-}
-
-/**
- * A figure as written: the YAML between its `---` lines, the Markdown after them (or its whole body when it has no
- * `---`), and the note it is in. `block`: it is that note's figure block (the note's text starts with it), so its child
- * bullets are rows too, as `rows: children` asks anywhere.
- */
-export interface FigureSource { yaml: string; markdown?: readonly string[]; note?: string; block?: boolean }
-
-/** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
-export function figureSource(lines: readonly string[], note?: string, block?: boolean): FigureSource {
-  const yaml: string[] = [], markdown: string[] = [];
-  const rule = (l: string) => /^\s*---\s*$/.test(l);
-  // The YAML is between a first `---` (nothing above it but blank lines) and the next; any other `---` is
-  // Markdown's (a rule).
-  const open = lines.findIndex(l => l.trim());
-  let dashes = open >= 0 && rule(lines[open]!) ? 0 : 2;
-  for (const [i, l] of lines.entries()) {
-    if (dashes < 2 && i < open) continue;
-    if (dashes < 2 && rule(l)) { dashes++; continue; }
-    (dashes === 1 ? yaml : markdown).push(l);
-  }
-  return { yaml: yaml.join("\n"), markdown, ...(note ? { note } : {}), ...(block ? { block } : {}) };
-}
-
-/**
- * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
- * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `waiting`: the child bullets are still
- * being asked for.
- */
-function propsOf(kind: string, src: FigureSource): { props: Props; children: boolean; waiting: boolean } | { error: string } {
-  let yaml: Props = {};
-  try { yaml = (Bun.YAML.parse(src.yaml) as Props) ?? {}; }
-  catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
-  if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
-  const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
-  // The fields this kind's rows give that the YAML leaves open: only those can come from child bullets.
-  // The first field a kind's rows give is its rows (events, items, marks, days…); the rest go with them (a calendar's
-  // month, an uptime's dates). A YAML that gives the rows, or asks the outline for them, takes none from children.
-  const probe = Object.keys(MARKDOWN[kind]?.({ rows: [figureRow("2026-03-02: 1")], paragraphs: [], fences: [] }, {}) ?? {});
-  const rowFields = probe.filter(k => !(k in yaml));
-  const own = (probe[0] !== undefined && probe[0] in yaml) || !!(yaml.query || yaml.view || yaml.source);
-  const wantsChildren = !!src.note && !own && rowFields.length > 0 && (yaml.rows === "children" || (src.block === true && yaml.rows !== "body"));
-  const kids = wantsChildren ? childRows(src.note!) : null;
-  if (kids) md.rows.push(...kids.rows);
-  const from = MARKDOWN[kind]?.(md, yaml) ?? {};
-  // The footer says "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
-  const children = !!kids?.rows.length && rowFields.some(k => k in (MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
-  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting };
-}
+export { figureSource, graphKind, type FigureSource } from "@ep0ch/outline-core/figure-props";
 
 /**
  * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and
@@ -411,7 +357,7 @@ function propsOf(kind: string, src: FigureSource): { props: Props; children: boo
  */
 export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
-  const read = propsOf(kind, src);
+  const read = figureProps(kind, src, childRows);
   if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
   let props = read.props;
   // The figure's name in its reader: where it is in the note, and its title.

@@ -1,6 +1,9 @@
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
-import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
+import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
+import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
+import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
+import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
@@ -369,7 +372,7 @@ th{color:var(--dim);font-weight:normal}
 img{max-width:100%}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
-${CALLOUT_STYLE}${COMPONENT_STYLE}${MARGINALIA_STYLE}`;
+${CALLOUT_STYLE}${COMPONENT_STYLE}${FIGURE_STYLE}${MARGINALIA_STYLE}`;
 
 /**
  * A tailnet page (PIE-782): phone first, a reading measure, targets a thumb can hit, and dark throughout. Evan is
@@ -1302,7 +1305,26 @@ export class Publisher {
       const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, ...(share ? { share } : {}) });
       article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.anchors), rendered.index, base);
     }
-    const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
+    const all = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
+    // Views draw their rows (PIE-397's `views.read`): the note's own when it is one, and its view children as lanes,
+    // side by side when it is a hub (two or more), a lane of their own in the list's place otherwise.
+    const host = this.liveHost("tailnet", index, base, share);
+    const shownViews = await host.shown(all.filter(isVirtualBranchDefinition).map((block) => block.id));
+    const views = all.filter((block) => shownViews.has(block.id));
+    const children = all.filter((block) => !shownViews.has(block.id));
+    let lanes = "";
+    if (entry) {
+      const own = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [entry.blockId], fields: ["properties"] })).blocks[0];
+      if (own && isVirtualBranchDefinition({ properties: own.properties ?? [] })) {
+        const lane = await readViewLane(host, own, entry.title);
+        lanes += `<section class="inside view"><h2>Rows <span class="dim">${lane.count}${lane.truncated ? "+" : ""}</span></h2>\n${viewRowsHtml(lane)}</section>\n`;
+      }
+    }
+    if (views.length) {
+      const viewTitles = await host.titles(views.map((view) => view.id));
+      const read = await Promise.all(views.map((view) => readViewLane(host, view, viewTitles.get(view.id) || "a view")));
+      lanes += `<section class="inside"><h2>${views.length > 1 ? "Board" : "View"} <span class="dim">${views.length}</span></h2>\n${boardHtml(read)}</section>\n`;
+    }
     const listed = children.slice(0, MAX_LISTED_CHILDREN);
     const named = [...new Set(listed.flatMap(rowReferences))].slice(0, MAX_BLOCK_READ_IDS);
     const [counts, titles, notes] = await Promise.all([
@@ -1317,7 +1339,7 @@ export class Publisher {
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
       : "";
     const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
-    const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
+    const body = `<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
     const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.rootLabel())}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
     return entry
@@ -1791,10 +1813,59 @@ export class Publisher {
     const components: string[] = [];
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
+    // An HTML page draws the built-in components (figures, links components, embedded views) from the service's
+    // answers; Markdown keeps their source as written.
+    let drawn = new Map<string, Map<number, DrawnComponent>>();
+    if ((options.format ?? "html") === "html") {
+      const host = this.liveHost(audience, linked, base, share);
+      drawn = await drawNoteComponents(host, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, { id: entry.blockId, title: entry.title });
+      if (embeds) embeds.views = await this.embeddedViews(host, embeds, components);
+    }
     // A tailnet page knows where each block is (publish-anchors.ts); Markdown and public pages carry nothing extra.
     const anchors: string[] = [];
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined);
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined, drawn);
     return { markdown, marks: order, index: linked, components, anchors };
+  }
+
+  /**
+   * What a page's built-in components may ask and show (src/publish-live.ts): the service, the notes this page shows
+   * (never a locked one; inside a narrowed share only its notes; on a public page only public ones), their titles, and
+   * where each opens from here.
+   */
+  private liveHost(audience: PublishAudience, index: PublishedIndex, base: string, share?: PageShare): LiveHost {
+    return {
+      request: (request) => this.client.request(request as never),
+      shown: async (ids) => {
+        const unique = [...new Set(ids)];
+        if (!unique.length) return new Set();
+        const locked = await this.lockedIds(unique);
+        let open = unique.filter((id) => !locked.has(id));
+        if (share) { const inside = await this.inScope(open, share); open = open.filter((id) => inside.has(id)); }
+        else if (audience === "public") { const shared = await this.publicNow(open); open = open.filter((id) => shared.has(id)); }
+        return new Set(open);
+      },
+      titles: async (ids) => new Map([...await this.titles([...new Set(ids)])].map(([id, title]) => [id, noteTitle(title)])),
+      href: (blockId) => {
+        const published = index.entries.find((candidate) => candidate.blockId === blockId);
+        if (published && !index.labelsOnly) return `${base}${published.path}`;
+        // A public page links only to published notes; a tailnet page (and a share's) to any note it shows.
+        return audience === "public" && !share ? null : `${base}/p/${encodeURIComponent(blockId)}`;
+      },
+    };
+  }
+
+  /** The views a page embeds (`!((view))`), each drawn as its lane: by view id, its component's sentinel. */
+  private async embeddedViews(host: LiveHost, embeds: EmbedExpansion, components: string[]): Promise<Map<string, string>> {
+    const views = new Map<string, string>();
+    const wanted = embeds.read.results.filter((node) => node.kind === "view" && node.status === "ready" && !embeds.locked.has(node.blockId) && (!embeds.shareable || embeds.shareable.has(node.blockId)));
+    for (const node of wanted) {
+      if (views.has(node.blockId) || components.length >= MAX_PUBLISHED_COMPONENTS) continue;
+      const block = embeds.read.blocks[node.blockId];
+      const title = noteTitle(node.title ?? "") || "a view";
+      components.push(await drawViewLane(host, { id: node.blockId, properties: block?.properties ?? (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [node.blockId], fields: ["properties"] })).blocks[0]?.properties ?? [] }, title));
+      views.set(node.blockId, componentSentinel(components.length - 1));
+    }
+    return views;
   }
 
   /**
@@ -1912,6 +1983,8 @@ export interface EmbedExpansion {
    * shows NOT_SHARED_NOTE, never its text, title or id.
    */
   shareable?: ReadonlySet<string>;
+  /** Embedded views drawn as lanes (`!((view))`), by view id: each its component's sentinel. */
+  views?: ReadonlyMap<string, string>;
   cursor: { next: number };
 }
 
@@ -1956,7 +2029,7 @@ function renderEmbed(node: TransclusionNode | undefined, context: TextContext): 
   if (expansion.locked.has(node.blockId)) return placeholder(LOCKED_NOTE);
   const hidden = expansion.extensionHidden?.get(node.blockId);
   if (hidden) return placeholder(EXTENSION_HIDDEN(hidden));
-  if (node.kind === "view") return placeholder("a view; views are not published");
+  if (node.kind === "view") return expansion.views?.get(node.blockId) ?? placeholder("a view; views are not published");
   const block = expansion.read.blocks[node.blockId];
   if (!block) return placeholder("missing note");
   // A mark shows its own words, from its title's line: not its generated heading and the store's line under it.
@@ -2039,7 +2112,8 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     body = body.slice(0, reference.start) + replacement + body.slice(reference.end);
   }
   body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
-  body = body.replace(EMBED_SENTINEL, (_, at: string) => `\n\n${quote(rendered[Number(at)] ?? "")}\n\n`);
+  // An embedded view is drawn as its lane, not quoted.
+  body = body.replace(EMBED_SENTINEL, (_, at: string) => { const shown = rendered[Number(at)] ?? ""; return `\n\n${isComponentSentinel(shown) ? shown : quote(shown)}\n\n`; });
   return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
@@ -2150,8 +2224,8 @@ const MAX_DECORATED_BLOCKS = 200;
  * above. One not drawn yet leaves the text as written. The service made the Markdown inert, so it adds no
  * properties or links.
  */
-export function decoratedText(text: string, decorations: readonly Decoration[] | undefined, under?: ReadonlyMap<number, string>): string {
-  if (!decorations?.length && !under?.size) return text;
+export function decoratedText(text: string, decorations: readonly Decoration[] | undefined, under?: ReadonlyMap<number, string>, drawn?: ReadonlyMap<number, DrawnComponent>): string {
+  if (!decorations?.length && !under?.size && !drawn?.size) return text;
   const lines = text.split("\n");
   const block = (decoration: Decoration) => ["", ...decoration.markdown!.split("\n"), ""];
   // Placed against the text as written, then emitted once: the first rule to take a line's place has it, as in the door.
@@ -2161,6 +2235,8 @@ export function decoratedText(text: string, decorations: readonly Decoration[] |
   const taken = (from: number, to: number) => [...replaced].some(([at, r]) => from < r.end && at < to);
   // What a handler line shows goes right under it (src/publish-components.ts).
   for (const [line, shown] of under ?? []) if (line < lines.length) after[line]!.push(["", ...shown.split("\n"), ""]);
+  // A built-in component (a figure, a links component: src/publish-live.ts) takes its lines' place first.
+  for (const [line, component] of drawn ?? []) if (line < lines.length) replaced.set(line, { end: Math.min(component.end, lines.length), lines: ["", ...component.markdown.split("\n"), ""] });
   for (const decoration of decorations ?? []) {
     if ((decoration.status !== "ready" && decoration.status !== "stale") || !decoration.markdown?.trim()) continue;
     const { at, line } = decoration.hit, end = Math.min(decoration.hit.end, lines.length);
@@ -2277,6 +2353,7 @@ export function renderSubtreeMarkdown(
   order: PublishedAnnotation[] = [],
   under: ReadonlyMap<string, ReadonlyMap<number, string>> = new Map(),
   anchors?: string[],
+  drawn: ReadonlyMap<string, ReadonlyMap<number, DrawnComponent>> = new Map(),
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree);
   if (!rootRow) return "";
@@ -2296,7 +2373,7 @@ export function renderSubtreeMarkdown(
     anchors.push(block.id);
     return placeAnchor(text, anchors.length - 1);
   };
-  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id)), context, { title: true }));
+  const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id), drawn.get(root.id)), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   const lines = (/^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
@@ -2305,7 +2382,7 @@ export function renderSubtreeMarkdown(
   lines[0] = anchored(root, lines[0]!);
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : anchored(block, marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id), under.get(block.id)), context)));
+    const text = locked ? placeholder(LOCKED_NOTE) : anchored(block, marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id), under.get(block.id), drawn.get(block.id)), context)));
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);

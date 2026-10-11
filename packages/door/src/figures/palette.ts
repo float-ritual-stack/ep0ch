@@ -6,8 +6,9 @@ export const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 /** The shades a figure counts in, none to most (an activity grid's days, a matrix's cells, a banner's band). */
 export const SHADES = ["·", "░", "▒", "▓", "█"] as const;
 
-/** A figure's props, from its YAML (or its Markdown, or the outline). */
-export type Props = Record<string, any>;
+export type { Props } from "@ep0ch/outline-core/figure-props";
+import type { Props } from "@ep0ch/outline-core/figure-props";
+export { ordered, records } from "@ep0ch/outline-core/figure-props";
 
 /**
  * Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). `figure`: the
@@ -27,13 +28,6 @@ export type Draw = (p: Props, w: number, link?: RowLink) => string[];
 export type Tier = "narrow" | "cozy" | "wide";
 /**
  * The frame cuts any line a kind overruns (`pad` ends it with …), so nothing drawn is ever wider than the figure; a
- * kind's job under the tier rule is to make the cut unnecessary. `ordered`: the names listed first (an `xs:`, an
- * `order-across:`), deduplicated, then the rest in the order seen.
+ * kind's job under the tier rule is to make the cut unnecessary.
  */
-export function ordered(listed: unknown, seen: readonly string[]): string[] {
-  const given = [...new Set((Array.isArray(listed) ? listed : []).map(String))];
-  return [...given, ...seen.filter((v, i, a) => v && !given.includes(v) && a.indexOf(v) === i)];
-}
-/** A list prop as an array of objects (a YAML list of maps), anything else as none. */
-export const records = (v: unknown): Record<string, any>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, any> => !!x && typeof x === "object") : []);
 export const tier = (w: number): Tier => (w < 48 ? "narrow" : w < 90 ? "cozy" : "wide");

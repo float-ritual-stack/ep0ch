@@ -15,18 +15,9 @@
 //   ::
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
-import type { Markdown } from "./markdown";
+import { decisionState, type DecisionState } from "@ep0ch/outline-core/figure-props";
+export { decisionState, type DecisionState };
 import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./palette";
-
-export type DecisionState = "chosen" | "rejected" | "open";
-
-/** A `decision-state` (or an option's `state:`) as one of the three; anything else is open. */
-export function decisionState(v: unknown): DecisionState {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (["chosen", "accepted", "decided", "yes", "picked", "done"].includes(s)) return "chosen";
-  if (["rejected", "declined", "no", "dropped", "superseded"].includes(s)) return "rejected";
-  return "open";
-}
 
 const GLYPH: Record<DecisionState, string> = { chosen: "●", rejected: "×", open: "○" };
 
@@ -57,10 +48,3 @@ export function drawDecision(p: Props, w: number, link?: RowLink): string[] {
   return out;
 }
 
-/** `- **chosen** — reason`, `- *rejected* — reason`, `- open — reason`; paragraphs after them are the text. */
-export function decisionMarkdown(md: Markdown): Props {
-  return {
-    ...(md.rows.length ? { options: md.rows.map(r => ({ label: r.text, state: r.emphasis === "strong" ? "chosen" : r.emphasis === "em" ? "rejected" : "open", reason: r.note ?? undefined, block: r.block })) } : {}),
-    ...(md.paragraphs.length ? { text: md.paragraphs } : {}),
-  };
-}
