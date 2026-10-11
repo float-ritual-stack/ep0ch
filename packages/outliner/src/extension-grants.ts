@@ -23,6 +23,11 @@ export interface ExtensionGrant {
    * outlines' extensions).
    */
   readonly outline?: string;
+  /**
+   * A request another machine's host relayed for its extension (spike/echonet): not a grant this process issued, but
+   * the same rules, and that outline's access level always holds (an unset one is `none`).
+   */
+  readonly relayed?: true;
   /** The change feed's action for what it writes: `ext.<id>.<action or handler>`. */
   readonly label: string;
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */

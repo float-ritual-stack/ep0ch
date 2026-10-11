@@ -221,7 +221,8 @@ export function outlinesFolder(env: { EP0CH_OUTLINES?: string }, home: string): 
  * host's: `.host/` (mode 0700: its socket and lock), `.clients/<name>/` (a client's own files for an outline, such
  * as editor drafts), `.deleted/` (where a deleted outline is moved; nothing is erased), `.archive/` (where an archived one waits to be restored) and `.publish/` (the
  * publisher's cache); and the clients': `.remote/` (mode 0700: each machine's forward, `<machine>.sock`, and the
- * ssh connection that holds it, `<machine>.ctl`).
+ * ssh connection that holds it, `<machine>.ctl`; and `<machine>.json`, where that machine keeps its outlines when it isn't
+ * where its own `ep0ch status` says).
  */
 export function outlineLayout(outlines: string) {
   const root = resolve(outlines);
@@ -239,7 +240,13 @@ export function outlineLayout(outlines: string) {
     folder: (name: string) => join(root, name),
     clientDir: (name: string) => join(root, ".clients", name),
     remoteDir: join(root, ".remote"),
-    /** A machine's forward: the local end of its host socket, and the ssh control socket of the connection holding it. */
-    remote: (machine: string) => ({ socket: join(root, ".remote", `${machine}.sock`), control: join(root, ".remote", `${machine}.ctl`) }),
+    /**
+     * A machine's forward: the local end of its host socket, the ssh control socket of the connection holding it, and
+     * the machine's file (`{ "outlines": "/abs/folder" }`: its outlines folder there, so its host socket is known
+     * without asking its `ep0ch`; a second node on one machine, or a machine whose login `ep0ch` is another one).
+     */
+    remote: (machine: string) => ({
+      socket: join(root, ".remote", `${machine}.sock`), control: join(root, ".remote", `${machine}.ctl`), config: join(root, ".remote", `${machine}.json`),
+    }),
   };
 }

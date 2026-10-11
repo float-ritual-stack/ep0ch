@@ -10,7 +10,6 @@
     "type": "object",
     "properties": {
       "offline": { "type": "array", "items": { "type": "string" }, "description": "Nodes (name@machine) to treat as unreachable this toss: a lid shut on purpose" },
-      "outlines": { "type": "string", "minLength": 1, "description": "The outlines folder whose .remote/ holds the machines' forwards (default: the host's)" },
       "keepLogs": { "type": "integer", "minimum": 1, "maximum": 200, "description": "How many toss logs stay under the nodelist (default 20)" }
     },
     "additionalProperties": false

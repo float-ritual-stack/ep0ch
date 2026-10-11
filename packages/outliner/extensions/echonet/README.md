@@ -41,13 +41,17 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶   └─ Recon: fl
 
 ## Offline, access and conflicts
 
-- **Offline is normal.** A node on another machine is reached through the ssh forward the clients share
-  (`<outlines>/.remote/<machine>.sock`); with none up it is unreachable for this toss. Its copies stay as they are,
+- **Offline is normal.** A node on another machine is asked through this node's host, which sends the request
+  through the ssh forward the clients share (`<outlines>/.remote/<machine>.sock`, started when nobody has, outline-core's
+  `ensureForward`). A machine or host that doesn't answer is unreachable for this toss. Its copies stay as they are,
   and netmail for it stays here, counted as queued, until a toss reaches it. `config.json`'s `offline` shuts a lid on
-  purpose.
+  purpose. A machine whose outlines aren't where its login `ep0ch status` says (a second node, a test node) gets a
+  file beside its forward, `<outlines>/.remote/<machine>.json`: `{ "outlines": "/abs/folder/there" }`.
 - **One access rule**: the origin's own (`ep0ch mcp access none|read|propose|full --ws <outline>`). `none` refuses,
   `read` lets a node copy, `propose` and `full` also let it leave marks there (seen-by and netmail). The host enforces
-  the same rule on any extension's request to another outline, once that outline's owner set a level.
+  the same rule on any extension's request to another outline, once that outline's owner set a level; for another
+  machine's extension it always holds (an unset level is `none`), and what it writes there reads
+  `ext:echonet@<its node>`.
 - **A conflict is a note, never an overwrite**: a newer original is a marker on the copy; netmail on words the
   original no longer has lands on the whole note and quotes them.
 

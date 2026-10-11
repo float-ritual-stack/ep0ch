@@ -3,13 +3,17 @@ import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { DOT_EP0CH, formatDotEp0ch, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { grantOf } from "./extension-grants";
+import { forwardFor } from "./machine-forward";
+import { canonicalLocalMachineName } from "./machine-name";
+import { scrubCredentials } from "./resource-extensions";
 import { OutlinerServer } from "./server";
 import { OutlinerStore, readOutlineAbout } from "./store";
 import {
@@ -73,6 +77,9 @@ export interface OutlineHostOptions {
 }
 
 const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane"]);
+/** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
+const RELAY_WAIT_MS = 60_000;
+const RELAY_MAX_ANSWER = 64 * 2 ** 20;
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -641,6 +648,56 @@ export class OutlineHost {
     socket.end(`${JSON.stringify(response)}\n`);
   }
 
+  /**
+   * An extension's request for an outline on another machine (spike/echonet): `{ outline, machine, grant, … }`, the call
+   * it makes for an outline here with `machine` added. The grant is checked here (it is this host's), then the request
+   * goes to that machine's host through the shared ssh forward (`<outlines>/.remote/<machine>.sock`, started when
+   * nobody has; outline-core's `ensureForward`) without the grant, carrying `relayed`: which extension, for which node
+   * (`outline@machine`), and whether its call writes. That host makes it the extension's there (`ext:<id>@<node>`) and
+   * checks it against its own outline's access level, as for any other outline's extension. One request, one answer.
+   * A machine that can't be reached answers with why (the forward's refusal), so the extension counts it offline.
+   */
+  private async relay(socket: Socket, request: Record<string, unknown>): Promise<void> {
+    const grant = grantOf(request.grant);
+    if (!grant) throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
+    const { machine, outline } = request;
+    if (!isMachineName(machine)) throw new Error(`machine must be an ssh config name; got ${JSON.stringify(machine)}`);
+    if (!isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
+    const { grant: _grant, machine: _machine, ...unscrubbed } = request;
+    // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
+    const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
+    const forward = await forwardFor(machine, this.outlinesFolder);
+    const relayed = {
+      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes,
+    };
+    const answer = await new Promise<string>((resolve, reject) => {
+      const remote = connect(forward.socket);
+      let buffer = "";
+      const done = (error?: Error, line?: string) => {
+        clearTimeout(timer);
+        socket.off("close", gone);
+        remote.destroy();
+        if (error) reject(error);
+        else resolve(line!);
+      };
+      // The extension gave up, or the other host is stuck: nothing is left waiting.
+      const gone = () => done(new Error("the extension went before the answer came"));
+      const timer = setTimeout(() => done(new Error(`no answer from ${String(outline)}@${machine} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
+      socket.once("close", gone);
+      remote.setEncoding("utf8");
+      remote.once("connect", () => remote.write(`${JSON.stringify({ ...rest, relayed })}\n`));
+      remote.on("data", (chunk: string) => {
+        buffer += chunk;
+        const end = buffer.indexOf("\n");
+        if (end >= 0) done(undefined, buffer.slice(0, end));
+        else if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${String(outline)}@${machine} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
+      });
+      remote.once("error", (error) => done(error));
+      remote.once("close", () => done(new Error(`${machine}'s outline host closed the connection without an answer`)));
+    });
+    if (!socket.destroyed) socket.end(`${answer}\n`);
+  }
+
   private async route(socket: Socket, line: string, buffered: string): Promise<void> {
     let request: Record<string, unknown> | undefined;
     try {
@@ -653,6 +710,10 @@ export class OutlineHost {
     const fail = (error: unknown) => this.reply(socket, {
       id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
     });
+    if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
+      fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
+      return;
+    }
     if (request && HOST_ACTIONS.has(String(request.action))) {
       if (this.options.readOnly && request.action !== "outlines.list") {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
@@ -663,6 +724,10 @@ export class OutlineHost {
       } catch (error) {
         fail(error);
       }
+      return;
+    }
+    if (request && request.machine !== undefined && request.grant !== undefined) {
+      await this.relay(socket, request).catch(fail);
       return;
     }
     const named = request?.outline;
