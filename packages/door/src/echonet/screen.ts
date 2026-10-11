@@ -97,6 +97,9 @@ export class EchoAreas implements Pane {
   private reload: Timer | null = null;
   private desk: DeskApi | null = null;
   private loading: Promise<void> | null = null;
+  /** A change came in while it was reading: it reads again once that read is done. */
+  private again = false;
+  private disposed = false;
 
   title() {
     if (!this.areas) return "message areas · dialing…";
@@ -117,11 +120,15 @@ export class EchoAreas implements Pane {
     if (!own) return out;
     let names: string[] = [];
     try { names = (await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(ctx.board.path, "outlines.list", {}, 4000)).outlines.filter(o => !o.archived).map(o => o.name); } catch { return out; }
-    for (const name of names.filter(n => n !== own).slice(0, MAX_OUTLINES - 1)) {
+    const wanted = names.filter(n => n !== own).slice(0, MAX_OUTLINES - 1);
+    // An outline the host no longer serves (archived, deleted) lets its board go.
+    for (const [name, b] of this.boards) if (!wanted.includes(name)) { b.close(); this.boards.delete(name); }
+    for (const name of wanted) {
       let b = this.boards.get(name);
       if (!b) {
         b = new SocketBoard(ctx.board.path, 8000, name);
         try { await b.info(); } catch { b.close(); continue; }
+        if (this.disposed) { b.close(); return out; }
         this.boards.set(name, b);
         // Another outline's change counts its areas again, and reads its message again when it's the one shown.
         b.subscribe(e => this.changed(e, name));
@@ -134,11 +141,15 @@ export class EchoAreas implements Pane {
   /** Read every outline's areas and nodelists, and count each area's messages; the area picked stays picked. */
   load(desk: DeskApi): Promise<void> {
     this.desk = desk;
-    return (this.loading ??= this.read(desk).finally(() => { this.loading = null; }));
+    if (this.loading) { this.again = true; return this.loading; }
+    return (this.loading = this.read(desk).finally(() => {
+      this.loading = null;
+      if (this.again && !this.disposed) { this.again = false; void this.load(desk); }
+    }));
   }
   private async read(desk: DeskApi) {
     this.machine = desk.ctx.machine ?? canonicalLocalMachineName();
-    const was = this.areas?.[this.at]?.key;
+    let was: string | undefined;
     try {
       const reached = await this.reach(desk);
       const areas: Area[] = [], nodelists: Nodelist[] = [];
@@ -155,11 +166,15 @@ export class EchoAreas implements Pane {
       // By where they're read (the door's own outline first, as reached), then by tag.
       const order = new Map(reached.map((r, i) => [r.outline, i]));
       areas.sort((a, b) => (order.get(a.outline)! - order.get(b.outline)!) || a.tag.localeCompare(b.tag));
+      if (this.disposed) return;
+      // The area picked now (the person may have picked another while this read) stays picked.
+      was = this.areas?.[this.at]?.key;
       this.areas = areas;
       this.nodelists = nodelists;
       this.problem = "";
     } catch (e) {
       this.problem = `couldn't ask the outlines for their areas: ${e instanceof Error ? e.message : String(e)}`;
+      was = this.areas?.[this.at]?.key;
       this.areas ??= [];
     }
     const keep = was ? this.areas.findIndex(a => a.key === was) : -1;
@@ -269,6 +284,7 @@ export class EchoAreas implements Pane {
   }
 
   dispose() {
+    this.disposed = true;
     if (this.reload) clearTimeout(this.reload);
     for (const b of this.boards.values()) b.close();
     this.boards.clear();
@@ -340,6 +356,8 @@ export class EchoMessages implements Pane {
   net: EchoAreas | null = null;
   private view = new RowView();
   private top = 0;
+  /** Counts the lists asked for: an answer for one asked before the last is let go. */
+  private asked = 0;
 
   title() {
     if (!this.area) return "messages";
@@ -355,17 +373,20 @@ export class EchoMessages implements Pane {
     this.area = a;
     if (!same) { this.items = null; this.at = -1; this.view.reset(); }
     if (a.problem) { this.items = []; this.problem = a.problem; desk.redraw(); return; }
-    const b = net.boardOf(a);
+    const b = net.boardOf(a), ask = ++this.asked;
     try {
       const [all, fresh] = await Promise.all([b.queryNotes(a.query, MESSAGE_LIMIT), b.queryNotes(unreadOf(a.query), MESSAGE_LIMIT)]);
-      if (this.area !== a) return;
+      if (ask !== this.asked) return;
       const unread = new Set(fresh.notes.map(m => m.id));
       this.items = inArrivalOrder(all.notes).map((msg, i) => ({ msg, n: i + 1, fresh: unread.has(msg.id) }));
       this.problem = "";
     } catch (e) {
+      if (ask !== this.asked) return;
       this.items = [];
       this.problem = `couldn't list ${a.tag}: ${e instanceof Error ? e.message : String(e)}`;
     }
+    // The reader on this area steps through the list as it is now (a toss brought more, one changed upstream).
+    net.reader?.relist(a, this.items);
     const keep = was ? this.items.findIndex(m => m.msg.id === was) : -1;
     const first = this.items.findIndex(m => m.fresh);
     this.at = keep >= 0 ? keep : first >= 0 ? first : this.items.length - 1;
@@ -472,6 +493,15 @@ export class EchoReader extends ReaderPane {
     return h;
   }
 
+  /** The area's messages were read again: ] [ step through the new list, from the message shown. */
+  relist(area: Area, items: Message[]) {
+    if (this.area?.key !== area.key) return;
+    const shown = this.message?.msg.id;
+    this.area = area;
+    this.list = items;
+    if (shown) { const i = items.findIndex(m => m.msg.id === shown); if (i >= 0) this.index = i; }
+  }
+
   /** Read message `i` of `list` in `area` (marked read, as `actor`: the person's marks are theirs, an agent's its own). */
   read(area: Area, list: Message[], i: number, desk: DeskApi, actor: Actor = USER): Read {
     const m = list[i];
@@ -483,12 +513,18 @@ export class EchoReader extends ReaderPane {
       throw new ActionRefused("the reader holds an edit or a comment; save or close it first");
     }
     const fresh = m.fresh;
-    const board = this.net?.boardOf(area);
+    // Read at the revision listed: a change since then is still new.
+    const board = this.net?.boardOf(area), shown = [{ id: m.msg.id, revision: m.msg.revision ?? 0 }];
     if (fresh && actor.kind === "user") {
       m.fresh = false;
       if (area.fresh) area.fresh--;
-      void board?.markRead([m.msg.id]).catch(() => {});
-    } else if (actor.kind === "agent") void board?.markRead([m.msg.id], actor.id).catch(() => {});
+      void board?.markRead(shown).catch(e => {
+        m.fresh = true;
+        if (area.fresh !== null) area.fresh++;
+        desk.ctx.flash(`couldn't mark ${subject(m.msg).slice(0, 40)} read: ${e instanceof Error ? e.message : String(e)}`);
+        desk.redraw();
+      });
+    } else if (actor.kind === "agent") void board?.markRead(shown, actor.id).catch(() => {});
     // The list beside lights it, when it lists the same area.
     const ms = this.net?.messages;
     if (ms?.area?.key === area.key && ms.items === list) ms.at = i;
@@ -637,6 +673,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     async run({ body }, { pane, desk }, actor) {
       const r = pane as EchoReader, m = r.message;
       if (!m) throw new ActionRefused("no message is open to reply to");
+      if (r.msg?.partial) throw new ActionRefused("the message is still being read; r again in a moment");
       if (actor.kind !== "user" && body === undefined) throw new ActionRefused("say body=: an agent's reply is sent at once");
       const title = m.msg.text.includes(subject(m.msg)) && subject(m.msg) ? subject(m.msg) : m.msg.text.split("\n")[0]!.trim();
       const args = { action: "comment", quote: title, ...(body !== undefined ? { body } : {}) };
@@ -654,6 +691,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     async run({ quote, body }, { pane, desk }, actor) {
       const r = pane as EchoReader;
       if (!r.message) throw new ActionRefused("no message is open to quote");
+      if (r.msg?.partial) throw new ActionRefused("the message is still being read; q again in a moment");
       if (actor.kind !== "user" && (quote === undefined || body === undefined)) throw new ActionRefused("say quote= and body=: an agent's quote-reply is sent at once");
       const q = quoted(r, actor, quote);
       const lines = quoteLines(q.quote);
@@ -708,7 +746,13 @@ export function echoKinds(): TileKind[] {
         const r = p as EchoReader, ms = r.net?.messages, i = ms?.items?.findIndex(x => x.msg.id === m.id) ?? -1;
         try {
           if (ms?.area && ms.items && i >= 0) r.read(ms.area, ms.items, i, desk, by ?? USER);
-          else if (!r.show(m, desk)) return "the reader holds an edit or a comment";
+          else {
+            // Not one of the area's messages: read on the door's own outline, where `open` found it.
+            if (r.holdsKeys) return "the reader holds an edit or a comment";
+            const was = { area: r.area, list: r.list, index: r.index };
+            r.area = null; r.list = []; r.index = -1;
+            if (!r.show(m, desk)) { Object.assign(r, was); return "the reader holds an edit or a comment"; }
+          }
           return null;
         } catch (e) { return e instanceof Error ? e.message : String(e); }
       },

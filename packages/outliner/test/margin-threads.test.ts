@@ -181,22 +181,30 @@ test("Recent replies: replies on the reader's threads, not their own; unread unt
   await expect(ids("unread:[[x]]")).rejects.toThrow(/names no reader: write unread:me/);
 });
 
-test("blocks.markRead (EchoNet's reader): blocks read leave unread:me until they change; an agent's marks are its own; a bad call is refused", async () => {
+test("blocks.markRead (EchoNet's reader): blocks read at the revision shown leave unread:me until they change; an agent's marks are its own; a bad call is refused", async () => {
   const { client, store, ids } = await setup(false);
   const area = store.create("Plot chat [type::echo-sub] [echo::plot.chat]", null, "user");
   const a = store.create("Frost tonight [echo::plot.chat]", area.id, "agent");
   const b = store.create("Seed swap Sunday [echo::plot.chat]", area.id, "agent");
   const unread = async (reader = "me") => (await ids(`parent:((${area.id})) unread:${reader}`)).sort();
+  const read = (blocks: { id: string; revision: number }[], reader?: string) => client.request<{ marked: number }>({ action: "blocks.markRead", blocks, ...(reader ? { reader } : {}) });
   expect(await unread()).toEqual([a.id, b.id].sort());
-  expect(await client.request<{ marked: number }>({ action: "blocks.markRead", blockIds: [a.id, "no-such-block"] })).toEqual({ marked: 1 });
+  expect(await read([{ id: a.id, revision: a.revision }, { id: "no-such-block", revision: 1 }])).toEqual({ marked: 1 });
   expect(await unread()).toEqual([b.id]);
   expect(await unread("fern")).toEqual([a.id, b.id].sort());
-  await client.request({ action: "blocks.markRead", blockIds: [b.id], reader: "fern" });
+  await read([{ id: b.id, revision: b.revision }], "fern");
   expect(await unread("fern")).toEqual([a.id]);
-  // A copy updated since it was read is new again.
-  store.update(a.id, "Frost tonight, cover the beans [echo::plot.chat]", a.revision, { author: "agent", actorId: "echo-tosser" });
+  // A copy updated since it was read is new again; read at the revision shown before the update, it stays new.
+  const a2 = store.update(a.id, "Frost tonight, cover the beans [echo::plot.chat]", a.revision, { author: "agent", actorId: "echo-tosser" });
   expect(await unread()).toEqual([a.id, b.id].sort());
-  await expect(client.request({ action: "blocks.markRead", blockIds: "nope" } as never)).rejects.toThrow(/needs blockIds/);
+  await read([{ id: a.id, revision: a.revision }]);
+  expect(await unread()).toEqual([a.id, b.id].sort());
+  await read([{ id: a.id, revision: a2.revision }]);
+  expect(await unread()).toEqual([b.id]);
+  // A mark never goes back: the older revision read again leaves it read.
+  await read([{ id: a.id, revision: a.revision }]);
+  expect(await unread()).toEqual([b.id]);
+  await expect(client.request({ action: "blocks.markRead", blocks: ["nope"] } as never)).rejects.toThrow(/needs blocks/);
 });
 
 test("a mark quoted into a block of its own (marks.quote): a reply under its note as an agent, transcluded and linked back; the mark says quoted in until it's undone; a note that isn't a mark is refused", async () => {

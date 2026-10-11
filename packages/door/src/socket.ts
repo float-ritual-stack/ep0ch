@@ -1037,9 +1037,12 @@ export class SocketBoard implements Board {
     return this.request("annotations.read", { annotationId });
   }
 
-  /** Blocks read (an EchoNet message opened): marked at their revisions, out of `unread:me` until they change. `reader`: an agent's own id; the person's when left out. */
-  async markRead(blockIds: string[], reader?: string): Promise<{ marked: number }> {
-    return this.request("blocks.markRead", { blockIds, ...(reader ? { reader } : {}) });
+  /**
+   * Blocks read (an EchoNet message opened), at the revisions they were shown at: out of `unread:me` until they change.
+   * `reader`: an agent's own id; the person's when left out.
+   */
+  async markRead(blocks: { id: string; revision: number }[], reader?: string): Promise<{ marked: number }> {
+    return this.request("blocks.markRead", { blocks, ...(reader ? { reader } : {}) });
   }
 
   /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */

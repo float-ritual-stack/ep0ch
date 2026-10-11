@@ -2277,13 +2277,14 @@ export type OutlinerRequestAction =
       reader?: string;
     }
   /**
-   * Blocks read by `reader` (EchoNet's message reader): each marked read at its current revision (`user`, the person,
-   * when left out; an agent passes its actor id). Bookkeeping only: clears them from `unread:` views until they change.
+   * Blocks read by `reader` (EchoNet's message reader): each marked read at the revision it was shown at (`user`, the
+   * person, when left out; an agent passes its actor id). Bookkeeping only: clears them from `unread:` views until
+   * they change again.
    */
   | {
       id: string;
       action: "blocks.markRead";
-      blockIds: string[];
+      blocks: { id: string; revision: number }[];
       reader?: string;
     }
   | {

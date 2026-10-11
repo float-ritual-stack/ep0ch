@@ -169,6 +169,17 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     await eventually(async () => (await unread(shack, `parent:((${ids.sub})) from`)).length === 0, "all three read");
   });
 
+  test("a toss that brings a message while one is read: the list grows, and ] reaches it, new", async () => {
+    const c4 = await shack.createBlock(ids.sub, "Jam swap [from::cafe@box-a/0a1b2c3d-1111-4222-8333-000000000004] [echo::cafe.chat] [from-rev::1] [tossed::2026-10-11T05:04:00Z] [by::fern]\nPlum, two jars.", { kind: "agent", id: "echo-tosser" });
+    await until(() => list().items?.length === 4 && reader().list.length === 4, "the fourth copy listed, and in the reader's list", 8000);
+    expect(reader().msg?.id).toBe(ids.c1);
+    ch("]"); ch("]"); ch("]");
+    await until(() => reader().msg?.id === c4.id, "the new copy read");
+    expect(screen()).toContain("Msg  : 4 of 4");
+    ch("["); ch("["); ch("[");
+    await until(() => reader().msg?.id === ids.c1 && !reader().msg?.partial, "back on the first, read whole");
+  });
+
   test("r opens the shared composer on the subject; q with the message quoted; an agent replies by act", async () => {
     // r: on the subject line, nothing written yet (left unchanged, esc lets it go).
     ch("r");
