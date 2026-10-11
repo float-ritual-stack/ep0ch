@@ -77,6 +77,9 @@ export interface OutlineHostOptions {
 }
 
 const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane"]);
+/** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
+const RELAY_WAIT_MS = 60_000;
+const RELAY_MAX_ANSWER = 64 * 2 ** 20;
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -661,7 +664,8 @@ export class OutlineHost {
     if (!isMachineName(machine)) throw new Error(`machine must be an ssh config name; got ${JSON.stringify(machine)}`);
     if (!isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
     const { grant: _grant, machine: _machine, ...unscrubbed } = request;
-    const rest = grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) as typeof unscrubbed : unscrubbed;
+    // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
+    const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
     const forward = await forwardFor(machine, this.outlinesFolder);
     const relayed = {
       extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes,
@@ -669,19 +673,29 @@ export class OutlineHost {
     const answer = await new Promise<string>((resolve, reject) => {
       const remote = connect(forward.socket);
       let buffer = "";
+      const done = (error?: Error, line?: string) => {
+        clearTimeout(timer);
+        socket.off("close", gone);
+        remote.destroy();
+        if (error) reject(error);
+        else resolve(line!);
+      };
+      // The extension gave up, or the other host is stuck: nothing is left waiting.
+      const gone = () => done(new Error("the extension went before the answer came"));
+      const timer = setTimeout(() => done(new Error(`no answer from ${String(outline)}@${machine} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
+      socket.once("close", gone);
       remote.setEncoding("utf8");
       remote.once("connect", () => remote.write(`${JSON.stringify({ ...rest, relayed })}\n`));
       remote.on("data", (chunk: string) => {
         buffer += chunk;
         const end = buffer.indexOf("\n");
-        if (end < 0) return;
-        remote.destroy();
-        resolve(buffer.slice(0, end));
+        if (end >= 0) done(undefined, buffer.slice(0, end));
+        else if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${String(outline)}@${machine} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
       });
-      remote.once("error", reject);
-      remote.once("close", () => reject(new Error(`${machine}'s outline host closed the connection without an answer`)));
+      remote.once("error", (error) => done(error));
+      remote.once("close", () => done(new Error(`${machine}'s outline host closed the connection without an answer`)));
     });
-    socket.end(`${answer}\n`);
+    if (!socket.destroyed) socket.end(`${answer}\n`);
   }
 
   private async route(socket: Socket, line: string, buffered: string): Promise<void> {
@@ -696,6 +710,10 @@ export class OutlineHost {
     const fail = (error: unknown) => this.reply(socket, {
       id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
     });
+    if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
+      fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
+      return;
+    }
     if (request && HOST_ACTIONS.has(String(request.action))) {
       if (this.options.readOnly && request.action !== "outlines.list") {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));

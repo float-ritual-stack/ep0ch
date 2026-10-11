@@ -273,9 +273,16 @@ test("another machine: the host sends the extension's request through the ssh fo
   await farCreate("Field: two new hives on the east slope [type::field]");
   const sub = await create("cafe", "Field from the box [type::echo-sub] [subscribe::field@box-b] [echo::field]");
 
-  // The field never set a level: for another machine's extension that is none.
+  // The field never set a level: for another machine's extension that is none, held by the field's own host.
   expect(await toss("cafe")).toContain("copies 0");
   expect(await children("cafe", sub.id)).toEqual([]);
+  const relayed = { extension: "echonet", node: `cafe@${machine}`, label: "ext.echonet.toss", writes: true };
+  await expect(far.call("field", { action: "blocks.query", query: { where: "type=field" }, relayed })).rejects.toThrow("field grants other outlines none: blocks.query needs read");
+  await expect(send(join(root, "far", "outlines", ".host", "host.sock"), { action: "outlines.delete", name: "field", relayed })).rejects.toThrow("is the host's");
+  await far.call("field", { action: "mcp.access.configure", level: "read" });
+  await expect(far.call("field", { action: "create", text: "from the cafe", relayed })).rejects.toThrow("create needs full");
+  await far.call("field", { action: "mcp.access.configure", level: "full" });
+  await expect(far.call("field", { action: "create", text: "from the cafe", relayed: { ...relayed, writes: false } })).rejects.toThrow("only reads");
 
   await far.call("field", { action: "mcp.access.configure", level: "propose" });
   expect(await toss("cafe")).toContain("copies 2");
