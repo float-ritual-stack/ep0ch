@@ -141,6 +141,9 @@ test("by default a share is the whole outline, navigated as on the tailnet; a re
   expect((await get(`${base}/p/${ledger.id}`)).status).toBe(404);
   // Narrowed, it opens only on a note inside.
   await expect(client.request({ action: "shares.start", scope: swap.id, open: letter.id })).rejects.toThrow(/isn't under/);
+  // A narrowing asked for and unreadable is refused, never widened.
+  await expect(client.request({ action: "shares.start", scope: "" })).rejects.toThrow(/scope is a note's id/);
+  await expect(client.request({ action: "shares.start", scope: { blockId: swap.id } } as never)).rejects.toThrow(/scope is a note's id/);
   await client.request({ action: "shares.revoke", shareId: share.id });
 });
 

@@ -3577,6 +3577,11 @@ export class OutlinerServer {
           }
           return { block, chain };
         };
+        // A narrowing that was asked for and can't be read is refused, never widened to the whole outline.
+        for (const key of ["scope", "open"] as const) {
+          const value = request[key];
+          if (value !== undefined && (typeof value !== "string" || !value.trim())) throw new Error(`${key} is a note's id${key === "scope" ? " (or outline)" : ""}; leave it out for ${key === "scope" ? "the whole outline" : "the top"}`);
+        }
         // The whole outline, as the tailnet's web client shows it, unless `scope` narrows it to one note and below.
         const narrowed = typeof request.scope === "string" && request.scope.trim() && request.scope.trim() !== "outline" ? shareable(request.scope.trim()).block : undefined;
         const scope: ShareSession["scope"] = narrowed ? { kind: "note", blockId: narrowed.id, title: blockDisplayTitle(narrowed) } : { kind: "outline" };
