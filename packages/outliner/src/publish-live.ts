@@ -149,7 +149,11 @@ async function ask(host: LiveHost, question: FigureQuestion, note: string): Prom
   const items = await itemsOf(host, found.blocks);
   const kept = new Set(items.map(item => item.id));
   // A group counts every match; the ones this page can't show come off its count.
-  const groups = found.groups?.map(g => { const ids = g.ids.filter(id => kept.has(id)); return { ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }; });
+  // A group whose every member is hidden goes too: its value is theirs.
+  const groups = found.groups?.flatMap(g => {
+    const ids = g.ids.filter(id => kept.has(id));
+    return g.ids.length && !ids.length ? [] : [{ ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }];
+  });
   return { items, truncated: found.completeness?.kind === "truncated", ...(groups ? { groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
 }
 
@@ -183,6 +187,8 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
   const title = spec.title ?? (spec.query && spec.kind === "links" && !spec.groups ? "matches" : spec.kind);
   if (spec.problem) return figureFrame("links", title, "", "", spec.problem);
   const of = spec.of ?? note;
+  // Another note's links only when this page shows that note.
+  if (spec.of && !(await host.shown([spec.of])).has(spec.of)) return figureFrame("links", title, `<p class="dim">a note not shown here</p>`);
   const has = (g: LinkGroupName) => groups.includes(g);
   const [authored, backlinks, children, matches] = await Promise.all([
     has("outlinks") || has("resources") ? host.request<AuthoredLinksSnapshot>({ action: "blocks.authored-links", ownerBlockId: of }) : null,
@@ -222,7 +228,7 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
       return [r.kind === "ready" ? { text: r.addressLabel || entry.label, href, note: r.sourceName } : { text: entry.label, href, note: r.reason }];
     });
   }
-  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => ({ text: source.title || "untitled", href: to(source.blockId), ...(source.parentContext ? { note: source.parentContext } : {}) }));
+  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => ({ text: source.title || "untitled", href: to(source.blockId) }));
   const listed = (found: ProjectedBlockCollection | null) => (found?.blocks ?? []).filter(block => shown.has(block.id)).map(block => ({ text: titles.get(block.id) || "untitled", href: to(block.id) }));
   rows.children = listed(children);
   rows.matches = listed(matches instanceof Error ? null : matches);
@@ -262,8 +268,8 @@ export async function readViewLane(host: LiveHost, view: { id: string; propertie
     id: block.id, title: titles.get(block.id) ?? "", href: host.href(block.id),
     chips: propertySummarySegments(block.properties, keys).map(segment => ({ label: segment.label, value: segment.value })),
   }));
-  const hidden = blocks.length - visible.length;
-  const lane: ViewLane = { ...base, rows, count: Math.max(rows.length, (read.total ?? blocks.length) - hidden), truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined };
+  // Counted from the rows shown: the view's total would count notes this page can't see.
+  const lane: ViewLane = { ...base, rows, count: rows.length, truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined };
   const group = property(view.properties, "group")?.trim().toLowerCase();
   if (group) {
     const byValue = new Map<string, ViewRow[]>();

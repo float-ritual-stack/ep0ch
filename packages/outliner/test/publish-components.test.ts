@@ -81,6 +81,7 @@ test("figures draw live from the service, links list the note's links, and an em
   const { store, page } = await setup();
   const { sowing } = seed(store);
   const other = store.create("Seed catalogue");
+  store.create("Hushed chore [type::chore] [stage::hushed] [publish::never]");
   const note = store.create([
     `Garden report, see ((${other.id}))`,
     "::graph-tabs",
@@ -121,6 +122,8 @@ test("figures draw live from the service, links list the note's links, and an em
   expect(html).toContain("<figcaption>Chores by stage</figcaption>");
   expect(html).toMatch(/<label class="fig-tab" for="fig-tabs-\d+-0">sow <span class="dim">2<\/span><\/label>/);
   expect(html).toContain("weed <span class=\"dim\">1</span>");
+  // A group whose only members are locked isn't a tab: its value is theirs.
+  expect(html).not.toContain("hushed");
   expect(html).toMatch(/<a href="\/p\/[0-9a-f-]+">Sow the runner beans<\/a>/);
   // Stat: the live count leaves the locked chore out; a static value stays.
   expect(html).toMatch(/<span class="v">3<\/span><span class="l">chores<\/span>/);

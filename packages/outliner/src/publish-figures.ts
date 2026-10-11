@@ -33,6 +33,8 @@ export function componentSourceHtml(lines: readonly string[], why = "not drawn h
 }
 
 let tabsDrawn = 0;
+/** The most tabs a tabs figure switches between on a page (one style rule each). */
+const MAX_TABS = 40;
 
 /** Each kind's HTML from its props (static, or a live answer outline-core read). */
 const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
@@ -52,14 +54,17 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
 
   // One tab per value, a tap on a tab (a radio button's label) shows its table: no script.
   tabs: (p, href) => {
-    const tabs: Props[] = records(p.tabs);
-    if (!tabs.length) return `<p class="dim">no results</p>`;
+    const all: Props[] = records(p.tabs);
+    if (!all.length) return `<p class="dim">no results</p>`;
+    // As many tabs as the style can switch; the rest are counted.
+    const tabs = all.slice(0, MAX_TABS), past = all.length - tabs.length;
     const name = `fig-tabs-${++tabsDrawn}`;
     const bar = tabs.map((t, i) => `<input type="radio" class="fig-tab-input" name="${name}" id="${name}-${i}"${i ? "" : " checked"}>` +
       `<label class="fig-tab" for="${name}-${i}">${esc(t.value)} <span class="dim">${esc(t.count)}</span></label>`).join("");
     const panels = tabs.map(t => `<div class="fig-panel">${t.rows?.length ? KINDS.table!({ ...t, titleColumn: t.titleColumn }, href) : `<p class="dim">nothing in ${esc(t.value)}</p>`}` +
       `${t.more ? `<p class="fig-foot">${esc(t.more)} more · limit: ${esc(p.limit ?? 50)} a tab</p>` : ""}</div>`).join("");
     return `<div class="fig-tabs">${bar}<div class="fig-panels">${panels}</div></div>` +
+      `${past ? `<p class="fig-foot">${past} more tab${past === 1 ? "" : "s"} not shown</p>` : ""}` +
       `${p.truncated ? `<p class="fig-foot">more results than one question answers: counts are at least these</p>` : ""}`;
   },
 
@@ -268,7 +273,7 @@ const rowItem = (r: ViewRow) => `<li data-block="${esc(r.id)}">${r.href ? `<a hr
 export function viewRowsHtml(lane: ViewLane): string {
   if (lane.problem) return `<p class="fig-error">${esc(lane.problem)}</p>`;
   if (!lane.rows.length) return `<p class="dim">No notes match this view yet.${lane.query ? ` It asks <code>${esc(lane.query)}</code>.` : ""}</p>`;
-  const more = lane.truncated ? `<p class="fig-foot">the first ${lane.rows.length} of ${lane.count}; the view's limit</p>` : "";
+  const more = lane.truncated ? `<p class="fig-foot">more past the view's limit</p>` : "";
   if (lane.groups) {
     return lane.groups.map(g => `<h4 class="view-group">${esc(g.value)} <span class="dim">${g.rows.length}</span></h4><ul class="kids view-rows">${g.rows.map(rowItem).join("")}</ul>`).join("") + more;
   }
@@ -305,7 +310,6 @@ export function linksHtml(title: string, groups: readonly LinkGroupHtml[], foot:
 }
 
 /** Dark, quiet, in the page's type; tabs are radios, so `:checked` picks the panel (up to MAX_TABS of them). */
-const MAX_TABS = 40;
 export const FIGURE_STYLE = `
 .fig{margin:1.25rem 0;padding:.75rem .9rem;border:1px dotted var(--rule);border-radius:.35rem;overflow-wrap:anywhere;font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
 .fig figcaption{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--link);margin:0 0 .6rem}
