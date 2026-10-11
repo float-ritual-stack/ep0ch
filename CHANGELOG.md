@@ -19,7 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   `/pub/o/<name>/` (`/pub/o/` lists them), on the tailnet too.
 - **New:** `/pub/sessions` (and `ep0ch web sessions`, `ep0ch web revoke <id>|--all`) lists the signed-in browsers,
   with Revoke and Sign out everywhere.
-- **Run:** PROTOCOL 145: `ep0ch install --apply`, then the deploy steps in the PR (a Caddy change for my.ep0ch.sh, the
+- **Run:** PROTOCOL 146: `ep0ch install --apply`, then the deploy steps in the PR (a Caddy change for my.ep0ch.sh, the
   publisher's `--signin-port`, and one shared `signin.env` for the allowed list).
 
 ### The floating comment box stays with you (PIE-785)
