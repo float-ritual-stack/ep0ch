@@ -1054,10 +1054,10 @@
     {
       "id": "cli.mcpmirror", "name": "Mirrors and the live route", "group": "clients", "chapter": "mcp", "ladder": "provisional", "dependsOn": ["cli.mcpgateway", "door.backup"],
       "does": "An outline whose home is another machine (float-hub on a laptop that sleeps) is read from a copy on the gateway's machine, kept current from the outline's own backups, and never writes to it (PIE-562). When that machine answers over ssh, the gateway asks its host first (PIE-661) and falls back to the mirror only when it doesn't.",
-      "built": "mcp-mirror.ts: OutlineMirror reads the Litestream-followed or restic-restored copy, migrates a copy at an older schema with the migration scripts, and says how stale it is. mcp-live.ts: LiveMachines uses the shared ssh forward (outline-core's ensureForward) with a time budget and a backoff; the board it returns is the same SocketBoard.",
+      "built": "mcp-mirror.ts: OutlineMirror (the outliner's outline-mirror.ts, which the web client reads other machines' copies through too) reads the Litestream-followed or restic-restored copy, migrates a copy at an older schema with the migration scripts, and says how stale it is. mcp-live.ts: LiveMachines uses the shared ssh forward (outline-core's ensureForward) with a time budget and a backoff; the board it returns is the same SocketBoard.",
       "refs": [
         { "r": "door", "p": "src/mcp-mirror.ts", "l": 149, "m": "export class OutlineMirror" },
-        { "r": "door", "p": "src/mcp-mirror.ts", "l": 48, "m": "export function mirrorsConfig" },
+        { "r": "outliner", "p": "src/outline-mirror.ts", "l": 49, "m": "export function mirrorsConfig" },
         { "r": "door", "p": "src/mcp-live.ts", "l": 51, "m": "export class LiveMachines" }
       ]
     },
