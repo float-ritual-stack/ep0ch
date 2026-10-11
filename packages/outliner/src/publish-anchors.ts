@@ -22,10 +22,17 @@ export function placeAnchor(text: string, index: number): string {
   const sentinel = anchorSentinel(index);
   const end = text.indexOf("\n");
   const head = end < 0 ? text : text.slice(0, end);
-  if (!head.trim() || /^\s*(?:`{3,}|~{3,}|\||<|(?:[-*_]\s*){3,}$)|^ {4}|^\t/.test(head)) return `${sentinel}\n\n${text}`;
-  const at = head.length - (/(?:\\|[ \t]+)$/.exec(head)?.[0].length ?? 0);
+  // The line's own construct, under any quote and list markers it opens with.
+  const inner = head.replace(/^\s*(?:(?:>[ \t]?)|(?:[-*+]|\d{1,9}[.)])[ \t]+)*/, "");
+  if (!head.trim() || /^ {4}|^\t/.test(head) || OWN_LINE.test(inner)) return `${sentinel}\n\n${text}`;
+  // Before a heading's closing hashes and a hard break, which anything after them would turn into text.
+  const closing = /^#{1,6}[ \t]/.test(inner) ? /(?:[ \t]+#+)?(?:\\|[ \t]+)?$/ : /(?:\\|[ \t]+)?$/;
+  const at = head.length - (closing.exec(head)?.[0].length ?? 0);
   return `${text.slice(0, at)}${sentinel}${text.slice(at)}`;
 }
+
+/** First lines nothing may follow: a fence, a table row, HTML, a rule, a link reference definition, a bare callout tag. */
+const OWN_LINE = /^(?:`{3,}|~{3,}|\||<|(?:[-*_][ \t]*){3,}$|\[[^\]]+\]:|\[![^\]]+\][+-]?[ \t]*$)/;
 
 /** The rendered page with each sentinel as its block's anchor; one left alone in a paragraph takes the paragraph's place. */
 export function drawAnchors(html: string, ids: readonly string[]): string {

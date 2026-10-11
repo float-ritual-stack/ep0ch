@@ -203,14 +203,15 @@ export class PageMarginalia {
    * note's own, the address must be this page's and the blocks this page's, so a page can't put other words in an
    * agent's read. A share's address is said without its secret, and its reader's selection only when it is found in
    * the note (a share's reader may be anyone with the link: what an agent reads back is the outline's own text).
-   * Answers what the service kept, with the reader's journal: the page's `ep0ch.view()` and `ep0ch.journal()` are it.
+   * Answers what the service kept, with the reader's journal (on a share, only this visitor's: anyone with the link
+   * reads as the share): the page's `ep0ch.view()` and `ep0ch.journal()` are it.
    */
   private async view(request: Request, base: string, share?: PageShare): Promise<Response> {
     if (!sameOrigin(request)) return refused(403, "a page says what's on it itself");
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();
     if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
-    let input: { page?: unknown; view?: unknown; title?: unknown; url?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; visible?: unknown; scroll?: unknown; fold?: unknown };
+    let input: { page?: unknown; view?: unknown; title?: unknown; url?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; visible?: unknown; scroll?: unknown; fold?: unknown; visitor?: unknown };
     try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
     const text = (value: unknown) => typeof value === "string" ? value : "";
     const view = await this.host.view(text(input.page), text(input.view) === "full", share);
@@ -231,7 +232,7 @@ export class PageMarginalia {
     const scroll = input.scroll && typeof input.scroll === "object" ? input.scroll : undefined;
     const fold = input.fold && typeof input.fold === "object" ? input.fold as { blockId?: unknown; open?: unknown } : undefined;
     const answer = await this.host.report({
-      reader: share ? `share:${share.id}` : "tailnet", blockId: view.root.id, title, url: url.replace(/\/s\/[^/?#]+/, "/s/…"),
+      reader: share ? `share:${share.id}` : "tailnet", visitor: text(input.visitor), blockId: view.root.id, title, url: url.replace(/\/s\/[^/?#]+/, "/s/…"),
       ...(placed ? { selection: {
         text: quote, before: text(input.prefix), after: text(input.suffix),
         ...(found?.ok ? { blockId: found.block.id, offsets: { start: found.passage.start, end: found.passage.end }, revision: found.block.revision } : {}),

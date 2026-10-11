@@ -225,12 +225,18 @@ export const READER_JOURNAL_MAX = 200;
  */
 export class ReaderPresence {
   private readonly readers = new Map<string, ReaderView>();
-  private readonly events: ReaderEvent[] = [];
+  /** Each visitor's last report (a share's reader is everyone with its link), to say what changed for them. */
+  private readonly last = new Map<string, ReaderView>();
+  private readonly events: (ReaderEvent & { visitor: string })[] = [];
   private next = 1;
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** A page's report, capped and trimmed; the newest one per reader is kept, and what changed goes in the journal. */
+  /**
+   * A page's report, capped and trimmed; the newest one per reader is kept, and what changed for its `visitor` (one
+   * browser tab, a random id the page keeps) goes in the journal. Answers the view and the journal the page may see:
+   * the tailnet's (the person's own), or on a share only this visitor's, since anyone with the link reads as the share.
+   */
   report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[] } {
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
     const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : undefined);
@@ -263,19 +269,24 @@ export class ReaderPresence {
       ...(y !== undefined && max !== undefined ? { scroll: { y: Math.min(y, max), max } } : {}),
       at: new Date(this.now()).toISOString(),
     };
-    const before = this.readers.get(reader);
+    const visitor = /^[A-Za-z0-9-]{8,64}$/.test(text(input.visitor, 64)) ? text(input.visitor, 64) : "";
+    const key = `${reader} ${visitor}`;
+    const before = this.last.get(key);
     if (!before || before.url !== view.url || before.blockId !== view.blockId) {
-      this.log({ reader, kind: "page", ...(view.blockId ? { blockId: view.blockId } : {}), title: view.title, url: view.url });
+      this.log({ reader, visitor, kind: "page", ...(view.blockId ? { blockId: view.blockId } : {}), title: view.title, url: view.url });
     }
     if (view.selection && view.selection.text !== before?.selection?.text) {
-      this.log({ reader, kind: "selection", ...(view.selection.blockId ? { blockId: view.selection.blockId } : {}), text: view.selection.text });
+      this.log({ reader, visitor, kind: "selection", ...(view.selection.blockId ? { blockId: view.selection.blockId } : {}), text: view.selection.text });
     }
     const fold = input.fold && typeof input.fold === "object" ? input.fold as Record<string, unknown> : undefined;
     if (fold && typeof fold.blockId === "string" && fold.blockId) {
-      this.log({ reader, kind: "fold", blockId: fold.blockId.slice(0, 64), open: fold.open === true });
+      this.log({ reader, visitor, kind: "fold", blockId: fold.blockId.slice(0, 64), open: fold.open === true });
     }
     this.readers.set(reader, view);
-    return { view, journal: this.journal(reader) };
+    this.last.delete(key);
+    this.last.set(key, view);
+    if (this.last.size > READER_JOURNAL_MAX) this.last.delete(this.last.keys().next().value!);
+    return { view, journal: this.journal(reader, 0, reader === "tailnet" ? undefined : visitor) };
   }
 
   /** The reader seen most recently (or `reader`'s), every reader seen lately (newest first), and its journal. */
@@ -287,12 +298,14 @@ export class ReaderPresence {
     return { view, readers, journal: view ? this.journal(view.reader, since) : [] };
   }
 
-  /** What `reader` did after event `since`, oldest first. */
-  journal(reader: string, since = 0): ReaderEvent[] {
-    return this.events.filter((event) => event.reader === reader && event.n > since);
+  /** What `reader` (or only its `visitor`) did after event `since`, oldest first. */
+  journal(reader: string, since = 0, visitor?: string): ReaderEvent[] {
+    return this.events
+      .filter((event) => event.reader === reader && event.n > since && (visitor === undefined || event.visitor === visitor))
+      .map(({ visitor: _, ...event }) => event);
   }
 
-  private log(event: Omit<ReaderEvent, "n" | "at">): void {
+  private log(event: Omit<ReaderEvent, "n" | "at"> & { visitor: string }): void {
     this.events.push({ n: this.next++, at: new Date(this.now()).toISOString(), ...event });
     if (this.events.length > READER_JOURNAL_MAX) this.events.splice(0, this.events.length - READER_JOURNAL_MAX);
   }
@@ -301,5 +314,6 @@ export class ReaderPresence {
   forget(reader: string): void {
     this.readers.delete(reader);
     for (let at = this.events.length - 1; at >= 0; at -= 1) if (this.events[at]!.reader === reader) this.events.splice(at, 1);
+    for (const key of this.last.keys()) if (key.startsWith(`${reader} `)) this.last.delete(key);
   }
 }

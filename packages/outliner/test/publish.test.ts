@@ -1093,8 +1093,9 @@ test("a file reference shows its name, never a local path, and links when the no
   expect(await (await get("/p/moth-log")).text()).not.toContain("/srv/garden");
 });
 
-test("a block's anchor never changes how its text draws: a callout, a fence, a table, a rule and a hard break stay what they are", () => {
-  const texts = ["> [!note] Careful\n> body", "```js\nx()\n```", "| a | b |\n| - | - |\n| 1 | 2 |", "---", "line one\\\nline two", "[ ] task"];
+test("a block's anchor never changes how its text draws: callouts, fences, tables, rules, headings, references and hard breaks stay what they are", () => {
+  const texts = ["> [!note] Careful\n> body", "```js\nx()\n```", "| a | b |\n| - | - |\n| 1 | 2 |", "---", "line one\\\nline two", "[ ] task",
+    "## Beds ##", "[seed]: /seed-list\nsee [seed]", "> ```js\n> y()\n> ```", "> [!tip]\n> body"];
   const ids = texts.map((_, at) => `block-${at}`);
   const html = drawAnchors(renderMarkdownHtml(texts.map((text, at) => `- ${placeAnchor(text, at).split("\n").join("\n  ")}`).join("\n")), ids);
   for (const id of ids) expect(html).toContain(`<span class="bk" data-block="${id}"></span>`);
@@ -1104,5 +1105,9 @@ test("a block's anchor never changes how its text draws: a callout, a fence, a t
   expect(html).toContain("<hr>");
   expect(html).toContain('line one<span class="bk" data-block="block-4"></span><br>');
   expect(html).toContain('<input disabled="" type="checkbox"> task<span class="bk"');
+  expect(html).toContain('<h2>Beds<span class="bk" data-block="block-6"></span></h2>');
+  expect(html).toContain('see <a href="/seed-list">seed</a>');
+  expect(html).toContain('<code class="language-js">y()');
+  expect(html).toContain('<span class="callout-title">Tip</span>');
   expect(html).not.toMatch(/[\uE000-\uF8FF]/);
 });

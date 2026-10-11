@@ -27,8 +27,8 @@
 (() => {
   "use strict";
   // The WebMCP polyfill the publisher serves after this script answers an extension in this tab from this page's
-  // origin only (its default is any origin).
-  window.__webModelContextOptions = { transport: { tabServer: { allowedOrigins: [location.origin] } } };
+  // origin only (its default is any origin), and never a page that frames this one (none may: frame-ancestors 'none').
+  window.__webModelContextOptions = { transport: { tabServer: { allowedOrigins: [location.origin] }, iframeServer: false } };
   const main = document.querySelector("main[data-marginalia]");
   if (!main) return;
   const api = main.dataset.marginalia;
@@ -163,26 +163,38 @@
     return { page, ...(full ? { view: "full" } : {}), title: document.title, url: location.href, ...(words || {}), visible: onScreen(), scroll: { y: Math.round(window.scrollY), max } };
   }
 
-  let said = "";
-  let sayTimer = 0;
-  /** The service's answer to the last report: the view it kept and the reader's journal. */
-  let seen = null;
-  /** Says what's in front of the reader now, if that changed (or `extra`, a fold, goes with it); the service's answer. */
-  async function report(extra) {
-    clearTimeout(sayTimer);
-    const body = JSON.stringify({ ...snapshot(), ...(extra || {}) });
-    if (body === said && seen) return seen;
-    said = body;
+  /** This tab, across its pages: on a share, the journal the page gets back is this tab's alone. */
+  const visitor = (() => {
+    const made = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9-]/g, "");
     try {
+      const kept = sessionStorage.getItem("ep0ch-visitor");
+      if (kept) return kept;
+      sessionStorage.setItem("ep0ch-visitor", made);
+    } catch { /* storage refused: this page alone */ }
+    return made;
+  })();
+
+  let sayTimer = 0;
+  /** The last report the service answered, and its answer: the view it kept and the journal. */
+  let said = "";
+  let seen = null;
+  /** Reports one at a time, in order, so an older answer never stands for a newer report. */
+  let reporting = Promise.resolve();
+  /** Says what's in front of the reader now, if that changed (or `extra`, a fold, goes with it); the service's answer. */
+  function report(extra) {
+    clearTimeout(sayTimer);
+    const body = JSON.stringify({ ...snapshot(), ...(extra || {}), visitor });
+    const run = reporting.then(async () => {
+      if (body === said && seen) return seen;
       const response = await fetch(`${api}/view`, { method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", keepalive: true, body });
       const answer = await response.json();
       if (!response.ok || !answer.ok) throw new Error(answer.error || `the publisher answered ${response.status}`);
+      said = body;
       seen = answer;
-    } catch (error) {
-      said = "";
-      throw error;
-    }
-    return seen;
+      return seen;
+    });
+    reporting = run.catch(() => {});
+    return run;
   }
   function present() {
     clearTimeout(sayTimer);
