@@ -162,6 +162,17 @@ export interface PublisherOptions {
    * at `<webRoot>/o/` (publish-outlines.ts). Defaults to the base path.
    */
   webRoot?: string;
+  /**
+   * Where the outline is served from, said at the top of its pages instead of its bare name: another machine's outline
+   * (publish-remote.ts), `float-hub · laptop · live` or `… · as of <time> (laptop asleep)`.
+   */
+  provenance?: () => string;
+  /** Why the page takes no writes now (a read-only copy, its MCP access): no write controls, and writes refused. Null: it takes them. */
+  writes?: () => Promise<string | null>;
+  /** Tell the service who reads which page (`reader.report`); a read-only copy can't keep it. Default true. */
+  presence?: boolean;
+  /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
+  shares?: boolean;
   log?: (line: string) => void;
 }
 
@@ -637,7 +648,8 @@ export class Publisher {
     this.marginalia = new PageMarginalia({
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full, share) => this.view(page, full, share),
-      report: (view) => this.client.request({ action: "reader.report", view }),
+      report: (view) => this.options.presence === false ? Promise.resolve({}) : this.client.request({ action: "reader.report", view }),
+      writes: () => this.options.writes?.() ?? Promise.resolve(null),
       basePath: this.basePath,
       locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,
@@ -761,6 +773,16 @@ export class Publisher {
     });
     await Promise.race([connected.promise, Bun.sleep(3_000)]);
     return status;
+  }
+
+  /** Whether its change feed is connected now: a service that went away (a machine asleep) isn't. */
+  get isConnected(): boolean {
+    return this.connected;
+  }
+
+  /** What heads its pages: where the outline is served from when that's said, else its name. */
+  private rootLabel(): string {
+    return this.options.provenance?.() ?? this.outlineName ?? "outline";
   }
 
   /** Where this publisher is opened: what it tells the service. */
@@ -1110,8 +1132,8 @@ export class Publisher {
         `<form method="post" action="${escapeHtml(`${base}/sessions/revoke`)}" class="share-new"><input type="hidden" name="all" value="1"><button type="submit">Sign out everywhere (${sessions.length})</button></form>\n`
       : `<p class="dim">No browser is signed in. Signing in at the web client's public address starts one.</p>\n`;
     const body = `<article>\n<h1>Sessions</h1>\n<p class="dim">Browsers signed in to the web client. Each lasts 30 days from its last use; Revoke ends it now. The same as <code>ep0ch web sessions</code> and <code>ep0ch web revoke &lt;id&gt;|--all</code>.</p>\n${list}</article>\n` +
-      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
-    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Sessions</span></nav>`;
+      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Sessions</span></nav>`;
     return renderedHtml(htmlPage("Sessions", body, crumbs, { browse: true }), 200, SHARES_CSP);
   }
 
@@ -1177,8 +1199,8 @@ export class Publisher {
           `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads the outline as this site shows it (or, ticked, only that note and below) until it ends; [publish::never] notes stay hidden.</p>\n`;
     } else start = `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
     const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Short-lived public links. Each ends by itself; Revoke ends it now.</p>\n${start}${list}</article>\n` +
-      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
-    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Shares</span></nav>`;
+      `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Shares</span></nav>`;
     return renderedHtml(htmlPage("Shares", body, crumbs, { browse: true }), 200, SHARES_CSP);
   }
 
@@ -1269,7 +1291,7 @@ export class Publisher {
    */
   private async serveFolder(entry: PublishedEntry | null, index: PublishedIndex, share?: PageShare): Promise<Response> {
     const base = share?.base ?? this.basePath;
-    let article = `<h1>${escapeHtml(this.outlineName ?? "outline")}</h1>\n`;
+    let article = `<h1>${escapeHtml(this.rootLabel())}</h1>\n`;
     if (entry) {
       if ((await this.lockedIds([entry.blockId])).size) return notFound();
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
@@ -1293,7 +1315,7 @@ export class Publisher {
       : "";
     const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
     const body = `<article>\n${article}</article>\n${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
-    const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.outlineName ?? "outline")}</nav>`;
+    const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.rootLabel())}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
     return entry
       ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share) }), 200, READER_CSP)
@@ -1346,8 +1368,8 @@ export class Publisher {
       ? `<ul class="kids replies">\n${rows.join("\n")}\n</ul>\n`
       : `<p class="dim">No replies yet. When someone (or @margin) answers in a thread you started or wrote in, it shows here.</p>\n`;
     const body = `<article>\n<h1>Recent replies</h1>\n<p class="dim">${unreadCount ? `${unreadCount} unread · ` : ""}replies on your threads, newest first. Opening one marks its thread read.</p>\n</article>\n` +
-      `<section class="inside">${list}</section>\n<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
-    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Recent replies</span></nav>`;
+      `<section class="inside">${list}</section>\n<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Recent replies</span></nav>`;
     return renderedHtml(htmlPage("Recent replies", body, crumbs, { browse: true }));
   }
 
@@ -1361,7 +1383,7 @@ export class Publisher {
       const rootId = share.scope.blockId;
       const at = above.findIndex((block) => block.id === rootId);
       above = at < 0 ? [] : above.slice(at);
-    } else parts.push(`<a href="${href("/")}">${escapeHtml(this.outlineName ?? "outline")}</a>`);
+    } else parts.push(`<a href="${href("/")}">${escapeHtml(this.rootLabel())}</a>`);
     for (const block of above) {
       const path = share?.scope.kind === "note" && block.id === share.scope.blockId ? "/" : notePath(block, index);
       parts.push(`<a href="${href(path)}">${escapeHtml(noteTitle(block.title ?? "") || block.id)}</a>`);
@@ -1374,7 +1396,7 @@ export class Publisher {
     const href = (query: string) => escapeHtml(`${share?.base ?? this.basePath}${entry.path}${query}`);
     const other = full ? `<a href="${href("")}">as a folder</a>` : `<a href="${href("?view=full")}">whole page</a>`;
     // On the tailnet, a note can be shared from its page: a short-lived public link (the shares page starts it).
-    const sharing = share ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?open=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
+    const sharing = share || this.options.shares === false ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?open=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
     return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}</footer>`;
   }
 
@@ -1864,7 +1886,7 @@ export class Publisher {
 function normalizeBasePath(value: string | undefined): string {
   const trimmed = (value ?? "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
-  if (!/^\/[A-Za-z0-9._~/-]*$/.test(trimmed) || trimmed.split("/").some((segment) => segment === "..")) {
+  if (!/^\/[A-Za-z0-9._~@/-]*$/.test(trimmed) || trimmed.split("/").some((segment) => segment === "..")) {
     throw new Error(`--base-path must be a URL path such as /pub: ${value}`);
   }
   return trimmed;

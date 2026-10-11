@@ -634,7 +634,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 | `CLERK_PUBLISHABLE_KEY` | names the issuer (Clerk's Frontend API); from `~/.config/secrets/clerk.env` through `with-secrets clerk -- …`. `EP0CH_MCP_ISSUER` names it outright instead |
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode. The one list of who may sign in: the signed-in web client (`my.ep0ch.sh`, the outliner's README) reads it too, so both units load it from one file (`~/.config/ep0ch/signin.env`) |
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
-| `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
+| `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`); the web client lists the same outlines at `/pub/o/<name>@<machine>/` |
 | `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder), and the netmail queue, `.netmail.sqlite` |
 | `EP0CH_MCP_LIVE`, `EP0CH_MCP_LIVE_BUDGET_MS`, `EP0CH_MCP_LIVE_BACKOFF_MS` | the live route to a mirror's machine: `0` turns it off; the connect budget (default 2000) and the wait after a failed try (default 45000) |
 | `EP0CH_MCP_HUB` | on a home machine, in `~/.config/ep0ch/backup.env`: the gateway machine's ssh name, whose queued writes for this machine its backup job pulls. `ep0ch install` writes `float-2` on a Mac whose file names none; an empty `EP0CH_MCP_HUB=` line means none, and stays |

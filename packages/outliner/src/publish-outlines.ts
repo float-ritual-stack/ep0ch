@@ -1,9 +1,11 @@
 // The web client over every outline the host serves: the home outline at the web root (`/pub`), as always, and each
 // other outline at `/pub/o/<name>/`, its own Publisher (the same class, the same pages and routes) started the first
 // time it is asked for and kept. `/pub/o/` lists them. The tailnet listener and the sign-in listener (web-signin.ts) both
-// answer through this, so a signed-in browser reads exactly what the tailnet does.
+// answer through this, so a signed-in browser reads exactly what the tailnet does. Another machine's outline is at
+// `/pub/o/<name>@<machine>/`, read live through that machine's forward or from its copy here (publish-remote.ts).
 import { isOutlineName } from "./paths";
 import { escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
+import type { RemoteOutline } from "./publish-remote";
 
 export interface OutlinePublishersOptions {
   /** The home outline's publisher, mounted at the web root. */
@@ -14,6 +16,8 @@ export interface OutlinePublishersOptions {
   names: () => Promise<string[]>;
   /** A publisher for another outline, mounted at `<webRoot>/o/<name>`; started here. */
   open: (name: string, basePath: string) => Publisher;
+  /** Other machines' outlines (`EP0CH_MCP_MIRRORS`), each at `<webRoot>/o/<name>@<machine>`. */
+  remotes?: readonly RemoteOutline[];
   log?: (line: string) => void;
 }
 
@@ -49,13 +53,24 @@ export class OutlinePublishers {
     let name: string;
     try { name = decodeURIComponent(named[1]!); } catch { name = ""; }
     if (name === this.options.homeName) return redirect(`${root}${named[2] ?? "/"}`);
-    if (!isOutlineName(name) || !(await this.options.names()).includes(name)) return plainPage("No such outline", `<h1>No outline “${escapeHtml(name)}” here</h1>\n<p><a href="${escapeHtml(`${root}/o/`)}">the outlines</a></p>\n`, 404);
+    const remote = this.options.remotes?.find((candidate) => candidate.address === name);
+    if (!remote && (!isOutlineName(name) || !(await this.options.names()).includes(name))) return plainPage("No such outline", `<h1>No outline “${escapeHtml(name)}” here</h1>\n<p><a href="${escapeHtml(`${root}/o/`)}">the outlines</a></p>\n`, 404);
     let publisher: Publisher;
     try {
-      publisher = await this.publisher(name);
+      if (remote) {
+        const served = await remote.publisher();
+        if ("error" in served) throw new Error(served.error);
+        publisher = served;
+      } else publisher = await this.publisher(name);
     } catch (error) {
       this.log(`publish: outline ${name}: ${error instanceof Error ? error.message : String(error)}`);
       return plainPage("Not reachable", `<h1>${escapeHtml(name)} can't be read now</h1>\n<p class="dim">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>\n`, 502);
+    }
+    // Another machine's outline is handed its own path as its links say it (`@` as is, however the browser sent it).
+    if (remote) {
+      const url = new URL(request.url);
+      url.pathname = `${publisher.basePath}${named[2] ?? "/"}`;
+      return publisher.handle(new Request(url, request), audience, undefined, signedIn);
     }
     if (pathname.startsWith(`${root}/`)) return publisher.handle(request, audience, undefined, signedIn);
     // Stripped by a proxy: hand the outline's publisher its own path below `/o/<name>`, which it takes as it takes
@@ -85,13 +100,20 @@ export class OutlinePublishers {
       const href = name === this.options.homeName ? `${root}/` : `${root}/o/${encodeURIComponent(name)}/`;
       return `<li><a href="${escapeHtml(href)}">${escapeHtml(name)}</a>${name === this.options.homeName ? ` <span class="dim">(home)</span>` : ""}</li>`;
     }).join("\n");
-    return plainPage("Outlines", `<h1>Outlines</h1>\n<p class="dim">Every outline this machine's host serves.</p>\n<ul class="kids">\n${rows}\n</ul>\n`);
+    const remotes = this.options.remotes ?? [];
+    const away = remotes.map((remote) => {
+      const said = remote.state === "live" ? "live" : remote.state === "copy" ? `${remote.machine} asleep: its copy here` : "";
+      return `<li><a href="${escapeHtml(`${root}/o/${remote.address}/`)}">${escapeHtml(remote.address)}</a>${said ? ` <span class="dim">(${escapeHtml(said)})</span>` : ""}</li>`;
+    }).join("\n");
+    const others = away ? `<h2>On other machines</h2>\n<p class="dim">Read live through the machine's ssh forward, or from its copy here while it's asleep.</p>\n<ul class="kids">\n${away}\n</ul>\n` : "";
+    return plainPage("Outlines", `<h1>Outlines</h1>\n<p class="dim">Every outline this machine's host serves.</p>\n<ul class="kids">\n${rows}\n</ul>\n${others}`);
   }
 
   async stop(): Promise<void> {
     const started = await Promise.allSettled(this.others.values());
     this.others.clear();
     for (const result of started) if (result.status === "fulfilled") await result.value.stop();
+    await Promise.all((this.options.remotes ?? []).map((remote) => remote.stop()));
   }
 }
 

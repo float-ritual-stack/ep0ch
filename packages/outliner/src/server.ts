@@ -309,6 +309,11 @@ const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
 export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
+/**
+ * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
+ * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
+ */
+const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
@@ -343,7 +348,7 @@ export class OutlinerServer {
   private host: (() => OutlinerHostStatus) | undefined;
   /** This outline's side files; by default the socket's folder. */
   readonly stateDirectory: string;
-  /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_ACTIONS are answered. */
+  /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_COPY_ACTIONS are answered. */
   readonly readOnly: boolean;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
   /** One sync per extension provider of Resources (Jira's first). */
@@ -3819,7 +3824,7 @@ export class OutlinerServer {
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
       }
-      if (this.readOnly && !READ_ONLY_ACTIONS.has(String(request.action))) {
+      if (this.readOnly && !READ_ONLY_COPY_ACTIONS.has(String(request.action))) {
         throw new Error(`"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
       }
       // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.

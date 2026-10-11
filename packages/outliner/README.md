@@ -1083,6 +1083,17 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 - **Every outline.** The home outline (`--ws`) is at `/pub/`, as always; every other outline the host serves is at
   `/pub/o/<name>/` (its own `Publisher`, started when first asked for, `publish-outlines.ts`), and `/pub/o/` lists
   them. The same paths on the tailnet. `/` goes to `/pub/`, and the old `my.ep0ch.sh/p/<slug>` links to `/pub/p/<slug>`.
+- **Other machines' outlines.** Each outline `EP0CH_MCP_MIRRORS` names (`float-hub@laptop,sysops-log@laptop`, the
+  one list the MCP gateway reads too; put it in the settings file both units load) is at `/pub/o/<name>@<machine>/`,
+  listed under "On other machines" (`publish-remote.ts`). Its pages are a `Publisher` like any outline's, read live
+  from that machine's host through the shared ssh forward (`<outlines>/.remote/<machine>.sock`, started on demand,
+  reused, never ended here), and headed `float-hub · laptop · live`. Writes follow the outline's own `mcp access` on
+  its machine: `propose` and `full` take comments, asks, highlights, quotes and replies; `read` and `none` show its
+  threads with Copy alone and say what to run there. When the machine doesn't answer within 4 s (asleep, off the
+  network) its pages are read from its mirror here (`EP0CH_MCP_MIRROR_DIR`, else `~/outline-mirrors`, the
+  gateway's copies, served by a read-only host of their own, `outline-mirror.ts`), headed `… · as of <time> UTC
+  (laptop asleep)`, with no write controls. A machine that didn't answer is asked again at most every 30 s; a live
+  one is checked at most every 10 s while pages are opened, and nothing is asked of it otherwise.
 - **Sign-in** is OpenID Connect against Clerk, the MCP gateway's authorization server: the authorization code flow
   with PKCE for a public client (`EP0CH_WEB_CLIENT_ID`, the Clerk OAuth application `ep0ch-web`; no client secret),
   `state` bound to the browser by a ten-minute cookie, and a `nonce`. The ID token is checked against the issuer's
@@ -1105,6 +1116,8 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 | `EP0CH_WEB_CLIENT_ID` | the Clerk OAuth application's client id (public, PKCE; its redirect is `<origin>/signin/callback`) |
 | `EP0CH_WEB_ISSUER` | Clerk's Frontend API URL; else from `CLERK_PUBLISHABLE_KEY` |
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | the Clerk user ids allowed in, shared with the MCP gateway |
+| `EP0CH_MCP_MIRRORS` | other machines' outlines (`<name>@<ssh-name>`, comma-separated), shared with the MCP gateway |
+| `EP0CH_MCP_MIRROR_DIR` | where their copies are followed (default `~/outline-mirrors`) |
 
 #### Artifacts
 
