@@ -206,7 +206,9 @@ test("a mark is a page and a block: quote a comment and a highlight into the Inb
   // Its page transcludes each mark and links back to it.
   const quotePage = await page(quoted.href);
   expect(quotePage).toContain("Straw, not bark.");
-  expect(quotePage).toMatch(/from <a href="[^"]+">Comment on/);
+  // A link to a mark is labelled by its own words, never its generated `Comment on “…”` heading.
+  expect(quotePage).toMatch(/from <a href="[^"]+">Straw, not bark\.<\/a>/);
+  expect(quotePage).not.toContain("Comment on");
   expect(hrefs(quotePage)).toEqual(expect.arrayContaining([comment, highlight].map((id) => expect.stringContaining(`/pub/p/${id}`))));
   // Each mark's card says where it's been quoted, linking the new block's page.
   const drawn = (await threads(beds.id)).threads as unknown as { id: string; quotedIn: { id: string; href: string; title: string }[] }[];
@@ -230,6 +232,28 @@ test("a mark is a page and a block: quote a comment and a highlight into the Inb
   expect(store.get(underSwap.block)!.parentId).toBe(swap.id);
   const underNote = await (await write({ page: beds.id, action: "quote", marks: [highlight], place: "note" })).json();
   expect(store.get(underNote.block)!.parentId).toBe(beds.id);
+});
+
+test("a quote of @margin's answer and its ask: the answer is drawn (a mark, not extension data), and the folder row reads words, not ids", async () => {
+  const shed = store.create("Potting shed\nThe **cold frame:** opens at ten degrees.", hub.id, "user");
+  const ask = (await (await write({ page: shed.id, action: "ask", quote: "cold frame:** opens", body: "why ten?", requestId: "quote-ask-0001" })).json()).thread as string;
+  const answer = await until("the margin's answer", async () =>
+    ((await threads(shed.id)).threads.find((thread) => thread.id === ask)?.replies as { id: string; by: string; body: string }[] | undefined)?.find((reply) => reply.by === "marginalia"));
+  const quoted = await (await write({ page: shed.id, action: "quote", marks: [answer.id, ask], place: "note", text: "Why ten" })).json();
+  const quotePage = await page(quoted.href);
+  // @margin wrote the answer (`ext:marginalia`), but a mark is read wherever marks are: never "marginalia data, not published".
+  expect(quotePage).not.toContain("not published");
+  expect(quotePage).toContain(answer.body.split("\n")[0]!.slice(0, 20));
+  // Each embedded mark shows its own words, and each link is labelled by them, without the passage's `**`.
+  expect(quotePage).not.toContain("**");
+  expect(quotePage).not.toContain("Question on");
+  // The note's folder lists the quote by the marks' words: no stray `!`, no ((id)) in its meta line.
+  const folder = await page(`/pub/p/${shed.id}`);
+  const row = folder.slice(folder.indexOf(`data-block="${quoted.block}"`));
+  const li = row.slice(0, row.indexOf("</li>"));
+  expect(li).not.toMatch(/!a note|\(\(|<span class="s">!/);
+  expect(li).toContain("<span class=\"s\">“");
+  expect(li).toContain(`from: <a href="/pub/p/${ask}">@margin why ten?</a>`);
 });
 
 test("words in a comment are marked like a note's: a highlight on them lands on the comment and is drawn in its card", async () => {

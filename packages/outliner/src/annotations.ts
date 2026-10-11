@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
-import { annotationProperties, annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
+import { annotationProperties, annotationPropertyProblem, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {
   AnnotationAnchor,
   AnnotationPassage,
@@ -803,7 +803,7 @@ export function formatAnnotationBlock(
 }
 
 /** An annotation block's heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone (the plain heading when the quote can't be one). */
-export const ANNOTATION_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
+export const ANNOTATION_HEADING = MARK_HEADING;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);

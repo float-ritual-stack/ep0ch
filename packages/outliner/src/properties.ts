@@ -3,6 +3,7 @@ import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, isWritablePropertyValue, propertyTokenMatches, propertyValueHolds, type RawPropertyToken } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
+import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceEnvelopeRanges } from "@ep0ch/outline-core/link-syntax";
 import type {
   BlockProperty,
@@ -385,6 +386,9 @@ export function withHeaderDashes<T extends SourceRange>(text: string, ranges: re
 }
 
 export function firstLineWithoutPropertyTokens(text: string): string | undefined {
+  // A mark's title is its own words, not its generated heading (outline-core's annotation-marks.ts).
+  const mark = markTitleLine(text);
+  if (mark) return mark.text;
   // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
   const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
   // Matched literal-region markers are hidden in Detail, so they are never the title.

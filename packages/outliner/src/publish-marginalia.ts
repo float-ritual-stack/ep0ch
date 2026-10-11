@@ -37,11 +37,16 @@ function count(text: string, exact: string, before: number): number {
   return n;
 }
 
-/** A body's text with each `((id|label))` shown as its label: a page never prints another note's id. */
-export function plainBody(body: string): string {
+/**
+ * A body's text with each `((id|label))` shown as its label, else its note's title when `titleOf` knows it, else
+ * "a note": a page never prints another note's id. An embed `!((id))` is its note's words in quotes, never a stray `!`.
+ */
+export function plainBody(body: string, titleOf: (blockId: string) => string | undefined = () => undefined): string {
   let out = "", cursor = 0;
   for (const reference of blockReferenceOccurrences(body)) {
-    out += body.slice(cursor, reference.start) + (reference.label ?? "a note");
+    const embed = reference.start > cursor && body[reference.start - 1] === "!";
+    const words = reference.label ?? titleOf(reference.blockId);
+    out += body.slice(cursor, embed ? reference.start - 1 : reference.start) + (embed ? (words ? `“${words}”` : "a quoted note") : words ?? "a note");
     cursor = reference.end;
   }
   return (out + body.slice(cursor)).trim();

@@ -3,6 +3,7 @@ import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { printable } from "./text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
+import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 
 export interface Msg {
   id: string;
@@ -72,9 +73,12 @@ export interface Board {
 /**
  * Where a note's title comes from, as the service picks it (`firstLineWithoutPropertyTokens`): the first
  * line with text once its `[key::value]` tokens are taken out, skipping literal-region marker lines
- * (PIE-422). Inside a region a token is text, so it stays. `line` is -1 when no line has text.
+ * (PIE-422). Inside a region a token is text, so it stays. `line` is -1 when no line has text. A mark's title is
+ * its own words (outline-core's `markTitleLine`).
  */
 export function titleLine(text: string): { line: number; text: string } {
+  const mark = markTitleLine(text);
+  if (mark) return mark;
   const lines = text.split("\n");
   const lit = text.includes("<!--") ? literalLines(text) : null;
   let first = -1;
