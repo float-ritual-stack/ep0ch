@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Talking to the thing on screen: page helpers an agent beside the page calls
+
+- **New:** every web client page (tailnet and share) has `window.ep0ch`: `help()`, `view()` (the note, the selection
+  with its block and offsets in the source, the blocks on screen, the scroll), `reveal('((id))')` (scroll to a block
+  and outline it) and `journal(since)` (pages opened, words selected, folds), the same as WebMCP tools on
+  `navigator.modelContext` (the `@mcp-b/global` polyfill, served by the publisher). They only read and point; the page
+  says when an agent calls one. `reader.view` and the MCP's `reader_view` carry the same view and the journal.
+- **Fixed:** a web client page asked the threads route about once a second while anything else in the outline changed;
+  it now waits until what the page itself draws changes (about three requests a minute when idle).
+- **Run:** `ep0ch install --apply` (protocol 142; `bun install` adds the polyfill), then restart the publishers.
+
 ### Conversations in the margin: a thread is a conversation, and replies come back to you
 
 - **New:** a margin thread is one conversation. The first `@margin` starts the agent's session and keeps its id on the

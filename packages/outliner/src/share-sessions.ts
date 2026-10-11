@@ -9,7 +9,7 @@
 // Also here: what a reader of the web client has in front of them (`reader.report` / `reader.view`), presence kept in
 // memory only, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { SHARE_TTL, SHARE_VIAS, type ReaderView, type ShareSession, type ShareVia } from "@ep0ch/outline-core/protocol";
+import { READER_VISIBLE_MAX, SHARE_TTL, SHARE_VIAS, type ReaderEvent, type ReaderView, type ShareSession, type ShareVia } from "@ep0ch/outline-core/protocol";
 
 /** Where the sessions are kept in the metadata table. */
 export const SHARES_METADATA_KEY = "share_sessions";
@@ -215,19 +215,36 @@ const READER_CONTEXT_MAX = 200;
 /** A reader not heard from for this long is no longer reading. */
 const READER_STALE_MS = 12 * 60 * 60_000;
 
-/** What each reader of the web client has in front of them, as their pages last said: in memory only. */
+/** At most this many of what readers did are kept (the journal), newest last. */
+export const READER_JOURNAL_MAX = 200;
+
+/**
+ * What each reader of the web client has in front of them, as their pages last said, and what they did lately (the
+ * journal: pages opened, words selected, folds opened or closed): in memory only. Pages and selections are read off
+ * the reports themselves, so a page says only where it is and what's selected; a fold it says (`fold`).
+ */
 export class ReaderPresence {
   private readonly readers = new Map<string, ReaderView>();
+  private readonly events: ReaderEvent[] = [];
+  private next = 1;
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** A page's report, capped and trimmed; the newest one per reader is kept. */
-  report(input: Record<string, unknown>): ReaderView {
+  /** A page's report, capped and trimmed; the newest one per reader is kept, and what changed goes in the journal. */
+  report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[] } {
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
+    const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : undefined);
     const reader = text(input.reader, 64);
     if (!/^(tailnet|share:[0-9a-f]{8})$/.test(reader)) throw new Error("reader is tailnet or share:<id>");
     const selection = input.selection && typeof input.selection === "object" ? input.selection as Record<string, unknown> : undefined;
     const selected = selection ? text(selection.text, 100_000) : "";
+    const offsets = selection?.offsets && typeof selection.offsets === "object" ? selection.offsets as Record<string, unknown> : undefined;
+    const [start, end, revision] = [count(offsets?.start), count(offsets?.end), count(selection?.revision)];
+    const visible = Array.isArray(input.visible)
+      ? input.visible.filter((id): id is string => typeof id === "string" && !!id).slice(0, READER_VISIBLE_MAX).map((id) => id.slice(0, 64))
+      : undefined;
+    const scroll = input.scroll && typeof input.scroll === "object" ? input.scroll as Record<string, unknown> : undefined;
+    const [y, max] = [count(scroll?.y), count(scroll?.max)];
     const view: ReaderView = {
       reader,
       ...(typeof input.blockId === "string" && input.blockId ? { blockId: input.blockId.slice(0, 64) } : {}),
@@ -238,24 +255,51 @@ export class ReaderPresence {
         before: text(selection!.before, 100_000).slice(-READER_CONTEXT_MAX),
         after: text(selection!.after, READER_CONTEXT_MAX),
         ...(typeof selection!.blockId === "string" && selection!.blockId ? { blockId: selection!.blockId.slice(0, 64) } : {}),
+        ...(start !== undefined && end !== undefined && end > start ? { offsets: { start, end } } : {}),
+        ...(revision !== undefined ? { revision } : {}),
         ...(selected.length > READER_SELECTION_MAX ? { truncated: true } : {}),
       } } : {}),
+      ...(visible ? { visible } : {}),
+      ...(y !== undefined && max !== undefined ? { scroll: { y: Math.min(y, max), max } } : {}),
       at: new Date(this.now()).toISOString(),
     };
+    const before = this.readers.get(reader);
+    if (!before || before.url !== view.url || before.blockId !== view.blockId) {
+      this.log({ reader, kind: "page", ...(view.blockId ? { blockId: view.blockId } : {}), title: view.title, url: view.url });
+    }
+    if (view.selection && view.selection.text !== before?.selection?.text) {
+      this.log({ reader, kind: "selection", ...(view.selection.blockId ? { blockId: view.selection.blockId } : {}), text: view.selection.text });
+    }
+    const fold = input.fold && typeof input.fold === "object" ? input.fold as Record<string, unknown> : undefined;
+    if (fold && typeof fold.blockId === "string" && fold.blockId) {
+      this.log({ reader, kind: "fold", blockId: fold.blockId.slice(0, 64), open: fold.open === true });
+    }
     this.readers.set(reader, view);
-    return view;
+    return { view, journal: this.journal(reader) };
   }
 
-  /** The reader seen most recently (or `reader`'s), and every reader seen lately, newest first. */
-  view(reader?: string): { view: ReaderView | null; readers: ReaderView[] } {
+  /** The reader seen most recently (or `reader`'s), every reader seen lately (newest first), and its journal. */
+  view(reader?: string, since = 0): { view: ReaderView | null; readers: ReaderView[]; journal: ReaderEvent[] } {
     const now = this.now();
     for (const [key, value] of this.readers) if (now - Date.parse(value.at) > READER_STALE_MS) this.readers.delete(key);
     const readers = [...this.readers.values()].sort((a, b) => b.at.localeCompare(a.at));
-    return { view: (reader ? this.readers.get(reader) : readers[0]) ?? null, readers };
+    const view = (reader ? this.readers.get(reader) : readers[0]) ?? null;
+    return { view, readers, journal: view ? this.journal(view.reader, since) : [] };
+  }
+
+  /** What `reader` did after event `since`, oldest first. */
+  journal(reader: string, since = 0): ReaderEvent[] {
+    return this.events.filter((event) => event.reader === reader && event.n > since);
+  }
+
+  private log(event: Omit<ReaderEvent, "n" | "at">): void {
+    this.events.push({ n: this.next++, at: new Date(this.now()).toISOString(), ...event });
+    if (this.events.length > READER_JOURNAL_MAX) this.events.splice(0, this.events.length - READER_JOURNAL_MAX);
   }
 
   /** A reader that's gone (its share ended): forgotten. */
   forget(reader: string): void {
     this.readers.delete(reader);
+    for (let at = this.events.length - 1; at >= 0; at -= 1) if (this.events[at]!.reader === reader) this.events.splice(at, 1);
   }
 }

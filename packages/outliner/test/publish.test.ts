@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { scratchOutline } from "./scratch-outline";
-import { assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
+import { assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderMarkdownHtml, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
+import { drawAnchors, placeAnchor } from "../src/publish-anchors";
 import { canonicalPublishRoots, checkAttachment, type AttachmentPolicy } from "../src/publish-attachments";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -150,7 +151,8 @@ test("a block without an attachment renders its subtree as markdown, leaving out
 
   // The whole subtree on one page: `?view=full` on the tailnet, where `?view=html` is the note's folder page.
   const html = await (await get("/p/moth-garden?view=full")).text();
-  expect(html).toContain("<li>Evening primrose</li>");
+  // Each row carries its block's anchor (publish-anchors.ts), which holds no text.
+  expect(html).toMatch(/<li>Evening primrose<span class="bk" data-block="[0-9a-f-]+"><\/span><\/li>/);
   expect(html).toContain('href="/p/census?view=html"');
 });
 
@@ -517,9 +519,13 @@ test("rendered pages carry no script: raw html is text, script links are dropped
   const response = await get("/p/moths?view=full");
   expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
   const page = await response.text();
-  // The one script a tailnet page runs is the publisher's own marginalia reader; nothing in the note adds another.
-  expect(page.match(/<script[^>]*>/g)).toEqual([expect.stringMatching(/^<script src="\/_marginalia\/reader\.js\?v=[0-9a-f]+" defer>$/)]);
-  const html = page.replace(/<script[^>]*><\/script>/, "");
+  // The scripts a tailnet page runs are the publisher's own: the marginalia reader and the WebMCP polyfill it serves.
+  // Nothing in the note adds another.
+  expect(page.match(/<script[^>]*>/g)).toEqual([
+    expect.stringMatching(/^<script src="\/_marginalia\/reader\.js\?v=[0-9a-f]+" defer>$/),
+    expect.stringMatching(/^<script src="\/_marginalia\/webmcp\.js\?v=[0-9a-f]+" defer>$/),
+  ]);
+  const html = page.replace(/<script[^>]*><\/script>/g, "");
   expect(html).not.toContain("<script");
   expect(html).not.toContain("<img src=\"x\"");
   expect(html).not.toMatch(/(href|src)="[^"]*(script|data:text)/i);
@@ -1085,4 +1091,18 @@ test("a file reference shows its name, never a local path, and links when the no
   expect(open).toContain("<code>plan.md</code>");
   expect(open).not.toContain("moth-plan");
   expect(await (await get("/p/moth-log")).text()).not.toContain("/srv/garden");
+});
+
+test("a block's anchor never changes how its text draws: a callout, a fence, a table, a rule and a hard break stay what they are", () => {
+  const texts = ["> [!note] Careful\n> body", "```js\nx()\n```", "| a | b |\n| - | - |\n| 1 | 2 |", "---", "line one\\\nline two", "[ ] task"];
+  const ids = texts.map((_, at) => `block-${at}`);
+  const html = drawAnchors(renderMarkdownHtml(texts.map((text, at) => `- ${placeAnchor(text, at).split("\n").join("\n  ")}`).join("\n")), ids);
+  for (const id of ids) expect(html).toContain(`<span class="bk" data-block="${id}"></span>`);
+  expect(html).toContain('<span class="callout-title">Careful<span class="bk" data-block="block-0"></span></span>');
+  expect(html).toContain('<code class="language-js">x()');
+  expect(html).toContain("<td>1</td>");
+  expect(html).toContain("<hr>");
+  expect(html).toContain('line one<span class="bk" data-block="block-4"></span><br>');
+  expect(html).toContain('<input disabled="" type="checkbox"> task<span class="bk"');
+  expect(html).not.toMatch(/[\uE000-\uF8FF]/);
 });

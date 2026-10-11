@@ -13,6 +13,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { AnnotationThread, Block } from "../src/types";
+import type { ReaderEvent, ReaderView } from "@ep0ch/outline-core/protocol";
 import { scratchOutline } from "./scratch-outline";
 
 const HOST = "garden.tail0000.ts.net";
@@ -85,8 +86,16 @@ const write = (body: Record<string, unknown>, origin = `https://${HOST}`, audien
 const threads = async (blockId: string) => {
   const response = await get(`/pub/_marginalia/threads?page=${blockId}`, {});
   expect(response.status).toBe(200);
-  return (await response.json()) as { generation: number; choices: { action: string }[]; threads: { id: string; kind: string; body: string; by: string; quote: string; replies: { by: string; body: string }[] }[] };
+  return (await response.json()) as { version: string; choices: { action: string }[]; threads: { id: string; kind: string; body: string; by: string; quote: string; replies: { by: string; body: string }[] }[] };
 };
+const view = (body: Record<string, unknown>) => publisher.handle(new Request(`http://${HOST}/pub/_marginalia/view`, {
+  method: "POST", headers: { host: HOST, origin: `https://${HOST}`, "content-type": "application/json" }, body: JSON.stringify(body),
+}), "tailnet");
+/** An edit made through the service, as the door's are: the publisher hears of it. */
+async function edit(block: Block, text: string): Promise<void> {
+  const revision = store.get(block.id)!.revision;
+  await client.request({ action: "update", blockId: block.id, text, expectedRevision: revision, mutation: { author: "user" } });
+}
 const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((match) => match[1]!.replace(/&amp;/g, "&"));
 
 async function until<T>(what: string, check: () => Promise<T | undefined | null | false>, ms = 10_000): Promise<T> {
@@ -241,4 +250,64 @@ test("wide tables scroll sideways on the page instead of crushing their columns"
   expect(html).toContain("<table>");
   expect(html).toMatch(/table\{[^}]*display:block;max-width:100%;overflow-x:auto/);
   expect(html).toMatch(/th,td\{[^}]*min-width:7em/);
+});
+
+test("the long poll waits for a change to what the page draws: a busy outline elsewhere doesn't answer it", async () => {
+  const { version } = await threads(swap.id);
+  let answered: { version: string } | undefined;
+  const waiting = get(`/pub/_marginalia/threads?page=${swap.id}&since=${version}&wait=8000`, {}).then(async (response) => { answered = await response.json(); });
+  // Writes to another note: each wakes the wait to look again, and the page's answer is the same, so it waits on.
+  for (let at = 0; at < 4; at += 1) {
+    await edit(letter, `Open letter [publish::public]\nTo the allotment committee, draft ${at}.`);
+    await Bun.sleep(150);
+  }
+  await Bun.sleep(500);
+  expect(answered).toBeUndefined();
+  // A change to the page's own note answers it, with the new version.
+  await edit(swap, "Seed swap\nBring the saved marigold seed, and the beans.");
+  await until("the page's answer", async () => answered);
+  await waiting;
+  expect(answered!.version).not.toBe(version);
+});
+
+test("a page marks where each block is and loads the page helpers; Markdown and public pages carry neither", async () => {
+  const whole = await page("/pub/p/Field%20Notes?view=full");
+  for (const block of [hub, survey, swap]) expect(whole).toContain(`<span class="bk" data-block="${block.id}"></span>`);
+  // The anchor holds no text: the words a reader selects are the note's.
+  expect(whole).toContain(`<h1>Field notes<span class="bk" data-block="${hub.id}"></span></h1>`);
+  // A folder's rows are its children's.
+  expect(await page("/pub/p/Field%20Notes")).toContain(`<li data-block="${swap.id}">`);
+  expect(whole).toMatch(/<script src="\/pub\/_marginalia\/reader\.js\?v=\w+" defer><\/script><script src="\/pub\/_marginalia\/webmcp\.js\?v=\w+" defer><\/script>/);
+  const polyfill = await get("/pub/_marginalia/webmcp.js", {});
+  expect(polyfill.status).toBe(200);
+  expect(polyfill.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+  expect(await polyfill.text()).toContain("modelContext");
+  const markdown = await (await get("/pub/p/Field%20Notes?view=md", {})).text();
+  expect(markdown).not.toMatch(/[\uE000-\uF8FF]|data-block/);
+  expect(await (await get(`/share/p/${letter.id}?view=html`, browser, "public")).text()).not.toContain("data-block");
+});
+
+test("the page says what's on screen and the service keeps it with what the reader did: ep0ch.view() and ep0ch.journal() read it back", async () => {
+  await view({ page: swap.id, url: `https://${HOST}/pub/p/${swap.id}` });
+  const opened = await (await view({ page: survey.id, title: "x", url: `https://${HOST}/pub/p/${survey.id}`, visible: [survey.id, letter.id], scroll: { y: 120, max: 900 } })).json() as { view: ReaderView; journal: ReaderEvent[] };
+  // Only this page's blocks are said to be on screen.
+  expect(opened.view).toMatchObject({ blockId: survey.id, title: "Moth survey", visible: [survey.id], scroll: { y: 120, max: 900 } });
+  expect(opened.journal.at(-1)).toMatchObject({ kind: "page", blockId: survey.id, title: "Moth survey" });
+  const since = opened.journal.at(-1)!.n;
+
+  const words = { quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk." };
+  const selected = await (await view({ page: survey.id, url: `https://${HOST}/pub/p/${survey.id}`, ...words, fold: { blockId: survey.id, open: true } })).json() as { view: ReaderView; journal: ReaderEvent[] };
+  const text = store.get(survey.id)!.text;
+  // Where the words are in the note's source, at its revision: what an edit through the MCP needs.
+  expect(selected.view.selection).toMatchObject({
+    text: "elephant hawk-moths", blockId: survey.id, revision: store.get(survey.id)!.revision,
+    offsets: { start: text.indexOf("elephant hawk-moths"), end: text.indexOf("elephant hawk-moths") + 19 },
+  });
+  const after = selected.journal.filter((event) => event.n > since);
+  expect(after.map((event) => event.kind)).toEqual(["selection", "fold"]);
+  expect(after[1]).toMatchObject({ blockId: survey.id, open: true });
+  // The agent in chat reads the same through the service.
+  const read = await client.request<{ view: ReaderView; journal: ReaderEvent[] }>({ action: "reader.view", reader: "tailnet", since });
+  expect(read.view.selection?.offsets).toEqual(selected.view.selection!.offsets!);
+  expect(read.journal.map((event) => event.kind)).toEqual(["selection", "fold"]);
 });

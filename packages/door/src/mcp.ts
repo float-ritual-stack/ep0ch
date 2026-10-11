@@ -773,8 +773,8 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "reader_view",
-      description: `What the person's web client shows now in ${which} (a tailnet page or a share link's): the page's note, title and address, and the words they have selected with the text either side and the note row they're in, as the page last said (presence; when is \`at\`). ` +
-        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. A share link's address is given without its secret. Requires ${grant}.`,
+      description: `What the person's web client shows now in ${which} (a tailnet page or a share link's): the page's note, title and address, the words they have selected with the text either side, the note row they're in and their offsets in its source, the blocks on screen and the scroll position, as the page last said (presence; when is \`at\`), and journal: what they did lately (pages opened, words selected, folds). ` +
+        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. An agent that sees the page itself calls the same through the page's helpers (ep0ch.view(), ep0ch.reveal(ref), ep0ch.journal(since)). A share link's address is given without its secret. Requires ${grant}.`,
       inputSchema: { type: "object", properties: { outline: outlineProperty(outlines) }, additionalProperties: false },
     },
   ];

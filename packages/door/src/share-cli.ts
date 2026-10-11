@@ -5,7 +5,7 @@
 import { boardFor, type Out } from "./notes-cli";
 import { resolveBoardRef } from "./mcp-writes";
 import { USER, type Actor } from "./socket";
-import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
+import type { ReaderEvent, ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 
 export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--ttl 1h] [--no-comments] [--via edge|cloudflare]
                     [--allow-mail <email>]… [--as <agent id>] [--json]
@@ -64,7 +64,7 @@ export const listShares = (board: ShareBoard, all = false) => board.request<{ sh
 export const revokeShares = (board: ShareBoard, which: { id: string } | { all: true }) =>
   board.request<{ revoked: ShareSession[] }>("shares.revoke", "all" in which ? { all: true } : { shareId: which.id });
 
-export const readerView = (board: ShareBoard) => board.request<{ view: ReaderView | null; readers: ReaderView[] }>("reader.view");
+export const readerView = (board: ShareBoard) => board.request<{ view: ReaderView | null; readers: ReaderView[]; journal: ReaderEvent[] }>("reader.view");
 
 /** How long until `iso`, as a person says it: `47 min`, `3 h 5 min`, `ended`. */
 export function endsIn(iso: string, now = Date.now()): string {

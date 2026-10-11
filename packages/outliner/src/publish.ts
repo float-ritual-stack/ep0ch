@@ -22,7 +22,8 @@ import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./pub
 import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
-import { PAGE_ROUTE, PageMarginalia, readerScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
+import { drawAnchors, placeAnchor } from "./publish-anchors";
+import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -395,6 +396,8 @@ mark.ann.on{outline:1px solid #6a7180}
 .mg-whole h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2rem 0 .4rem}
 #mg-toast{position:fixed;left:1rem;right:1rem;bottom:5.5rem;z-index:12;max-width:30rem;margin:0 auto;background:#222220;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.55rem .9rem}
 #mg-margin{display:none}
+#ep0ch-agent{position:fixed;top:.75rem;right:.75rem;left:auto;z-index:13;max-width:min(26rem,calc(100% - 1.5rem));background:#1d2026;color:var(--fg);border:1px solid #4a4f5a;border-radius:.5rem;padding:.45rem .8rem;font-size:14px}
+.ep0ch-pointed{outline:2px solid #6a7180;outline-offset:.25rem;background:#1b1d21}
 @media (min-width:75rem){
   main.reader{max-width:68rem;display:grid;grid-template-columns:minmax(0,42rem) 20rem;column-gap:3rem;align-items:start}
   main.reader>*{grid-column:1}
@@ -404,7 +407,7 @@ mark.ann.on{outline:1px solid #6a7180}
 `;
 
 /** The reader script on a tailnet page: where it is, where it reads and writes, which note this is, and whether it's the full page. */
-interface ReaderTag { src: string; api: string; page: string; blockId: string; full: boolean }
+interface ReaderTag { src: string; webmcp?: string; api: string; page: string; blockId: string; full: boolean }
 
 /**
  * A page. `browse`: a tailnet page, with breadcrumbs (`nav` is them) and the folder list's style; `reader` also runs
@@ -413,7 +416,8 @@ interface ReaderTag { src: string; api: string; page: string; blockId: string; f
 function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean } = {}): string {
   const { reader } = options;
   const browse = options.browse || !!reader;
-  const script = reader ? `<script src="${escapeHtml(reader.src)}" defer></script>` : "";
+  // The reader first: it sets the polyfill's options, and registers its helpers once both have run.
+  const script = reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "";
   const main = reader
     ? `<main class="browse reader" data-marginalia="${escapeHtml(reader.api)}" data-page="${escapeHtml(reader.page)}" data-note="${escapeHtml(reader.blockId)}"${reader.full ? ` data-view="full"` : ""}>`
     : browse ? `<main class="browse">` : "<main>";
@@ -633,7 +637,10 @@ export class Publisher {
       .map((row) => [row.block.id, row.block.parentId!] as const));
     const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
     if (!blocks[0]) return undefined;
-    return { root: blocks[0], blocks, annotations };
+    // A folder page lists its children too: one that's added, renamed or moved changes what the page draws.
+    const listed = full ? [] : (await this.client.request<Block[]>({ action: "children", parentId: entry.blockId }))
+      .filter((block) => !isAnnotationBlock(block)).map((block) => `${block.id}:${block.revision ?? 0}`);
+    return { root: blocks[0], blocks, annotations, listed };
   }
 
   /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
@@ -1145,7 +1152,7 @@ export class Publisher {
       const browse = audience === "tailnet";
       const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
-      const article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.index, base);
+      const article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.anchors), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share) }), 200, READER_CSP);
@@ -1167,7 +1174,7 @@ export class Publisher {
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, ...(share ? { share } : {}) });
-      article = htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.index, base);
+      article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.anchors), rendered.index, base);
     }
     const children = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     const listed = children.slice(0, MAX_LISTED_CHILDREN);
@@ -1340,7 +1347,8 @@ export class Publisher {
   private readerTag(entry: PublishedEntry, full: boolean, share?: PageShare): ReaderTag {
     const base = share?.base ?? this.basePath;
     // The reader names its note by id: an address (a slug, a page name) could later name another note.
-    return { src: readerScriptPath(base), api: `${base}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
+    const webmcp = webmcpScriptPath(base);
+    return { src: readerScriptPath(base), ...(webmcp ? { webmcp } : {}), api: `${base}${PAGE_ROUTE}`, page: entry.blockId, blockId: entry.blockId, full };
   }
 
   /**
@@ -1594,7 +1602,7 @@ export class Publisher {
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
     options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; format?: "markdown" | "html"; share?: PageShare } = {},
-  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[] }> {
+  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[] }> {
     const { share } = options;
     const base = options.base ?? share?.base ?? this.basePathFor(audience);
     const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
@@ -1622,8 +1630,10 @@ export class Publisher {
     const components: string[] = [];
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under);
-    return { markdown, marks: order, index: linked, components };
+    // A tailnet page knows where each block is (publish-anchors.ts); Markdown and public pages carry nothing extra.
+    const anchors: string[] = [];
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined);
+    return { markdown, marks: order, index: linked, components, anchors };
   }
 
   /**
@@ -1916,12 +1926,13 @@ function summaryLine(text: string): string {
 /** One child in a folder: its title, a summary line, and what's inside, when it changed and its first properties. */
 function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined): string {
   if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
+  // `data-block`: the page's script finds the row by its note (ep0ch.view(), ep0ch.reveal()).
   const title = noteTitle(serviceTitle) || "untitled";
   const summary = summaryLine(child.text);
   const properties = child.properties.filter((property) => property.key !== "page" && property.key !== PUBLISH_PROPERTY).slice(0, 3)
     .map((property) => `${property.key}: ${property.value}`);
   const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", child.updatedAt.slice(0, 10), ...properties].filter(Boolean).join(" · ");
-  return `<li><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
+  return `<li data-block="${escapeHtml(child.id)}"><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
     `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`;
 }
 
@@ -2061,6 +2072,7 @@ export function renderSubtreeMarkdown(
   marks: ReadonlyMap<string, readonly PublishedAnnotation[]> = new Map(),
   order: PublishedAnnotation[] = [],
   under: ReadonlyMap<string, ReadonlyMap<number, string>> = new Map(),
+  anchors?: string[],
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree);
   if (!rootRow) return "";
@@ -2074,15 +2086,22 @@ export function renderSubtreeMarkdown(
     order.push(...list);
     return placeMarkSentinels(text, list, first);
   };
+  // A tailnet page's block anchors (`anchors` collects their ids, for drawAnchors).
+  const anchored = (block: ProjectedVisibleBlock, text: string) => {
+    if (!anchors) return text;
+    anchors.push(block.id);
+    return placeAnchor(text, anchors.length - 1);
+  };
   const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id)), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
-  const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
+  const lines = (/^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
     : first.startsWith(">") ? [`# ${root.id}`, "", first, ...rest]
-      : [`# ${first.trim() || root.id}`, ...rest];
+      : [`# ${first.trim() || root.id}`, ...rest]);
+  lines[0] = anchored(root, lines[0]!);
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id), under.get(block.id)), context));
+    const text = locked ? placeholder(LOCKED_NOTE) : anchored(block, marked(block, publishedText(decoratedText(block.text ?? "", decorations.get(block.id), under.get(block.id)), context)));
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);
