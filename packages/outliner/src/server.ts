@@ -2131,6 +2131,10 @@ export class OutlinerServer {
         case "outlines.archive":
         case "outlines.unarchive":
         case "outlines.pane":
+        case "web.sessions.start":
+        case "web.sessions.resolve":
+        case "web.sessions.list":
+        case "web.sessions.revoke":
           throw new Error(`${action} is answered by the outline host, never by one outline`);
         case "blocks.query":
           result = request.fields === undefined

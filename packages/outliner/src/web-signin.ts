@@ -1,0 +1,272 @@
+// The signed-in web client (`publish serve --signin-port`, https://my.ep0ch.sh): the tailnet's web client, whole, on a
+// public origin behind a sign-in. It is a gate in front of the same publishers (publish-outlines.ts), never a second
+// client: every route needs a web session except the sign-in itself, and a request with one is answered exactly as the
+// tailnet answers it.
+//
+// Sign-in is OpenID Connect against Clerk, the authorization server the MCP gateway already uses: the authorization
+// code flow with PKCE (S256), `state` bound to this browser by a short cookie, and a `nonce`, for a public client
+// (EP0CH_WEB_CLIENT_ID; no client secret). The ID token is checked against the issuer's JWKS (issuer, audience, expiry,
+// nonce), and its subject must be on the one shared list of people allowed in (outline-core's signin.ts, the same
+// setting the MCP gateway reads). Then the outline host starts a web session (web-sessions.ts) and the browser gets its
+// token as an HttpOnly, Secure, SameSite=Lax cookie for 30 days, set again as it is used.
+//
+// Writes need the session and an Origin naming this origin (CSRF: SameSite=Lax keeps the cookie off cross-site posts,
+// and the Origin check refuses any that get here). Nothing logs a token, a code or a cookie; every answer says
+// noindex and no-referrer.
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
+import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey } from "@ep0ch/outline-core/signin";
+import { escapeHtml, plainPage, type SignedIn } from "./publish";
+
+export const SESSION_COOKIE = "__Host-ep0ch_session";
+const PENDING_COOKIE = "__Host-ep0ch_signin";
+/** How long a sign-in may take between leaving for Clerk and coming back. */
+const PENDING_MS = 10 * 60_000;
+const MAX_PENDING = 64;
+const CALLBACK = "/signin/callback";
+
+export interface SignInSettings {
+  /** This listener's public origin (`https://my.ep0ch.sh`): the Host it answers, the Origin writes carry, the redirect. */
+  origin: string;
+  /** Clerk's Frontend API URL, its OIDC issuer. */
+  issuer: string;
+  /** The OAuth application's client id (a public client: PKCE, no secret). */
+  clientId: string;
+  /** The Clerk user ids allowed in; empty, nobody (each refusal logs who it was, to pin). */
+  allowedSubjects: readonly string[];
+  /** Where a browser lands after signing in when it asked for nothing else (`/pub/`). */
+  home: string;
+}
+
+const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+
+/** The settings from the environment and the flags, or what's missing, said with what to set. */
+export function signInSettings(env: Record<string, string | undefined>, origin: string, home: string): SignInSettings | { error: string } {
+  let url: URL;
+  try { url = new URL(origin); } catch { return { error: `--signin-url ${origin} isn't a URL (e.g. --signin-url https://my.ep0ch.sh)` }; }
+  if (url.protocol !== "https:" && !loopback(url)) return { error: `--signin-url must be https (got ${origin})` };
+  if (url.pathname !== "/" || url.search || url.hash) return { error: `--signin-url is an origin, with no path (e.g. https://my.ep0ch.sh; got ${origin})` };
+  const issuerText = env.EP0CH_WEB_ISSUER?.trim() || (env.CLERK_PUBLISHABLE_KEY ? issuerFromPublishableKey(env.CLERK_PUBLISHABLE_KEY) : undefined);
+  if (!issuerText) return { error: "no issuer: set EP0CH_WEB_ISSUER to Clerk's Frontend API URL (the MCP gateway's issuer), or run under `with-secrets clerk -- …` (CLERK_PUBLISHABLE_KEY)" };
+  let issuer: URL;
+  try { issuer = new URL(issuerText); } catch { return { error: `the issuer ${issuerText} isn't a URL` }; }
+  if (issuer.protocol !== "https:" && !loopback(issuer)) return { error: `the issuer must be https (got ${issuerText})` };
+  const clientId = env.EP0CH_WEB_CLIENT_ID?.trim();
+  if (!clientId) return { error: "EP0CH_WEB_CLIENT_ID is unset: the Clerk OAuth application's client id for the web client (Clerk → OAuth applications → ep0ch-web)" };
+  return { origin: url.origin, issuer: issuer.href.replace(/\/+$/, ""), clientId, allowedSubjects: allowedSubjects(env), home };
+}
+
+interface Discovery { authorization_endpoint: string; token_endpoint: string; jwks_uri: string }
+interface Pending { binding: string; verifier: string; nonce: string; next: string; at: number }
+
+export interface SignInGateOptions {
+  settings: SignInSettings;
+  /** The outline host's `web.sessions.*` (any client of the host: they are host actions). */
+  request: <T>(input: Record<string, unknown> & { action: string }) => Promise<T>;
+  /** The web client, answering a request the gate let through. */
+  serve: (request: Request, signedIn: SignedIn) => Promise<Response>;
+  /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
+  keys?: JWTVerifyGetKey;
+  fetch?: typeof fetch;
+  now?: () => number;
+  log?: (line: string) => void;
+}
+
+const sha = (text: string) => createHash("sha256").update(text).digest();
+const same = (a: string, b: string) => timingSafeEqual(sha(a), sha(b));
+const random = () => randomBytes(32).toString("base64url");
+
+const GATE_HEADERS = { "x-robots-tag": "noindex, nofollow", "referrer-policy": "no-referrer", "cache-control": "no-store", "x-content-type-options": "nosniff" };
+
+function withGateHeaders(response: Response, cookies: string[] = []): Response {
+  // A response from elsewhere may be immutable: copy it.
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(GATE_HEADERS)) if (name !== "cache-control" || !headers.has(name)) headers.set(name, value);
+  for (const cookie of cookies) headers.append("set-cookie", cookie);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+const redirect = (location: string, cookies: string[] = []) => withGateHeaders(new Response(null, { status: 303, headers: { location } }), cookies);
+
+function cookiesOf(request: Request): Map<string, string> {
+  const jar = new Map<string, string>();
+  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+    const at = part.indexOf("=");
+    if (at > 0) jar.set(part.slice(0, at).trim(), part.slice(at + 1).trim());
+  }
+  return jar;
+}
+
+/** A path on this origin to come back to: absolute, never another host (`//evil`, `/\evil`). */
+function safeNext(value: string | null, home: string): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\") || /[\u0000-\u001f]/.test(value)) return home;
+  if (value.startsWith("/signin") || value.startsWith("/signout")) return home;
+  return value.slice(0, 2048);
+}
+
+export class SignInGate {
+  private readonly settings: SignInSettings;
+  private readonly pending = new Map<string, Pending>();
+  private discovery: Promise<Discovery> | null = null;
+  private keys: JWTVerifyGetKey | undefined;
+  private readonly fetch: typeof fetch;
+  private readonly now: () => number;
+  private readonly log: (line: string) => void;
+  private readonly host: string;
+  private readonly secure: boolean;
+
+  constructor(private readonly options: SignInGateOptions) {
+    this.settings = options.settings;
+    this.keys = options.keys;
+    this.fetch = options.fetch ?? fetch;
+    this.now = options.now ?? Date.now;
+    this.log = options.log ?? (() => {});
+    const origin = new URL(this.settings.origin);
+    this.host = origin.host.toLowerCase();
+    this.secure = origin.protocol === "https:";
+  }
+
+  private cookie(name: string, value: string, maxAgeSeconds: number): string {
+    // `__Host-`: Secure, Path=/, no Domain. A loopback origin under test is http, where browsers drop Secure cookies.
+    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${this.secure ? "; Secure" : ""}`;
+  }
+
+  async handle(request: Request): Promise<Response> {
+    // Only this origin's name: a page that rebinds its own name to this listener gets nothing.
+    if ((request.headers.get("host") ?? "").toLowerCase() !== this.host) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const reading = request.method === "GET" || request.method === "HEAD";
+    // A write comes from a page of this origin (CSRF), signed in or not.
+    if (!reading && request.headers.get("origin") !== this.settings.origin) {
+      return withGateHeaders(new Response("A change comes from this site's own pages\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } }));
+    }
+    try {
+      if (path === "/robots.txt") return withGateHeaders(new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } }));
+      if (path === "/signin" && reading) return this.signInPage(url.searchParams.get("next"));
+      if (path === "/signin/start" && reading) return await this.start(url.searchParams.get("next"));
+      if (path === CALLBACK && reading) return await this.callback(request, url);
+      const token = cookiesOf(request).get(SESSION_COOKIE);
+      const resolved = token ? (await this.options.request<{ found: { session: WebSession; renewed: boolean } | null }>({ action: "web.sessions.resolve", token })).found : null;
+      // Taken off the list, a person's sessions open nothing from the next request (a restart reads the list again).
+      const found = resolved && this.settings.allowedSubjects.includes(resolved.session.subject) ? resolved : null;
+      if (path === "/signout") {
+        if (request.method !== "POST") return withGateHeaders(new Response("Sign out with POST (the Sign out button)\n", { status: 405, headers: { allow: "POST" } }));
+        if (found) await this.options.request({ action: "web.sessions.revoke", sessionId: found.session.id });
+        return redirect("/signin", [this.cookie(SESSION_COOKIE, "", 0)]);
+      }
+      if (!found) {
+        const wantsPage = reading && (request.headers.get("accept") ?? "").includes("text/html");
+        const cleared = token ? [this.cookie(SESSION_COOKIE, "", 0)] : [];
+        if (wantsPage) return withGateHeaders(this.signInPage(`${path}${url.search}`, 401), cleared);
+        return withGateHeaders(new Response(`${JSON.stringify({ ok: false, error: "sign in first", signin: `${this.settings.origin}/signin` })}\n`, { status: 401, headers: { "content-type": "application/json; charset=utf-8" } }), cleared);
+      }
+      const renewed = found.renewed && token ? [this.cookie(SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))] : [];
+      // The old easy links (my.ep0ch.sh/p/<slug> went to the tailnet's /pub/p/<slug>) and the bare origin.
+      const root = this.settings.home.replace(/\/+$/, "");
+      if (path === "/" || path === "") return redirect(this.settings.home, renewed);
+      if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
+      return withGateHeaders(await this.options.serve(request, { sessionId: found.session.id }), renewed);
+    } catch (error) {
+      this.log(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      return withGateHeaders(plainPage("Not reachable", `<h1>The outline host could not be reached</h1>\n<p class="dim">Try again in a moment. On the server: <code>systemctl --user status outliner-host outliner-publish</code></p>\n`, 502));
+    }
+  }
+
+  private signInPage(next: string | null, status = 200): Response {
+    const href = `/signin/start?next=${encodeURIComponent(safeNext(next, this.settings.home))}`;
+    return withGateHeaders(plainPage("Sign in", `<h1>ep0ch</h1>\n<p>Sign in to read and write your outlines.</p>\n<p><a href="${escapeHtml(href)}" style="display:inline-block;padding:.6em 1.2em;border:1px solid currentColor;border-radius:6px;text-decoration:none">Sign in with GitHub</a></p>\n<p class="dim">Through Clerk. Only the outlines' owner is let in.</p>\n`, status));
+  }
+
+  private discover(): Promise<Discovery> {
+    this.discovery ??= (async () => {
+      const response = await this.fetch(`${this.settings.issuer}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) throw new Error(`the issuer's discovery answered ${response.status}`);
+      const found = await response.json() as Partial<Discovery>;
+      if (!found.authorization_endpoint || !found.token_endpoint || !found.jwks_uri) throw new Error("the issuer's discovery names no authorization, token or JWKS endpoint");
+      return found as Discovery;
+    })();
+    this.discovery.catch(() => { this.discovery = null; });
+    return this.discovery;
+  }
+
+  /** Off to Clerk: a fresh state, verifier and nonce, the state bound to this browser by a short cookie. */
+  private async start(next: string | null): Promise<Response> {
+    const { authorization_endpoint } = await this.discover();
+    const now = this.now();
+    for (const [state, pending] of this.pending) if (now - pending.at > PENDING_MS) this.pending.delete(state);
+    while (this.pending.size >= MAX_PENDING) this.pending.delete(this.pending.keys().next().value!);
+    const state = random(), binding = random(), verifier = random(), nonce = random();
+    this.pending.set(state, { binding, verifier, nonce, next: safeNext(next, this.settings.home), at: now });
+    const target = new URL(authorization_endpoint);
+    target.search = new URLSearchParams({
+      response_type: "code", client_id: this.settings.clientId, redirect_uri: `${this.settings.origin}${CALLBACK}`,
+      scope: "openid profile email", state, nonce,
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
+    }).toString();
+    return redirect(target.href, [this.cookie(PENDING_COOKIE, binding, PENDING_MS / 1000)]);
+  }
+
+  /** Back from Clerk: the code exchanged (with the verifier), the ID token checked, the person checked, a session made. */
+  private async callback(request: Request, url: URL): Promise<Response> {
+    const clear = this.cookie(PENDING_COOKIE, "", 0);
+    const refused = (status: number, said: string) => withGateHeaders(plainPage("Not signed in", `<h1>Not signed in</h1>\n<p>${escapeHtml(said)}</p>\n<p><a href="/signin">Try again</a></p>\n`, status), [clear]);
+    const state = url.searchParams.get("state") ?? "";
+    const pending = this.pending.get(state);
+    if (pending) this.pending.delete(state);
+    const binding = cookiesOf(request).get(PENDING_COOKIE) ?? "";
+    if (!pending || this.now() - pending.at > PENDING_MS || !binding || !same(binding, pending.binding)) {
+      return refused(400, "This sign-in didn't start in this browser, or took longer than ten minutes.");
+    }
+    const failed = url.searchParams.get("error");
+    if (failed) {
+      this.log(`web sign-in: Clerk answered ${failed.slice(0, 80)}`);
+      return refused(400, `Clerk said: ${(url.searchParams.get("error_description") ?? failed).slice(0, 200)}`);
+    }
+    const code = url.searchParams.get("code");
+    if (!code) return refused(400, "Clerk sent no code back.");
+    const { token_endpoint, jwks_uri } = await this.discover();
+    const answered = await this.fetch(token_endpoint, {
+      method: "POST", signal: AbortSignal.timeout(15_000),
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: `${this.settings.origin}${CALLBACK}`, client_id: this.settings.clientId, code_verifier: pending.verifier }),
+    });
+    if (!answered.ok) {
+      this.log(`web sign-in: the token endpoint answered ${answered.status}`);
+      return refused(502, "Clerk didn't accept the sign-in; try again.");
+    }
+    const tokens = await answered.json() as { id_token?: string };
+    if (typeof tokens.id_token !== "string") {
+      this.log("web sign-in: the token endpoint gave no ID token (the OAuth application needs the openid scope)");
+      return refused(502, "Clerk gave no ID token back.");
+    }
+    this.keys ??= createRemoteJWKSet(new URL(jwks_uri));
+    let claims: Record<string, unknown>;
+    try {
+      ({ payload: claims } = await jwtVerify(tokens.id_token, this.keys, { issuer: this.settings.issuer, audience: this.settings.clientId, algorithms: ["RS256"], requiredClaims: ["sub", "exp", "iat"], clockTolerance: 30 }));
+    } catch (error) {
+      this.log(`web sign-in: ID token refused: ${error instanceof Error ? error.message : String(error)}`);
+      return refused(401, "Clerk's answer didn't check out; try again.");
+    }
+    if (typeof claims.nonce === "string" ? !same(claims.nonce, pending.nonce) : claims.nonce !== undefined) {
+      this.log("web sign-in: ID token refused: its nonce isn't this sign-in's");
+      return refused(401, "Clerk's answer was for another sign-in; try again.");
+    }
+    const subject = String(claims.sub);
+    const name = [claims.name, claims.preferred_username, claims.email].find((value): value is string => typeof value === "string" && !!value);
+    if (!this.settings.allowedSubjects.length) {
+      this.log(`web sign-in: capture mode, refusing ${subject}${name ? ` (${name})` : ""}. To let this person in, set ${ALLOWED_SUBJECTS_ENV}=${subject} (shared with the MCP gateway) and restart.`);
+      return refused(403, "This site hasn't been told who may sign in yet.");
+    }
+    if (!this.settings.allowedSubjects.includes(subject)) {
+      this.log(`web sign-in: refused ${subject}${name ? ` (${name})` : ""}: not on ${ALLOWED_SUBJECTS_ENV}`);
+      return refused(403, "This account may not sign in here.");
+    }
+    const { token, session } = await this.options.request<{ token: string; session: WebSession }>({
+      action: "web.sessions.start", subject, ...(name ? { name } : {}), device: request.headers.get("user-agent") ?? "",
+    });
+    this.log(`web sign-in: ${name ?? subject} signed in (session ${session.id})`);
+    return redirect(pending.next, [clear, this.cookie(SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))]);
+  }
+}

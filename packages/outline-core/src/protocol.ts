@@ -325,6 +325,27 @@ export type ShareVia = typeof SHARE_VIAS[number];
 export const SHARE_TTL = { defaultMs: 60 * 60_000, maxMs: 24 * 60 * 60_000, minMs: 60_000 } as const;
 
 /**
+ * A signed-in web session (the publisher's sign-in listener, `my.ep0ch.sh`): one browser that signed in through Clerk as
+ * a person allowed in, kept by the outline host for every outline it serves (`web.sessions.*`, host actions). The
+ * secret is the browser's cookie; the host keeps only its digest. It lasts WEB_SESSION_TTL_MS from its last use.
+ */
+export interface WebSession {
+  /** A short id to name it by (`ep0ch web revoke <id>`): not the secret. */
+  id: string;
+  /** Who signed in: the Clerk user id, and their name or login when Clerk gave one. */
+  subject: string;
+  name?: string;
+  /** The browser, as its User-Agent said at sign-in (cut short). */
+  device: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
+/** A web session lives this long from its last use (renewed on use). */
+export const WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
+
+/**
  * What a reader of the web client has in front of them now (`reader.view`): the page, and the words selected on it
  * with the drawn text either side. Reported by the page itself as presence (a debounced post), kept in memory only.
  */

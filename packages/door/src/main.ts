@@ -116,6 +116,10 @@ ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
 ${SHARE_USAGE}
+  ep0ch web sessions [--json] | web revoke <id> | --all
+                                   the browsers signed in to the web client (https://my.ep0ch.sh): each one's
+                                   id, browser, who and last use; revoke signs one out now, --all every one.
+                                   The web client's /sessions page does the same
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
   ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
@@ -197,6 +201,12 @@ if (args[0] === "export") { const { exportCommand } = await import("./export"); 
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
 // The outline's extensions (PIE-754): ls (with each schedule's next and last run), add, remove, act and run, through
 // the outliner's own command (one implementation); --ws names the outline as for every command.
+// The signed-in web client's sessions: the outliner's own command (one implementation), asked of this machine's host.
+if (args[0] === "web") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "web", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
 if (args[0] === "ext") {
   const at = args.indexOf("--ws");
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }

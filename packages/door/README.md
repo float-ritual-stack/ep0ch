@@ -632,7 +632,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 |---|---|
 | `EP0CH_MCP_RESOURCE` | this endpoint's public URL, as clients name it and tokens carry it in `aud` (`https://mcp.ep0ch.sh/mcp`); required, https |
 | `CLERK_PUBLISHABLE_KEY` | names the issuer (Clerk's Frontend API); from `~/.config/secrets/clerk.env` through `with-secrets clerk -- …`. `EP0CH_MCP_ISSUER` names it outright instead |
-| `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode |
+| `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode. The one list of who may sign in: the signed-in web client (`my.ep0ch.sh`, the outliner's README) reads it too, so both units load it from one file (`~/.config/ep0ch/signin.env`) |
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
 | `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
 | `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder), and the netmail queue, `.netmail.sqlite` |
