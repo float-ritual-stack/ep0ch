@@ -121,6 +121,15 @@ function signedInGate(publisher: Publisher) {
   return { at, end: (token: string) => sessions.delete(token) };
 }
 
+/** Every terminal has ended (its process exited), within a second. */
+async function noTerminals(publisher: Publisher): Promise<boolean> {
+  for (let i = 0; i < 50; i++) {
+    if (!(await (await tailnet(publisher, "/pub/door/stats")).json() as unknown[]).length) return true;
+    await Bun.sleep(20);
+  }
+  return false;
+}
+
 const termOf = async (response: Response) => (await response.text()).match(/data-t="([^"]+)"/)![1]!;
 const SSE = { headers: { accept: "text/event-stream" } };
 
@@ -201,6 +210,28 @@ test("a signed-in stream ends when its web session does", async () => {
   const closed = await Promise.race([(async () => { while (!(await reader.read()).done); return true; })(), Bun.sleep(2000).then(() => false)]);
   expect(closed).toBe(true);
   expect((await at(`/pub/door/stream?t=${t}`, "moth-token-aaaaaaaa", SSE)).status).toBe(401);
+  // Its terminal ended with it, not after the reload grace.
+  expect(await noTerminals(publisher)).toBe(true);
+});
+
+test("keys whose session ended while they were on their way are refused, and end the terminal", async () => {
+  const { publisher } = await setup();
+  let live = true;
+  const signedIn = { sessionId: "web-moth", stillSignedIn: async () => live };
+  const signed = (path: string, init: RequestInit = {}) => publisher.handle(new Request(`${MY}${path}`, init), "tailnet", undefined, signedIn);
+  const t = await termOf(await signed("/pub/door"));
+  const stream = await signed(`/pub/door/stream?t=${t}`);
+  const reader = stream.body!.getReader();
+  expect((await reader.read()).done).toBe(false);
+  // The gate let this POST in; by the time its body is read, the session is gone.
+  live = false;
+  const typed = await signed(`/pub/door/input?t=${t}`, { method: "POST", headers: { origin: MY }, body: '{"t":"key","key":"i","mods":0}\n' });
+  expect(typed.status).toBe(401);
+  while (!(await reader.read()).done);
+  expect(await noTerminals(publisher)).toBe(true);
+  // A block id that would read as a flag isn't passed to the door.
+  live = true;
+  expect(await (await signed("/pub/door?open=--no-daemon")).text()).not.toContain("data-open");
 });
 
 test("a page's terminal runs the door attached to the outline, streams its frames and takes its keys", async () => {

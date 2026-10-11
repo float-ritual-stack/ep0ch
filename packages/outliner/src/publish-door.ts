@@ -10,7 +10,8 @@
 // checked the session and, for a POST, the Origin. Never the public listener, never below a share link. Requests must
 // come from the page's own origin (Sec-Fetch-Site / Origin), and only a terminal id the page itself was given starts
 // one, and only for whoever it was given to (the tailnet, or that one web session). A web session that ends (signed
-// out, revoked, expired, its person off the list) ends its streams within STILL_SIGNED_IN_MS.
+// out, revoked, expired, its person off the list) types nothing more, and its streams and terminals end within
+// STILL_SIGNED_IN_MS.
 //
 // The door is told it's in a terminal without Kitty graphics or text sizing through the variables its Display already
 // reads (EP0CH_KITTY=0, EP0CH_SIZED=0): figures draw as cells, titles at one height.
@@ -31,7 +32,10 @@ const PAGE_SCRIPT = readFileSync(new URL("./publish-door-page.js", import.meta.u
 /** Variables a page's terminal doesn't take from the publisher: they name the publisher's own terminal, not this one. */
 const DROPPED = ["TERM", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TMUX", "TMUX_PANE", "STY", "HERDR_PANE_ID", "HERDR_TAB_ID", "KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "EP0CH_NEST", "EP0CH_IN_DOOR", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_PLACE", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"];
 const TERMINAL_ID = /^[A-Za-z0-9_-]{16,64}$/;
-const BLOCK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** A block id: never one that starts with `-`, which the door would read as a flag. */
+const BLOCK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+/** One input POST at most (a big paste); more is refused, never queued. */
+const MAX_INPUT = 1 << 20;
 
 export interface WebDoorOptions {
   /** The ptyZZZ checkout: its binary at target/release/ptyZZZ, its font at static/fonts/. */
@@ -134,7 +138,15 @@ export class WebDoor {
     if (request.method === "POST" && path === "/door/input") {
       const term = this.terminals.get(id);
       if (!term || term.closing || term.owner !== caller.owner) return text("No such terminal\n", 404);
+      if (Number(request.headers.get("content-length") ?? 0) > MAX_INPUT) return text("Too much input at once\n", 413);
       const body = await request.text();
+      if (body.length > MAX_INPUT) return text("Too much input at once\n", 413);
+      // The gate checked the session when the request began; a slow body can outlast it, so ask again before typing.
+      if (caller.stillSignedIn && !(await caller.stillSignedIn().catch(() => false))) {
+        void this.end(term, true);
+        return text("Signed out\n", 401);
+      }
+      if (term.closing || this.terminals.get(id) !== term) return text("No such terminal\n", 404);
       // Only whole JSON objects pass, one per line: nothing else reaches ptyZZZ's stdin.
       const lines = body.split("\n").filter(line => line.trim()).filter(line => { try { return typeof JSON.parse(line)?.t === "string"; } catch { return false; } });
       if (!lines.length) return new Response(null, { status: 204 });
@@ -251,7 +263,8 @@ export class WebDoor {
         keepalive = setInterval(() => { try { controller.enqueue(encoder.encode(": k\n\n")); } catch { watcher.close(); } }, 10_000);
         // A signed-in page's stream lasts while its web session does: signed out or revoked, its frames stop.
         if (stillSignedIn) {
-          recheck = setInterval(() => void stillSignedIn().catch(() => false).then(live => { if (!live) watcher.close(); }), this.options.recheckMs ?? STILL_SIGNED_IN_MS);
+          // Its terminal ends with it, at once: no grace for a reload that would be refused.
+          recheck = setInterval(() => void stillSignedIn().catch(() => false).then(live => { if (!live) void this.end(term, true); }), this.options.recheckMs ?? STILL_SIGNED_IN_MS);
         }
         signal.addEventListener("abort", () => watcher.close());
       },
