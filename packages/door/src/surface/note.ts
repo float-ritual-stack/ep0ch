@@ -684,7 +684,7 @@ export class NoteSurface {
   }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
-  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); this.modes.drop("ask"); } }
+  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); this.modes.drop("ask"); this.frameDrag = null; this.boxRect = null; } }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
@@ -2736,11 +2736,13 @@ export class NoteSurface {
     const was = cs.float ?? this.boxRect, room = this.boxRoom;
     if (!was || !room) throw new ActionRefused("the comment isn't drawn yet; try again once it is");
     const row = a.row ?? was.row + (a.dy ?? 0), col = a.col ?? was.col + (a.dx ?? 0);
-    // Sized, it grows from where it is (its top left stays) up to the reader's edge; moved, it keeps its size.
+    const cols = a.cols ?? was.cols + (a.dcols ?? 0), rows = a.rows ?? was.rows + (a.drows ?? 0);
+    // Sized, it grows from where it is (its top left stays) up to the reader's edge; moved, it keeps its size (clampFloat
+    // keeps it on the reader).
     const next = clampFloat({
       row, col,
-      cols: Math.min(a.cols ?? was.cols + (a.dcols ?? 0), Math.max(0, room.w - col)),
-      rows: Math.min(a.rows ?? was.rows + (a.drows ?? 0), Math.max(0, room.h - row)),
+      cols: cols !== was.cols ? Math.min(cols, Math.max(0, room.w - col)) : cols,
+      rows: rows !== was.rows ? Math.min(rows, Math.max(0, room.h - row)) : rows,
     }, room.w, room.h);
     cs.float = next;
     host.redraw();
