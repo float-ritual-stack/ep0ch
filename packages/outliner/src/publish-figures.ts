@@ -71,7 +71,7 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
   stat: (p) => {
     const items: Props[] = records(p.items);
     const marked = items.some(it => it.accent);
-    return `<div class="fig-stats">${items.map((it, i) => `<div class="fig-stat${(marked ? it.accent : i === items.length - 1) ? " accent" : ""}">` +
+    return `<div class="fig-stats">${items.map((it, i) => `<div class="fig-tile${(marked ? it.accent : i === items.length - 1) ? " accent" : ""}">` +
       `<span class="v">${esc(fmt(it.value))}</span><span class="l">${esc(it.label)}</span></div>`).join("")}</div>`;
   },
   kpi: (p, href) => KINDS.stat!(p, href),
@@ -204,7 +204,7 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const turns = records(p.messages).map(m => ({ ...m, from: String(m.from ?? "") }) as Props);
     const you = String(p.you ?? turns.find(t => t.from)?.from ?? "");
     let last = "";
-    return `<ul class="fig-chat">${turns.map(t => {
+    return `<ul class="fig-talk">${turns.map(t => {
       const again = t.from === last && !t.aside;
       if (!t.aside) last = t.from;
       return `<li class="${t.aside ? "aside" : t.from === you ? "you" : ""}">${again || !t.from ? "" : `<span class="who">${esc(t.from)}</span> `}${rowText(t.text, t.block, href)}</li>`;
@@ -330,9 +330,9 @@ export const FIGURE_STYLE = `
 .fig-panel{display:none}
 ${Array.from({ length: MAX_TABS }, (_, i) => `.fig-tab-input:nth-of-type(${i + 1}):checked~.fig-panels>.fig-panel:nth-child(${i + 1})`).join(",")}{display:block}
 .fig-stats{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(7rem,1fr))}
-.fig-stat .v{display:block;font:600 24px/1.2 ui-sans-serif,system-ui,sans-serif;color:var(--fg)}
-.fig-stat.accent .v{color:var(--link)}
-.fig-stat .l{display:block;color:var(--dim);font-size:13px}
+.fig-tile>.v{display:block;font:600 24px/1.2 ui-sans-serif,system-ui,sans-serif;color:var(--fg)}
+.fig-tile.accent>.v{color:var(--link)}
+.fig-tile>.l{display:block;color:var(--dim);font-size:13px}
 .fig-list{list-style:none;margin:0;padding:0}
 .fig-list li{padding:.3rem 0;border-bottom:1px solid var(--rule)}
 .fig-list li:last-child{border-bottom:0}
@@ -374,8 +374,8 @@ ${Array.from({ length: MAX_TABS }, (_, i) => `.fig-tab-input:nth-of-type(${i + 1
 .fig-spark{font:20px/1 ui-monospace,Menlo,monospace;letter-spacing:1px;color:#6189c4;margin:.25rem 0}
 .fig-tree ul{list-style:none;margin:0;padding-left:1rem;border-left:1px solid var(--rule)}
 .fig-tree>ul{border-left:0;padding-left:0}
-.fig-chat{list-style:none;margin:0;padding:0}
-.fig-chat li{padding:.2rem 0}.fig-chat .who{font-weight:600}.fig-chat li.you .who{color:var(--link)}.fig-chat li.aside{color:var(--dim);font-style:italic}
+.fig-talk{list-style:none;margin:0;padding:0}
+.fig-talk>li{padding:.2rem 0}.fig-talk .who{font-weight:600}.fig-talk>li.you .who{color:var(--link)}.fig-talk>li.aside{color:var(--dim);font-style:italic}
 .fig-compare tr.accent th{color:var(--link)}.fig-compare tr.muted{color:var(--dim)}
 .fig-matrix td{background:rgba(143,184,255,calc(var(--share,0)*.35))}
 .fig-source pre{margin:1rem 0 .25rem}
