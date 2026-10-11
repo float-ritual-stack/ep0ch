@@ -203,6 +203,10 @@ if (process.argv[2] === "door-open") {
     process.exit(error instanceof DoorUnreachable ? 3 : 1);
   }
 }
+if (process.argv[2] === "echo") {
+  const { runEchoCommand } = await import("./echo-cli");
+  process.exit(await runEchoCommand(process.argv.slice(3)));
+}
 if (process.argv[2] === "ext") {
   const { runExtCommand } = await import("./extension-install");
   process.exit(await runExtCommand(process.argv.slice(3)));

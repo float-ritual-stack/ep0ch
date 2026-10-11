@@ -926,6 +926,11 @@ export class OutlinerStore {
     })();
   }
 
+  /** Whether the owner set an access level (`ep0ch mcp access <level>`), rather than the default `none` applying. */
+  mcpAccessConfigured(): boolean {
+    return this.readMetadata(MCP_ACCESS_METADATA_KEY) !== undefined;
+  }
+
   private mcpAccessStatusFromCurrentRead(): McpAccessStatus {
     const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
     const level = normalizeMcpAccessLevel(row?.value ?? "none");
