@@ -51,6 +51,10 @@ export interface WebDoorOptions {
   env?: Record<string, string | undefined>;
   /** At most this many terminals at once (default 4). */
   max?: number;
+  /** At most this many composers at once (default 4), apart from the door pages' `max`: one can't starve the other. */
+  composeMax?: number;
+  /** A composer nobody watches ends after this long (default 2 s): a closed tab puts its text aside at once. */
+  composeGraceMs?: number;
   /** A terminal nobody watches ends after this long (default 15 s: a reload reattaches to it). */
   graceMs?: number;
   /** How often a signed-in stream asks whether its web session is still live (default 30 s). */
@@ -60,6 +64,8 @@ export interface WebDoorOptions {
 
 interface Terminal {
   id: string;
+  /** A composer (`/door/compose`), with its own cap and grace, or a door page. */
+  compose: boolean;
   /** Who it was issued to (DoorCaller.owner): nobody else streams or types into it. */
   owner: string;
   proc: Bun.Subprocess<"pipe", "pipe", "ignore">;
@@ -106,7 +112,7 @@ export class WebDoor {
    * Terminal ids handed to pages, not yet started, with whom and what they run: only these can start one (another site
    * can't read a page's), and only what the page was given for.
    */
-  private readonly issued = new Map<string, { at: number; owner: string; argv: string[] }>();
+  private readonly issued = new Map<string, { at: number; owner: string; argv: string[]; compose: boolean }>();
   private readonly binary: string;
   private readonly log: (line: string) => void;
 
@@ -123,12 +129,12 @@ export class WebDoor {
     if (request.method === "GET" && (path === "/door" || path === "/door/")) {
       const open = url.searchParams.get("open") ?? "";
       const at = BLOCK_ID.test(open) ? open : undefined;
-      return page(base, this.issue(caller.owner, this.options.command(at)), at);
+      return page(base, this.issue(caller.owner, this.options.command(at), false), at);
     }
     if (request.method === "GET" && (path === "/door/compose" || path === "/door/compose/") && this.options.compose) {
       const on = composeOn(url.searchParams);
       if ("error" in on) return text(`${on.error}\n`, 400);
-      return page(base, this.issue(caller.owner, this.options.compose(on)), undefined, true);
+      return page(base, this.issue(caller.owner, this.options.compose(on), true), undefined, true);
     }
     if (request.method === "GET" && path === "/door/door.js") return asset(PAGE_SCRIPT, "text/javascript; charset=utf-8");
     if (request.method === "GET" && path === "/door/client.js") return asset(CLIENT_SCRIPT, "text/javascript; charset=utf-8");
@@ -148,10 +154,10 @@ export class WebDoor {
       if (running && running.owner !== caller.owner) return text("No such terminal; reload the page\n", 404);
       if (running?.closing) return text("That terminal ended; reload the page\n", 404);
       if (running && running.watchers.size >= MAX_WATCHERS) return text("Too many streams on that terminal\n", 503);
-      const argv = running ? null : this.claim(id, caller.owner);
-      if (!running && !argv) return text("No such terminal; reload the page\n", 404);
-      const term = running ?? this.start(id, caller.owner, argv!, size);
-      if (!term) return text(`Too many door terminals open (${this.options.max ?? 4}); close one\n`, 503);
+      const claimed = running ? null : this.claim(id, caller.owner);
+      if (!running && !claimed) return text("No such terminal; reload the page\n", 404);
+      const term = running ?? this.start(id, caller.owner, claimed!, size);
+      if (!term) return text(`Too many ${claimed!.compose ? "composers" : "door terminals"} open (${this.cap(claimed!.compose)}); close one\n`, 503);
       return this.stream(term, request.signal, caller.stillSignedIn);
     }
     if (request.method === "POST" && path === "/door/input") {
@@ -194,32 +200,35 @@ export class WebDoor {
   }
 
   /** A fresh terminal id for a page, remembered (with whom it went to and what it runs) until its stream starts the terminal. */
-  private issue(owner: string, argv: string[]): string {
+  private issue(owner: string, argv: string[], compose: boolean): string {
     const now = Date.now();
     for (const [id, { at }] of this.issued) if (now - at > ISSUED_MS) this.issued.delete(id);
     if (this.issued.size >= 64) this.issued.delete(this.issued.keys().next().value!);
     const id = Buffer.from(crypto.getRandomValues(new Uint8Array(18))).toString("base64url");
-    this.issued.set(id, { at: now, owner, argv });
+    this.issued.set(id, { at: now, owner, argv, compose });
     return id;
   }
 
   /** An issued id, used up: only by whom it was issued to, within ISSUED_MS. What it runs, or null. */
-  private claim(id: string, owner: string): string[] | null {
+  private claim(id: string, owner: string): { argv: string[]; compose: boolean } | null {
     const issued = this.issued.get(id);
     if (!issued || issued.owner !== owner || Date.now() - issued.at > ISSUED_MS) return null;
     this.issued.delete(id);
-    return issued.argv;
+    return { argv: issued.argv, compose: issued.compose };
   }
 
-  private start(id: string, owner: string, argv: string[], size: { cols: number; rows: number }): Terminal | null {
-    if (this.terminals.size >= (this.options.max ?? 4)) return null;
+  /** How many door pages, or composers, may run at once. */
+  private cap(compose: boolean): number { return (compose ? this.options.composeMax : this.options.max) ?? 4; }
+
+  private start(id: string, owner: string, { argv, compose }: { argv: string[]; compose: boolean }, size: { cols: number; rows: number }): Terminal | null {
+    if ([...this.terminals.values()].filter(t => t.compose === compose).length >= this.cap(compose)) return null;
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.options.env ?? process.env)) if (v !== undefined && !DROPPED.includes(k)) env[k] = v;
     Object.assign(env, { TERM: "xterm-256color", COLORTERM: "truecolor", EP0CH_KITTY: "0", EP0CH_SIZED: "0" });
     const proc = Bun.spawn([this.binary, "run", "--die-with-parent", "--target", "grid-door", "--scrollback", "0", "--cols", String(size.cols), "--rows", String(size.rows), "--", ...argv], {
       stdin: "pipe", stdout: "pipe", stderr: "ignore", env,
     });
-    const term: Terminal = { id, owner, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
+    const term: Terminal = { id, compose, owner, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
     this.terminals.set(id, term);
     this.log(`door: terminal ${id.slice(0, 6)} started (pid ${proc.pid}: ${argv.slice(2).join(" ").slice(0, 80)})`);
     void this.read(term);
@@ -268,7 +277,7 @@ export class WebDoor {
         if (recheck) clearInterval(recheck);
         try { controller.close(); } catch {}
         if (!term.watchers.size && !term.closing) {
-          term.idleTimer = setTimeout(() => void this.end(term), this.options.graceMs ?? 15_000);
+          term.idleTimer = setTimeout(() => void this.end(term), term.compose ? this.options.composeGraceMs ?? 2_000 : this.options.graceMs ?? 15_000);
         }
       },
     };
