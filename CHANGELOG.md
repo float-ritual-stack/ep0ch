@@ -19,7 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   says when an agent calls one. `reader.view` and the MCP's `reader_view` carry the same view and the journal.
 - **Fixed:** a web client page asked the threads route about once a second while anything else in the outline changed;
   it now waits until what the page itself draws changes (about three requests a minute when idle).
-- **Run:** `ep0ch install --apply` (protocol 142; `bun install` adds the polyfill), then restart the publishers.
+- **Run:** `ep0ch install --apply` (protocol 143; `bun install` adds the polyfill), then restart the publishers.
 
 ### Conversations in the margin: a thread is a conversation, and replies come back to you
 
