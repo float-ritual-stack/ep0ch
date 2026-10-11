@@ -227,7 +227,8 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
  * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767).
  * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin:
  * the same web client, every route behind a Clerk sign-in (EP0CH_WEB_CLIENT_ID, EP0CH_WEB_ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS).
- * `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves the door in the browser on the tailnet listener (publish-door.ts).
+ * `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves the door in the browser (publish-door.ts) on the tailnet listener
+ * and, for a live web session, the signed-in one: this outline's door session, at `<base>/door`.
  * `publish list [--json]` prints the same index once, with each public note's public URL.
  */
 if (process.argv[2] === "publish") {
@@ -270,17 +271,18 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
     const { Publisher, servePublisher, renderIndexText } = await import("./publish");
-    // The door in the browser (publish-door.ts, spike): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the
-    // tailnet listener, each page a terminal attached to this outline's door session.
+    // The door in the browser (publish-door.ts): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the tailnet
+    // listener and the signed-in one, each page a terminal attached to this outline's door session: the outline this
+    // publisher serves at its base path (--ws, else the one the host answered for), never a guess from the folder.
     const doorDir = values.door ?? process.env.EP0CH_WEB_DOOR;
     let door: import("./publish-door").WebDoor | undefined;
+    let doorOutline = values.ws ?? process.env.EP0CH_WS;
     if (doorDir && operation === "serve") {
       const { WebDoor } = await import("./publish-door");
       const main = resolve(import.meta.dir, "../../door/src/main.ts");
-      const ws = values.ws ?? process.env.EP0CH_WS;
       door = new WebDoor({
         ptyzzz: resolve(doorDir),
-        command: open => [process.execPath, main, ...(ws ? ["--ws", ws] : []), ...(open ? ["--screen", "detail", open] : [])],
+        command: open => [process.execPath, main, "--ws", doorOutline!, ...(open ? ["--screen", "detail", open] : [])],
         log: line => console.error(line),
       });
     }
@@ -299,6 +301,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       log: line => console.error(line),
     });
     const status = await publisher.start();
+    doorOutline ??= status.outline?.name;
+    if (door && !doorOutline) throw new Error("--door: no outline is named for the door to open; add --ws <name>");
     if (operation === "list") {
       const index = await publisher.readIndex();
       await publisher.stop();

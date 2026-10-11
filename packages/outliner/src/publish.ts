@@ -181,8 +181,8 @@ export interface PublisherOptions {
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
   shares?: boolean;
   /**
-   * The door in the browser (publish-door.ts, spike): `<base>/door` on the tailnet listener only, and a `door` link in
-   * each tailnet note's footer. Never on the public listener, a share link or the signed-in origin.
+   * The door in the browser (publish-door.ts): `<base>/door` on the tailnet listener and at the signed-in origin for a
+   * live web session, and a `door` link in each such note's footer. Never on the public listener or a share link.
    */
   door?: WebDoor;
   log?: (line: string) => void;
@@ -191,6 +191,8 @@ export interface PublisherOptions {
 /** A request the sign-in listener let through (web-signin.ts): which web session it came with. */
 export interface SignedIn {
   sessionId: string;
+  /** Whether that session is still live now (not signed out, revoked, expired or taken off the list): a long answer asks again. */
+  stillSignedIn?: () => Promise<boolean>;
 }
 
 /** What a block's `[publish::…]` asks for: not published, locked, or published (public or tailnet only), maybe at a slug. */
@@ -1021,9 +1023,11 @@ export class Publisher {
         return respond("The outline host could not be reached; try again\n", "text/plain; charset=utf-8", 502);
       }
     }
-    // The door in the browser: a terminal, so the tailnet listener alone (not the signed-in origin, not the public one).
-    if (audience === "tailnet" && !signedIn && this.options.door && (path === "/door" || path.startsWith("/door/"))) {
-      return await this.options.door.handle(request, path, this.basePath);
+    // The door in the browser: a terminal, so where the person already is: the tailnet listener, or signed in (the gate
+    // checked the session, and a POST's Origin). Never the public listener or a share link (both answered above).
+    if (audience === "tailnet" && this.options.door && (path === "/door" || path.startsWith("/door/"))) {
+      const caller = signedIn ? { owner: `web:${signedIn.sessionId}`, ...(signedIn.stillSignedIn ? { stillSignedIn: signedIn.stillSignedIn } : {}) } : undefined;
+      return await this.options.door.handle(request, path, this.basePath, caller);
     }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
     // tailnet (or signed in at the sign-in listener) is the sign-in; the public listener has none of these.

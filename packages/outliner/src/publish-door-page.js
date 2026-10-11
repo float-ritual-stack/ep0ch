@@ -256,7 +256,12 @@ function connect() {
     bytes += ev.data.length;
     try { apply(JSON.parse(ev.data)); } catch {}
   };
-  es.onerror = () => { if (!ended && !showStats) status.textContent = "reconnecting…"; };
+  // A refused reconnect (signed out, the terminal gone) closes it for good: say so rather than "reconnecting" forever.
+  es.onerror = () => {
+    if (ended) return;
+    if (es.readyState === EventSource.CLOSED) status.textContent = "disconnected (signed out, or the terminal ended) · reload";
+    else if (!showStats) status.textContent = "reconnecting…";
+  };
   es.onopen = () => { if (!showStats) status.textContent = ""; fitSoon(); };
 }
 

@@ -5,9 +5,12 @@
 // semantic key, paste, mouse and resize events in as JSONL, screen keyframes and row diffs out as HTML. The publisher
 // spawns it per page, streams its frames to the page over SSE and passes the page's events to its stdin.
 //
-// It is a terminal, effectively shell-adjacent (the door's drop shell is a key away), so it is served on the tailnet
-// listener only: never the public listener, never below a share link, not yet the signed-in origin. Requests must come
-// from the page's own origin (Sec-Fetch-Site / Origin), and only a terminal id the page itself was given starts one.
+// It is a terminal, effectively shell-adjacent (the door's drop shell is a key away), so it is served where the person
+// already is: the tailnet listener, and the signed-in origin (my.ep0ch.sh) for a live web session, whose gate has
+// checked the session and, for a POST, the Origin. Never the public listener, never below a share link. Requests must
+// come from the page's own origin (Sec-Fetch-Site / Origin), and only a terminal id the page itself was given starts
+// one, and only for whoever it was given to (the tailnet, or that one web session). A web session that ends (signed
+// out, revoked, expired, its person off the list) ends its streams within STILL_SIGNED_IN_MS.
 //
 // The door is told it's in a terminal without Kitty graphics or text sizing through the variables its Display already
 // reads (EP0CH_KITTY=0, EP0CH_SIZED=0): figures draw as cells, titles at one height.
@@ -41,11 +44,15 @@ export interface WebDoorOptions {
   max?: number;
   /** A terminal nobody watches ends after this long (default 15 s: a reload reattaches to it). */
   graceMs?: number;
+  /** How often a signed-in stream asks whether its web session is still live (default 30 s). */
+  recheckMs?: number;
   log?: (line: string) => void;
 }
 
 interface Terminal {
   id: string;
+  /** Who it was issued to (DoorCaller.owner): nobody else streams or types into it. */
+  owner: string;
   proc: Bun.Subprocess<"pipe", "pipe", "ignore">;
   /** The last keyframe line, for a stream that (re)connects. */
   keyframe: string | null;
@@ -66,11 +73,23 @@ const MAX_QUEUED = 4 << 20;
 const MAX_WATCHERS = 4;
 /** A terminal id the page was given is good for this long before its stream starts it. */
 const ISSUED_MS = 60_000;
+/** How often a signed-in stream asks whether its web session is still live. */
+const STILL_SIGNED_IN_MS = 30_000;
+
+/**
+ * Who a request comes from: the tailnet, or one web session at the signed-in origin, with how to ask whether that
+ * session is still live (a stream outlasts the request its gate checked).
+ */
+export interface DoorCaller {
+  owner: string;
+  stillSignedIn?: () => Promise<boolean>;
+}
+export const TAILNET_CALLER: DoorCaller = { owner: "tailnet" };
 
 export class WebDoor {
   private readonly terminals = new Map<string, Terminal>();
-  /** Terminal ids handed to pages, not yet started: only these can start one (another site can't read a page's). */
-  private readonly issued = new Map<string, number>();
+  /** Terminal ids handed to pages, not yet started, with whom: only these can start one (another site can't read a page's). */
+  private readonly issued = new Map<string, { at: number; owner: string }>();
   private readonly binary: string;
   private readonly log: (line: string) => void;
 
@@ -81,12 +100,12 @@ export class WebDoor {
   }
 
   /** One request below `<base>/door`; `path` is what follows the base path, `base` the base path itself. */
-  async handle(request: Request, path: string, base: string): Promise<Response> {
+  async handle(request: Request, path: string, base: string, caller: DoorCaller = TAILNET_CALLER): Promise<Response> {
     const url = new URL(request.url);
     if (!sameOrigin(request)) return text("Cross-site requests are refused\n", 403);
     if (request.method === "GET" && (path === "/door" || path === "/door/")) {
       const open = url.searchParams.get("open") ?? "";
-      return page(base, this.issue(), BLOCK_ID.test(open) ? open : undefined);
+      return page(base, this.issue(caller.owner), BLOCK_ID.test(open) ? open : undefined);
     }
     if (request.method === "GET" && path === "/door/door.js") return asset(PAGE_SCRIPT, "text/javascript; charset=utf-8");
     if (request.method === "GET" && path === "/door/client.js") return asset(CLIENT_SCRIPT, "text/javascript; charset=utf-8");
@@ -104,16 +123,17 @@ export class WebDoor {
       const open = url.searchParams.get("open") ?? "";
       const size = { cols: clamp(Number(url.searchParams.get("cols")), 20, 400, 80), rows: clamp(Number(url.searchParams.get("rows")), 5, 200, 24) };
       const running = this.terminals.get(id);
+      if (running && running.owner !== caller.owner) return text("No such terminal; reload the page\n", 404);
       if (running?.closing) return text("That terminal ended; reload the page\n", 404);
       if (running && running.watchers.size >= MAX_WATCHERS) return text("Too many streams on that terminal\n", 503);
-      if (!running && !this.issued.delete(id)) return text("No such terminal; reload the page\n", 404);
-      const term = running ?? this.start(id, BLOCK_ID.test(open) ? open : undefined, size);
+      if (!running && !this.claim(id, caller.owner)) return text("No such terminal; reload the page\n", 404);
+      const term = running ?? this.start(id, caller.owner, BLOCK_ID.test(open) ? open : undefined, size);
       if (!term) return text(`Too many door terminals open (${this.options.max ?? 4}); close one\n`, 503);
-      return this.stream(term, request.signal);
+      return this.stream(term, request.signal, caller.stillSignedIn);
     }
     if (request.method === "POST" && path === "/door/input") {
       const term = this.terminals.get(id);
-      if (!term || term.closing) return text("No such terminal\n", 404);
+      if (!term || term.closing || term.owner !== caller.owner) return text("No such terminal\n", 404);
       const body = await request.text();
       // Only whole JSON objects pass, one per line: nothing else reaches ptyZZZ's stdin.
       const lines = body.split("\n").filter(line => line.trim()).filter(line => { try { return typeof JSON.parse(line)?.t === "string"; } catch { return false; } });
@@ -139,17 +159,25 @@ export class WebDoor {
     await Promise.all([...this.terminals.values()].map(t => this.end(t, true)));
   }
 
-  /** A fresh terminal id for a page, remembered until its stream starts the terminal. */
-  private issue(): string {
+  /** A fresh terminal id for a page, remembered (with whom it went to) until its stream starts the terminal. */
+  private issue(owner: string): string {
     const now = Date.now();
-    for (const [id, at] of this.issued) if (now - at > ISSUED_MS) this.issued.delete(id);
+    for (const [id, { at }] of this.issued) if (now - at > ISSUED_MS) this.issued.delete(id);
     if (this.issued.size >= 64) this.issued.delete(this.issued.keys().next().value!);
     const id = Buffer.from(crypto.getRandomValues(new Uint8Array(18))).toString("base64url");
-    this.issued.set(id, now);
+    this.issued.set(id, { at: now, owner });
     return id;
   }
 
-  private start(id: string, open: string | undefined, size: { cols: number; rows: number }): Terminal | null {
+  /** An issued id, used up: only by whom it was issued to, within ISSUED_MS. */
+  private claim(id: string, owner: string): boolean {
+    const issued = this.issued.get(id);
+    if (!issued || issued.owner !== owner || Date.now() - issued.at > ISSUED_MS) return false;
+    this.issued.delete(id);
+    return true;
+  }
+
+  private start(id: string, owner: string, open: string | undefined, size: { cols: number; rows: number }): Terminal | null {
     if (this.terminals.size >= (this.options.max ?? 4)) return null;
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.options.env ?? process.env)) if (v !== undefined && !DROPPED.includes(k)) env[k] = v;
@@ -157,7 +185,7 @@ export class WebDoor {
     const proc = Bun.spawn([this.binary, "run", "--die-with-parent", "--target", "grid-door", "--scrollback", "0", "--cols", String(size.cols), "--rows", String(size.rows), "--", ...this.options.command(open)], {
       stdin: "pipe", stdout: "pipe", stderr: "ignore", env,
     });
-    const term: Terminal = { id, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
+    const term: Terminal = { id, owner, proc, keyframe: null, watchers: new Set(), closing: false, idleTimer: null, started: Date.now(), stats: { keyframes: 0, diffs: 0, bytesOut: 0, inputs: 0, bytesIn: 0 } };
     this.terminals.set(id, term);
     this.log(`door: terminal ${id.slice(0, 6)} started (pid ${proc.pid}${open ? `, opening ${open}` : ""})`);
     void this.read(term);
@@ -189,9 +217,10 @@ export class WebDoor {
     }
   }
 
-  private stream(term: Terminal, signal: AbortSignal): Response {
+  private stream(term: Terminal, signal: AbortSignal, stillSignedIn?: () => Promise<boolean>): Response {
     const encoder = new TextEncoder();
     let keepalive: ReturnType<typeof setInterval> | null = null;
+    let recheck: ReturnType<typeof setInterval> | null = null;
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const watcher: Watcher = {
       send: line => {
@@ -202,6 +231,7 @@ export class WebDoor {
       close: () => {
         if (!term.watchers.delete(watcher)) return;
         if (keepalive) clearInterval(keepalive);
+        if (recheck) clearInterval(recheck);
         try { controller.close(); } catch {}
         if (!term.watchers.size && !term.closing) {
           term.idleTimer = setTimeout(() => void this.end(term), this.options.graceMs ?? 15_000);
@@ -219,6 +249,10 @@ export class WebDoor {
         term.proc.stdin.flush();
         // Under the listener's 30 s idle timeout.
         keepalive = setInterval(() => { try { controller.enqueue(encoder.encode(": k\n\n")); } catch { watcher.close(); } }, 10_000);
+        // A signed-in page's stream lasts while its web session does: signed out or revoked, its frames stop.
+        if (stillSignedIn) {
+          recheck = setInterval(() => void stillSignedIn().catch(() => false).then(live => { if (!live) watcher.close(); }), this.options.recheckMs ?? STILL_SIGNED_IN_MS);
+        }
         signal.addEventListener("abort", () => watcher.close());
       },
       cancel: () => watcher.close(),
