@@ -146,7 +146,9 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
     if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" as const };
     if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
       if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const };
-      throw new Error(`connected to ${machine}, but no outline host answers through the forward (it may be restarting: \`ssh ${machine} ep0ch status\`; if its socket moved, \`ssh -S ${p.control} -O exit ${machine}\` and the next client forwards it again)`);
+      const named = configuredRemoteSocket(p, o.io);
+      const look = named ? `\`ssh ${machine} ls -l ${named}\`` : `\`ssh ${machine} ep0ch status\``;
+      throw new Error(`connected to ${machine}, but no outline host answers through the forward (it may be restarting: ${look}; if its socket moved, \`ssh -S ${p.control} -O exit ${machine}\` and the next client forwards it again)`);
     }
     // A control socket left by a connection that died would turn the new one's -M off.
     o.io.remove(p.control);
