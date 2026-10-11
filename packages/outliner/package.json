@@ -17,6 +17,7 @@
     "./machine-name": "./src/machine-name.ts",
     "./outline-host": "./src/outline-host.ts",
     "./outline-instance": "./src/outline-instance.ts",
+    "./outline-mirror": "./src/outline-mirror.ts",
     "./plain-stderr": "./src/plain-stderr.ts",
     "./program-status-emit": "./src/program-status-emit.ts"
   },

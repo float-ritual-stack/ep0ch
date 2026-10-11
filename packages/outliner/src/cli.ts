@@ -301,8 +301,23 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       known = { names, at: Date.now() };
       return names;
     };
+    // Other machines' outlines (EP0CH_MCP_MIRRORS, the gateway's list): live through each machine's forward, else its copy here.
+    const { mirrorsConfig } = await import("./outline-mirror");
+    const { RemoteOutline } = await import("./publish-remote");
+    const { forwardFor } = await import("./machine-forward");
+    const mirrored = mirrorsConfig(process.env);
+    if ("error" in mirrored) console.error(`publish: other machines' outlines aren't served: ${mirrored.error}`);
+    const remotes = "error" in mirrored ? [] : mirrored.mirrors.map(({ outline, machine }) => new RemoteOutline({
+      outline, machine, mirrors: mirrored.folder, log: line => console.error(line),
+      forward: async () => (await forwardFor(machine, resolveOutlinesFolder())).socket,
+      publisher: (client, page) => new Publisher({
+        client, basePath: `${publisher.basePath}/o/${outline}@${machine}`, webRoot: publisher.basePath,
+        artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
+        ...page, shares: false, log: line => console.error(line),
+      }),
+    }));
     const web = new OutlinePublishers({
-      home: publisher, ...(status.outline?.name ? { homeName: status.outline.name } : {}), names: outlineNames, log: line => console.error(line),
+      home: publisher, ...(status.outline?.name ? { homeName: status.outline.name } : {}), names: outlineNames, remotes, log: line => console.error(line),
       open: (name, basePath) => new Publisher({
         client: createOutlinerClient({ ...resolveClientPaths(), outline: name }),
         basePath, webRoot: publisher.basePath,

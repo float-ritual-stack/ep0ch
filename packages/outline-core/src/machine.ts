@@ -61,9 +61,11 @@ const QUIET = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
 
 /**
  * What the other machine is asked, in its login shell: its own host's socket and outlines. EP0CH_SOCKET and
- * EP0CH_MACHINE are unset, so a machine that reaches a third one through either still answers for its own host.
+ * EP0CH_MACHINE are unset, so a machine that reaches a third one through either still answers for its own host. A
+ * login shell that doesn't have it on PATH (zsh puts ~/.local/bin there in .zshrc, which only an interactive shell
+ * reads) finds it where `ep0ch install` links it, ~/.local/bin.
  */
-export const REMOTE_STATUS = `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE "\${SHELL:-/bin/sh}" -lc 'ep0ch status --json'`;
+export const REMOTE_STATUS = `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE "\${SHELL:-/bin/sh}" -lc 'command -v ep0ch >/dev/null || PATH="$HOME/.local/bin:$PATH"; ep0ch status --json'`;
 
 export const sshArgv = {
   /** Ask the machine where its host's socket is (`ep0ch status --json` there). */

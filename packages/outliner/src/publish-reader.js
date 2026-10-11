@@ -26,6 +26,8 @@
 //   `navigator.modelContext` when the page has one): help(), view(), reveal(ref), journal(since), from one list of
 //   definitions. They only read and point: nothing they do writes. The page says when an agent calls one.
 // - The same script runs on a share link's pages (share-sessions.ts), below the link; one without comments offers Copy.
+// - Another machine's outline that takes no writes now (read from its copy while the machine is away, or at `read` access)
+//   shows its threads with no Reply, Resolve or Quote, and says why (`readOnly`); its toolbar offers Copy.
 //
 // Dark throughout, no animation, nothing that flashes (Evan is photosensitive). Plain DOM, no build, no eval: text is
 // set as text, never as HTML.
@@ -47,6 +49,8 @@
   let choices = [];
   let agent = "";
   let threads = [];
+  /** Why the page takes no writes now (another machine's outline, read from its copy or at `read` access); empty when it does. */
+  let readOnly = "";
   /** The words selected last: { quote, prefix, suffix }. */
   let selected = null;
   /**
@@ -395,6 +399,7 @@
 
   /** Quote (this mark alone) and Pick (one of several to quote together). */
   function quoteButtons(id) {
+    if (readOnly) return [];
     return [
       el("button", { type: "button", class: "quiet", text: "Quote", onclick: () => quote([id]) }),
       el("button", { type: "button", class: `quiet${picked.has(id) ? " on" : ""}`, "data-pick": id, text: picked.has(id) ? "Picked" : "Pick", onclick: () => pick(id) }),
@@ -424,6 +429,7 @@
     const ask = turns.map((turn, at) => (turn.by === "you" && /^@\S+/.test(turn.body) ? at : -1)).reduce((a, b) => Math.max(a, b), -1);
     const asked = ask >= 0 && !turns.slice(ask + 1).some((turn) => turn.by !== "you");
     if (asked) node.append(el("div", { class: "who", text: "waiting for the answer…" }));
+    if (readOnly) return node;
     const row = el("div", { class: "mg-row" });
     row.append(
       el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
@@ -614,7 +620,8 @@
       if (wide.matches) margin.prepend(...whole);
       else host.append(el("div", { class: "mg-whole" }, el("h2", { text: "On this note" }), ...whole));
     }
-    if (choices.some((choice) => choice.action === "comment")) {
+    if (readOnly) host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "who", text: readOnly })));
+    else if (choices.some((choice) => choice.action === "comment")) {
       host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }))));
     }
     place();
@@ -707,6 +714,7 @@
     choices = data.choices || [];
     agent = data.agent || "";
     threads = data.threads || [];
+    readOnly = data.readOnly || "";
     // A selection made before the toolbar knew its choices gets them now.
     if (first && readSelection()) { selected = readSelection(); showBar(); }
     if (changed) behind = true;
