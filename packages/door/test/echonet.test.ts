@@ -43,6 +43,7 @@ describe("the shapes", () => {
     expect(head[5]).toContain("a newer version is upstream (rev 3, this copy is rev 2)");
     // A copy that doesn't say who wrote it is from the outline it came from; the person's own post is the sysop's.
     expect(messageFrom({ ...copy, props: { from: copy.props.from! } })).toBe("cafe");
+    expect(plain(headerOf({ msg: { ...copy, props: { from: copy.props.from! } }, n: 1, fresh: false }, 5, area)[1]!)).toStartWith("From : cafe@box-a · ");
     expect(messageFrom({ ...copy, author: "user", props: {} })).toBe("sysop");
   });
   test("the nodelist the tosser writes, as FidoNet wrote it; the banner in half blocks; a quote's > lines", () => {

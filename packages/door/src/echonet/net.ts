@@ -153,7 +153,8 @@ export function headerOf(msg: Message, of: number, area: Area): string[] {
   const m = msg.msg, newer = upstreamNewer(m), from = parseFrom(m.props.from);
   return [
     `|09Msg  : |15${msg.n} |08of ${of}${msg.fresh ? " |14new" : ""}`,
-    `|09From : |14${messageFrom(m)} |08@ |11${originOf(m, area)}|08 · ${bbsDate(arrived(m))}`,
+    // A copy that doesn't say who wrote it is from its node, said once.
+    `|09From : ${messageFrom(m) === originOf(m, area).split("@")[0] ? "" : `|14${messageFrom(m)} |08@ `}|11${originOf(m, area)}|08 · ${bbsDate(arrived(m))}`,
     `|09To   : |07${m.props.to?.trim() || "All"}`,
     `|09Subj : |15${subject(m)}`,
     `|09Area : |11${area.tag.toUpperCase()} |08· |07${area.name}${area.kind === "sub" ? ` |08· from ${area.origin}` : " |08· local"}${from && m.props["from-rev"] ? ` |08· copy of rev ${m.props["from-rev"]}` : ""}`,
