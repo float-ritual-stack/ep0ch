@@ -454,7 +454,7 @@ type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { movi
 /** comment.move's arguments: steps, a place, a size (the reader's cells), or back to the usual place. */
 type ComposerMove = { dx?: number; dy?: number; col?: number; row?: number; dcols?: number; drows?: number; cols?: number; rows?: number; reset?: boolean };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
-interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown> }
+interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
 type AskMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { ask: LeaveAsk; describe(): { asking: string; then: string; choices: string[] } };
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
 export type LeaveChoice = "save" | "keep" | "discard";
@@ -2613,7 +2613,7 @@ export class NoteSurface {
    * and continue / keep writing / discard, instead of refusing. Null when there's nothing to ask (no comment written,
    * or `actor` is an agent: an agent's action never asks the person, and never takes their keys).
    */
-  askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost): { asking: string } | null {
+  askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): { asking: string } | null {
     const cs = this.session;
     if (actor.kind === "agent" || !cs || cs.mode !== "compose" || !cs.writing) return null;
     // Nothing typed yet: nothing to lose, so it closes and the reader goes.
@@ -2621,7 +2621,7 @@ export class NoteSurface {
     if (cs.busy) throw new ActionRefused(`${cs.busy} · wait for it to land`);
     const what = cs.target?.kind === "reply" ? "reply" : cs.props?.kind === "question" ? "question" : "comment";
     this.modes.drop("grip");
-    this.modes.push(this.askMode({ what, name, args }, cs));
+    this.modes.push(this.askMode({ what, name, args, ...(elem ? { elem } : {}) }, cs));
     host.redraw();
     return { asking: `about to leave an unsent ${what}` };
   }
@@ -2643,7 +2643,10 @@ export class NoteSurface {
     this.closeSession();
     host.redraw();
     if (said) host.ctx.flash(said, 8000);
-    const then = await this.runKey(m.ask.name, m.ask.args as never, host);
+    // An element is found again by its key: what's drawn above it may have changed (the kept comment's line).
+    const n = m.ask.elem ? this.elems.findIndex(e => e.key === m.ask.elem) + 1 : 0;
+    if (m.ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
+    const then = await this.runKey(m.ask.name, (n ? { ...m.ask.args, n } : m.ask.args) as never, host);
     return { choice, ...(said ? { said } : {}), then };
   }
 
@@ -6385,7 +6388,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
       if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
-        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host);
+        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
       // A step's box opens the person's status choice; an agent sets the status itself.

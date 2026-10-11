@@ -187,6 +187,19 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     expect(rd.surface.session).toBeNull();
     expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
     expect(await board.comments(id)).toEqual([]);
+    // On the shed, another comment, then back: d discards it (nothing kept to come back) and the reader goes.
+    key(char("C"));
+    await until(() => !!rd.surface.session, "the passage picker on the shed");
+    key({ kind: "enter" });
+    await until(() => !!rd.surface.session?.composer, "a second composer");
+    type("Never mind");
+    await D().dispatch.press("back", {}, name);
+    key(char("d"));
+    await until(() => rd.msg?.id === id, "back on the figs");
+    expect(unsent(`comment:${shed}`)).toBeNull();
+    expect(await board.comments(shed)).toEqual([]);
+    // The figs' comment put aside before is still there to come back.
+    expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
   }, 30_000);
 
   test("an agent can't leave, save or move off the person's draft; ^W then a window key leaves it", async () => {
