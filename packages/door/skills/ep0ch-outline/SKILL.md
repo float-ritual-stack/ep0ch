@@ -214,7 +214,9 @@ PUBLIC column. Removing `public` takes the note off at once.
 
 **A short-lived public link.** When they want to open a note (or the whole outline) as an ordinary public page, or
 show it to someone, start a share: `share_start` over MCP (your tool call is the approval; don't ask again), `ep0ch
-share start <ref> [--ttl 1h]` from a shell. Give them the `url`; it ends by itself (1h default, 24h at most), and
+share start <ref> [--ttl 1h]` from a shell: by default on the outline's own public host (one stable origin). To
+share with someone else, `via: "cloudflare"` with `allowMail` (their email): a tunnel only they can sign in to. Give
+them the `url`; it ends by itself (1h default, 24h at most), and
 `share_revoke` / `ep0ch share revoke <id>|--all` ends it now. `[publish::never]` notes stay hidden. To see what they
 have open or selected on any web page of the outline, read `reader_view` (`ep0ch reader`) instead of fetching it.
 

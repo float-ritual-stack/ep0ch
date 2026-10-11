@@ -64,10 +64,12 @@ const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((match
 
 async function start(input: Record<string, unknown>): Promise<{ share: ShareSession; base: string }> {
   const { share } = await client.request<{ share: ShareSession }>({ action: "shares.start", ...input });
-  expect(share.url).toStartWith(`${PUBLIC_URL}/s/`);
+  // The edge's link is at the root of the public host, whatever the listener's mount.
+  expect(share.url).toStartWith(`https://${HOST}/s/`);
+  expect(share.via).toBe("edge");
   const token = /\/s\/([^/]+)\/$/.exec(share.url!)![1]!;
   tokens.push(token);
-  return { share, base: `/share/s/${token}` };
+  return { share, base: `/s/${token}` };
 }
 
 test("a note's share: its pages and folders stay inside the link and the note; a link out of it is a label and its address 404s", async () => {
@@ -113,9 +115,14 @@ test("a note's share: its pages and folders stay inside the link and the note; a
   const markdown = await (await get(`${base}/p/${swap.id}?view=md`, "public", {})).text();
   expect(markdown).toContain("Bring the saved marigold seed.");
 
+  // Asked under the listener's mount (a proxy that keeps it, as the Funnel's /share does), its links stay under it.
+  const mounted = await (await get(`/share${base}/`)).text();
+  expect(hrefs(mounted).length).toBeGreaterThan(0);
+  for (const href of hrefs(mounted)) expect(href).toStartWith(`/share${base}/`);
+
   // The tailnet listener doesn't answer a share's path; nor does a token nobody made.
   expect((await get(`${base}/`, "tailnet")).status).toBe(404);
-  expect((await get(`/share/s/${"x".repeat(43)}/`)).status).toBe(404);
+  expect((await get(`/s/${"x".repeat(43)}/`)).status).toBe(404);
 });
 
 test("comments through a share land as the person's, marked by the share; the page says what's selected", async () => {
@@ -134,10 +141,10 @@ test("comments through a share land as the person's, marked by the share; the pa
   expect(listed.threads.some((thread: { id: string }) => thread.id === written.thread)).toBe(true);
 
   // Presence: the page says what's selected; the agent's read names it without the link's secret.
-  expect((await post(`${base}/_marginalia/view`, { ...words, title: "Moth survey", url: `${PUBLIC_URL}/s/${tokens.at(-1)}/p/${survey.id}` })).status).toBe(200);
+  expect((await post(`${base}/_marginalia/view`, { ...words, title: "Moth survey", url: `https://${HOST}/s/${tokens.at(-1)}/p/${survey.id}` })).status).toBe(200);
   const seen = await client.request<{ view: ReaderView; readers: ReaderView[] }>({ action: "reader.view" });
   expect(seen.view).toMatchObject({ reader: `share:${share.id}`, blockId: survey.id, title: "Moth survey", selection: { text: "elephant hawk-moths", blockId: survey.id } });
-  expect(seen.view.url).toBe(`${PUBLIC_URL}/s/…/p/${survey.id}`);
+  expect(seen.view.url).toBe(`https://${HOST}/s/…/p/${survey.id}`);
   expect(JSON.stringify(seen)).not.toContain(tokens.at(-1)!);
   // Anyone with the link could post words that aren't on the page, a title or an address: an agent reads back only
   // the outline's own text and this page's address.

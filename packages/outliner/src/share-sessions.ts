@@ -9,7 +9,7 @@
 // Also here: what a reader of the web client has in front of them (`reader.report` / `reader.view`), presence kept in
 // memory only, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { SHARE_TTL, type ReaderView, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { SHARE_TTL, SHARE_VIAS, type ReaderView, type ShareSession, type ShareVia } from "@ep0ch/outline-core/protocol";
 
 /** Where the sessions are kept in the metadata table. */
 export const SHARES_METADATA_KEY = "share_sessions";
@@ -34,6 +34,29 @@ export interface ShareStartInput {
   ttlMs: number;
   comments: boolean;
   by: string;
+  via?: ShareVia;
+  allowMail?: string[];
+}
+
+/** `via` as asked: `edge` (the default) or `cloudflare`; anything else is refused with the choices. */
+export function shareVia(value: unknown): ShareVia {
+  if (value === undefined || value === null || value === "") return SHARE_VIAS[0];
+  if (typeof value === "string" && (SHARE_VIAS as readonly string[]).includes(value)) return value as ShareVia;
+  throw new Error(`via is ${SHARE_VIAS.join(" or ")}: ${String(value)}`);
+}
+
+/**
+ * Who a Cloudflare-protected share lets in: emails (`a@example.org`) or a whole domain (`@example.org`), one or a
+ * list (comma-separated too), at most 20. Anything else is refused, since it goes to cloudflared as an argument.
+ */
+export function shareAllowMail(value: unknown): string[] {
+  if (value === undefined || value === null || value === "") return [];
+  const list = (Array.isArray(value) ? value : [value]).flatMap((item) => typeof item === "string" ? item.split(",") : [null]);
+  const out = list.map((item) => item?.trim().toLowerCase() ?? "").filter((item, at, all) => item && all.indexOf(item) === at);
+  const bad = out.find((item) => !/^([a-z0-9._%+-]+)?@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(item));
+  if (bad !== undefined || list.some((item) => item === null)) throw new Error(`allowMail is emails (a@example.org) or domains (@example.org): ${bad ?? String(value)}`);
+  if (out.length > 20) throw new Error("allowMail names at most 20 emails or domains");
+  return out;
 }
 
 /**
@@ -100,6 +123,8 @@ export class ShareSessions {
     const session: StoredShare = {
       id, token: randomBytes(32).toString("base64url"), scope: input.scope, comments: input.comments,
       createdAt: new Date(now).toISOString(), expiresAt: new Date(now + input.ttlMs).toISOString(), state: "active", by: input.by,
+      via: input.via ?? "edge",
+      ...(input.via === "cloudflare" ? { tunnel: { state: "starting" as const }, ...(input.allowMail?.length ? { allowMail: input.allowMail } : {}) } : {}),
     };
     this.save([...sessions, session]);
     return session;
@@ -122,6 +147,20 @@ export class ShareSessions {
     sessions[at] = ended;
     this.save(sessions);
     return ended;
+  }
+
+  /**
+   * What the publisher running a `cloudflare` share's tunnel reported: up on its host, or failed (the share ends, so its
+   * token opens nothing anywhere). Undefined for a session nobody has.
+   */
+  setTunnel(id: string, tunnel: NonNullable<ShareSession["tunnel"]>): StoredShare | undefined {
+    const sessions = this.current();
+    const at = sessions.findIndex((session) => session.id === id && session.via === "cloudflare");
+    if (at < 0) return undefined;
+    const failed = tunnel.state === "failed" && sessions[at]!.state === "active";
+    sessions[at] = { ...sessions[at]!, tunnel, ...(failed ? { state: "revoked" as const, revokedAt: new Date(this.now()).toISOString() } : {}) };
+    this.save(sessions);
+    return sessions[at];
   }
 
   /** Ends every active session now; answers the ones it ended. */
@@ -151,15 +190,21 @@ export class ShareSessions {
   }
 }
 
-/** A kept session as the wire shows it: without its token, with its link when the public listener's URL is known. */
+/**
+ * A kept session as the wire shows it: without its token, with its link when it has a host: the public listener's
+ * origin for `edge` (when the publisher said it), the tunnel's once it is up for `cloudflare`.
+ */
 export function shareOnWire(session: StoredShare, publicUrl: string | undefined): ShareSession {
   const { token, ...rest } = session;
-  return { ...rest, ...(publicUrl ? { url: shareUrl(publicUrl, token) } : {}) };
+  // Sessions kept before there were two ways are the edge's.
+  const via = rest.via ?? "edge";
+  const origin = via === "cloudflare" ? (rest.tunnel?.state === "up" && rest.tunnel.host ? `https://${rest.tunnel.host}` : undefined) : publicUrl ? new URL(publicUrl).origin : undefined;
+  return { ...rest, via, ...(origin ? { url: shareUrl(origin, token) } : {}) };
 }
 
-/** A share's link: below the public listener's URL (`https://host:8443/share/s/<token>/`), so no proxy route is added per share. */
-export function shareUrl(publicUrl: string, token: string): string {
-  return `${publicUrl.replace(/\/+$/, "")}/s/${token}/`;
+/** A share's link: `/s/<token>/` at the root of its host (`https://pie.ep0ch.sh/s/<token>/`); no proxy route is added per share. */
+export function shareUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/+$/, "")}/s/${token}/`;
 }
 
 /** At most this many characters of a selection are kept, and of the text either side. */

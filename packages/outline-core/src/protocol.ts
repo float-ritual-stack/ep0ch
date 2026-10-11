@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 140;
+export const PROTOCOL = 141;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -291,6 +291,16 @@ export interface ShareSession {
   scope: { kind: "note"; blockId: string; title: string } | { kind: "outline" };
   /** Whether a reader may highlight, comment, ask and reply (attributed to the person, via this share). */
   comments: boolean;
+  /**
+   * How the link reaches the publisher (SHARE_VIAS): `edge`, the public listener's own stable host (`pie.ep0ch.sh`);
+   * `cloudflare`, a Cloudflare Quick Tunnel of its own on a random trycloudflare.com host, run by the publisher for as
+   * long as the share is open, email-gated when `allowMail` names who may sign in.
+   */
+  via: ShareVia;
+  /** `cloudflare` only: the emails (or `@domain` wildcards) Cloudflare lets in by one-time PIN; none, the tunnel is public. */
+  allowMail?: string[];
+  /** `cloudflare` only: its tunnel, as the publisher running it reported (`starting` until its host is known). */
+  tunnel?: { state: "starting" | "up" | "failed"; host?: string; pid?: number; error?: string };
   createdAt: string;
   expiresAt: string;
   /** `active` until it expires or is revoked; an ended one answers 410 and is forgotten after a week. */
@@ -301,6 +311,10 @@ export interface ShareSession {
   /** The link, when a public listener has said where it is opened (`publish serve --public-url`). Holds the secret. */
   url?: string;
 }
+
+/** The ways a share's link reaches the publisher (ShareSession.via); the first is the default. */
+export const SHARE_VIAS = ["edge", "cloudflare"] as const;
+export type ShareVia = typeof SHARE_VIAS[number];
 
 /** The longest and default life of a share session, and the shortest. */
 export const SHARE_TTL = { defaultMs: 60 * 60_000, maxMs: 24 * 60 * 60_000, minMs: 60_000 } as const;

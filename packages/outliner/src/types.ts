@@ -1207,6 +1207,8 @@ export interface PublisherAddress {
   url?: string;
   /** The public listener's full URL (`https://share.example/share`), when its origin is known. */
   publicUrl?: string;
+  /** It runs Cloudflare Quick Tunnels to its public listener for `cloudflare` shares (it has one, and was asked to). */
+  tunnels?: boolean;
 }
 
 export type PageAddressKind = "page" | "alias" | "work-id";
@@ -2482,13 +2484,18 @@ export type OutlinerRequestAction =
    * to `24h`, or seconds. `comments` (default true) lets the link's reader highlight, comment, ask and reply. `mutation`
    * names who started it. Answers the session with its `url` (when a public listener has said where it is opened).
    */
-  | { id: string; action: "shares.start"; scope?: string; ttl?: string | number; comments?: boolean; mutation?: MutationProvenance }
+  | { id: string; action: "shares.start"; scope?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
   /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
   | { id: string; action: "shares.list"; all?: boolean }
   /** Ends one share session now (its link answers 410), or with `all: true` every open one. */
   | { id: string; action: "shares.revoke"; shareId?: string; all?: boolean }
   /** The publisher's per-request check of a link's token (`ShareResolution` in share-sessions.ts). */
   | { id: string; action: "shares.resolve"; token: string }
+  /**
+   * The publisher running a `cloudflare` share's tunnel says how it went: up on `host` (process `pid`), or failed
+   * with `error` (the share ends). `shares.start` waits for this to answer with the link.
+   */
+  | { id: string; action: "shares.tunnel"; shareId: string; host?: string; pid?: number; error?: string }
   /** A web client page's presence (the publisher posts it): the page and the words selected on it (`ReaderView`). */
   | { id: string; action: "reader.report"; view: Record<string, unknown> }
   /** What a reader of the web client has in front of them now: the latest reader's view (or `reader`'s), and every reader seen lately. */
@@ -2597,6 +2604,8 @@ export type OutlinerEventDomain =
   | "browsing-context"
   /** A request to the door holding a live draft (`draft`), sent only to that client. */
   | "draft"
+  /** Share sessions started or ended (`shares.changed`), sent to publishers: a tunnel to start or stop. */
+  | "shares"
   /** The extension registry changed (`extensions.changed`): read `extensions.list` again. */
   | "extensions"
   /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004). */

@@ -263,6 +263,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
       ...(publicUrl ? { publicUrl } : {}),
       ...(publishUrl ? { url: publishUrl } : {}),
+      // Only a serving publisher with a public listener runs `cloudflare` shares' tunnels.
+      ...(operation !== "list" && publicPort !== undefined ? { tunnels: true } : {}),
       log: line => console.error(line),
     });
     const status = await publisher.start();

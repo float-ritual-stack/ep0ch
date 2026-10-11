@@ -988,14 +988,28 @@ tailnet web client, cut to what's shared, on the public listener:
   (`ep0ch share start <ref>|outline [--ttl 1h] [--no-comments]`), from the door (`share.start`, `> share.start` in
   the power bar) or from a note's tailnet page (`share…` at its foot). Left out, the note is the one the person's web
   client shows now. It lives 1 hour by default (`--ttl` from 1m to 24h) and takes comments unless told not to.
-- **The link** is `<public URL>/s/<token>/` (`https://pie.ep0ch.sh/share/s/<token>/`, or the Funnel's
-  `:8443/share/s/…`): below the public listener's existing mount, so nothing is reconfigured per share. The token
-  is 256 random bits, compared in constant time, never logged (a logged path says `/s/…`).
+- **Two ways in** (`--via`, `via`):
+  - `edge` (the default): `https://<outline>.ep0ch.sh/s/<token>/`, at the root of the public listener's own host
+    (`--public-url`'s origin), through the proxy already in front of it (Caddy on float-2), so nothing is
+    reconfigured per share. One stable public origin: a browser that asks before acting on a site asks once, ever.
+    Asked under the listener's mount (`/share/s/<token>/`, as the Funnel serves it) its links stay under it.
+  - `cloudflare`: a Cloudflare Quick Tunnel of its own on a random
+    `trycloudflare.com` host, for sharing with someone else. With `--allow-mail <email or @domain>` (repeatable) it
+    is a protected tunnel (`--allowed-mail`): Cloudflare lets in only those who sign in with a one-time PIN sent to
+    one of them. Without, the tunnel is public and the token gates every page. The publisher that has the public
+    listener runs one cloudflared per share (`publish-tunnels.ts`), pointed at that share's own ingress (a loopback
+    listener answering that share alone, so it's never answered on the public listener, whatever Host is sent), says its host back once it resolves (the start
+    waits for it, up to 35s), and kills it when the share is revoked, killed with the rest, or expires; a tunnel that
+    fails or dies ends its share. The token opens pages only on its tunnel's host (never on the edge, which would
+    skip the email gate). Needs cloudflared 2026.9.3 or later on the publisher's PATH (or `EP0CH_CLOUDFLARED`):
+    `brew install cloudflared`.
+- **The token** is 256 random bits, compared in constant time, never logged (a logged path says `/s/…`).
 - **Inside it** every page, folder, breadcrumb and link stays below the link and inside the scope: a link to a note
   outside is its label, and that note's address is `404` there; an embed of a note outside shows "not shared".
   `[publish::never]` notes stay locked. There's no index, no Recent replies, and an attached file shows as its note.
   With comments on, highlights, comments, asks and replies land as the person's (`author: user`), a comment marked
-  `[via::share:<id>]`; with them off it's a reading copy (no threads, Copy only).
+  `[via::share:<id>]`; with them off it's a reading copy (no threads, Copy only). Every other public route stays
+  read-only.
 - **It ends** at its time or when revoked, checked by the service on every request (not by a timer): from then on
   the link answers `410` with a plain dark page. `ep0ch share list` (and the tailnet's `<base>/shares` page) shows
   every open one, with its link, what it shares, the time left and comments on or off; `ep0ch share revoke <id>`,
