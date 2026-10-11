@@ -104,6 +104,12 @@ is the note "Note logic: shared, server-side and duplicated" under the latest pu
 them is ongoing work. Drawing is each client's own: the door, Detail and the publisher draw differently, and they
 share the structure (blocks, links, figures, fences), not the drawing.
 
+Feature parity across surfaces isn't a goal. Each surface (the door, Detail, the web pages on the phone, a share
+page beside a Claude chat, an MCP client) offers the slice that's useful where it runs, over the same service. Evan,
+Oct 11: "this slice is useful here, let it be the useful thing for this context. You don't need to rebuild the full
+stack for every surface every time." Cohesion comes from the one backend and the shared parts, not from every surface
+doing everything.
+
 ## Blockdown, not Markdown
 
 A note's source is **Blockdown**: Markdown-adjacent, plus the outline's own forms (properties, references, embeds,
