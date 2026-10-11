@@ -1643,6 +1643,7 @@ Answers `RenderedNote`.
 | `annotationId` | `string` | The thread's first annotation (`AnnotationThread.block.id`). |
 | `body` | `string` |  |
 | `source` | `AnnotationSource` | `user` or `agent`; an extension's is always `agent` (the service sets it). |
+| `properties?` | `Readonly<Record<string, string \| readonly string[]>>` | Its own properties, open as a comment's are (`via: share:<id>` for a reply made through a share link). |
 
 **`AnnotationBatchReceipt`**
 
