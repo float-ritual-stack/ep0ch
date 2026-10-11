@@ -167,8 +167,11 @@ export interface PublisherOptions {
    * (publish-remote.ts), `float-hub · laptop · live` or `… · as of <time> (laptop asleep)`.
    */
   provenance?: () => string;
-  /** Why the page takes no writes now (a read-only copy, its MCP access): no write controls, and writes refused. Null: it takes them. */
-  writes?: () => Promise<string | null>;
+  /**
+   * Why the page takes no writes now (a read-only copy, its MCP access): no write controls, and writes refused. Null: it
+   * takes them. `fresh`: a write is about to land, so nothing remembered from earlier answers.
+   */
+  writes?: (fresh: boolean) => Promise<string | null>;
   /** Tell the service who reads which page (`reader.report`); a read-only copy can't keep it. Default true. */
   presence?: boolean;
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
@@ -649,7 +652,7 @@ export class Publisher {
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full, share) => this.view(page, full, share),
       report: (view) => this.options.presence === false ? Promise.resolve({}) : this.client.request({ action: "reader.report", view }),
-      writes: () => this.options.writes?.() ?? Promise.resolve(null),
+      writes: (fresh) => this.options.writes?.(fresh) ?? Promise.resolve(null),
       basePath: this.basePath,
       locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,

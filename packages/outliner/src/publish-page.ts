@@ -156,8 +156,8 @@ export interface PageHost {
   view(page: string, full: boolean, share?: PageShare): Promise<PageView | undefined>;
   /** The tailnet listener's base path (`/pub`): its pages' addresses are below it. */
   readonly basePath: string;
-  /** Why this outline takes no writes from a page now (a read-only copy, its MCP access), or null when it does. */
-  writes(): Promise<string | null>;
+  /** Why this outline takes no writes from a page now (a read-only copy, its MCP access), or null when it does; `fresh` before a write. */
+  writes(fresh: boolean): Promise<string | null>;
   /** Says what a reader has in front of them now (`reader.report`). */
   report(view: Record<string, unknown>): Promise<unknown>;
   /** Whether a block's own properties lock it (`[publish::never]`). */
@@ -462,7 +462,7 @@ export class PageMarginalia {
     const body: Record<string, unknown> = { note: view.root.id };
     // A share without comments is a reading copy: no threads, and Copy alone. An outline that takes no writes from a
     // page now (another machine's, read from its copy or at `read` access) shows its threads, with Copy alone.
-    const readOnly = share ? null : await this.host.writes();
+    const readOnly = await this.host.writes(false);
     if (share && !share.comments) Object.assign(body, { choices: [{ action: "copy", label: "Copy" }], threads: [] });
     else if (readOnly) Object.assign(body, { choices: [{ action: "copy", label: "Copy" }], readOnly, threads: await this.pageThreads(view, share) });
     else {
@@ -484,7 +484,7 @@ export class PageMarginalia {
   private async write(request: Request, share?: PageShare): Promise<Response> {
     if (!sameOrigin(request)) return refused(403, "a write comes from the page itself");
     if (share && !share.comments) return refused(403, "this link is for reading: it takes no comments");
-    const readOnly = share ? null : await this.host.writes();
+    const readOnly = await this.host.writes(true);
     if (readOnly) return refused(403, readOnly);
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();

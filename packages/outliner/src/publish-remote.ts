@@ -37,7 +37,7 @@ const ACCESS_MS = 30_000;
 export type RemoteState = "live" | "copy" | "unknown";
 
 /** What its pages are given: what heads them, why they take no writes, and whether presence can be kept. */
-export interface RemotePageOptions { provenance: () => string; writes: () => Promise<string | null>; presence: boolean }
+export interface RemotePageOptions { provenance: () => string; writes: (fresh: boolean) => Promise<string | null>; presence: boolean }
 
 export interface RemoteOutlineOptions {
   outline: string;
@@ -61,7 +61,7 @@ export class RemoteOutline {
   readonly outline: string;
   readonly machine: string;
   private live: { publisher: Publisher; socket: string; checkedAt: number } | null = null;
-  private going: Promise<Publisher> | null = null;
+  private going: { since: number; started: Promise<Publisher> } | null = null;
   private failed: { at: number; why: string } | null = null;
   private readonly mirror: OutlineMirror<CopySocket>;
   private copy: { socket: string; publisher: Promise<Publisher>; asOf: string } | null = null;
@@ -103,11 +103,22 @@ export class RemoteOutline {
    */
   async publisher(): Promise<Publisher | { error: string }> {
     if (this.stopped) return { error: "the web client is stopping" };
-    if (this.live && await this.stillLive(this.live)) return this.live.publisher;
-    if (!this.failed || this.now() - this.failed.at >= (this.options.retryMs ?? RETRY_MS)) {
-      this.going ??= this.goLive().finally(() => { this.going = null; });
-      const won = await Promise.race([this.going.catch(() => null), Bun.sleep(this.options.fastMs ?? FAST_MS).then(() => null)]);
+    const live = this.live;
+    if (live && await this.stillLive(live)) return live.publisher;
+    const retryMs = this.options.retryMs ?? RETRY_MS;
+    if (!this.failed || this.now() - this.failed.at >= retryMs) {
+      // A start that has hung past the retry window is left to itself (what it makes when it lands is used or stopped)
+      // and a new one tried: a machine that woke meanwhile answers that.
+      if (this.going && this.now() - this.going.since >= retryMs) this.going = null;
+      if (!this.going) {
+        const going = { since: this.now(), started: this.goLive() };
+        void going.started.catch(() => {}).finally(() => { if (this.going === going) this.going = null; });
+        this.going = going;
+      }
+      const won = await Promise.race([this.going.started.catch(() => null), Bun.sleep(this.options.fastMs ?? FAST_MS).then(() => null)]);
       if (won) return won;
+      // No answer in time: the copy, and the machine isn't waited on again before the retry window (the start goes on).
+      if (!this.live) this.failed = { at: this.now(), why: this.failed?.why ?? `no answer within ${(this.options.fastMs ?? FAST_MS) / 1000} s` };
     }
     return this.fromCopy();
   }
@@ -134,11 +145,13 @@ export class RemoteOutline {
       const client = new OutlinerClient(socket, LIVE_REQUEST_MS, this.outline);
       const publisher = this.options.publisher(client, {
         provenance: () => `${this.outline} · ${this.machine} · live`,
-        writes: () => this.liveWrites(client),
+        writes: fresh => this.liveWrites(client, fresh),
         presence: true,
       });
       await publisher.start();
       if (this.stopped) { await publisher.stop(); throw new Error("the web client is stopping"); }
+      // An earlier start that hung and landed late may have made one already: that one stays.
+      if (this.live) { await publisher.stop(); return this.live.publisher; }
       this.live = { publisher, socket, checkedAt: this.now() };
       this.failed = null;
       return publisher;
@@ -150,9 +163,12 @@ export class RemoteOutline {
     }
   }
 
-  /** The outline's own MCP access on its machine: `propose` and `full` take a page's writes, `read` and `none` don't. */
-  private async liveWrites(client: OutlinerClient): Promise<string | null> {
-    if (!this.access || this.now() - this.access.at >= ACCESS_MS) {
+  /**
+   * The outline's MCP access on its machine: `propose` and `full` take a page's writes, `read` and `none` don't. Asked
+   * afresh before a write (`fresh`), so a revoke holds at once; what a page shows may be ACCESS_MS old.
+   */
+  private async liveWrites(client: OutlinerClient, fresh: boolean): Promise<string | null> {
+    if (fresh || !this.access || this.now() - this.access.at >= ACCESS_MS) {
       try {
         this.access = { at: this.now(), level: (await client.request<McpAccessStatus>({ action: "mcp.access.status" })).level };
       } catch (error) {
@@ -194,7 +210,7 @@ export class RemoteOutline {
   async stop(): Promise<void> {
     this.stopped = true;
     // A start still under way stops what it made when it lands; it isn't waited on (a machine may never answer).
-    await Promise.race([this.going?.catch(() => {}), Bun.sleep(1_000)]);
+    await Promise.race([this.going?.started.catch(() => {}), Bun.sleep(1_000)]);
     const live = this.live, copy = this.copy;
     this.live = null;
     this.copy = null;
