@@ -210,6 +210,11 @@ export class CommentSession {
   fromReader = false;
   /** Where the composer sits while it's written (PIE-770): the person's setting when it opened, ctrl+o switches it. */
   place: ComposerPlace = composerPlace();
+  /**
+   * Where the person dragged or sized the floating composer (PIE-785), in the reader's cells: this session's only, never
+   * kept, so a comment opened again (or read later) sits in its default place. Null: the default place, beside the passage.
+   */
+  float: { row: number; col: number; cols: number; rows: number } | null = null;
   finished = false;
   /**
    * The properties the comment is written with (ADR 0004 contract 6): Ask's `kind: question`, a toolbar's kind. Null:
@@ -233,7 +238,7 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
-    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place) });
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true });
     return `j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 

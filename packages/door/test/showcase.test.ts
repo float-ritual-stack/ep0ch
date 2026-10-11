@@ -15,7 +15,7 @@ import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
 import { spanBg } from "../src/surface/margin";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { extensionNamed } from "../src/extensions";
@@ -1405,6 +1405,100 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.dispatch.press("composer.place", { place: "inline" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     for (const t of [mine!, second!]) await board.trash(t.id);
+  }, 60_000);
+
+  // PIE-785, the floating composer stays with you: dragged by its top edge and sized by its ◢ corner (and by ctrl+g's
+  // keys), still there as it was after a click on another tile and back, and a link followed with it unsent asks; save
+  // and continue keeps it unsent, and opened again it's in its usual place.
+  test("composer stays with you: drag and size the floating box, click away and back, follow a link and save and continue, reopened in its usual place", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "composer" }, as: "test-agent" });
+    await until(() => screen().includes("Writing in the margin"), "the composer section");
+    const stage = () => S().stages.get(S().sel).top;
+    const surf = () => stage().pane("floating").surface;
+    const cs = () => surf().session;
+    const note = seeded.notes.margin.id, shed = seeded.notes.shed.id;
+    const rows = () => sc.render(app).lines.map(plain);
+    const rect = () => (surf() as any).boxRect as { row: number; col: number; cols: number; rows: number };
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    const drag = (x: number, y: number, dx: number, dy: number) => {
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: x + Math.sign(dx), y });
+      press({ kind: "mouse", action: "drag", button: 0, x: x + dx, y: y + dy });
+      press({ kind: "mouse", action: "up", button: 0, x: x + dx, y: y + dy });
+    };
+    const find = (text: string) => { const r = rows(); const y = r.findIndex(l => l.includes(text)); return { y, x: y >= 0 ? r[y]!.indexOf(text) : -1 }; };
+    await until(() => cs()?.place === "floating" && !!rect(), "the floating comment drawn");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // In by a click in its text, then typed.
+    const t = find("» comment · ctrl+s");
+    expect(t.y).toBeGreaterThan(0);
+    click(t.x + 2, t.y + 2);
+    await until(() => stage().describe().focusName === "floating", "the floating comment has the keys");
+    for (const c of "Clear the gutter") ch(c);
+    await until(() => rows().some(l => l.includes("Clear the gutter")), "typed");
+    // Its top edge (≡ move) dragged up, its ◢ corner dragged: narrower and taller, then the edge again to the right. The
+    // passage it's on never moves.
+    const r0 = rect();
+    let grip = find("≡ move");
+    expect(grip.y, rows().join("\n")).toBeGreaterThan(0);
+    drag(grip.x, grip.y, 0, -5);
+    await until(() => cs()?.float?.row === r0.row - 5, `moved up (${JSON.stringify(cs()?.float)} from ${JSON.stringify(r0)})`);
+    const edge = find("─◢");
+    drag(edge.x + 1, edge.y, -20, 2);
+    await until(() => cs()?.float?.cols === r0.cols - 20 && cs()!.float!.rows === r0.rows + 2, `sized (${JSON.stringify(cs()?.float)})`);
+    grip = find("≡ move");
+    drag(grip.x, grip.y, 10, 0);
+    await until(() => cs()?.float?.col === r0.col + 10, `moved right (${JSON.stringify(cs()?.float)})`);
+    expect(cs()!.float).toEqual({ row: r0.row - 5, col: r0.col + 10, cols: r0.cols - 20, rows: r0.rows + 2 });
+    expect(cs()!.target).toMatchObject({ kind: "quote", passage: { quote: MARGIN_LINES.floating } });
+    // By keys: ctrl+g, → moves it two columns, shift+↓ makes it a row taller, ⏎ is done; then the keys type again.
+    press({ kind: "char", ch: "g", ctrl: true });
+    press({ kind: "right" });
+    press({ kind: "down", shift: true });
+    await until(() => cs()!.float!.rows === r0.rows + 3 && cs()!.float!.col === r0.col + 12, `moved and sized by keys (${JSON.stringify(cs()?.float)})`);
+    press({ kind: "enter" });
+    ch("!");
+    expect(cs()!.composer!.text).toBe("Clear the gutter!");
+    // A click on another tile (the inline reader's, top left): that tile has the keys, the box stays as it was; a click
+    // back and the keys type in it again.
+    const left = rows().findIndex(l => { const x = l.indexOf(MARGIN_LINES.inline.slice(0, 20)); return x >= 0 && x < l.length / 2; });
+    const other = { y: left, x: rows()[left]!.indexOf(MARGIN_LINES.inline.slice(0, 20)) };
+    click(other.x + 1, other.y);
+    await until(() => stage().describe().focusName !== "floating", "another tile has the keys");
+    expect([cs()?.mode, cs()?.composer?.text, cs()?.float]).toEqual(["compose", "Clear the gutter!", { row: r0.row - 5, col: r0.col + 12, cols: r0.cols - 20, rows: r0.rows + 3 }]);
+    expect(rows().some(l => l.includes("Clear the gutter!"))).toBe(true);
+    const back = find("Clear the gutter!");
+    click(back.x + "Clear the gutter!".length, back.y);
+    await until(() => stage().describe().focusName === "floating", "back in the floating reader");
+    ch("?");
+    expect(cs()!.composer!.text).toBe("Clear the gutter!?");
+    // An agent following the link never asks the person.
+    await expect(app.act({ action: "link.follow", tile: "floating", args: { n: 1 }, as: "test-agent" })).rejects.toThrow();
+    expect(surf().state()).toBe("writing · unsent");
+    // The person's follow of [[Bike shed]] asks; a click on "save and continue" keeps it unsent and goes.
+    await stage().dispatch.press("link.follow", { n: 1 }, "floating");
+    await until(() => rows().some(l => l.includes("about to leave an unsent comment")), "asked");
+    const save = find("[s save and continue]");
+    click(save.x + 3, save.y);
+    await until(() => stage().pane("floating").msg?.id === shed, "the reader on the shed");
+    expect(cs()).toBeNull();
+    expect(unsent(`comment:${note}`)?.text).toBe("Clear the gutter!?");
+    expect((await board.comments(note)).some(c => c.body.startsWith("Clear the gutter"))).toBe(false);
+    // Back, and the comment opened again (as the section opens it): the text is back, the box in its usual place.
+    await stage().dispatch.press("back", {}, "floating");
+    await until(() => stage().pane("floating").msg?.id === note, "back on the margin note");
+    await stage().dispatch.press("passage.select", { quote: MARGIN_LINES.floating }, "floating");
+    await stage().dispatch.press("comment.write", { body: "" }, "floating");
+    await stage().dispatch.press("comment.place", { place: "floating" }, "floating");
+    await until(() => cs()?.mode === "compose" && !!rect(), "opened again");
+    expect(cs()!.float).toBeNull();
+    sc.render(app);
+    expect(rect(), JSON.stringify([rect(), r0, cs()!.composer!.text])).toMatchObject({ col: r0.col, cols: r0.cols });
+    // As it was: the comment let go of (its put-aside text with it).
+    await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
   // PIE-761, Evan's workflow by keys and mouse in the real comment box: write, select a phrase with the mouse and delete

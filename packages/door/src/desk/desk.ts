@@ -2174,8 +2174,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // is already in moves nothing, so they stay in it.
     if (r.id !== this.focus) this.entered.clear();
     this.keysTo(r.id);
+    this.reenter();
     this.redraw();
     return { focus: r.name };
+  }
+
+  /** The keys are back on a reader holding the person's own comment, left open when they went elsewhere: they're in it again, as it was (PIE-785). */
+  private reenter() {
+    const back = this.focusedReader();
+    if (back && !this.entered.in(back) && back.surface.keepsOnFocusAway() && !this.prefix && !this.overlays.top()) this.entered.enter(back);
   }
 
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
@@ -3012,6 +3019,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
     if (!model && !this.boundKey(k)) this.keyIn(k, ctx);
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
+    this.reenter();
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
     if (this.ptyIn && this.panes.get(this.focus) !== this.ptyIn) this.ptyIn = null;
     this.shutLeftDocks();
@@ -5051,6 +5059,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private leaveSession(rd: ReaderPane): boolean {
     // A new note not typed in yet (PIE-591) stays open where it is, empty: only esc or its × puts it away.
     if (rd.surface.newAndUntouched()) { this.entered.clear(); return true; }
+    // A comment the person is writing stays open where it is, as it was (PIE-785): theirs again when the keys come back.
+    if (rd.surface.keepsOnFocusAway()) { this.entered.clear(); return true; }
     const why = rd.surface.leaveRefusal();
     if (why) { this.ctx.flash(why); return false; }
     this.entered.clear();

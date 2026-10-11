@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The floating comment box stays with you (PIE-785)
+
+- **Changed:** clicking another tile (or ^W, or a hyper chord) no longer closes the comment you're writing: the box
+  stays on screen as it was, unsent text and all, and the keys are back in it the moment that reader has them again.
+- **New:** a floating comment box drags by its top edge (`≡ move`) and sizes by its `◢` corner or its right and bottom
+  edges; by keys, `ctrl+g` then the arrows or `h j k l` (shift, or `H J K L`: size), `0` its usual place, `⏎` done
+  (`comment.move`, `comment.grip`). Moving it never changes the passage it's on, and it's for this sitting only:
+  opened again (or read later), it's in its usual place.
+- **Changed:** following a link, a comment mark, back or forward while a comment is unsent asks instead of doing
+  nothing: save and continue (kept as unsent, `C` and the passage bring it back), keep writing, or discard (a copy
+  stays on disk). `s`, `k`/esc, `d`, `⏎`, or a click on a chip (`comment.leaving`). An agent's action never asks.
 ### Marks you can quote: a highlight, comment or reply becomes a block of its own, and traces back
 
 - **New:** quote marks into a new block, the margin's quote-tweet. One highlight, comment or reply, or several, become

@@ -46,7 +46,7 @@ export interface ComposerBox {
  * the context the placement wants, the text) and the closing line. Its height follows the text, from two rows up to
  * COMPOSER_TEXT_ROWS (and the completion popup's, the preview's), within `rows`; `fill` takes all of `rows` (split).
  */
-export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false): ComposerBox {
+export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false, grips = false): ComposerBox {
   const iw = Math.max(4, W - 2), avail = Math.max(2, rows - 2);
   const topOf = (x: EditFrame) => 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
   // A short reader keeps the text's rows: the quote goes first, then the status line.
@@ -68,10 +68,13 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
   const frame = d.frame;
   const c = completerOf(d);
   const edge = fg(C.yellow);
+  // A floating box (PIE-785) says it moves and sizes: a grip on its top edge (drag it), its ◢ corner (drag it to size).
+  const grip = grips && iw >= 9 ? " ≡ move " : "";
+  const left = Math.floor((iw - grip.length) / 2);
   const lines = [
-    edge + "┌" + "─".repeat(iw) + "┐" + RESET,
+    edge + "┌" + "─".repeat(left) + (grip ? fg(C.dark) + grip + edge : "") + "─".repeat(iw - left - grip.length) + "┐" + RESET,
     ...body.map(l => edge + "│" + RESET + pad(l, iw) + RESET + edge + "│" + RESET),
-    edge + "└" + "─".repeat(iw) + "┘" + RESET,
+    edge + "└" + "─".repeat(iw) + (grips ? "◢" : "┘") + RESET,
   ];
   return {
     lines,
@@ -114,4 +117,28 @@ export function floatRow(passage: [number, number] | null, h: number, from: numb
   if (b >= from && b + h <= to) return b;
   if (a - h >= from && a <= to) return a - h;
   return Math.max(from, Math.min(low, b));
+}
+
+/** Where a floating composer sits, in the reader's cells: its top row, left column, width and height (PIE-785). */
+export interface FloatRect { row: number; col: number; cols: number; rows: number }
+/** The smallest a floating composer is sized to: its frame, title, status and two rows of text. */
+export const FLOAT_MIN_COLS = 24, FLOAT_MIN_ROWS = 6;
+
+/**
+ * What a press at `x`, `y` on a floating composer's frame starts (PIE-785): `move` on its top edge (the grip), `size` on
+ * its ◢ corner, its right edge or its bottom edge (`cols`, `rows`: which of them it sizes), or null inside it and off it.
+ */
+export function frameZone(r: FloatRect, x: number, y: number): { kind: "move" } | { kind: "size"; cols: boolean; rows: boolean } | null {
+  const right = r.col + r.cols - 1, bottom = r.row + r.rows - 1;
+  if (x < r.col || x > right || y < r.row || y > bottom) return null;
+  if (y === r.row) return { kind: "move" };
+  const cols = x === right, rows = y === bottom;
+  return cols || rows ? { kind: "size", cols, rows } : null;
+}
+
+/** `r` kept in a reader `w` × `h` cells: never smaller than FLOAT_MIN_*, never larger than the reader, never off it. */
+export function clampFloat(r: FloatRect, w: number, h: number): FloatRect {
+  const cols = Math.max(Math.min(FLOAT_MIN_COLS, w), Math.min(Math.round(r.cols), w));
+  const rows = Math.max(Math.min(FLOAT_MIN_ROWS, h), Math.min(Math.round(r.rows), h));
+  return { cols, rows, col: Math.max(0, Math.min(Math.round(r.col), w - cols)), row: Math.max(0, Math.min(Math.round(r.row), h - rows)) };
 }
