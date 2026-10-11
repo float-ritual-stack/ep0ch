@@ -1,0 +1,19 @@
+{
+  "name": "@ep0ch/resonance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated fictional listening-station client spike over the real outline service",
+  "scripts": {
+    "demo": "bun run demo.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test model.test.ts"
+  },
+  "dependencies": {
+    "@ep0ch/outline-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}

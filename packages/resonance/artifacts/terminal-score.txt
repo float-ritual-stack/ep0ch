@@ -1,0 +1,82 @@
+How a silence becomes a reply
+user · 10-11-26 (11:19) · i 2 properties
+Inbox
+
+ A visitor-authored listening sequence. These are live transclusions, not frozen
+ copies.
+
+ ▾ ## 1. Leave the station able to answer
+
+ ▌» Leave the station able to answer
+ ▌ We will leave the carrier gap, the drifting clock, and the garden. We will
+ ▌ repair the filter and record why. We will take a reading trail, not the
+ ▌ original tapes.
+ ▌
+ ▌ ╭─ ✎ An ending that preserves an opening ──────────────────────────── note ─╮
+ ▌ │ Do not make every ambiguity disappear just because the expedition is      │
+ ▌ │ ending.                                                                   │
+ ▌ ╰───────────────────────────────────────────────────────────────────────────╯
+ ▌
+ ▌ The station can remain interesting after we stop working on it.
+ ▌
+ ▌ ## Follow the evidence
+ ▌ ∙ rs-arrival
+ ▌ ∙ rs-third
+ ▌ ∙ rs-seed
+ ▌ ∙ rs-score
+
+ ▾ ## 2. Arrival at the listening station
+
+ ▌» Arrival at the listening station
+ ▌ The station Nacre is still transmitting. Nobody has lived here for nineteen
+ ▌ years. Its opening message is not a distress call but a list of things it has
+ ▌ failed to hear.
+ ▌
+ ▌ ╭─ ? What counts as a reply? ──────────────────────────────────── question ─╮
+ ▌ │ An echo can acknowledge a signal without understanding it. A garden can   │
+ ▌ │ respond without sending a packet.                                         │
+ ▌ ╰───────────────────────────────────────────────────────────────────────────╯
+ ▌
+ ▌ We came to recover an archive. The first instrument we found was a chair
+ ▌ facing an empty window.
+ ▌
+ ▌ ## Follow the evidence
+ ▌ ∙ rs-beacon
+ ▌ ∙ rs-garden
+ ▌ ∙ rs-chair
+
+ ▾ ## 3. The expedition is a score
+
+ ▌» The expedition is a score
+ ▌ A score is a chosen order through material that remains where it was. It can
+ ▌ include contradictions, silences, and returns.
+ ▌
+ ▌ Save a route through these notes. Read it in a different order. Change one
+ ▌ source and hear what the same route now carries.
+ ▌
+ ▌ The map is temporary. The source stays canonical. The trail becomes a
+ ▌ document.
+ ▌
+ ▌ ## Follow the evidence
+ ▌ ∙ rs-palimpsest
+ ▌ ∙ rs-stairs
+ ▌ ∙ rs-envelope
+ ▌ ∙ rs-return
+
+ ▾ ## 4. The beacon repeats a missing word
+
+ ▌» The beacon repeats a missing word
+ ▌ Every ninety seconds the carrier drops out for exactly one syllable. The
+ ▌ engineers called this a defect. The keeper marked it room for an answer.
+ ▌
+ ▌ 00:00 carrier / 00:41 silence / 00:42 carrier
+ ▌
+ ▌ A repaired transmission would erase the only place a second voice can enter.
+ ▌ Preserve the gap until we know whose it is.
+ ▌
+ ▌ ## Follow the evidence
+ ▌ ∙ rs-silence
+ ▌ ∙ rs-checksum
+ ▌ ∙ rs-window
+ ▌
+ ▌ A newly heard overtone belongs to the source, not its copies.

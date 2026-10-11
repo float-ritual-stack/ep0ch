@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Resonance — an orbital listening atlas</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="identity"><span class="station-mark" aria-hidden="true">◉</span><div><p class="eyebrow">Field instrument / station 09</p><h1>Resonance<span> An orbital listening atlas</span></h1></div></div>
+    <div class="masthead-right"><span id="connection" class="connection">Connecting to scratch outline</span><button data-action="help.toggle" aria-controls="help" aria-expanded="false">Field guide <kbd>?</kbd></button></div>
+  </header>
+  <section id="help" class="field-guide" hidden aria-label="Field guide">
+    <h2>Listen to the links. Question the picture.</h2>
+    <div class="guide-grid"><p>This is a fictional abandoned orbital station, in an isolated scratch outline. The service owns the notes, properties, queries, comments and rendering. This instrument makes a different way through them.</p><p>Solid arrows are authored references; dashed lines are hierarchy. Proximity is <strong>not semantic similarity</strong>. Constellation follows links; islands follow your chosen property; chronology uses the authored <code>when</code> property, not creation time.</p><p>Set two endpoints to find the shortest path through references, navigable in either direction. Only currently returned notes participate. Add that path to a score; saving creates a real note of live embeds, not copied prose.</p><p>Drag blank map space to pan; wheel or +/− to zoom. Use the note index or Tab / Enter on map nodes. <kbd>Space</kbd> plays or pauses; <kbd>←</kbd> / <kbd>→</kbd> step the score; <kbd>A</kbd> adds a note; <kbd>E</kbd> edits; <kbd>Esc</kbd> pauses. Typing is never intercepted. Audio is off until you explicitly enable it. Select a quote in Blockdown source to anchor a comment.</p></div>
+  </section>
+  <main>
+    <section class="query-bar" aria-label="Service query">
+      <form id="query-form"><label for="query">Look through the archive</label><div class="query-entry"><input id="query" name="where" value="expedition=resonance" spellcheck="false" aria-describedby="query-hint"><button type="submit" class="accent">Look</button><button type="button" data-action="query.reset" title="Return to the full expedition">Reset</button></div></form>
+      <label class="group-field" for="group">Property islands<select id="group"><option value="signal">signal</option></select></label>
+      <label class="sort-field" for="sort">Service sort<input id="sort" value="title asc" spellcheck="false" aria-label="Service sort expression"></label>
+      <div class="layout-field"><span class="control-label">Map projection</span><div class="segmented" role="group" aria-label="Map projection"><button data-action="layout.set" data-mode="constellation" aria-pressed="true">Constellation</button><button data-action="layout.set" data-mode="islands" aria-pressed="false">Islands</button><button data-action="layout.set" data-mode="chronology" aria-pressed="false">Chronology</button></div></div>
+    </section>
+    <div class="query-foot"><p id="query-hint">Service grammar: <code>key=value</code>, <code>title~"phrase"</code>, AND / OR / NOT. Any authored property is welcome.</p><button data-action="lens.toggle" aria-controls="lens" aria-expanded="false">Property lens</button><button data-action="atlas.refresh">Refresh</button></div>
+    <section id="lens" class="property-lens" hidden aria-label="Actual property facets"><div class="section-heading"><h2>Properties in this result</h2><span>Facet counts and groups come from the service. Choose a value to narrow the query.</span></div><div id="facets" class="facets"></div></section>
+    <div id="notice" class="notice" role="status" aria-live="polite">Opening the listening station…</div>
+    <div class="workspace">
+      <section class="atlas-panel" aria-labelledby="atlas-heading">
+        <div class="panel-heading"><div><p class="eyebrow">01 / Spatial atlas</p><h2 id="atlas-heading">The station, connected.</h2></div><span id="atlas-count" class="small-label">— notes</span></div>
+        <div class="map-wrap" id="map-wrap"><svg id="atlas-map" viewBox="0 0 1200 800" role="group" aria-label="Note reference map. Pan by dragging empty space; use the note index for keyboard navigation."><defs><marker id="arrow" viewBox="0 0 8 8" refX="18" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 8 4 L 0 8" fill="currentColor"/></marker></defs><g id="map-scene"><g id="map-groups"></g><g id="map-edges"></g><g id="map-nodes"></g></g></svg><div id="map-empty" class="map-empty" hidden></div><div class="map-tools"><button data-action="map.zoom" data-factor="1.2" aria-label="Zoom in">+</button><button data-action="map.zoom" data-factor="0.8333333333333334" aria-label="Zoom out">−</button><button data-action="map.reset">Fit</button><span id="map-zoom">100%</span></div><div class="map-caption"><span><i class="line-sample"></i> Authored reference →</span><span><i class="line-sample dashed"></i> Hierarchy</span><span>Distance ≠ meaning</span></div></div>
+        <div id="group-legend" class="group-legend" aria-label="Property group color legend"></div>
+        <details class="note-index" open><summary>Note index <span id="index-count"></span><span class="index-hint">Keyboard-friendly map navigation</span></summary><div id="note-list" class="note-list"></div></details>
+        <p id="completeness" class="completeness"></p>
+      </section>
+      <aside class="reader-panel" aria-labelledby="reader-heading">
+        <div class="panel-heading"><div><p class="eyebrow">02 / The territory</p><h2 id="reader-heading">Reader</h2></div><span id="reader-revision" class="small-label">Select a signal</span></div>
+        <div id="reader-empty" class="reader-empty"><span class="orbital-glyph" aria-hidden="true">◎</span><h3>A station made of stories.</h3><p>Choose a light in the atlas or a note in the index. Follow references, collect a trail, and listen to the order you make.</p></div>
+        <div id="reader-content" hidden>
+          <div class="reader-title"><p id="reader-kicker" class="eyebrow"></p><h3 id="note-title"></h3><div id="note-properties" class="property-chips"></div></div>
+          <div class="reader-actions"><div class="segmented"><button data-action="reader.mode" data-mode="rendered" aria-pressed="true">Rendered</button><button data-action="reader.mode" data-mode="source" aria-pressed="false">Blockdown</button></div><button data-action="edit.open">Edit <kbd>E</kbd></button><button data-action="trail.add" class="accent">+ Score <kbd>A</kbd></button></div>
+          <p id="reader-message" class="inline-message" role="status"></p>
+          <iframe id="rendered-note" title="Service-rendered note" sandbox="" referrerpolicy="no-referrer"></iframe>
+          <div id="source-wrap" hidden><label class="control-label" for="note-source">Stored Blockdown · select exact text to quote</label><textarea id="note-source" readonly spellcheck="false" aria-label="Stored Blockdown source"></textarea><button data-action="comment.quoteSelection">Comment on selected source quote</button></div>
+          <section id="editor" class="editor" hidden aria-label="Edit note"><div class="section-heading"><h4>Your draft</h4><span id="draft-state"></span></div><textarea id="note-draft" spellcheck="false" aria-label="Note draft"></textarea><p id="edit-message" class="inline-message" role="status"></p><div class="button-row"><button data-action="edit.save" class="accent">Save revision</button><button data-action="edit.close">Put draft aside</button><button data-action="edit.discard">Discard draft</button><button data-action="edit.rebase" id="rebase-button" hidden>Use latest revision as base</button></div><p class="fine-print">Writes use your starting revision. Conflicts keep your text. Inspect the latest source above before explicitly choosing a new base.</p></section>
+          <section class="references"><h4>Authored references</h4><div id="note-references"></div><h4>Referenced by</h4><div id="note-backlinks"></div></section>
+          <section class="comments" aria-labelledby="comments-heading"><div class="section-heading"><h4 id="comments-heading">Listening notes</h4><span id="comment-count"></span></div><div id="comment-threads"></div><form id="comment-form"><label for="comment-quote">Anchor quote <span>optional; exact, unique stored source</span></label><textarea id="comment-quote" rows="2" placeholder="Leave empty for the whole note"></textarea><label for="comment-text">Your comment</label><textarea id="comment-text" rows="3" placeholder="What did you hear?"></textarea><div class="button-row"><button type="submit" class="accent">Post comment</button><button type="button" data-action="comment.whole">Whole-note anchor</button></div><p id="comment-message" class="inline-message" role="status"></p></form></section>
+        </div>
+      </aside>
+    </div>
+    <section class="score-panel" aria-labelledby="score-heading">
+      <div class="score-top"><div><p class="eyebrow">03 / Trail score</p><h2 id="score-heading">An order of your own.</h2></div><div class="performance"><button data-action="performance.previous" aria-label="Previous score step">←</button><button data-action="performance.toggle" id="play-button" class="accent">Play <kbd>Space</kbd></button><button data-action="performance.next" aria-label="Next score step">→</button><button data-action="performance.stop">Stop</button><label for="tempo">Tempo <output id="tempo-value">80</output><input id="tempo" type="range" min="40" max="160" value="80" step="1"></label><button data-action="sound.toggle" id="sound-button" aria-pressed="false">Sound off</button><span id="performance-status" class="small-label" role="status" aria-live="polite" aria-atomic="true">No score yet</span></div></div>
+      <ol id="trail" class="trail" aria-label="Ordered trail score"></ol>
+      <div class="weave"><div class="weave-label"><h3>Weave a reference path</h3><p>Shortest route, across actual references in this result.</p></div><div class="endpoint"><label for="route-from">From</label><select id="route-from"><option value="">Choose starting note</option></select><button data-action="route.endpoint" data-endpoint="from">Use selected</button></div><span class="route-arrow" aria-hidden="true">→</span><div class="endpoint"><label for="route-to">To</label><select id="route-to"><option value="">Choose destination</option></select><button data-action="route.endpoint" data-endpoint="to">Use selected</button></div><button data-action="route.find">Find path</button><button data-action="route.append" id="append-route" disabled class="accent">Add path to score</button></div>
+      <div id="route-preview" class="route-preview" aria-live="polite">Choose two endpoints. Hierarchy never supplies a shortcut.</div>
+      <form id="save-score" class="save-score"><label for="score-title">Score title</label><input id="score-title" placeholder="e.g. A path through the silence" value="A path through the silence"><button type="submit" class="accent">Save as live-embed note</button><button type="button" data-action="trail.clear">Clear score</button><span id="score-message" role="status"></span></form>
+    </section>
+  </main>
+  <footer><span>RESONANCE / Fictional expedition · scratch outline only</span><span>Authored meaning. Service truth. A different way through.</span></footer>
+</body>
+</html>

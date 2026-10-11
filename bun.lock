@@ -57,6 +57,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/resonance": {
+      "name": "@ep0ch/resonance",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ep0ch/outline-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.9.3",
+      },
+    },
     "site": {
       "name": "@ep0ch/site",
       "dependencies": {
@@ -148,6 +159,8 @@
     "@ep0ch/outline-core": ["@ep0ch/outline-core@workspace:packages/outline-core"],
 
     "@ep0ch/outliner": ["@ep0ch/outliner@workspace:packages/outliner"],
+
+    "@ep0ch/resonance": ["@ep0ch/resonance@workspace:packages/resonance"],
 
     "@ep0ch/site": ["@ep0ch/site@workspace:site"],
 
