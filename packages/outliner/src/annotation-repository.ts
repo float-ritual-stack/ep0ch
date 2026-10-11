@@ -15,6 +15,7 @@ import {
   createAnnotationReferenceContext,
   formatAnnotationBlock,
   normalizeAnnotationCreateInput,
+  normalizeAnnotationProperties,
   normalizePassageResolution,
   normalizeAnnotationRepresentation,
   normalizeAnnotationSubject,
@@ -32,6 +33,7 @@ import { reanchorAnnotationTarget } from "./annotation-reanchoring";
 import type { ResourceCatalog } from "./resource-catalog";
 import type {
   AnnotationAgentEvidenceSample,
+  AnnotationReplyInput,
   AnnotationAgentEvidenceSummary,
   AnnotationAgentPromptPackage,
   AnnotationAgentProposalInput,
@@ -55,7 +57,6 @@ import type {
   AnnotationResolutionMethod,
   AnnotationResolutionReviewer,
   AnnotationResolutionStatus,
-  AnnotationSource,
   AnnotationSubject,
   ResourceCommentInput,
   ResourceReconcileInput,
@@ -331,7 +332,7 @@ export class AnnotationRepository {
 
   reply(
     requestId: string,
-    input: { readonly annotationId: string; readonly body: string; readonly source: AnnotationSource },
+    input: AnnotationReplyInput,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
   ): AnnotationBatchReceipt {
@@ -405,12 +406,14 @@ export class AnnotationRepository {
         if (operation.type !== "reply") throw new Error("Unsupported annotation batch operation");
         const annotationId = text(operation.input.annotationId, "Reply annotation ID");
         this.requireRoot(annotationId);
+        const properties = normalizeAnnotationProperties(operation.input.properties);
         return {
           type: "reply" as const,
           input: {
             annotationId,
             body: text(operation.input.body, "Annotation body"),
             source: operation.input.source,
+            ...(properties ? { properties } : {}),
           },
         };
       });
@@ -1270,7 +1273,7 @@ export class AnnotationRepository {
   }
 
   private replyFromCurrentWrite(
-    input: { readonly annotationId: string; readonly body: string; readonly source: AnnotationSource },
+    input: AnnotationReplyInput,
     author: BlockAuthor,
     provenance?: BlockProvenance,
   ): AnnotationRecord {
@@ -1278,7 +1281,7 @@ export class AnnotationRepository {
     if (root.parentAnnotationId) throw new Error("Replies must attach directly to a root annotation");
     const block = this.blocks.create(
       formatAnnotationBlock(
-        { target: root.resolvedTarget ?? root.originalTarget, body: input.body, source: input.source },
+        { target: root.resolvedTarget ?? root.originalTarget, body: input.body, source: input.source, ...(input.properties ? { properties: input.properties } : {}) },
         root.block.id,
         { allowLegacy: true },
       ),

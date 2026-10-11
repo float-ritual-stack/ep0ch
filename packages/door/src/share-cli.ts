@@ -7,12 +7,13 @@ import { resolveBoardRef } from "./mcp-writes";
 import { USER, type Actor } from "./socket";
 import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 
-export const SHARE_USAGE = `  ep0ch share start [<ref> | outline] [--ttl 1h] [--no-comments] [--via edge|cloudflare] [--allow-mail <email>]…
-                    [--as <agent id>] [--json]
+export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--ttl 1h] [--no-comments] [--via edge|cloudflare]
+                    [--allow-mail <email>]… [--as <agent id>] [--json]
   ep0ch share list [--all] [--json] | revoke <id> | revoke --all     [--ws <name>] [--machine <ssh-name>]
-                                   short-lived public links: start one to a note and what's under it (an id,
-                                   ((id)), [[page]] or PIE-123; left out, the note your web client shows now), or
-                                   to the whole outline; it ends by itself after --ttl (30m, 1h, 2h30m; 1h by
+                                   short-lived public links to the outline, navigated as the tailnet's web
+                                   client is: <ref> (an id, ((id)), a page name or [[page]], PIE-123) is the
+                                   page the link opens on; --only <ref> shows only that note and what's under
+                                   it. It ends by itself after --ttl (30m, 1h, 2h30m; 1h by
                                    default, at most 24h) and takes comments unless --no-comments. [publish::never]
                                    notes stay hidden. --via edge (the default): the outline's public host
                                    (https://pie.ep0ch.sh/s/<token>/); --via cloudflare: a Cloudflare tunnel of its
@@ -29,12 +30,30 @@ export interface ShareBoard {
   info(): Promise<unknown>;
 }
 
-/** Starts a share: `ref` resolved as the outline's own links name a note (or `outline`; left out, what the reader shows). */
-export async function startShare(board: ShareBoard, input: { ref?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string[] }, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
-  const ref = input.ref?.trim();
-  const scope = !ref ? undefined : ref === "outline" ? "outline" : (await resolveBoardRef(board as Parameters<typeof resolveBoardRef>[0], ref)).id;
+/**
+ * A note as the share verbs name it: an id, ((id)), [[page]] or Work ID, as the outline's own links name one, or a page
+ * name written bare (`Field Notes`), as `view order` and the door's `open` take it.
+ */
+export async function shareRef(board: ShareBoard, ref: string): Promise<string> {
+  const resolve = (text: string) => resolveBoardRef(board as Parameters<typeof resolveBoardRef>[0], text);
+  try {
+    return (await resolve(ref)).id;
+  } catch (error) {
+    if (/[[\]()]/.test(ref)) throw error;
+    try { return (await resolve(`[[${ref}]]`)).id; } catch { throw error; }
+  }
+}
+
+/**
+ * Starts a share of the whole outline, as the tailnet's web client shows it: `ref` is the page the link opens on,
+ * `only` narrows it to that note and what's under it (`outline` for either is the top).
+ */
+export async function startShare(board: ShareBoard, input: { ref?: string; only?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string[] }, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
+  const named = async (ref: string | undefined) => (!ref?.trim() || ref.trim() === "outline" ? undefined : shareRef(board, ref.trim()));
+  const scope = await named(input.only);
+  const open = await named(input.ref);
   return board.request("shares.start", {
-    ...(scope ? { scope } : {}), ...(input.ttl !== undefined ? { ttl: input.ttl } : {}), ...(input.comments !== undefined ? { comments: input.comments } : {}),
+    ...(scope ? { scope } : {}), ...(open ? { open } : {}), ...(input.ttl !== undefined ? { ttl: input.ttl } : {}), ...(input.comments !== undefined ? { comments: input.comments } : {}),
     ...(input.via ? { via: input.via } : {}), ...(input.allowMail?.length ? { allowMail: input.allowMail } : {}),
     mutation: actor.kind === "agent" ? { author: "agent", actorId: actor.id } : { author: "user" },
   }, input.via === "cloudflare" ? 45_000 : undefined);
@@ -55,7 +74,8 @@ export function endsIn(iso: string, now = Date.now()): string {
 }
 
 /** What a share shows, in words. */
-export const shareWhat = (share: ShareSession) => share.scope.kind === "outline" ? "the whole outline" : `“${share.scope.title}” ((${share.scope.blockId})) and what's under it`;
+export const shareWhat = (share: ShareSession) => (share.scope.kind === "outline" ? "the whole outline" : `only “${share.scope.title}” ((${share.scope.blockId})) and what's under it`) +
+  (share.opens ? `, opening on “${share.opens.title}”` : "");
 
 /** One share as a line: its id, link, what, when it ends, comments. */
 export function shareLine(share: ShareSession, now = Date.now()): string {
@@ -80,7 +100,7 @@ export async function shareCommand(argsIn: string[], io: Out = { out: console.lo
   const args = argsIn.slice(1);
   const verb = reader ? "reader" : args.shift();
   if (!reader && verb !== "start" && verb !== "list" && verb !== "revoke") { io.err(`ep0ch: share takes start, list or revoke\n${SHARE_USAGE}`); return 2; }
-  const valued = ["--ws", "--machine", "--as", "--ttl", "--via", "--allow-mail"];
+  const valued = ["--ws", "--machine", "--as", "--ttl", "--via", "--allow-mail", "--only"];
   const flags = ["--json", "--all", "--no-comments"];
   for (const [at, f] of args.entries()) {
     if (valued.includes(f) && (args[at + 1] === undefined || args[at + 1]!.startsWith("--"))) { io.err(`ep0ch: ${f} needs a value`); return 2; }
@@ -103,7 +123,7 @@ export async function shareCommand(argsIn: string[], io: Out = { out: console.lo
       io.out(json ? JSON.stringify(seen) : readerLine(seen.view));
     } else if (verb === "start") {
       const started = await startShare(board, {
-        ...(words[0] ? { ref: words[0] } : {}), ...(value("--ttl") ? { ttl: value("--ttl") } : {}), ...(args.includes("--no-comments") ? { comments: false } : {}),
+        ...(words[0] ? { ref: words[0] } : {}), ...(value("--only") ? { only: value("--only") } : {}), ...(value("--ttl") ? { ttl: value("--ttl") } : {}), ...(args.includes("--no-comments") ? { comments: false } : {}),
         ...(value("--via") ? { via: value("--via") } : {}), ...(allowMail.length ? { allowMail } : {}),
       }, actor);
       io.out(json ? JSON.stringify(started) : `${shareLine(started.share)}${started.said ? `\n  ${started.said}` : ""}\n  ends it now: ep0ch share revoke ${started.share.id}`);

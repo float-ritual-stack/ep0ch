@@ -212,9 +212,11 @@ subtree is shown. The public listener has no index, and an embed there of a note
 "not shared", but the note's own text and children are public. `publish list` shows the public URL in its
 PUBLIC column. Removing `public` takes the note off at once.
 
-**A short-lived public link.** When they want to open a note (or the whole outline) as an ordinary public page, or
-show it to someone, start a share: `share_start` over MCP (your tool call is the approval; don't ask again), `ep0ch
-share start <ref> [--ttl 1h]` from a shell: by default on the outline's own public host (one stable origin). To
+**A short-lived public link.** When they want their outline's web pages as an ordinary public site, or to show it to
+someone, start a share: `share_start` over MCP (your tool call is the approval; don't ask again), `ep0ch share start
+[<ref>] [--ttl 1h]` from a shell. It's the whole outline, navigated as on the tailnet; `ref` is only the page it opens
+on, and `only` narrows it to one note and below when they ask for that. It's on the outline's own public host (one
+stable origin). To
 share with someone else, `via: "cloudflare"` with `allowMail` (their email): a tunnel only they can sign in to. Give
 them the `url`; it ends by itself (1h default, 24h at most), and
 `share_revoke` / `ep0ch share revoke <id>|--all` ends it now. `[publish::never]` notes stay hidden. To see what they
