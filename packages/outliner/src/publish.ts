@@ -422,6 +422,8 @@ main.browse [hidden],.mg-ui[hidden]{display:none!important}
 #mg-sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:#1a1a19;border-top:1px solid var(--rule);padding:.75rem .75rem calc(.75rem + env(safe-area-inset-bottom))}
 #mg-sheet .q{color:var(--dim);font-style:italic;max-height:4.5em;overflow:hidden;margin:0 0 .5rem}
 #mg-sheet .why{color:#e0b46a;margin:.4rem 0 0}
+iframe.mg-term{display:block;box-sizing:border-box;width:100%;height:14rem;border:1px solid var(--rule);border-radius:.5rem;background:#0c0c0c;margin:0 0 .4rem}
+.mg-row .who{flex:1;align-self:center}
 textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.5rem}
 .mg-row{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:.5rem}
 .mg-card{background:#171716;border:1px solid var(--rule);border-left:3px solid #4a4f5a;border-radius:.4rem;padding:.55rem .7rem;margin:.5rem 0 1rem;white-space:pre-wrap;overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
@@ -496,7 +498,7 @@ const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * d
  * talks only to this origin. No inline script, no eval, nothing from elsewhere: the page's own text is Markdown with
  * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
  */
-const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; frame-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 /** The shares page: no script, and its forms post only to this origin. */
 const SHARES_CSP = RENDERED_CSP.replace("form-action 'none'", "form-action 'self'");
 /**
@@ -670,6 +672,7 @@ export class Publisher {
       changed: (since, ms) => this.changed(since, ms),
       linkable: (ids, share) => this.linkableNotes(ids, share),
       find: (query, near, share) => this.findNotes(query, near, share),
+      composer: () => (this.options.door?.composes ? `${this.basePath}/door/compose` : null),
       log: this.log,
     });
   }

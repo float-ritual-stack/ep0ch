@@ -283,6 +283,9 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       door = new WebDoor({
         ptyzzz: resolve(doorDir),
         command: open => [process.execPath, main, "--ws", doorOutline!, ...(open ? ["--screen", "detail", open] : [])],
+        // A note page's comment box: the door's composer alone, on its own state (src/compose.ts in the door).
+        compose: on => [process.execPath, main, "compose", "--ws", doorOutline!, "--on", on.on,
+          ...(on.quote !== undefined ? ["--quote", on.quote] : []), ...(on.near !== undefined ? ["--near", String(on.near)] : []), ...(on.reply ? ["--reply", on.reply] : [])],
         log: line => console.error(line),
       });
     }

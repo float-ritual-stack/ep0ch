@@ -10,6 +10,7 @@ import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines"
 import { Mirror } from "./mirror";
 import { whereCommand } from "./where";
 import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
+import type { App } from "./app";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
@@ -21,6 +22,7 @@ import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { SHARE_USAGE } from "./share-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
 import { AGENT_USAGE, agentCommand } from "./agent-cli";
+import { COMPOSE_USAGE, Composer, composeExit, composeState, parseCompose, type ComposeOn } from "./compose";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
@@ -135,6 +137,7 @@ ${LIBRARY_USAGE}
                                    act open id=<id>; a URI names its outline and machine first; open file:<path>
                                    [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
 ${AGENT_USAGE}
+${COMPOSE_USAGE}
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one
@@ -283,6 +286,17 @@ if (args[0] === "clients") {
   board.close();
   process.exit(0);
 }
+// The composer alone (src/compose.ts): a door in this terminal, on its own state, drawing only the comment composer.
+let compose: ComposeOn | null = null;
+if (args[0] === "compose") {
+  const c = parseCompose(args.slice(1));
+  if ("error" in c) { console.error(`ep0ch: ${c.error}`); process.exit(2); }
+  compose = c;
+  const state = composeState();
+  process.env.EP0CH_STATE = state;
+  process.env.EP0CH_CONTROL = join(state, `compose-${process.pid}.sock`);
+  args = ["--ws", c.ws, ...(c.machine ? ["--machine", c.machine] : []), "--no-daemon"];
+}
 // The door: attached to its outline's session (started when sessions are on and none runs), or in this terminal.
 const how = doorMode(args);
 // Which outline, first: the session is that outline's (src/session/place.ts). A folder that names none opens the home
@@ -290,7 +304,7 @@ const how = doorMode(args);
 // machine's forward is started here too, in the person's terminal, where ssh has their agent; the session's daemon
 // finds it up. Without a terminal, a session isn't started at all (attachDoor says so); nothing to ask.
 if (!(how.mode === "attach" && !process.stdin.isTTY)) {
-  const named = await nameTheOutline(args, !!process.stdin.isTTY, homeBase);
+  const named = await nameTheOutline(args, !!process.stdin.isTTY && !compose, homeBase);
   if (!named) process.exit(1);
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
   args = named.args;
@@ -343,6 +357,7 @@ const loggedOnAt = Date.now();
 door = await openDoor({
   term, mirror, info: () => term.info, board: opened.board, service: opened.service, place: opened.place, args,
   ...(opened.notice || homeNotice ? { notice: [homeNotice, opened.notice].filter(Boolean).join(" · ") } : {}),
+  ...(compose ? { start: async (app: App) => app.push(new Composer(compose!)) } : {}),
   done(app) {
     term.stop();                                          // never throws: a terminal that's gone is skipped
     const ending = guard.ending();
@@ -350,6 +365,7 @@ door = await openDoor({
     if (ending?.crash !== undefined) console.error(`ep0ch: the door crashed:\n${ending.crash instanceof Error ? ending.crash.stack ?? ending.crash.message : String(ending.crash)}`);
     door?.control?.close();
     opened.board.close();
+    if (compose) process.exit(ending?.code ?? composeExit());
     writeLastCall(loggedOnAt);
     process.exit(ending?.code ?? 0);
   },

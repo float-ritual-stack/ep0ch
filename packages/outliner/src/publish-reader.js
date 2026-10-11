@@ -51,6 +51,8 @@
   let threads = [];
   /** Why the page takes no writes now (another machine's outline, read from its copy or at `read` access); empty when it does. */
   let readOnly = "";
+  /** The door's composer page (`/door/compose`) when the publisher serves it: the comment box can be it. */
+  let composer = "";
   /** The words selected last: { quote, prefix, suffix }. */
   let selected = null;
   /**
@@ -329,8 +331,77 @@
     }
   }
 
+  // ---- The door's composer as the comment box (spike, Oct 11): a comment on words of the note, or a reply, is written
+  // in a small terminal running the door's own composer (`ep0ch compose`: its editor, `((` completion, preview), framed
+  // from `/door/compose`. It sends as the door does and ends; the frame says so (postMessage, this origin only) and the
+  // thread is read again in place. "plain box" switches to the HTML box, remembered on this device.
+
+  const terminalBox = () => { try { return !!composer && localStorage.getItem("ep0ch-comment-box") !== "plain"; } catch { return !!composer; } };
+  const chooseBox = (kind) => { try { localStorage.setItem("ep0ch-comment-box", kind); } catch {} };
+  /** How long each composer took from the tap to its first frame (ms), for the spike's measurements. */
+  const composeTimes = (window.ep0chComposeTimes = window.ep0chComposeTimes || []);
+
+  /**
+   * The composer framed in `holder` (the sheet, or under a card's Reply): `src` its page. `ended(sent)` when it ends;
+   * `plain()` opens the HTML box instead.
+   */
+  function frameComposer(holder, src, quote, ended, plain) {
+    const tapped = performance.now();
+    const frame = el("iframe", { class: "mg-term", src, title: "comment composer (the door's)" });
+    const state = el("span", { class: "who", text: "starting the composer…" });
+    let gone = false;
+    const close = (sent) => {
+      if (gone) return;
+      gone = true;
+      removeEventListener("message", heard);
+      ended(sent);
+    };
+    const heard = (ev) => {
+      if (ev.origin !== location.origin || ev.source !== frame.contentWindow || !ev.data || ev.data.ep0ch !== "compose") return;
+      const d = ev.data;
+      if (d.ready !== undefined) {
+        const ms = Math.round(performance.now() - tapped);
+        composeTimes.push(ms);
+        state.textContent = `the door's composer · ctrl+s sends · esc closes · up in ${ms} ms`;
+        frame.focus();
+      } else if (d.exit !== undefined) {
+        say(d.exit === 0 ? "sent" : d.exit === 3 ? "closed: anything typed is kept for these words" : "the composer couldn't open; try the plain box");
+        close(d.exit === 0);
+      } else if (d.lost) state.textContent = "the composer disconnected · plain box writes it here";
+    };
+    addEventListener("message", heard);
+    const toPlain = el("button", { type: "button", class: "quiet", text: "plain box", onclick: () => { chooseBox("plain"); close(false); plain(); } });
+    holder.append(...(quote ? [el("p", { class: "q", text: `“${quote}”` })] : []), frame, el("div", { class: "mg-row" }, state, toPlain));
+    return frame;
+  }
+
+  /** A comment on the note's words in the composer: where the words are in its source first (`/place`), then the frame. */
+  async function composeInTerminal(words) {
+    if (!opening()) return;
+    hideBar();
+    const sheet = el("div", { id: "mg-sheet", class: "mg-ui mg-term-sheet" });
+    editor = sheet;
+    document.body.append(sheet);
+    const done = (sent) => { sheet.remove(); editor = null; if (sent) { letGo(words); behind = true; } doneWriting(); };
+    let placed;
+    try {
+      const response = await fetch(`${api}/place`, { method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", body: JSON.stringify({ page, ...(full ? { view: "full" } : {}), ...words }) });
+      placed = await response.json();
+      if (!response.ok || !placed.ok) throw new Error(placed.error || `the publisher answered ${response.status}`);
+    } catch (error) {
+      // Words the composer can't be put on (across a reference, say): the plain box lands them on the note, quoted.
+      sheet.remove(); editor = null;
+      say(`${error.message} · the plain box writes it`);
+      return compose("comment", words, true);
+    }
+    const q = new URLSearchParams({ on: placed.on, quote: placed.quote, near: String(placed.near) });
+    frameComposer(sheet, `${placed.composer}?${q}`, "", done, () => { sheet.remove(); editor = null; compose("comment", words, true); });
+  }
+
   /** Comment or Ask: a sheet to write in. The text stays until the outline has it. */
-  function compose(action, words) {
+  function compose(action, words, plainBox) {
+    // A comment on words of the note (not a card's words, not the whole note) is written in the door's composer.
+    if (!plainBox && action === "comment" && words && !words.in && terminalBox()) return composeInTerminal(words);
     if (!opening()) return;
     hideBar();
     const id = requestId();
@@ -348,7 +419,8 @@
     const sheet = el("div", { id: "mg-sheet", class: "mg-ui" },
       words ? el("p", { class: "q", text: `“${words.quote}”` }) : null,
       input, why,
-      el("div", { class: "mg-row" }, cancel, sendButton));
+      el("div", { class: "mg-row" }, cancel, sendButton, ...(composer && action === "comment" && words && !words.in
+        ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { if (input.value.trim()) return say("send or clear what's typed first: it stays in this box"); chooseBox("door"); close(); compose(action, words); } })] : [])));
     document.body.append(sheet);
     input.focus();
   }
@@ -572,9 +644,19 @@
   }
   window.addEventListener("hashchange", () => { arrived = false; arrive(); });
 
-  function replyIn(node, thread, row) {
+  function replyIn(node, thread, row, plainBox) {
     if (!opening()) return;
     markRead(thread.id);
+    if (!plainBox && terminalBox() && thread.on) {
+      const box = el("div", { class: "mg-reply" });
+      editor = box;
+      row.hidden = true;
+      node.append(box);
+      const q = new URLSearchParams({ on: thread.on, reply: thread.id });
+      frameComposer(box, `${composer}?${q}`, "", (sent) => { box.remove(); row.hidden = false; editor = null; if (sent) behind = true; doneWriting(); },
+        () => { box.remove(); row.hidden = false; editor = null; replyIn(node, thread, row, true); });
+      return;
+    }
     const id = requestId();
     const input = el("textarea", { class: "mg-in", placeholder: "Reply" });
     editor = input;
@@ -587,7 +669,8 @@
         say(answer.said || "replied");
         done();
       }) });
-    box.append(el("div", { class: "mg-row" }, cancel, sendButton));
+    box.append(el("div", { class: "mg-row" }, cancel, sendButton, ...(composer
+      ? [el("button", { type: "button", class: "quiet", text: "door box", onclick: () => { if (input.value.trim()) return say("send or clear what's typed first: it stays in this box"); chooseBox("door"); done(); replyIn(node, thread, row); } })] : [])));
     row.hidden = true;
     node.append(box);
     input.focus();
@@ -715,6 +798,7 @@
     agent = data.agent || "";
     threads = data.threads || [];
     readOnly = data.readOnly || "";
+    composer = data.composer || "";
     // A selection made before the toolbar knew its choices gets them now.
     if (first && readSelection()) { selected = readSelection(); showBar(); }
     if (changed) behind = true;

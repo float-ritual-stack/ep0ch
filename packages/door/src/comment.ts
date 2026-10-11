@@ -6,7 +6,7 @@ import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings
 import { RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
-import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
+import { commentTarget, DraftSession, Outgoing, rangeHash, type CommentWhere } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
 import type { Completer } from "./surface/completer";
@@ -223,6 +223,12 @@ export class CommentSession {
   props: AnnotationProps | null = null;
   /** Who started it (the person's C or m, or an agent's passage.select, reply or threads): an agent's isn't the person's keys until they type in it. */
   startedBy: Actor = USER;
+  /**
+   * The composer alone (`ep0ch compose`, src/compose.ts): it fills its terminal with the passage quoted, has no other
+   * place to go (no ctrl+o, no place chip), and its unsent text is kept by block and passage, so a comment put aside
+   * on one passage never comes back under another.
+   */
+  alone = false;
 
   constructor(public msg: Msg, public threads: Comment[], mode: "select" | "threads") {
     this.mode = this.origin = mode;
@@ -238,7 +244,7 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
-    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true });
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", ...(this.alone ? {} : { place: nextPlace(this.place), move: true }) });
     return `j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 
@@ -329,6 +335,7 @@ export class CommentSession {
       landed: (r, t, body) => this.landed(r, t, body),
       refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
       relocate: () => this.relocate(this.env!),
+      ...(this.alone && this.target?.kind === "quote" ? { passageKey: rangeHash(`${this.target.passage.start}:${this.target.passage.quote}`) } : {}),
     }), { by });
   }
 
@@ -443,13 +450,13 @@ export class CommentSession {
     const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
     const what = t.kind === "quote" ? kind : `reply to ${t.thread.author}`;
-    const away = this.place === "popup" || this.place === "split";
+    const away = this.alone || this.place === "popup" || this.place === "split";
     const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {
       title: `${what} · ctrl+s saves · esc cancels`,
       status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-      context, by: writtenBy(d, "send"), preview, pick: true, place: this.place,
+      context, by: writtenBy(d, "send"), preview, pick: true, ...(this.alone ? {} : { place: this.place }),
     };
   }
 

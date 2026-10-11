@@ -43,7 +43,11 @@ async function setup(doorOptions: { recheckMs?: number } = {}) {
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
   const client = new OutlinerClient(paths.socket);
-  const door = new WebDoor({ ptyzzz: fakePtyzzz(), command: open => ["ep0ch", "--ws", "garden", ...(open ? ["--screen", "detail", open] : [])], graceMs: 50, ...doorOptions });
+  const door = new WebDoor({
+    ptyzzz: fakePtyzzz(), command: open => ["ep0ch", "--ws", "garden", ...(open ? ["--screen", "detail", open] : [])],
+    compose: on => ["ep0ch", "compose", "--ws", "garden", "--on", on.on, ...(on.quote ? ["--quote", on.quote] : []), ...(on.near !== undefined ? ["--near", String(on.near)] : []), ...(on.reply ? ["--reply", on.reply] : [])],
+    graceMs: 50, ...doorOptions,
+  });
   const publisher = new Publisher({ client, basePath: "/pub", publicUrl: "https://garden.example.test/share", door });
   cleanups.push(async () => {
     await publisher.stop();
@@ -267,4 +271,39 @@ test("another site can't open a terminal or type into one", async () => {
   await stream.body!.cancel();
   // A terminal id that names none, or isn't one, gets nothing.
   expect((await tailnet(publisher, "/pub/door/input?t=short", { method: "POST", headers: { origin: "http://moth-box.tail0000.ts.net" }, body: "{}" })).status).toBe(404);
+});
+
+test("a note page's comment box is the door's composer: placed on the source words, framed only by this origin, never below a share", async () => {
+  const { publisher, client, note } = await setup();
+  const json = (path: string, body: unknown) => tailnet(publisher, path, { method: "POST", headers: { origin: "http://moth-box.tail0000.ts.net", "content-type": "application/json" }, body: JSON.stringify(body) });
+  // The page knows the composer is there, and frames it (its policy lets it frame this origin).
+  const page = await tailnet(publisher, `/pub/p/${note.id}`, { headers: { accept: "text/html" } });
+  expect(page.headers.get("content-security-policy")).toContain("frame-src 'self'");
+  const threads = await (await tailnet(publisher, `/pub/_marginalia/threads?page=${note.id}`)).json() as { composer?: string };
+  expect(threads.composer).toBe("/pub/door/compose");
+  // Words as drawn are placed in the note's source: the composer's quote and where it is.
+  const placed = await (await json("/pub/_marginalia/place", { page: note.id, quote: "hawk-moths came", prefix: "The ", suffix: " at dusk." })).json() as Record<string, unknown>;
+  expect(placed).toMatchObject({ ok: true, on: note.id, quote: "hawk-moths came", near: note.text.indexOf("hawk-moths came") });
+  expect((await json("/pub/_marginalia/place", { page: note.id, quote: "luna moths" })).status).toBe(422);
+  // The composer page: framed by this origin only, its terminal running `ep0ch compose` on those words.
+  const q = new URLSearchParams({ on: note.id, quote: String(placed.quote), near: String(placed.near) });
+  const composer = await tailnet(publisher, `/pub/door/compose?${q}`);
+  expect(composer.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+  const html = await composer.text();
+  expect(html).toContain("data-compose");
+  const t = html.match(/data-t="([^"]+)"/)![1]!;
+  const [keyframe] = await frames(await tailnet(publisher, `/pub/door/stream?t=${t}&open=someone-else`, SSE), s => s.length > 0);
+  expect(keyframe).toContain(`compose --ws garden --on ${note.id} --quote hawk-moths came --near ${placed.near}`);
+  expect((await tailnet(publisher, `/pub/door/compose?on=-x`)).status).toBe(400);
+  expect((await tailnet(publisher, `/pub/door/compose?on=${note.id}&quote=a&reply=b`)).status).toBe(400);
+  // Never on the public listener, never below a share link: no composer said, no place, no page.
+  const pub = (path: string, init?: RequestInit) => publisher.handle(new Request(`https://garden.example.test${path}`, init), "public");
+  expect((await pub(`/share/door/compose?on=${note.id}`)).status).toBe(404);
+  const { share } = await client.request<{ share: ShareSession }>({ action: "shares.start", scope: note.id, comments: true });
+  const shared = new URL(share.url!).pathname.match(/^.*\/s\/[^/]+/)![0];
+  const sharedThreads = await (await pub(`${shared}/_marginalia/threads?page=${note.id}`)).json() as { composer?: string };
+  expect(sharedThreads.composer).toBeUndefined();
+  expect((await pub(`${shared}/_marginalia/place`, { method: "POST", headers: { origin: "https://garden.example.test", "content-type": "application/json" }, body: JSON.stringify({ page: note.id, quote: "hawk-moths came" }) })).status).toBe(404);
+  expect((await pub(`${shared}/door/compose?on=${note.id}`)).status).toBe(404);
+  await client.request({ action: "shares.revoke", shareId: share.id });
 });

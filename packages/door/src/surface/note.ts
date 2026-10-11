@@ -94,6 +94,11 @@ export interface SurfaceHost {
   ctx: Ctx;
   redraw(): void;
   /**
+   * The composer alone (`ep0ch compose`, src/compose.ts): a comment or reply being written fills the reader, its
+   * passage quoted in it, and the note isn't drawn around it.
+   */
+  readonly composerAlone?: boolean;
+  /**
    * The look (PIE-673) the host resolved for where this reader is (its tile kind, its screen, the note): its margin,
    * gap and list rows. Without one, the reader resolves the note's own (global and page levels) itself.
    */
@@ -922,6 +927,7 @@ export class NoteSurface {
     this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing();
+    if (writing && host?.composerAlone) return this.renderAlone(w, h, writing);
     return writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
   }
 
@@ -991,6 +997,36 @@ export class NoteSurface {
     const top = v.lines.slice(0, nh);
     while (top.length < nh) top.push("");
     return { ...v, lines: [...top, ...box.lines] };
+  }
+
+  /** The composer alone (`ep0ch compose`): its box is the whole reader, as a split's composer side is. */
+  private renderAlone(w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>): SurfaceView {
+    const box = composerBox(c.d, c.f, w, h, true);
+    placeBox(c.d, box, 0, 0);
+    this.boxRect = { row: 0, col: 0, cols: box.width, rows: box.lines.length };
+    return { lines: box.lines };
+  }
+
+  /**
+   * The person's comment on `quote` (the note's exact source words, nearest `near`), or their reply to `reply`, opened
+   * straight to writing for the composer alone (src/compose.ts): esc closes it and a send ends it (`fromReader`), and
+   * what they put aside here comes back on the same passage. The words must be in the note now; a thread on it.
+   */
+  async composeAlone(host: SurfaceHost, on: { quote?: string; near?: number; reply?: string }): Promise<CommentSession> {
+    const s = await this.ensureSession(host, on.reply ? "threads" : "select");
+    s.alone = true;
+    s.fromReader = true;
+    if (on.reply) {
+      const why = s.replyTo(findThread(s, on.reply));
+      if (why) throw new ActionRefused(why);
+    } else {
+      const why = on.quote === undefined ? null : s.passage?.selectText(on.quote, on.near);
+      if (why) throw new ActionRefused(why);
+      const no = s.write(USER);
+      if (no) throw new ActionRefused(no);
+    }
+    host.redraw();
+    return s;
   }
 
   /**
@@ -6659,6 +6695,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ place }, { surface, host }) {
       const s = surface.session;
       if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
+      if (s.alone) throw new ActionRefused("the composer alone (ep0ch compose) fills its terminal: it has no other place");
       const want = place === undefined ? nextPlace(s.place) : composerPlaceOf(place);
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
       s.place = want;
@@ -6673,6 +6710,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "type", replay: "ask",
     args: {},
     run(_, { surface, host }) {
+      if (surface.session?.alone) throw new ActionRefused("the composer alone (ep0ch compose) fills its terminal: it doesn't move");
       surface.grip(host);
       return { moving: true };
     },
