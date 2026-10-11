@@ -43,7 +43,7 @@ import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, s
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord } from "../socket";
+import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -55,6 +55,7 @@ import { COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, nextPlace, ove
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
@@ -315,8 +316,11 @@ function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number)
 }
 
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
-/** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
-export type ThreadControl = "select" | "reply" | "resolve" | "card";
+/**
+ * The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen;
+ * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
+ */
+export type ThreadControl = "select" | "reply" | "resolve" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -344,7 +348,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -379,7 +383,7 @@ export type FocusSpec = ArgsOf<typeof TINT_ARGS>;
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
 interface Mark { thread: string; open: boolean; row: number; rows: [number, number]; label: string }
 /** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
-interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string }
+interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string; value?: string }
 
 /**
  * The note's links in reading order, as outline-core's scan finds them: `((…))` (transclusions too), `[[…]]` and
@@ -2541,6 +2545,9 @@ export class NoteSurface {
     if (s.mode === "compose") this.revealComposer = true;
     const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
     if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
+    // q quotes the current thread (or the ones space picked) into a new block; space picks.
+    if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "q") { void this.runKey("quote", {}, host, true); return true; }
+    if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === " ") { void this.runKey("thread.pick", {}, host, true); return true; }
     if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
     // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
     if (k.kind === "esc" && writing && s.writing !== writing && writing.closedWith) host.ctx.flash(writing.closedWith, 8000);
@@ -3161,6 +3168,9 @@ export class NoteSurface {
       return { selected: this.describeSelection(this.selection)?.text ?? null };
     }
     if (e.control === "reply") { this.replyOn = c.id; this.openThread(host); return { replying: c.id }; }
+    // Quote: the thread's mark, or the reply the control is on; the power bar asks where it goes.
+    if (e.control === "quote") return this.runKey("quote", { threads: e.value ?? c.id }, host);
+    if (e.control === "quoted" && e.value) return this.followTarget({ block: e.value } as Link, host, { link: true, fresh: false });
     const s = new CommentSession(this.msg, this.comments ?? [], "threads");
     s.sel = s.threads.findIndex(t => t.id === c.id);
     await s.toggle(this.commentEnv(host));
@@ -3286,7 +3296,7 @@ export class NoteSurface {
     });
     for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
-    for (const c of controls) out.push({ key: controlKey(c.thread, c.control), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control });
+    for (const c of controls) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);
   }
 
@@ -4126,7 +4136,7 @@ export class NoteSurface {
   async undoExtension(host: SurfaceHost, actor: Actor) {
     const m = this.requireNote();
     const e = EXT_UNDO.last(partyOf(actor), m.id);
-    if (!e) throw new ActionRefused(actor.kind === "agent" ? "no extension action you ran on this note to undo" : "no extension action run on this note to undo");
+    if (!e) throw new ActionRefused(actor.kind === "agent" ? "no extension action or quote you ran on this note to undo" : "no extension action or quote run on this note to undo");
     const say = asActor(host.ctx, actor);
     try {
       const r = await host.ctx.board.undoExtension(e.undo, actor);
@@ -4142,6 +4152,47 @@ export class NoteSurface {
       say.flash(why); host.redraw();
       throw new ActionRefused(why);
     }
+  }
+
+  /**
+   * A mark on this note by id (or its first 6+ characters): a thread's comment or highlight, or one of its replies.
+   * Several, comma- or space-separated, for a quote of several.
+   */
+  markIds(named: string): string[] {
+    const all = (this.comments ?? []).flatMap(c => [c.id, ...c.replies.map(r => r.id)]);
+    const ids = named.split(/[\s,]+/).filter(Boolean).map(n => {
+      const id = all.find(x => x === n || (n.length >= 6 && x.startsWith(n)));
+      if (!id) throw new ActionRefused(`no mark ${n} on this note (a highlight, comment or reply); peek lists them under comments.threads`);
+      return id;
+    });
+    if (!ids.length) throw new ActionRefused("say which marks: threads=<id>[,<id>…] (a highlight, comment or reply on this note)");
+    return [...new Set(ids)];
+  }
+
+  /**
+   * Quote marks into a new block (`marks.quote`): each transcluded and linked back, where `where` says (`inbox`, `note`,
+   * or a block). One write: ctrl+z here (`ext.undo`) takes it back whole. The cards then say "quoted in".
+   */
+  async quoteMarks(ids: string[], where: string, host: SurfaceHost, actor: Actor, text?: string) {
+    const m = this.requireNote();
+    const w = where.trim(), ref = /^!?\(\(([^)|^]+)/.exec(w)?.[1] ?? w;
+    const place: QuotePlace = w === "" || w === "inbox" ? { kind: "inbox" } : w === "note" ? { kind: "note" } : { kind: "under", blockId: ref };
+    const say = asActor(host.ctx, actor);
+    let r: QuoteReceipt;
+    try { r = await host.ctx.board.quoteMarks(ids, place, actor, text); } catch (err) {
+      const why = `couldn't quote: ${err instanceof Error ? err.message : String(err)}`;
+      say.flash(why); host.redraw();
+      throw new ActionRefused(why);
+    }
+    const label = ids.length === 1 ? "quote of a mark" : `quote of ${ids.length} marks`;
+    if (r.undo) EXT_UNDO.push({ undo: r.undo, label, by: partyOf(actor), context: m.id });
+    outlineChanged([r.block.id]);
+    await this.loadComments(host);
+    if (this.session && this.comments) this.session.threads = this.comments;
+    say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "").slice(0, 50)}${r.undo ? " · ctrl+z undoes" : ""}`);
+    this.noteAgent(actor, `quoted ${ids.length === 1 ? "a mark" : `${ids.length} marks`} ${r.placement.said}`);
+    host.redraw();
+    return { block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
   }
 
   async undoCallout(host: SurfaceHost, actor: Actor) {
@@ -5054,7 +5105,7 @@ export class NoteSurface {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
       editing: (this.modes.get("draft") as DraftMode | null)?.describe(),
       commenting: (this.modes.get("comment") as CommentMode | null)?.describe(),
-      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id) })) } : null,
+      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id), ...(c.quotedIn?.length ? { quotedIn: c.quotedIn } : {}) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
@@ -5337,7 +5388,7 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
 }
 
 /** A thread control's element key: stable across renders while its thread stays expanded. */
-const controlKey = (thread: string, c: ThreadControl) => `ctl:${thread}:${c}`;
+const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${thread}:${c}${value ? `:${value}` : ""}`;
 
 /**
  * A comment thread drawn under its passage (PIE-420), `W` cells wide: who and when, open or resolved, the
@@ -5356,14 +5407,30 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const body = (s: string, w: number) => (draw ? draw(s, w) : text(s, w));
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
+  const controls: Control[] = [];
+  // Where a mark was quoted (marks.quote): a line each, opening the block that quotes it.
+  const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
+    for (const id of ids ?? []) {
+      const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12))[0] ?? "") : id.slice(0, 8)}`;
+      const shown = ellipsize(said, Math.max(4, inner - indent.length));
+      const on = cur === controlKey(c.id, "quoted", id);
+      controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
+      lines.push(edge + "│ " + indent + (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
+    }
+  };
+  quotedIn(c.quotedIn, "");
   for (const r of c.replies) {
-    lines.push(edge + "│ " + fg(C.cyan) + "└ " + printable(r.author) + " · " + ago(r.at) + RESET);
+    // Each reply is a mark too: its own [Quote].
+    const head = "└ " + printable(r.author) + " · " + ago(r.at), q = "[Quote]", on = cur === controlKey(c.id, "quote", r.id);
+    const fits = 2 + width(head) + 1 + q.length <= W - 1;
+    if (fits) controls.push({ thread: c.id, control: "quote", value: r.id, row: lines.length, from: 2 + width(head) + 1, to: 2 + width(head) + 1 + q.length, label: "Quote the reply" });
+    lines.push(edge + "│ " + fg(C.cyan) + head + RESET + (fits ? " " + (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET : ""));
     for (const l of body(r.body, Math.max(2, inner - 2))) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
+    quotedIn(r.quotedIn, "  ");
   }
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
-  const controls: Control[] = [];
   let row = edge + "│ ", col = 2;
-  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"]] as const).forEach(([k, label]) => {
+  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
@@ -6086,7 +6153,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
-      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "card" ? "threads, or reply" : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
+      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
       if (e.kind === "comment" && actor.kind === "agent") {
@@ -6441,6 +6508,46 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (s.error) throw new ActionRefused(s.error);
       surface.noteAgent(actor, open ? "reopened a comment" : "resolved a comment");
       return { lifecycle: want };
+    },
+  }),
+  "quote": def({
+    summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: the Inbox, this note, or any note by its words. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
+    keys: "q in the thread list (m) on the thread, or on the threads picked with space; a click on an expanded thread's [Quote] or a reply's [Quote]",
+    touches: "nothing", replay: "ask",
+    args: {
+      threads: { type: "string", optional: true, about: "the marks: ids (or their first 6+ characters) of threads (a highlight or comment) or replies on this note, comma-separated; left out, the thread list's picked threads, else its current one" },
+      where: { type: "string", optional: true, about: "inbox (the top of the Inbox), note (under this note) or a block id or ((ref)) to put it under; an agent's default is inbox" },
+      text: { type: "string", optional: true, about: "the new block's own words, above the quotes (its first line is its title); left out, Quoting “…”" },
+    },
+    async run({ threads, where, text }, { surface, host }, actor) {
+      surface.requireNote();
+      await surface.loadComments(host);
+      // The thread list's picks are the person's: only their own quote takes (and clears) them.
+      const s = actor.kind === "user" && surface.session?.mode === "threads" ? surface.session : null;
+      const named = threads ?? (s ? (s.picked.size ? [...s.picked].join(",") : s.threads[s.sel]?.id) : undefined);
+      if (!named) throw new ActionRefused("say which marks: threads=<id>[,<id>…] (peek lists them under comments.threads); in the thread list, q quotes the current thread or the ones picked with space");
+      const ids = surface.markIds(named);
+      const run = (answers: Record<string, string>) => surface.quoteMarks(ids, answers.where ?? "inbox", host, actor, text).then(r => { s?.picked.clear(); return r; });
+      if (where !== undefined || actor.kind === "agent") return run({ where: where ?? "inbox" });
+      return askInBar(host.ctx as never, ids.length === 1 ? "Quote a mark" : `Quote ${ids.length} marks`, [{
+        name: "where", type: "note", label: "where it goes", description: "The new block transcludes each mark and links back to it. The Inbox, under this note, or type to find any note to put it under.",
+        choices: ["inbox", "note"], says: { inbox: "in the Inbox", note: "under this note" },
+      }], {}, actor, run);
+    },
+  }),
+  "thread.pick": def({
+    summary: "pick a thread in the thread list for a quote of several (q then quotes the picked ones); again unpicks it. The person's thread list: an agent names its marks with quote threads=",
+    keys: "space in the thread list (m)",
+    touches: "tile", replay: "safe", person: "the thread list's picks are the person's; an agent names its marks with quote threads=",
+    args: { thread: { type: "string", optional: true, about: "the thread's id (or its first 6+ characters); left out, the current one" } },
+    run({ thread }, { surface, host }) {
+      const s = surface.session;
+      if (!s || s.mode !== "threads") throw new ActionRefused("the thread list isn't open · m opens it");
+      const id = thread !== undefined ? s.threads[findThread(s, thread)]!.id : s.threads[s.sel]?.id;
+      if (!id) throw new ActionRefused("no thread here to pick");
+      if (s.picked.has(id)) s.picked.delete(id); else s.picked.add(id);
+      host.redraw();
+      return { picked: [...s.picked] };
     },
   }),
   "props": def({
@@ -7066,8 +7173,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "ext.undo": def({
-    summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since",
-    keys: "ctrl+z (when an extension action was the last change made here)",
+    summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), or the last quote of its marks (the quoting block to the Trash), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since",
+    keys: "ctrl+z (when an extension action or a quote was the last change made here)",
     touches: "nothing", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),

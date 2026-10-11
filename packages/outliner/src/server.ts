@@ -77,6 +77,7 @@ import {
   clientSupportsRole,
   type OutlinerRegion,
   type AnnotationBatchReceipt,
+  type MarkQuoteReceipt,
   type AnnotationAgentProposalReceipt,
   type AttentionClientState,
   type AttentionMark,
@@ -2708,6 +2709,14 @@ export class OutlinerServer {
             request.mutation,
           );
           break;
+        case "marks.quote": {
+          if (!request.mutation || typeof request.mutation !== "object") throw new Error("marks.quote needs mutation: who quotes (the person, or an agent with its actor id)");
+          const quoted = this.store.quoteMarks(request.input, request.mutation);
+          // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
+          const undo = this.extensionCalls.writes.keepMade("marks.quote", [quoted.block.id]);
+          result = { ...quoted, ...(undo ? { undo } : {}) } satisfies MarkQuoteReceipt;
+          break;
+        }
         case "roadmap.items.create":
           result = this.store.createRoadmapItem(
             request.input,
@@ -3268,6 +3277,10 @@ export class OutlinerServer {
       case "annotations.lifecycle":
         domain = "content";
         blockId = request.input.annotationId;
+        break;
+      case "marks.quote":
+        domain = "content";
+        blockId = (response.result as MarkQuoteReceipt).block.id;
         break;
       case "annotations.read":
         // Nothing in a block changed; views that ask `unread:` read again.

@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
     const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_set_property", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
+    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
@@ -384,6 +384,12 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await tool("outline_threads", { uri: seeds, status: "open" })).json.threads.some((t: { thread: string }) => t.thread === id)).toBe(false);
     expect((await tool("outline_threads", { uri: seeds, status: "resolved" })).json.threads.some((t: { thread: string }) => t.thread === id)).toBe(true);
     expect((await tool("outline_resolve_thread", { uri: seeds, thread: id, resolved: false })).json.said).toContain("now open");
+    // Quote the thread into a block of its own (full access): it lands in the Inbox as the remote client, linked back.
+    const q = await tool("outline_quote", { uri: seeds, marks: [id] });
+    expect(q.json).toMatchObject({ outcome: "applied", said: expect.stringContaining("in the Inbox") });
+    expect(q.json.detail.block.text).toContain(`[from::((${id}))]\n!((${id}))`);
+    expect((await garden.comments(ids.seeds!)).find(t => t.id === id)!.quotedIn).toEqual([q.json.detail.block.id]);
+    expect((await tool("outline_quote", { uri: seeds, marks: ["no-such-mark"] })).text).toContain("No mark no-such-mark");
     // A thread that isn't on the note is refused; a bad shape is too.
     expect((await tool("outline_reply", { uri: seeds, thread: "no-such-thread", body: "hello" })).text).toContain("No thread no-such-thread");
     expect((await tool("outline_resolve_thread", { uri: seeds, thread: id })).isError).toBe(true);
@@ -392,6 +398,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const pc = await tool("outline_comment", { uri: frogs, whole: true, body: "Count again at dawn?" });
     expect((await tool("outline_reply", { uri: frogs, thread: pc.json.detail.thread, body: "Yes." })).json.outcome).toBe("applied");
     expect((await tool("outline_resolve_thread", { uri: frogs, thread: pc.json.detail.thread, resolved: true })).json.outcome).toBe("applied");
+    expect((await tool("outline_quote", { uri: frogs, marks: [pc.json.detail.thread] })).json).toMatchObject({ outcome: "proposed" });
     const still = formatEp0chBlockUri({ outline: "quiet-notes", machine: HERE, blockId: ids.still! });
     expect((await tool("outline_reply", { uri: still, thread: id, body: "x" })).text).toContain("takes no writes");
     expect((await tool("outline_threads", { uri: still })).isError).toBe(false);

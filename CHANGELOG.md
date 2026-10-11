@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Marks you can quote: a highlight, comment or reply becomes a block of its own, and traces back
+
+- **New:** quote marks into a new block, the margin's quote-tweet. One highlight, comment or reply, or several, become
+  one block that transcludes each (`!((mark))`) under a `[from::((mark))]` back-link, in the Inbox (the default),
+  under the note, or under any note you pick. The marks stay where they were; each card then says **quoted in** it.
+  One write, one undo. In the door: `[Quote]` on an open thread or a reply, or `m` then `q` (`space` picks several);
+  the power bar asks where. On a web page (tailnet or a share that takes comments): a card's Quote, or Pick on
+  several, then a sheet with where and your own words; the toast opens it or undoes it. An agent: `act quote` or MCP
+  `outline_quote`. The service's `marks.quote` (PROTOCOL 144).
+- **New:** words in a comment can be highlighted, commented on or asked about on a web page, the same as a note's
+  (threads of threads); they're drawn in its card, and tapping them opens their card.
+- **Fixed:** a mark's own page (`/p/<mark id>`, where `((mark))` links on the web) was empty; it shows the mark.
+
 ### Talking to the thing on screen: page helpers an agent beside the page calls
 
 - **New:** every web client page (tailnet and share) has `window.ep0ch`: `help()`, `view()` (the note, the selection

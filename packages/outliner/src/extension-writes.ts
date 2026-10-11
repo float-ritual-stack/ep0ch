@@ -10,7 +10,8 @@
  *   `patchGroup`: a door holding a live draft of any block it edits, moves or reorders makes the whole group one
  *   proposal beside the note it acted on.
  * - What landed is kept as an undo step (`undo`, the door's ctrl+z and `ext.undo`), the last 100 since the host
- *   started: undone whole, and only while nothing it touched changed since.
+ *   started: undone whole, and only while nothing it touched changed since. The service's own groups (a quote of
+ *   marks, `marks.quote`) are kept the same way (`keepMade`), so one undo contract serves both.
  */
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { requestLines } from "./agent-requests";
@@ -41,6 +42,8 @@ export const MAX_WRITE_TEXT = 64 * 1024;
 const MAX_ORDER = 500;
 const LOCAL_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 const MAX_UNDO = 100;
+/** The owner of a write group the service made itself (`marks.quote`), not an extension's. */
+export const SERVICE_GROUP = "ep0ch";
 
 /** A draft proposal waiting under a block (src/draft-patch.ts): beside its note, not one of its children to order. */
 const isProposal = (block: { properties: readonly { key: string; value: string }[] }) =>
@@ -205,6 +208,15 @@ export class ExtensionWrites {
     }));
     this.receipts.delete(id);
     return { undone: id, extension: receipt.extension, action: receipt.action, written: [...written] };
+  }
+
+  /**
+   * Blocks the service itself made as one write group (`marks.quote`), kept as one undo step like an action's:
+   * `extensions.undo` with the answer takes them to the Trash, while they're as they were made.
+   */
+  keepMade(action: string, made: readonly string[]): string | undefined {
+    const steps: UndoStep[] = made.map((blockId) => ({ kind: "create", blockId, revision: this.store.get(blockId)!.revision }));
+    return this.keep(SERVICE_GROUP, action, steps, []).undo;
   }
 
   /** The group resolved: names minted and put in, every write checked against the outline as it is. */

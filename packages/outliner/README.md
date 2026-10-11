@@ -883,13 +883,23 @@ listener is untouched (below): read-only, marked notes only.
   note. An answer appears when it lands: the page waits on the threads route until what it draws changes (its rows,
   its folder's children, its threads), so a busy outline elsewhere doesn't wake it; idle, about three requests a
   minute.
+- **A mark is a block, and its words are marked like a note's.** A highlight, comment or reply has a page of its own
+  (`/p/<its id>`), so `((mark))` links and `!((mark))` embeds open on the web as any block's do. Words selected in a
+  card are a passage of that mark: Highlight, Comment and Ask land on the mark (threads of threads), drawn on its words
+  in the card, and tapping them opens their card inside it.
+- **Quote** (the margin's quote-tweet): a card's Quote, or Pick on several cards and then Quote N, opens a sheet: the
+  Inbox (the default), under this note, or under a note found by its words (`<base>/_marginalia/find`), and words of
+  your own. `marks.quote` makes one block that transcludes each mark under a `[from::((mark))]` line, drawn on its
+  page as "from <the mark>"; each mark's card then says "quoted in" it. The toast opens the new block or undoes it
+  (`extensions.undo`, only a quote these pages made, once). Through a share link, "under" names notes inside the
+  share, and a block outside it is said, never linked.
 - **Every write goes through the service's own paths**, the door's: a comment or ask is `annotations.batch` (a
   `block-comment` on the exact passage: block, revision, quote, prefix, suffix, found once in the note's source or
   refused with why), a highlight is the extension's passage action (`extensions.act`), a reply `annotations.reply`, a
-  resolve `annotations.lifecycle`. They're the person's (`author: user`), as the door writes his, so the door, Detail
+  resolve `annotations.lifecycle`, a quote `marks.quote`. They're the person's (`author: user`), as the door writes his, so the door, Detail
   and agents see the same threads. Words that can't be placed still land, on the whole note, quoted.
-- **What guards the writes.** The routes are `<base>/_marginalia/threads` (GET) and `<base>/_marginalia/write`
-  (POST) on the tailnet listener only. A write must name this host in its `Origin` and be sent as JSON, so a page on
+- **What guards the writes.** The routes are `<base>/_marginalia/threads` and `/find` (GET) and `<base>/_marginalia/write`
+  (POST) on the tailnet listener, and below a share link. A write must name this host in its `Origin` and be sent as JSON, so a page on
   another site can't post one; the `Host` rule below still applies. The page runs the publisher's own scripts only
   (`<base>/_marginalia/reader.js` and the WebMCP polyfill, `script-src 'self'`, `connect-src 'self'`), and a note's
   text can't add another: authored HTML is shown as text.

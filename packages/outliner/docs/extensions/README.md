@@ -1606,6 +1606,7 @@ Answers `RenderedNote`.
 | `promotedBlockIds?` | `readonly string[]` |  |
 | `parentAnnotationId?` | `string` |  |
 | `properties?` | `Readonly<Record<string, readonly string[]>>` | Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. |
+| `quotedIn?` | `readonly string[]` | The live blocks quoting it (`marks.quote`): each holds `[from::((this mark))]`, in the order they were made. |
 
 **`AnnotationBatchOperation`**
 

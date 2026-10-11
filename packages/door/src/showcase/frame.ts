@@ -80,7 +80,7 @@ export class FramedScreen {
 /** The Ctx a framed screen sees: the outer one, with the rectangle as its terminal and its own stack. */
 function frameCtx(f: FramedScreen): Ctx {
   const o = () => f.outerCtx;
-  return {
+  const ctx: Ctx = {
     get t(): TermInfo { return { ...o().t, cols: f.w, rows: f.h + 1 }; },
     get board() { return o().board; },
     get host() { return o().host; },
@@ -121,4 +121,6 @@ function frameCtx(f: FramedScreen): Ctx {
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
     person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };
+  // The door's dispatcher (the power bar asking for what an action needs): the outer door's, over every screen.
+  return Object.defineProperty(ctx, "dispatch", { get: () => (o() as { dispatch?: unknown }).dispatch, enumerable: true });
 }

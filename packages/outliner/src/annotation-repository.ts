@@ -1671,7 +1671,19 @@ export class AnnotationRepository {
       promotedBlockIds: content.promotedBlockIds,
       properties: content.properties,
       ...(content.parentAnnotationId ? { parentAnnotationId: content.parentAnnotationId } : {}),
+      quotedIn: this.quotedIn(content.block.id),
     };
+  }
+
+  /** The live blocks quoting a mark (`marks.quote`): those holding `[from::((mark))]`, oldest first. */
+  quotedIn(markId: string): string[] {
+    const rows = this.database.query(`
+      SELECT DISTINCT property.block_id AS id FROM block_properties property JOIN blocks block ON block.id = property.block_id
+      WHERE property.key = 'from' AND (property.value = ? OR property.value LIKE ? ESCAPE '\\')
+        AND block.effective_deleted_root_id IS NULL
+      ORDER BY block.created_at, block.id
+    `).all(`((${markId}))`, `((${markId.replace(/[\\%_]/g, "\\$&")}|%`) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
   }
 
   private history(annotationId: string): AnnotationResolutionEvent[] {

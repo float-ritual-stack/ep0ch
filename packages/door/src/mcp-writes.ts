@@ -1,6 +1,6 @@
-// The remote MCP gateway's writes (PIE-615): seven tools, one write path. The tools take the Claude mod's shapes
+// The remote MCP gateway's writes (PIE-615): eight tools, one write path. The tools take the Claude mod's shapes
 // (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`, `outline_reply`,
-// `outline_resolve_thread` and `outline_assign_id`), addressed as the read tools are (a
+// `outline_resolve_thread` and `outline_assign_id`), and `outline_quote` (marks quoted into a new block, `marks.quote`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
 // service checks revisions, anchors comments, refuses a dropped page or anchor, and turns a patch that no longer matches
@@ -35,7 +35,7 @@ import type { SocketBoard } from "./socket";
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread", "outline_quote"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -202,6 +202,10 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
     case "outline_resolve_thread":
       if (!nonEmpty(args.thread) || typeof args.resolved !== "boolean") return { error: "Give the thread (an id outline_threads returned) and resolved: true or false." };
       return { tool, input: pick(args, ["thread", "resolved"]) };
+    case "outline_quote":
+      if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
+      if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
+      return { tool, input: pick(args, ["marks", "where", "text"]) };
     case "outline_set_property":
       if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
       if (!nonEmpty(args.key) || !nonEmpty(args.value)) return { error: "Give the key and a non-empty value." };
@@ -327,6 +331,22 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       const r = await tools.resolveThread(client, write.input, o.actor);
       return { outcome: "applied", uri: o.uri(write.blockId), said: `thread ${r.thread} on ${o.uri(write.blockId)} is now ${r.lifecycle}`, detail: r };
     }
+    case "outline_quote": {
+      const marks = (write.input.marks as unknown[]).map(String), where = String(write.input.where ?? "inbox").trim();
+      const listed = marks.map(m => `((${m}))`).join(", ");
+      if (kind !== "applied" || o.proposeOnly) {
+        // A new block is a proposal at propose access: a comment on the note, for its owner to quote.
+        const body = `Proposed quote of ${listed} into a new block (${where === "note" ? "under this note" : where === "inbox" ? "in the Inbox" : `under ${where}`}), from ${o.actor.actorId}${write.input.text ? `:\n\n${String(write.input.text)}` : ""}`;
+        const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
+        return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
+      }
+      const on = new Set((await board.comments(write.blockId)).flatMap(t => [t.id, ...t.replies.map(r => r.id)]));
+      const away = marks.find(m => !on.has(m));
+      if (away) throw new Error(`No mark ${away} on ${o.uri(write.blockId)}; outline_threads lists the note's threads and replies.`);
+      const place = where === "inbox" ? { kind: "inbox" as const } : where === "note" ? { kind: "note" as const } : { kind: "under" as const, blockId: (await tools.resolveRef(client, where)).id };
+      const r = await client.request<{ block: { id: string }; placement: { said: string }; undo?: string }>({ action: "marks.quote", input: { marks, place, ...(write.input.text ? { text: String(write.input.text) } : {}) }, mutation: { author: "agent", ...o.actor } });
+      return { outcome: "applied", uri: o.uri(r.block.id), said: `quoted ${listed} ${r.placement.said}: ${o.uri(r.block.id)} transcludes each and links back with [from::]`, detail: r };
+    }
     case "outline_create": {
       if (kind === "applied" && !o.proposeOnly) {
         const made = await tools.createBlock(client, { parent: write.blockId, ...write.input }, o.actor);
@@ -422,6 +442,11 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
       name: "outline_resolve_thread",
       description: `Resolve a comment thread of a note (resolved: true), or reopen it (false). Settling a thread changes only the thread, never the note, so propose access allows it. ${answer}`,
       inputSchema: addressed({ ...threadWrite, resolved: { type: "boolean" } }, ["thread", "resolved"]),
+    },
+    {
+      name: "outline_quote",
+      description: `Quote marks into a new block (the margin's quote-tweet): highlights, comments or replies on a note (the uri or ref is the note; marks are ids outline_threads returned), each transcluded as !((mark)) under one [from::((mark))] line, so the new block traces back to where it was said and each mark lists it as quoted in. where: inbox (the top of the Inbox, the default), note (under the note) or a block's ref to put it under. text: the new block's own words above the quotes (its first line is its title). The marks stay where they are. At propose access it becomes a comment on the note proposing it. ${answer}`,
+      inputSchema: addressed({ marks: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } }, where: { type: "string" }, text: { type: "string" } }, ["marks"]),
     },
     {
       name: "outline_set_property",

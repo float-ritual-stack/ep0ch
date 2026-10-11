@@ -39,7 +39,7 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
                                    propose and full let the write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread) propose or apply (outline_assign_id applies at full only); a gateway's mirror of an outline queues them when its machine is away
+                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread, outline_quote) propose or apply (outline_assign_id applies at full only); a gateway's mirror of an outline queues them when its machine is away
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -890,6 +890,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_comment: { ref: "PIE-123", body: "Is this still true?", whole: true },
   outline_reply: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", body: "Yes, checked today." },
   outline_resolve_thread: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", resolved: true },
+  outline_quote: { ref: "PIE-123", marks: ["2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11"], where: "inbox" },
   outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
   outline_assign_id: { ref: "PIE-123", revision: 3 },
   outline_write_status: { queueId: "q-1" },

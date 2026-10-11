@@ -649,6 +649,8 @@ export interface AnnotationRecord {
   readonly parentAnnotationId?: string;
   /** Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. */
   readonly properties?: Readonly<Record<string, readonly string[]>>;
+  /** The live blocks quoting it (`marks.quote`): each holds `[from::((this mark))]`, in the order they were made. */
+  readonly quotedIn?: readonly string[];
 }
 
 export interface AnnotationThread extends AnnotationRecord {
@@ -778,6 +780,28 @@ export interface AnnotationAgentEvidenceSummary {
   readonly humanReviewedCount: number;
   readonly samples: readonly AnnotationAgentEvidenceSample[];
   readonly truncated: boolean;
+}
+
+/**
+ * Where `marks.quote` puts the new block: the top of the Inbox (the default), under the note the first mark is on, or
+ * under a block named outright.
+ */
+export type MarkQuotePlace = { readonly kind: "inbox" } | { readonly kind: "note" } | { readonly kind: "under"; readonly blockId: string };
+
+/** `marks.quote`: one block quoting marks (highlights, comments, replies), each transcluded and linked back. */
+export interface MarkQuoteInput {
+  readonly marks: readonly string[];
+  readonly place?: MarkQuotePlace;
+  /** The quoting block's own words, above the quotes; its first line is its title. Left out, `Quoting “…”`. */
+  readonly text?: string;
+}
+
+/** What `marks.quote` made: the block, where it went, and the undo step that takes it back (`extensions.undo`). */
+export interface MarkQuoteReceipt {
+  readonly block: Block;
+  readonly placement: NotePlacement;
+  readonly marks: readonly string[];
+  readonly undo?: string;
 }
 
 export interface AnnotationLifecycleInput {
@@ -2256,6 +2280,16 @@ export type OutlinerRequestAction =
       id: string;
       action: "annotations.lifecycle";
       input: AnnotationLifecycleInput;
+      mutation: MutationProvenance;
+    }
+  /**
+   * Quote marks into a new block (the margin's "quote-tweet"): each mark transcluded (`!((mark))`) under one
+   * `[from::((mark))]` line, placed by `input.place`; each mark then lists it as `quotedIn`. One write, one undo step.
+   */
+  | {
+      id: string;
+      action: "marks.quote";
+      input: MarkQuoteInput;
       mutation: MutationProvenance;
     }
   | {

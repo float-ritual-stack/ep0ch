@@ -1818,8 +1818,8 @@ in the lanes comments in the preview.
 
 A comment mark in a reader's margin (`▐`, yellow while open, dim once resolved) expands its thread under
 the passage it quotes, by `⏎` on it (it's one of the `[ ]` elements) or a click. The thread shows who
-and when, open or resolved, the comment and its replies, and three controls: **Select**, **Reply**, and
-**Resolve** (**Reopen** once resolved). The quoted lines are highlighted while it's open. `⏎` or a click
+and when, open or resolved, the comment and its replies, and four controls: **Select**, **Reply**,
+**Resolve** (**Reopen** once resolved) and **Quote**. The quoted lines are highlighted while it's open. `⏎` or a click
 on the mark again collapses it. Open threads stay open as the note refreshes; another note starts with
 none open.
 
@@ -1830,7 +1830,13 @@ none open.
   `Ctrl+S` sends it and you're back reading, the thread still open with your reply in it; `Esc` comes back
   without sending.
 - **Resolve** / **Reopen** sets the thread's lifecycle, as `x` in the list does.
-- **Agents** use `threads`, `reply` and `resolve` on an expanded thread as on any other. Which threads are
+- **Quote** (on the thread, and on each reply) quotes that mark into a block of its own, the margin's
+  quote-tweet: the power bar asks where (the Inbox, under this note, or type to find any note) and the new
+  block transcludes the mark under a `[from::((mark))]` back-link. The mark stays; its thread then says
+  **quoted in** the new block on a line of its own (`⏎` or a click opens it). `Ctrl+Z` in the reader takes
+  the quote back. In the thread list (`m`), `q` quotes the current thread and `space` picks several first.
+  A highlight is a mark too: expand it and Quote it. `act quote threads=<id>,<id> where=inbox|note|<block>`.
+- **Agents** use `threads`, `reply`, `resolve` and `quote` on an expanded thread as on any other. Which threads are
   expanded is your reading state: `thread.toggle` is yours only, an agent's `element.open` on a mark opens
   its own thread list without expanding anything, and on a control it's refused with the action to use.
 

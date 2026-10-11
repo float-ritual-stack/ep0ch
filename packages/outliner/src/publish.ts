@@ -35,6 +35,7 @@ import type {
   Block,
   BlockProperty,
   BlockReadCollection,
+  GotoSearchCollection,
   OutlinerServiceStatus,
   PageAddressResolution,
   ProjectedBlock,
@@ -391,7 +392,21 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-card.bare{display:none}
 .mg-card.bare.open{display:block}
 .mg-card.on{border-color:#5a6170}
-mark.ann[data-ann]{cursor:pointer}
+/* A card's own words select like a note's (highlight, comment, ask on them); its controls don't. */
+.mg-card .b{user-select:text;-webkit-user-select:text}
+.mg-card .quoted{font-size:12px;color:var(--dim);margin-top:.35rem}
+.mg-card .quoted a{color:var(--dim)}
+.mg-card .mg-nest>.mg-card{margin:.4rem 0 .2rem;position:static}
+.mg-card.picked{border-left-color:#8a7a4a}
+.mg-ui button.on{border-color:#8a7a4a;color:#e0d2a8}
+#mg-pick{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;gap:.4rem;justify-content:flex-end;padding:.5rem .75rem calc(.5rem + env(safe-area-inset-bottom));background:#1a1a19;border-top:1px solid var(--rule)}
+#mg-sheet .places{display:flex;gap:.4rem;flex-wrap:wrap;margin:0 0 .5rem}
+#mg-sheet input.mg-find{box-sizing:border-box;width:100%;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.4rem .5rem;margin:0 0 .4rem}
+#mg-sheet .found{max-height:10rem;overflow-y:auto;margin:0 0 .5rem}
+#mg-sheet .found button{display:block;width:100%;text-align:left;margin:.2rem 0;min-height:40px;line-height:1.3}
+#mg-toast a{color:var(--fg)}
+#mg-toast button{margin-left:.6rem;min-height:36px}
+mark.ann[data-ann],mark.ann[data-sub]{cursor:pointer}
 mark.ann.on{outline:1px solid #6a7180}
 .mg-whole h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2rem 0 .4rem}
 #mg-toast{position:fixed;left:1rem;right:1rem;bottom:5.5rem;z-index:12;max-width:30rem;margin:0 auto;background:#222220;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.55rem .9rem}
@@ -600,6 +615,8 @@ export class Publisher {
       locks: (properties) => blockPublishIntent(properties) === "never",
       generation: () => this.generation,
       changed: (since, ms) => this.changed(since, ms),
+      linkable: (ids, share) => this.linkableNotes(ids, share),
+      find: (query, near, share) => this.findNotes(query, near, share),
       log: this.log,
     });
   }
@@ -630,10 +647,12 @@ export class Publisher {
       })
       : await this.noteWithAnnotations(entry.blockId);
     if (!whole) return undefined;
-    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !isAnnotationBlock(block)) }).filter((row) => !row.locked);
+    // A mark's own page (its id is a page like any block's) shows the mark itself; the marks on it are its threads.
+    const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
+    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !mark(block)) }).filter((row) => !row.locked);
     const shown = new Set(rows.map((row) => row.block.id));
     const annotations = new Map(shownSubtree(whole)
-      .filter((row) => !row.locked && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
+      .filter((row) => !row.locked && row.block.id !== entry.blockId && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
       .map((row) => [row.block.id, row.block.parentId!] as const));
     const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
     if (!blocks[0]) return undefined;
@@ -1309,6 +1328,29 @@ export class Publisher {
     return titles;
   }
 
+  /**
+   * Notes a page may link to, each with its title and page address: none that's locked, and on a share none outside
+   * it (those are said, never named). For a mark's "quoted in".
+   */
+  private async linkableNotes(ids: readonly string[], share?: PageShare): Promise<{ id: string; title: string; href: string | null }[]> {
+    if (!ids.length) return [];
+    const base = share?.base ?? this.basePath;
+    const [locked, inside, titles] = await Promise.all([this.lockedIds(ids), share ? this.inScope(ids, share) : Promise.resolve(new Set(ids)), this.titles(ids)]);
+    return ids.map((id) => locked.has(id) ? { id, title: "a locked note", href: null }
+      : !inside.has(id) ? { id, title: "a note outside this link", href: null }
+        : { id, title: titles.get(id) || "a note", href: `${base}/p/${encodeURIComponent(id)}` });
+  }
+
+  /** The outline's notes by words (the service's one search), for a page that asks where something goes; locked and out-of-share ones left out. */
+  private async findNotes(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]> {
+    const found = await this.client.request<GotoSearchCollection>({ action: "tree.search", query, ...(near ? { contextBlockId: near } : {}) });
+    const ids = found.matches.map((match) => match.block.id);
+    const [locked, inside] = await Promise.all([this.lockedIds(ids), share ? this.inScope(ids, share) : Promise.resolve(new Set(ids))]);
+    return found.matches.filter((match) => !locked.has(match.block.id) && inside.has(match.block.id))
+      // Inside a share a note's path would name its ancestors outside it: only its title then.
+      .slice(0, 12).map((match) => ({ id: match.block.id, title: match.title, path: share ? "" : match.path }));
+  }
+
   /** How many notes each of `ids` holds (annotations aren't notes), a few reads at a time. */
   private async childCounts(ids: readonly string[]): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
@@ -1610,8 +1652,10 @@ export class Publisher {
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
       fields: ["text", "parent", "properties", "author", "revision"],
     });
-    const annotationRows = shownSubtree(whole).filter((row) => !row.locked && isAnnotationBlock(row.block));
-    const subtree = { ...whole, blocks: whole.blocks.filter((block) => !isAnnotationBlock(block)) };
+    // A mark's own page shows the mark (its id opens like any block's); the marks on it are drawn on its words.
+    const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
+    const annotationRows = shownSubtree(whole).filter((row) => !row.locked && mark(row.block));
+    const subtree = { ...whole, blocks: whole.blocks.filter((block) => !mark(block)) };
     const rows = shownSubtree(subtree).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
@@ -1836,6 +1880,14 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     for (const record of found) {
       files.unshift(record.value);
       body = body.slice(0, record.start) + `\u0003${found.length - files.length}\u0003` + body.slice(record.end);
+    }
+  }
+  // A quote's back-link (`[from::((mark))]`, marks.quote) is where it came from: drawn as `from <link>`, one line.
+  if (!options.keepProperties) {
+    const from = parsePropertyRecords(body).filter((record) => record.key === "from" && record.syntax === "bracket" && /^\(\([^()]+\)\)$/.test(record.value.trim())).reverse();
+    for (const record of from) {
+      const first = !from.some((other) => other.line === record.line && other.start < record.start);
+      body = body.slice(0, record.start) + `${first ? "from" : "·"} ${record.value.trim()}` + body.slice(record.end);
     }
   }
   if (!options.keepProperties) {

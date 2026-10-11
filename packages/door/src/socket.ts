@@ -73,13 +73,19 @@ export interface Comment {
   id: string; author: string; body: string; quote: string; at: number; open: boolean;
   /** Where the quote sits in the note's current text (UTF-16 offsets), when the service could place it. */
   start: number | null; end: number | null;
-  replies: { id: string; author: string; body: string; at: number }[];
+  replies: { id: string; author: string; body: string; at: number; quotedIn?: string[] }[];
   /**
    * Its own properties (ADR 0004 contract 6), open: `kind` (highlight, note, question…), `tags`, `color` (a theme
    * tone). A highlight is a thread with no body.
    */
   props?: Record<string, string[]>;
+  /** The blocks quoting it (`marks.quote`), oldest first: each holds `[from::((this))]`. */
+  quotedIn?: string[];
 }
+/** Where a quote of marks goes (`marks.quote`): the top of the Inbox, under the first mark's note, or under a block. */
+export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string };
+/** What `marks.quote` made: the block, where it went (in words too), and the undo step that takes it back. */
+export interface QuoteReceipt { block: { id: string; text: string }; placement: { parentId: string; said: string }; marks: string[]; undo?: string }
 /**
  * A passage to comment on: exact source text of the note, where it starts (UTF-16 offset), and the text around it
  * (outline-core passage.ts), so a comment on a note that moved on since lands where the words are, once.
@@ -952,6 +958,7 @@ export class SocketBoard implements Board {
     const text = (r: any) => String(r?.body ?? r?.block?.text ?? "").trim();
     const when = (r: any) => Date.parse(r?.block?.createdAt ?? r?.createdAt ?? "") || 0;
     const offset = (v: unknown) => (typeof v === "number" ? v : null);
+    const quoted = (r: any) => (Array.isArray(r?.quotedIn) && r.quotedIn.length ? { quotedIn: r.quotedIn.map(String) as string[] } : {});
     return threads.map(t => {
       // resolvedTarget follows the quote through later edits; null means the service lost it. A comment on a Resource
       // that this note's link opened (its reference context) is placed on that link here, not at the file's offsets.
@@ -961,8 +968,9 @@ export class SocketBoard implements Board {
         id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
         quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
         start: placed && at?.kind === "text-quote" ? offset(at.start) : null, end: placed && at?.kind === "text-quote" ? offset(at.end) : null,
-        replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r) })),
+        replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r), ...quoted(r) })),
         props: t.properties && typeof t.properties === "object" ? Object.fromEntries(Object.entries(t.properties).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).map(String)])) : {},
+        ...quoted(t),
       };
     }).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
   }
@@ -1015,6 +1023,16 @@ export class SocketBoard implements Board {
    * A thread read by the person (PIE-708): its comment and replies marked read, so they leave `unread:me` (Recent
    * replies' new ones). Bookkeeping: nothing in the thread changes, and repeating it is harmless.
    */
+  /**
+   * Quote marks (highlights, comments, replies) into a new block (`marks.quote`): each transcluded and linked back
+   * with `[from::((mark))]`, placed where `place` says, as `actor`. One write, one undo step (`undoExtension(undo)`).
+   */
+  quoteMarks(marks: string[], place: QuotePlace, actor: Actor = USER, text?: string): Promise<QuoteReceipt> {
+    // A block the person makes is theirs with no actor id (the service takes one only on an agent's), as a comment is.
+    const mutation = actor.kind === "agent" || actor.with?.length ? mutationFor(actor) : { author: "user" };
+    return this.request<QuoteReceipt>("marks.quote", { input: { marks, place, ...(text ? { text } : {}) }, mutation });
+  }
+
   async readThread(annotationId: string): Promise<{ thread: string; marked: number }> {
     return this.request("annotations.read", { annotationId });
   }

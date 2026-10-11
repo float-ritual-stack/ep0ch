@@ -36,9 +36,9 @@ describe("a thread inline, without a service", () => {
       await until(() => s.comments?.length === 1, "the comment");
       s.setExpanded(comment.id, true);
       const text = s.render(w, 40, h).lines.map(plain).join("\n");
-      for (const c of ["[Select]", "[Reply]", "[Resolve]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
+      for (const c of ["[Select]", "[Reply]", "[Resolve]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
       const controls = s.describeElements().filter(e => e.kind === "control");
-      expect(controls.map(e => e.control)).toEqual(["select", "reply", "resolve"]);
+      expect(controls.map(e => e.control)).toEqual(["select", "reply", "resolve", "quote"]);
     }
   });
 });
