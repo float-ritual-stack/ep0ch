@@ -79,6 +79,13 @@ try{
  assert.match(await page.locator('#source-editor').inputValue(),/My draft must remain/);
  await page.click('[data-act="cancel-edit"]');await page.waitForSelector('.stale-warning');
  proof('Another client’s source edit arrives live; a stale save refuses and keeps the entire open draft.');
+ // Frozen text does not imply frozen live grouping: expose the contextual drift.
+ const membershipBefore=await read(old.id),frozenBefore=(await state()).score.cues.find(c=>c.id===stale.selectedCue);
+ await second.evaluate(async({id,text,revision})=>{const r=await fetch('/api/source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,text:text.replace('[voice::Sol]','[voice::A new witness]'),revision})});if(!r.ok)throw new Error(await r.text());},{id:old.id,text:membershipBefore.text,revision:membershipBefore.revision});
+ await page.bringToFront();await page.waitForFunction(id=>window.counterpoint.getState().notes.find(n=>n.id===id).voice==='A new witness',old.id);
+ assert.equal((await state()).score.cues.find(c=>c.id===stale.selectedCue).body,frozenBefore.body);
+ assert.match(await page.locator('#group-caption').innerText(),/live source properties/);
+ proof('Changing a source property changes the live voice while the cue keeps frozen words; the UI names this contextual drift.');
  // Capture writes a real block, then a score survives browser reload.
  await page.click('[data-act="capture"]');await page.fill('#capture-text','The evidence changed while the earlier account stayed audible.');
  const captureDownload=page.waitForEvent('download');await page.locator('#capture-form button[type="submit"]').click();

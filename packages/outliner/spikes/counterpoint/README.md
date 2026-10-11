@@ -43,7 +43,7 @@ Then open `http://localhost:4318` on the laptop. The portable HTML is simpler if
 
 ## A five-minute rehearsal
 
-1. **Play.** Each property group supplies a voice. Pitch follows a stable hash of its name; pan follows its position among groups. Cue position sets onset, duration sets sustain, and the level is yours. This is sonification of arrangement, not semantic analysis or speech synthesis.
+1. **Play.** Each property group supplies a voice. Pitch follows a stable hash of its name; pan follows its position among groups. Cue position sets onset, duration sets sustain, and the level is yours. This is sonification of arrangement, not semantic analysis or speech synthesis. In the connected instrument, groups follow live source properties even when a cue keeps old words; the portable file freezes both.
 2. **Move a passage.** Drag a cue horizontally, or change its start and duration in the reader. Overlaps stack. Mute and solo voices, seek, change tempo, or loop a range. Undo is Ctrl/⌘ Z. “Read backwards” reverses placement while preserving sources.
 3. **Follow the references.** In Crossings, a line is an authored reference returned by the service. Select “Keep the arrangement, not the verdict,” then **Read this thread**: a deterministic traversal makes a score from its cited ancestors. It visits cycles once. Undo returns to your earlier reading.
 4. **Hold two accounts.** Select “Automatic company,” choose **Hold beside**, then select “An answer too quickly.” The Listening desk keeps both, separately addressable. Playback changes the current passages without changing your selection or held account.
@@ -59,7 +59,7 @@ The three views also have URLs: `?variant=score`, `?variant=loom`, `?variant=des
 - `OutlineHost` and `OutlinerClient`: the real outline and existing protocol check. No new wire action or protocol/schema change.
 - `blocks.query`: property filtering, grouping, facets, ordering and query refusal. No property catalog hard-coded into the controls.
 - `blocks.records`: `BlockRecord` from outline-core, with canonical identities, properties, authored links and revisions. No new reference parser or ranker.
-- The publisher's `renderMarkdownHtml`: source reading and the current-revision listening cards. Older frozen text can also be inspected verbatim.
+- The publisher's `renderMarkdownHtml` and callout styling: source reading and the current-revision listening cards. Older frozen text can also be inspected verbatim.
 - `create` and revision-checked `update`: seeded sources, arrangement notes and captured readings. Seed writes say `agent / counterpoint-seed`; reader actions say `user`.
 
 The experimental parts are the cue model, browser layout, local action dispatcher, WebAudio mapping, and the portable snapshot. This deliberately builds a new browser surface and a plain textarea source editor. It does **not** pretend to inherit the terminal door’s `ActionSet`, `NoteSurface`, draft leases, undo semantics or agent-focus guarantees. An in-page `window.counterpoint.act(name, args)` drives the same actions as the controls; `getState()` exposes state for inspection and browser verification. It is a rehearsal API, not an authenticated agent endpoint.

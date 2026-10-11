@@ -124,6 +124,7 @@ function renderState(){
 }
 function render(){
  renderLibrary();const labels={score:['01 / THE SCORE','A conversation in four voices'],loom:['02 / AUTHORED CROSSINGS','Every line has a reason'],desk:['03 / THE LISTENING DESK','Stay with the disagreement']};
+ $('group-caption').textContent=portable?'Groups captured with this file.':'Groups follow live source properties.';
  $('view-kicker').textContent=labels[view][0]!;$('view-title').textContent=view==='score'?`A conversation in ${groups().length} voices`:labels[view][1]!;
  document.querySelectorAll<HTMLButtonElement>('[data-act="view"]').forEach(b=>b.classList.toggle('selected',b.dataset.view===view));
  const select=$<HTMLSelectElement>('group');select.innerHTML=data.facets.map(f=>`<option value="${escape(f.key)}" ${score.group===f.key?'selected':''}>${escape(f.key)}</option>`).join('');

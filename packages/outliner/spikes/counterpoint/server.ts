@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { OutlineHost } from '../../src/outline-host';
 import { OutlinerClient } from '../../src/client';
 import { renderMarkdownHtml } from '../../src/publish';
+import { CALLOUT_STYLE } from '../../src/publish-callouts';
 import type { Block, VisibleBlockCollection } from '../../src/types';
 import type { BlockRecord } from '@ep0ch/outline-core/block-record';
 import type { BlockRecordRead } from '../../src/block-records';
@@ -42,7 +43,7 @@ try {
  if(!bundled.success)throw new Error(bundled.logs.join('\n'));
  const js=await bundled.outputs[0]!.text();
  const page=readFileSync(join(import.meta.dir,'index.html'),'utf8');
- const css=readFileSync(join(import.meta.dir,'style.css'),'utf8');
+ const css=readFileSync(join(import.meta.dir,'style.css'),'utf8')+'\n'+CALLOUT_STYLE;
  server=Bun.serve({hostname:'127.0.0.1',port:Number(process.env.COUNTERPOINT_PORT),async fetch(req){
    const url=new URL(req.url);
    // A local instrument, not a publisher. No wildcard CORS or arbitrary RPC proxy.
