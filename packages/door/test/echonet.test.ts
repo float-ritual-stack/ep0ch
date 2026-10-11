@@ -218,4 +218,23 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     await eventually(async () => (await unread(cafe, "type=cafe-post", "test-agent")).length === 0, "the agent's mark");
     expect(await unread(cafe, "type=cafe-post")).toEqual([ids.cafePost]);
   });
+
+  test("a copy's SEEN-BY names the nodes marked on its original, read from the origin on the same host", async () => {
+    const here = areas().machine, post = (await cafe.get(ids.cafePost))!;
+    await cafe.request("annotations.batch", {
+      requestId: "seen-attic", author: "agent", provenance: { actorId: "echo-tosser" },
+      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision, source: "agent", body: "also in: attic@box-c (Cafe chat)", properties: { kind: "echo-seen-by", "echo.node": "attic@box-c" } } }],
+    });
+    const sub = await shack.createBlock(null, `Cafe, nearby [type::echo-sub] [subscribe::cafe@${here}] [echo::cafe.near]`);
+    await shack.createBlock(sub.id, `Open mic on Friday [from::cafe@${here}/${post.id}] [echo::cafe.near] [from-rev::1] [tossed::2026-10-11T06:00:00Z]\nBring a song.`, { kind: "agent", id: "echo-tosser" });
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.reload", as: "test-agent" });
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.area", args: { tag: "cafe.near" }, as: "test-agent" });
+    await until(() => list().area?.tag === "cafe.near" && list().items?.length === 1, "the nearby copy listed");
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.message", args: { n: 1, read: true }, as: "test-agent" });
+    await until(() => screen().includes(`SEEN-BY: cafe@${here} shack@${here} attic@box-c`), "SEEN-BY with the origin's mark", 8000);
+    expect(screen()).toContain(`From : cafe@${here} · `);
+  });
 });

@@ -26,7 +26,7 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
 import { densest, drawLogo, logoCells } from "../hub/welcome";
 import {
-  areaOf, AREAS_QUERY, footerOf, headerOf, inArrivalOrder, messageFrom, nodelistLines, NODELIST_QUERY, nodeName, nodesOf, seenByMarks, tossesQuery, tossOf, unreadOf, arrived,
+  areaOf, AREAS_QUERY, parseFrom, footerOf, headerOf, inArrivalOrder, messageFrom, nodelistLines, NODELIST_QUERY, nodeName, nodesOf, seenByMarks, tossesQuery, tossOf, unreadOf, arrived,
   type Area, type Message, type NodeEntry, type TossLog,
 } from "./net";
 
@@ -113,6 +113,12 @@ export class EchoAreas implements Pane {
 
   /** The board an area is read on, and a ctx on it for the reader. */
   boardOf(a: Area): SocketBoard { return this.boards.get(a.outline) ?? this.desk!.ctx.board; }
+  /** The board of a node on this door's host (`outline@machine`), or null: another machine's, or one it doesn't read. */
+  boardOfNode(node: string): SocketBoard | null {
+    const [outline, machine] = node.split("@");
+    if (!outline || machine !== this.machine || !this.desk) return null;
+    return outline === this.own ? this.desk.ctx.board : this.boards.get(outline) ?? null;
+  }
   ctxOf(a: Area, desk: DeskApi): Ctx { return ctxOn(desk.ctx, this.boardOf(a), a.outline); }
 
   /** The outlines on the door's host, its own first; a door on a single-outline service has only its own. */
@@ -492,10 +498,27 @@ export class EchoReader extends ReaderPane {
         return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${m.author ?? "?"} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · ] [ back to the list`]).map(paint);
       },
       // SEEN-BY names the nodes the tosser's seen-by marks on it name, once its threads are read.
-      footer: (m: Msg, w: number) => (this.list.some(x => x.msg.id === m.id) ? footerOf(m, a, w, this.msg?.id === m.id ? seenByMarks(this.surface.comments ?? []) : []).map(paint) : []),
+      footer: (m: Msg, w: number) => (this.list.some(x => x.msg.id === m.id) ? footerOf(m, a, w, this.msg?.id === m.id ? this.seen(m, desk) : []).map(paint) : []),
       ownKeys: "[]rq",
     };
     return h;
+  }
+
+  /** The seen-by marks on a copy's original, by the copy's id, read from its origin's outline (null while asked). */
+  private originMarks = new Map<string, string[] | null>();
+  /**
+   * The nodes a message's seen-by marks name: an original's own (its threads, read with the note); a copy's are on its
+   * original, read from the origin when this door reaches it (the same host), once per copy.
+   */
+  private seen(m: Msg, desk: DeskApi): string[] {
+    const from = parseFrom(m.props.from);
+    if (!from) return seenByMarks(this.surface.comments ?? []);
+    const had = this.originMarks.get(m.id);
+    if (had !== undefined) return had ?? [];
+    const b = this.net?.boardOfNode(from.node);
+    this.originMarks.set(m.id, b ? null : []);
+    if (b) b.comments(from.id).then(t => { this.originMarks.set(m.id, seenByMarks(t)); desk.redraw(); }, () => this.originMarks.set(m.id, []));
+    return [];
   }
 
   /** The area's messages were read again: ] [ step through the new list, from the message shown. */

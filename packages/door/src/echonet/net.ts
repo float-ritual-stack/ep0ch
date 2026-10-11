@@ -196,10 +196,10 @@ export function nodesOf(text: string): NodeEntry[] {
 }
 
 /** One toss, from its log's properties: when, by which node, and what it carried. */
-export interface TossLog { at: number | null; node: string; copies: number; updated: number; netmailOut: number; netmailIn: number; queued: number }
+export interface TossLog { at: number | null; node: string; copies: number; updated: number; netmailOut: number; netmailIn: number; queued: number; failed: boolean }
 export function tossOf(m: Msg): TossLog {
   const n = (k: string) => Number(m.props[k] ?? 0) || 0, at = Date.parse(m.props.at ?? "");
-  return { at: Number.isFinite(at) ? at : null, node: m.props.node ?? "?", copies: n("copies"), updated: n("updated"), netmailOut: n("netmail-out"), netmailIn: n("netmail-in"), queued: n("queued") };
+  return { at: Number.isFinite(at) ? at : null, node: m.props.node ?? "?", copies: n("copies"), updated: n("updated"), netmailOut: n("netmail-out"), netmailIn: n("netmail-in"), queued: n("queued"), failed: m.props.failed === "yes" };
 }
 
 /**
@@ -221,6 +221,6 @@ export function nodelistLines(title: string, nodes: readonly NodeEntry[], tosses
       return `|08,|15${String(i + 1).padStart(2)}|08,|11${n.node.padEnd(nodeW)}|08,${status}|08,|07${(n.lastToss ? bbsDate(n.lastToss) : "never").padEnd(16)}|08,|05${n.access.padEnd(7)}|08,|03${n.areas.map(a => a.toUpperCase()).join(" ") || "-"}${n.why ? ` |08; ${n.why}` : ""}`;
     }),
     ...(nodes.length ? [] : ["|08;  (no nodes in it yet: the tosser writes them at its next toss)"]),
-    ...(tosses.length ? ["|08;", "|08;S last tosses", ...tosses.map(t => `|08;  ${t.at ? bbsDate(t.at) : "?"} |07${t.node} |08copies |07${t.copies}|08 newer |07${t.updated}|08 netmail |07${t.netmailOut}|08 out |07${t.netmailIn}|08 in${t.queued ? ` |14${t.queued} queued` : ""}`)] : []),
+    ...(tosses.length ? ["|08;", "|08;S last tosses", ...tosses.map(t => t.failed ? `|08;  ${t.at ? bbsDate(t.at) : "?"} |07${t.node} |12stopped |08(its log says why)` : `|08;  ${t.at ? bbsDate(t.at) : "?"} |07${t.node} |08copies |07${t.copies}|08 newer |07${t.updated}|08 netmail |07${t.netmailOut}|08 out |07${t.netmailIn}|08 in${t.queued ? ` |14${t.queued} queued` : ""}`)] : []),
   ];
 }
