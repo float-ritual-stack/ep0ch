@@ -455,14 +455,14 @@ type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { movi
 type ComposerMove = { dx?: number; dy?: number; col?: number; row?: number; dcols?: number; drows?: number; cols?: number; rows?: number; reset?: boolean };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
 interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
-type AskMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { ask: LeaveAsk; describe(): { asking: string; then: string; choices: string[] } };
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
 export type LeaveChoice = "save" | "keep" | "discard";
-const LEAVE_CHOICES: { choice: LeaveChoice; key: string; label: string }[] = [
-  { choice: "save", key: "s", label: "save and continue" },
-  { choice: "keep", key: "k", label: "keep writing" },
-  { choice: "discard", key: "d", label: "discard" },
-];
+/** How the power bar says each answer (src/bar/ask.ts asks it). */
+const LEAVE_SAYS: Record<LeaveChoice, string> = {
+  save: "save and continue (kept unsent: C and the passage bring it back)",
+  keep: "keep writing",
+  discard: "discard (a copy stays on disk)",
+};
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
@@ -645,8 +645,8 @@ export class NoteSurface {
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
-  /** The "about to leave an unsent comment" choice's chips, where the last paint drew them (in the reader's cells). */
-  private askChips: { row: number; from: number; to: number; choice: LeaveChoice }[] = [];
+  /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
+  private leaving: LeaveAsk | null = null;
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
   private draftSelecting: Promise<void> | null = null;
   /** The last press in a draft was a shift+click (it extended the selection). */
@@ -684,7 +684,7 @@ export class NoteSurface {
   }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
-  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); this.modes.drop("ask"); this.frameDrag = null; this.boxRect = null; } }
+  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); this.leaving = null; this.frameDrag = null; this.boxRect = null; } }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
@@ -922,39 +922,7 @@ export class NoteSurface {
     this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing();
-    const v = writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
-    return this.modes.get("ask") ? this.overAsk(v, w, h) : v;
-  }
-
-  /**
-   * The "about to leave an unsent comment" choice (PIE-785), in a small box over the reader's middle: save and continue,
-   * keep writing, discard, each a chip a click chooses (and its key).
-   */
-  private overAsk(v: SurfaceView, w: number, h: number): SurfaceView {
-    const a = (this.modes.get("ask") as AskMode).ask, lines = [...v.lines];
-    const chips: { choice: LeaveChoice; text: string }[] = LEAVE_CHOICES.map(c => ({ choice: c.choice, text: `[${c.key} ${c.label}]` }));
-    const row1 = chips.map(c => c.text).join(" ");
-    const title = `about to leave an unsent ${a.what}`;
-    const iw = Math.min(w - 2, Math.max(width(row1), title.length) + 2);
-    if (iw < 12) { this.askChips = []; return v; }
-    const edge = fg(C.yellow);
-    // ⏎'s choice (save and continue) in white, the others in the chips' cyan.
-    const shown = chips.map(c => (c.choice === "save" ? fg(C.white) : fg(C.lcyan)) + c.text + RESET).join(" ");
-    const box = [
-      edge + "┌" + "─".repeat(iw) + "┐" + RESET,
-      edge + "│" + RESET + pad(" " + fg(C.yellow) + title + RESET, iw) + edge + "│" + RESET,
-      edge + "│" + RESET + pad(" " + shown, iw) + edge + "│" + RESET,
-      edge + "│" + RESET + pad(" " + fg(C.dark) + "⏎ saves and goes on · esc keeps writing" + RESET, iw) + edge + "│" + RESET,
-      edge + "└" + "─".repeat(iw) + "┘" + RESET,
-    ];
-    const room = Math.max(lines.length, h);
-    const top = Math.max(0, Math.floor((room - box.length) / 2)), col = Math.max(0, Math.floor((w - iw - 2) / 2));
-    overlayBox(lines, box, top, col, w);
-    this.askChips = [];
-    let x = col + 2;
-    for (const c of chips) { this.askChips.push({ row: top + 2, from: x, to: x + c.text.length, choice: c.choice }); x += c.text.length + 1; }
-    const under = (p: Placement) => p.row < top + box.length && p.row + p.rows > top && p.col < col + iw + 2 && p.col + p.cols > col;
-    return { ...v, lines, placements: (v.placements ?? []).filter(p => !under(p)) };
+    return writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
   }
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
@@ -2609,11 +2577,12 @@ export class NoteSurface {
   }
 
   /**
-   * The person asked to go elsewhere (`name` with `args`) while a comment of theirs is unsent here (PIE-785): ask, save
-   * and continue / keep writing / discard, instead of refusing. Null when there's nothing to ask (no comment written,
-   * or `actor` is an agent: an agent's action never asks the person, and never takes their keys).
+   * The person asked to go elsewhere (`name` with `args`) while a comment of theirs is unsent here (PIE-785): asked in
+   * the power bar (src/bar/ask.ts) instead of refused: save and continue / keep writing / discard; putting the bar away
+   * keeps writing. Null when there's nothing to ask (no comment written, or `actor` is an agent: an agent's action never
+   * asks the person, and never takes their keys).
    */
-  askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): { asking: string } | null {
+  async askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): Promise<unknown> {
     const cs = this.session;
     if (actor.kind === "agent" || !cs || cs.mode !== "compose" || !cs.writing) return null;
     // Nothing typed yet: nothing to lose, so it closes and the reader goes.
@@ -2621,9 +2590,15 @@ export class NoteSurface {
     if (cs.busy) throw new ActionRefused(`${cs.busy} · wait for it to land`);
     const what = cs.target?.kind === "reply" ? "reply" : cs.props?.kind === "question" ? "question" : "comment";
     this.modes.drop("grip");
-    this.modes.push(this.askMode({ what, name, args, ...(elem ? { elem } : {}) }, cs));
-    host.redraw();
-    return { asking: `about to leave an unsent ${what}` };
+    this.leaving = { what, name, args, ...(elem ? { elem } : {}) };
+    const choices: LeaveChoice[] = ["save", "keep", "discard"];
+    return askInBar(host.ctx as never, `about to leave an unsent ${what}`, [{
+      name: "choice", type: "choice", label: "what happens to it", choices, says: LEAVE_SAYS,
+      description: "Save and continue keeps it as unsent where it was written (C and the passage bring it back) and goes; keep writing goes back to it; discard lets it go (a copy stays on disk) and goes. Esc keeps writing.",
+    }], {}, actor, answers => {
+      if (!answers.choice) throw new ActionRefused(`the ${what} isn't sent · ctrl+s sends it, esc twice puts it aside`);
+      return this.runKey("comment.leaving", { choice: answers.choice }, host);
+    });
   }
 
   /**
@@ -2632,11 +2607,10 @@ export class NoteSurface {
    * and goes.
    */
   async answerLeave(choice: LeaveChoice, host: SurfaceHost): Promise<{ choice: LeaveChoice; said?: string; then?: unknown }> {
-    const m = this.modes.get("ask") as AskMode | null;
-    if (!m) throw new ActionRefused("nothing is being asked here: the choice comes up when you follow a link while a comment is unsent");
-    this.modes.drop("ask");
-    const cs = this.session, w = cs?.writing;
-    if (choice === "keep" || !cs || !w) { this.revealComposer = true; host.redraw(); return { choice }; }
+    const ask = this.leaving, cs = this.session, w = cs?.writing;
+    if (!ask || !cs || cs.mode !== "compose" || !w) throw new ActionRefused("nothing is being asked here: the choice comes up when you follow a link while a comment is unsent");
+    this.leaving = null;
+    if (choice === "keep") { this.revealComposer = true; host.redraw(); return { choice }; }
     let said: string | undefined;
     if (choice === "save") { const r = await w.leave(USER); said = leaveSaid(r) ?? undefined; }
     else said = w.discard().said;
@@ -2644,41 +2618,10 @@ export class NoteSurface {
     host.redraw();
     if (said) host.ctx.flash(said, 8000);
     // An element is found again by its key: what's drawn above it may have changed (the kept comment's line).
-    const n = m.ask.elem ? this.elems.findIndex(e => e.key === m.ask.elem) + 1 : 0;
-    if (m.ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
-    const then = await this.runKey(m.ask.name, (n ? { ...m.ask.args, n } : m.ask.args) as never, host);
+    const n = ask.elem ? this.elems.findIndex(e => e.key === ask.elem) + 1 : 0;
+    if (ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
+    const then = await this.runKey(ask.name, (n ? { ...ask.args, n } : ask.args) as never, host);
     return { choice, ...(said ? { said } : {}), then };
-  }
-
-  /** The choice the person is asked before leaving an unsent comment (PIE-785): its keys and its chips take theirs. */
-  private askMode(ask: LeaveAsk, cs: CommentSession): AskMode {
-    const pick = (c: LeaveChoice, host: SurfaceHost) => void this.runKey("comment.leaving", { choice: c }, host, true);
-    return {
-      name: "ask", of: ask, ask, holdsKeys: true, word: "unsent comment choice",
-      editing: () => true, covers: () => false,
-      // (The session closing drops it too: `session = null`.)
-      ended: () => cs.mode !== "compose",
-      key: (k, host) => {
-        const c = ch(k);
-        const hit = LEAVE_CHOICES.find(x => x.key === c);
-        if (hit) pick(hit.choice, host);
-        else if (k.kind === "enter") pick("save", host);
-        else if (k.kind === "esc") pick("keep", host);
-        return true;
-      },
-      click: (x, y, host) => {
-        const at = y + (this.drawn?.heroRows ?? 0);
-        const c = this.askChips.find(a => a.row === at && x >= a.from && x < a.to);
-        if (c) pick(c.choice, host);
-        return true;
-      },
-      press: () => true,
-      rows: () => null,
-      leave: async () => { this.modes.drop("ask"); return { left: "nothing" }; },
-      hint: () => "s save and continue · k keep writing · d discard · ⏎ save and continue · esc keep writing",
-      state: () => `leaving an unsent ${ask.what}?`,
-      describe: () => ({ asking: `about to leave an unsent ${ask.what}`, then: ask.name, choices: LEAVE_CHOICES.map(c => c.choice) }),
-    };
   }
 
   /** ctrl+g in a comment being written: its box floats, and the arrows move it and shift+arrows size it until ⏎ or esc (PIE-785). */
@@ -6062,7 +6005,7 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
   if (actor.kind === "agent" && host.history) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
-  const asked = surface.askLeave(word, {}, actor, host);
+  const asked = await surface.askLeave(word, {}, actor, host);
   if (asked) return asked;
   const why = await surface.travel(dir, host);
   if (why) throw new ActionRefused(why);
@@ -6323,7 +6266,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, fresh }, { surface, host }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
-      const asked = surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
+      const asked = await surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
       if (asked) return asked;
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
       if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
@@ -6390,7 +6333,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
       if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
-        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
+        const asked = await surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
       // A step's box opens the person's status choice; an agent sets the status itself.
@@ -6745,7 +6688,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.leaving": def({
     summary: "answer \"about to leave an unsent comment\" (PIE-785), asked when the person follows a link, a comment mark, back or forward while their comment is unsent: save keeps it as unsent where it was written (opening it again brings it back) and goes on; keep goes back to writing; discard lets it go (a copy stays on disk) and goes on. The person's choice: an agent's action never asks it",
-    keys: "s, k (esc), d, ⏎; a click on a chip",
+    keys: "the power bar's rows (⏎ or a click), esc keeps writing",
     touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
     args: { choice: { type: "string", about: "save, keep or discard" } },
     run({ choice }, { surface, host }) {

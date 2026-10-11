@@ -172,17 +172,18 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     // An agent's follow never asks the person (and doesn't move their reader).
     await expect(app.act({ action: "link.follow", tile: name, args: { n: 1 }, as: "tidy" })).rejects.toThrow();
     expect(rd.surface.state()).toBe("writing · unsent");
-    // The person's: asked. k keeps writing.
-    expect(await D().dispatch.press("link.follow", { n: 1 }, name)).toMatchObject({ asking: "about to leave an unsent comment" });
-    D().render(D().ctx);
-    expect(rd.surface.state()).toBe("leaving an unsent comment?");
-    key(char("k"));
-    await until(() => rd.surface.state() !== "leaving an unsent comment?", "back to writing");
+    // The person's: asked in the power bar. "keep writing" (typed to find it, ⏎) goes back to it; esc there would too.
+    expect(await D().dispatch.press("link.follow", { n: 1 }, name)).toMatchObject({ asking: "choice", action: "about to leave an unsent comment" });
+    await until(() => !!app.bar, "the power bar asking");
+    type("keep"); key({ kind: "enter" });
+    await until(() => rd.msg?.id === id && D().nameOf(D().focus) === name, "back to writing");
+    expect(rd.surface.session?.mode).toBe("compose");
     type(" Clay");
     expect(rd.surface.session?.composer?.text).toBe("Which pots? Clay");
     // Asked again, s: kept as unsent, and the reader goes where the link goes.
     await D().dispatch.press("link.follow", { n: 1 }, name);
-    key(char("s"));
+    await until(() => !!app.bar, "asked again");
+    key({ kind: "enter" });                                             // the first row: save and continue
     await until(() => rd.msg?.id === shed, "the reader on the linked note");
     expect(rd.surface.session).toBeNull();
     expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
@@ -194,7 +195,8 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     await until(() => !!rd.surface.session?.composer, "a second composer");
     type("Never mind");
     await D().dispatch.press("back", {}, name);
-    key(char("d"));
+    await until(() => !!app.bar, "asked on the shed");
+    type("discard"); key({ kind: "enter" });
     await until(() => rd.msg?.id === id, "back on the figs");
     expect(unsent(`comment:${shed}`)).toBeNull();
     expect(await board.comments(shed)).toEqual([]);
