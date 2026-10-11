@@ -690,7 +690,7 @@ export class Publisher {
   }
 
   /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
-  private hostAllowed(header: string | null, audience: PublishAudience): boolean {
+  hostAllowed(header: string | null, audience: PublishAudience): boolean {
     if (!header) return false;
     let host: string;
     try {

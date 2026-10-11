@@ -199,6 +199,8 @@ test("a sign-in through Clerk lands on the page asked for, with a 30-day HttpOnl
   const tailnet = await web.handle(new Request(`https://${TAILNET}/pub/o/orchard/`, { headers: { host: TAILNET, ...html } }));
   expect(tailnet.status).toBe(200);
   expect(await tailnet.text()).toContain("Pruning plan");
+  // …under its own names only: another Host gets no list of outlines.
+  expect((await web.handle(new Request("https://rebound.example/pub/o/", { headers: { host: "rebound.example", ...html } }))).status).toBe(421);
 });
 
 test("a write needs this origin as well as the session; a comment from the page lands as the person's", async () => {
@@ -288,8 +290,10 @@ test("a sign-in that didn't start in this browser, or whose ID token is for anot
   const unbound = await signIn(gate, "/pub/", { bindCookie: false });
   expect(unbound.response.status).toBe(400);
   expect(unbound.cookie).toBeUndefined();
-  fake.nonce = "wrong";
-  try { expect((await signIn(gate)).response.status).toBe(401); } finally { delete fake.nonce; }
+  for (const nonce of ["wrong", "drop"] as const) {
+    fake.nonce = nonce;
+    try { expect((await signIn(gate)).response.status).toBe(401); } finally { delete fake.nonce; }
+  }
   fake.aud = "someone-elses-client";
   try { expect((await signIn(gate)).response.status).toBe(401); } finally { delete fake.aud; }
   // A state nobody started.

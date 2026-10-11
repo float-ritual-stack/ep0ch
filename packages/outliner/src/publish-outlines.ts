@@ -34,6 +34,10 @@ export class OutlinePublishers {
   /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline. */
   async handle(request: Request, audience: PublishAudience = "tailnet", signedIn?: SignedIn): Promise<Response> {
     if (audience !== "tailnet") return this.options.home.handle(request, audience, undefined, signedIn);
+    // The tailnet's Host rule, before anything is listed (the sign-in listener checked its own name).
+    if (!signedIn && !this.options.home.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
+      return new Response("Host not allowed\n", { status: 421, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
     const root = this.webRoot;
     const pathname = new URL(request.url).pathname;
     const below = root && (pathname === root || pathname.startsWith(`${root}/`)) ? pathname.slice(root.length) : root ? null : pathname;

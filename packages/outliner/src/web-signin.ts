@@ -23,7 +23,6 @@ export const SESSION_COOKIE = "__Host-ep0ch_session";
 const PENDING_COOKIE = "__Host-ep0ch_signin";
 /** How long a sign-in may take between leaving for Clerk and coming back. */
 const PENDING_MS = 10 * 60_000;
-const MAX_PENDING = 64;
 const CALLBACK = "/signin/callback";
 
 export interface SignInSettings {
@@ -58,7 +57,20 @@ export function signInSettings(env: Record<string, string | undefined>, origin: 
 }
 
 interface Discovery { authorization_endpoint: string; token_endpoint: string; jwks_uri: string }
-interface Pending { binding: string; verifier: string; nonce: string; next: string; at: number }
+/**
+ * A sign-in on its way, kept in the browser that started it (an HttpOnly `__Host-` cookie no other site can set or
+ * read), not here: nothing a stranger asks for can crowd out the owner's sign-in. `state` must come back from Clerk.
+ */
+interface Pending { state: string; verifier: string; nonce: string; next: string; at: number }
+
+function readPending(value: string | undefined): Pending | undefined {
+  if (!value || value.length > 4096) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<Pending>;
+    const strings = [parsed.state, parsed.verifier, parsed.nonce, parsed.next].every((v) => typeof v === "string" && v.length > 0);
+    return strings && typeof parsed.at === "number" ? parsed as Pending : undefined;
+  } catch { return undefined; }
+}
 
 export interface SignInGateOptions {
   settings: SignInSettings;
@@ -107,7 +119,6 @@ function safeNext(value: string | null, home: string): string {
 
 export class SignInGate {
   private readonly settings: SignInSettings;
-  private readonly pending = new Map<string, Pending>();
   private discovery: Promise<Discovery> | null = null;
   private keys: JWTVerifyGetKey | undefined;
   private readonly fetch: typeof fetch;
@@ -191,21 +202,18 @@ export class SignInGate {
     return this.discovery;
   }
 
-  /** Off to Clerk: a fresh state, verifier and nonce, the state bound to this browser by a short cookie. */
+  /** Off to Clerk: a fresh state, verifier and nonce, kept in this browser by a short cookie. */
   private async start(next: string | null): Promise<Response> {
     const { authorization_endpoint } = await this.discover();
-    const now = this.now();
-    for (const [state, pending] of this.pending) if (now - pending.at > PENDING_MS) this.pending.delete(state);
-    while (this.pending.size >= MAX_PENDING) this.pending.delete(this.pending.keys().next().value!);
-    const state = random(), binding = random(), verifier = random(), nonce = random();
-    this.pending.set(state, { binding, verifier, nonce, next: safeNext(next, this.settings.home), at: now });
+    const pending: Pending = { state: random(), verifier: random(), nonce: random(), next: safeNext(next, this.settings.home), at: this.now() };
+    const { state, verifier, nonce } = pending;
     const target = new URL(authorization_endpoint);
     target.search = new URLSearchParams({
       response_type: "code", client_id: this.settings.clientId, redirect_uri: `${this.settings.origin}${CALLBACK}`,
       scope: "openid profile email", state, nonce,
       code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
     }).toString();
-    return redirect(target.href, [this.cookie(PENDING_COOKIE, binding, PENDING_MS / 1000)]);
+    return redirect(target.href, [this.cookie(PENDING_COOKIE, Buffer.from(JSON.stringify(pending)).toString("base64url"), PENDING_MS / 1000)]);
   }
 
   /** Back from Clerk: the code exchanged (with the verifier), the ID token checked, the person checked, a session made. */
@@ -213,10 +221,8 @@ export class SignInGate {
     const clear = this.cookie(PENDING_COOKIE, "", 0);
     const refused = (status: number, said: string) => withGateHeaders(plainPage("Not signed in", `<h1>Not signed in</h1>\n<p>${escapeHtml(said)}</p>\n<p><a href="/signin">Try again</a></p>\n`, status), [clear]);
     const state = url.searchParams.get("state") ?? "";
-    const pending = this.pending.get(state);
-    if (pending) this.pending.delete(state);
-    const binding = cookiesOf(request).get(PENDING_COOKIE) ?? "";
-    if (!pending || this.now() - pending.at > PENDING_MS || !binding || !same(binding, pending.binding)) {
+    const pending = readPending(cookiesOf(request).get(PENDING_COOKIE));
+    if (!pending || !state || !same(state, pending.state) || this.now() - pending.at > PENDING_MS || this.now() < pending.at) {
       return refused(400, "This sign-in didn't start in this browser, or took longer than ten minutes.");
     }
     const failed = url.searchParams.get("error");
@@ -249,7 +255,7 @@ export class SignInGate {
       this.log(`web sign-in: ID token refused: ${error instanceof Error ? error.message : String(error)}`);
       return refused(401, "Clerk's answer didn't check out; try again.");
     }
-    if (typeof claims.nonce === "string" ? !same(claims.nonce, pending.nonce) : claims.nonce !== undefined) {
+    if (typeof claims.nonce !== "string" || !same(claims.nonce, pending.nonce)) {
       this.log("web sign-in: ID token refused: its nonce isn't this sign-in's");
       return refused(401, "Clerk's answer was for another sign-in; try again.");
     }
