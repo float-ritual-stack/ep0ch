@@ -3619,7 +3619,8 @@ export class OutlinerServer {
       }
       case "shares.tunnel": {
         if (typeof request.shareId !== "string") throw new Error("shares.tunnel names shareId");
-        const host = typeof request.host === "string" && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(request.host) ? request.host.toLowerCase() : undefined;
+        // Only a Quick Tunnel's name: no other host can be made a share's link this way.
+        const host = typeof request.host === "string" && /^[a-z0-9-]+\.trycloudflare\.com$/i.test(request.host) && request.host.toLowerCase() !== "api.trycloudflare.com" ? request.host.toLowerCase() : undefined;
         const error = typeof request.error === "string" ? request.error.slice(0, 500) : undefined;
         if (!host && !error) throw new Error("shares.tunnel says host (it's up) or error (it failed)");
         const kept = this.shares.setTunnel(request.shareId, error

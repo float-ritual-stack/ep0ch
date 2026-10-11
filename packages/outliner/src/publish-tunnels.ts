@@ -52,6 +52,8 @@ interface Running {
   ingress: TunnelIngress;
   expiresAt: number;
   host?: string;
+  /** Its host has been said (or tried): a share still `starting` after that is told again on the next read. */
+  told?: boolean;
   /** Its own clock: killed at its expiry even if the service never says so. */
   expiry: ReturnType<typeof setTimeout>;
 }
@@ -105,7 +107,12 @@ export class ShareTunnels {
     const now = Date.now();
     const wanted = new Map(shares.filter((share) => share.via === "cloudflare" && share.state === "active" && Date.parse(share.expiresAt) > now).map((share) => [share.id, share]));
     for (const id of [...this.running.keys()]) if (!wanted.has(id)) this.kill(id);
-    for (const share of wanted.values()) if (!this.running.has(share.id) && share.tunnel?.state !== "failed") this.open(share);
+    for (const share of wanted.values()) {
+      const running = this.running.get(share.id);
+      if (!running) { if (share.tunnel?.state !== "failed") this.open(share); continue; }
+      // Up, but the report didn't land (the service was away): said again, the tunnel kept.
+      if (running.told && running.host && share.tunnel?.state === "starting") void this.report(share.id, { host: running.host, pid: running.proc.pid });
+    }
   }
 
   private open(share: ShareSession): void {
@@ -142,7 +149,11 @@ export class ShareTunnels {
           running.host = found;
           clearTimeout(deadline);
           // A new trycloudflare.com name takes a few seconds to resolve: the link is given once it does (or after 15s).
-          void resolvable(found).then(() => { if (this.running.get(share.id) === running) void this.report(share.id, { host: found, pid: proc.pid }); });
+          void resolvable(found).then(() => {
+            if (this.running.get(share.id) !== running) return;
+            running.told = true;
+            void this.report(share.id, { host: found, pid: proc.pid });
+          });
         }
       }
     };
