@@ -94,15 +94,21 @@ test("a subscription copies an area's messages once, keeps a trashed copy trashe
   await create("shack", "Recon areas [type::echo-area] [echo::recon] [query::type=recon]");
   const cron = await create("shack", "Recon: flaky cron on larder [type::recon]\n\nJitter of 40s, see ((00000000-0000-4000-8000-000000000001|the old note)).");
   await create("shack", "Recon: disk on kettle [type::recon] [page::kettle-disk]");
+  const queue = await create("shack", "Recon: queue drops on restart [type::recon] [from::karen]\n\nIn the log: `((00000000-0000-4000-8000-000000000002))` and `[page::not-a-page]`.");
+  await create("shack", "repro: send 50, restart at 25 [type::recon]", queue.id);
   await create("shack", "A task, not recon [type::task]");
   const sub = await create("cafe", `Recon from the shack [type::echo-sub] [subscribe::shack@${machine}] [echo::recon]`);
 
-  expect(await toss("cafe")).toContain("copies 2");
+  expect(await toss("cafe")).toContain("copies 3");
   let copies = await children("cafe", sub.id);
   expect(copies.map((copy) => copy.text.split("\n")[0])).toEqual([
     expect.stringMatching(new RegExp(`^Recon: flaky cron on larder \\[type::recon\\] \\[from::shack@${machine}/${cron.id}\\] \\[echo::recon\\] \\[from-rev::1\\] \\[tossed::`)),
     expect.stringContaining("[from-page::kettle-disk]"),
+    `Recon: queue drops on restart [type::recon] [source-from::karen] [from::shack@${machine}/${queue.id}] [echo::recon] [from-rev::1] [tossed::${copies[2]!.text.match(/\[tossed::([^\]]+)\]/)![1]}]`,
   ]);
+  // Code is literal; the note under a message is a copy too (with its own from), so it isn't copied again on its own.
+  expect(copies[2]!.text).toEndWith("In the log: `((00000000-0000-4000-8000-000000000002))` and `[page::not-a-page]`.");
+  expect((await children("cafe", copies[2]!.id))[0]!.text).toStartWith("repro: send 50, restart at 25 [type::recon] [from::shack@");
   // A reference into the origin becomes an ep0ch:// link into it.
   expect(copies[0]!.text).toContain(`[the old note](ep0ch://shack@${machine}/b/00000000-0000-4000-8000-000000000001)`);
   // Seen-by: a mark on the original, its text untouched.
@@ -116,7 +122,7 @@ test("a subscription copies an area's messages once, keeps a trashed copy trashe
   await call("shack", { action: "update", blockId: cron.id, expectedRevision: edited.revision, text: `${edited.text}\nNow 90s.`, author: "user" });
   expect(await toss("cafe")).toContain("copies 0, newer 1, skipped 1");
   copies = await children("cafe", sub.id);
-  expect(copies).toHaveLength(1);
+  expect(copies).toHaveLength(2);
   expect(copies[0]!.text).toContain("[upstream-newer::2]");
   expect(copies[0]!.text).not.toContain("Now 90s.");
   expect((await threads("shack", cron.id)).filter((thread) => thread.properties?.kind?.includes("echo-seen-by"))).toHaveLength(1);

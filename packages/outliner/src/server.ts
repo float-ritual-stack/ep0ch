@@ -3758,7 +3758,8 @@ export class OutlinerServer {
    * An extension's request to an outline other than the one it runs for (spike/echonet). When this outline's owner set
    * an access level (`ep0ch mcp access`), it holds for other outlines' extensions as for the MCP: `none` refuses,
    * `read` reads, `propose` also comments and marks (never a change to a note), `full` everything. An outline whose
-   * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one).
+   * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one). It holds
+   * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
    */
   private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
     const here = this.outline?.name;

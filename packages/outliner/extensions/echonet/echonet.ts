@@ -111,11 +111,14 @@ const canMark = (level: Level) => level === "propose" || level === "full";
 // ── blocks ──
 
 const prop = (block: Block, key: string) => block.properties.find((p) => p.key === key)?.value;
+/** A copy's `from` is the one in EchoNet's shape (`<node>/<id>`), whatever other `from` the text holds. */
+const fromOf = (block: Block) => block.properties.find((p) => p.key === "from" && FROM.test(p.value))?.value;
+const LIMIT = 1000;
 const query = (call: Link["call"], where: string, extra: Record<string, unknown> = {}) =>
-  call<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: 1000, ...extra } }).then((r) => r.blocks);
+  call<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: LIMIT, ...extra } }).then((r) => r.blocks);
 const SYSTEM_TYPES = new Set(["echo-area", "echo-sub", "nodelist", "toss", "echo-ledger"]);
 const FROM = /^([a-z0-9][a-z0-9-]*@[\w.-]+)\/([0-9a-f-]{36})$/;
-const isCopy = (block: Block) => FROM.test(prop(block, "from") ?? "");
+const isCopy = (block: Block) => fromOf(block) !== undefined;
 const firstLine = (text: string) => text.split("\n", 1)[0]!.replace(/\s*\[[A-Za-z][\w.-]*::[^\]]*\]/g, "").trim();
 const quoteOf = (mark: Mark) => {
   const target = mark.resolvedTarget ?? mark.originalTarget;
@@ -128,11 +131,27 @@ const netmailFrom = (mark: Mark) => mark.properties?.["netmail-from"]?.[0];
 
 /** Header properties a copy can't keep as they are: an address or an id the original owns in its own outline. */
 const OWNED = /\[(page|work-id|welcome|publish)::([^\]]*)\]/g;
+/** The keys EchoNet writes on a copy: an original that already has one keeps it as `source-<key>`. */
+const TRANSPORT = /\[(from|echo|from-rev|tossed|upstream-newer)::([^\]]*)\]/g;
+/** Code fences and code spans: their words are literal, so a copy keeps them as written. */
+const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
 
 /** The original's text as a local copy reads it: references into the origin become ep0ch:// links into it. */
 async function localText(origin: Link, text: string): Promise<string> {
+  const parts: string[] = [];
+  let at = 0;
+  for (const match of text.matchAll(CODE)) {
+    parts.push(await localProse(origin, text.slice(at, match.index)), match[0]);
+    at = match.index! + match[0].length;
+  }
+  parts.push(await localProse(origin, text.slice(at)));
+  return parts.join("");
+}
+
+async function localProse(origin: Link, text: string): Promise<string> {
   const uri = (id: string) => `ep0ch://${origin.node.id}/b/${id}`;
-  let out = text.replace(OWNED, (_all, key: string, value: string) => (key === "welcome" ? "" : `[from-${key}::${value}]`));
+  let out = text.replace(OWNED, (_all, key: string, value: string) => (key === "welcome" ? "" : `[from-${key}::${value}]`))
+    .replace(TRANSPORT, (_all, key: string, value: string) => `[source-${key}::${value}]`);
   out = out.replace(/!?\(\(([0-9a-f-]{36})(?:\|([^)]*))?\)\)/g, (_all, id: string, label?: string) => `[${label?.trim() || `a note in ${origin.node.outline}`}](${uri(id)})`);
   const pages = [...new Set([...out.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]!))];
   for (const page of pages) {
@@ -196,19 +215,19 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
     return { copies: [] };
   }
   const link = await linkTo(origin);
-  const copies = [...everyCopy.values()].filter((copy) => prop(copy, "from")!.startsWith(`${origin.id}/`) && prop(copy, "echo") === tag && !copy.effectiveDeletedRootId);
+  const copies = () => [...everyCopy.values()].filter((copy) => fromOf(copy)!.startsWith(`${origin.id}/`) && prop(copy, "echo") === tag && !copy.effectiveDeletedRootId);
   if (!link.reachable) {
-    log.push(`- ${tag} from ${origin.id}: unreachable (${link.why}); ${copies.length} copies kept as they are`);
-    return { origin: link, copies };
+    log.push(`- ${tag} from ${origin.id}: unreachable (${link.why}); ${copies().length} copies kept as they are`);
+    return { origin: link, copies: copies() };
   }
   if (link.level === "none") {
     log.push(`- ${tag} from ${origin.id}: refused (${origin.id} grants none; its owner runs \`ep0ch mcp access read --ws ${origin.outline}\`)`);
-    return { origin: link, copies };
+    return { origin: link, copies: copies() };
   }
   const area = (await query(link.call, `type=echo-area AND echo=${tag}`)).find((block) => prop(block, "query"));
   if (!area) {
     log.push(`- ${tag} from ${origin.id}: no area there ([type::echo-area] [echo::${tag}] [query::…])`);
-    return { origin: link, copies };
+    return { origin: link, copies: copies() };
   }
   const messages = (await query(link.call, prop(area, "query")!))
     .filter((block) => block.id !== area.id && !SYSTEM_TYPES.has(prop(block, "type") ?? "") && !isCopy(block));
@@ -223,9 +242,8 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
     if (!copy) {
       const text = withHeader(await localText(link, message.text), `[from::${from}] [echo::${tag}] [from-rev::${message.revision}] [tossed::${now}]`);
       const made_ = await mine<Block>({ action: "create", parentId: sub.id, text });
-      await copyChildren(link, message.id, made_.id, 0);
+      await copyChildren(link, tag, message.id, made_.id, everyCopy, 0);
       everyCopy.set(from, made_);
-      copies.push(made_);
       made += 1;
       if (canMark(link.level)) await seenBy(link, message, made_, name);
       continue;
@@ -240,15 +258,22 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
   }
   counts.copies += made; counts.updated += newer; counts.skipped += skipped;
   log.push(`- ${tag} from ${origin.id} (${link.level}): ${messages.length} in the area; ${made} copied, ${newer} marked newer, ${skipped} trashed here and left so`);
-  return { origin: link, copies };
+  return { origin: link, copies: copies() };
 }
 
-async function copyChildren(origin: Link, fromId: string, toId: string, depth: number): Promise<void> {
+/**
+ * The notes under a message, each a copy with its own `from` (so it is never echoed again as an original here, and a
+ * mark on it is netmail too). Copied once, with the message; later notes under the original are upstream's.
+ */
+async function copyChildren(origin: Link, tag: string, fromId: string, toId: string, everyCopy: Map<string, Block>, depth: number): Promise<void> {
   if (depth > 4) return;
   const children = await origin.call<Block[]>({ action: "children", parentId: fromId });
   for (const child of children) {
-    const made = await mine<Block>({ action: "create", parentId: toId, text: await localText(origin, child.text) });
-    await copyChildren(origin, child.id, made.id, depth + 1);
+    const from = `${origin.node.id}/${child.id}`;
+    if (everyCopy.has(from)) continue;
+    const made = await mine<Block>({ action: "create", parentId: toId, text: withHeader(await localText(origin, child.text), `[from::${from}] [echo::${tag}] [from-rev::${child.revision}]`) });
+    everyCopy.set(from, made);
+    await copyChildren(origin, tag, child.id, made.id, everyCopy, depth + 1);
   }
 }
 
@@ -269,7 +294,7 @@ async function seenBy(origin: Link, message: Block, copy: Block, area: string): 
 
 /** Netmail for one copy: its marks out to the original, the origin's replies back in. */
 async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void> {
-  const from = prop(copy, "from")!.match(FROM)!;
+  const from = fromOf(copy)!.match(FROM)!;
   const originalId = from[2]!;
   const local = (await threadsOn(mine, copy.id)).filter((thread) => !thread.properties?.kind?.includes("echo-seen-by"));
   const outgoing = (thread: Thread) => [thread, ...thread.replies.filter((reply) => !netmailFrom(reply))];
@@ -410,9 +435,10 @@ async function toss(): Promise<string> {
   const everyCopy = new Map<string, Block>();
   // `includeDeleted` answers only trashed blocks, so the live ones are a second question.
   for (const block of [...await query(mine, "from"), ...await query(mine, "from", { includeDeleted: "all" })]) {
-    const from = prop(block, "from");
-    if (from && FROM.test(from) && !everyCopy.has(from)) everyCopy.set(from, block);
+    const from = fromOf(block);
+    if (from && !everyCopy.has(from)) everyCopy.set(from, block);
   }
+  if (everyCopy.size >= LIMIT) log.push(`- ${LIMIT} or more copies here: a toss reads ${LIMIT} at a time and may copy again what it didn't see (spike limit)`);
   const subs = (await query(mine, "type=echo-sub")).filter((sub) => !sub.effectiveDeletedRootId);
   log.push("## echomail");
   const held: Array<{ origin: Link; copies: Block[] }> = [];
@@ -460,5 +486,11 @@ try {
     answer({ message: await toss() });
   }
 } catch (error) {
-  answer({ message: `${self.id}: the toss stopped: ${error instanceof Error ? error.message : String(error)}` });
+  // A failure, not an answer: the service reports it and `ep0ch echo toss` exits non-zero. A failure carries only a
+  // code, so why it stopped goes in a toss log first. What it wrote stays, and the next toss carries on from there
+  // (every step looks before it writes).
+  const why = error instanceof Error ? error.message : String(error);
+  await nodelistBlock().then((nodelist) => mine({ action: "create", parentId: nodelist.id,
+    text: [`Toss ${now.slice(0, 16).replace("T", " ")} UTC stopped [type::toss] [node::${self.id}] [at::${now}] [failed::yes]`, "", `It stopped: ${why}`, "", ...log].join("\n") })).catch(() => undefined);
+  process.stdout.write(JSON.stringify({ ok: false, code: "toss-failed" }));
 }

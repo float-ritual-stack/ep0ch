@@ -41,20 +41,25 @@ export async function runEchoCommand(args: readonly string[], env: NodeJS.Proces
       nodes = names.filter((name) => existsSync(join(paths.outlinesFolder, name, "extensions", "echonet", "extension.json")));
       if (!nodes.length) throw new Error("No outline on this host has the echonet extension: copy packages/outliner/extensions/echonet into <outlines>/<name>/extensions/");
     }
-    const results: Array<{ node: string; message: string }> = [];
+    const results: Array<{ node: string; ok: boolean; message: string }> = [];
     for (const node of nodes) {
+      // One node failing (its toss stopped, its outline closed) doesn't keep the others from tossing.
       const run = await client(node).request<{ message?: string }>({
         action: "extensions.act", extension: "echonet", extensionAction: operation, mutation: { author: "user" },
-      });
-      results.push({ node, message: run.message ?? "done" });
+      }).catch((error: unknown) => ({ failed: error instanceof Error ? error.message : String(error) }));
+      if ("failed" in run) {
+        results.push({ node, ok: false, message: `${node}: ${run.failed}` });
+        continue;
+      }
+      results.push({ node, ok: true, message: run.message ?? "done" });
       if (operation === "nodelist" && !values.json) {
         const found = await client(node).request<{ blocks: Array<{ text: string }> }>({ action: "blocks.query", query: { where: "type=nodelist", limit: 1 } });
         results.at(-1)!.message += `\n\n${found.blocks[0]?.text ?? "(no nodelist)"}`;
       }
     }
     if (values.json) console.log(JSON.stringify(results));
-    else for (const result of results) console.log(result.message);
-    return 0;
+    else for (const result of results) (result.ok ? console.log : console.error)(result.message);
+    return results.every((result) => result.ok) ? 0 : 1;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
