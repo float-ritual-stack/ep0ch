@@ -12,10 +12,17 @@ import type { MutationProvenance } from "./types";
  * extensions are trusted code.
  *
  * The table is the process's, not one outline's: an outline host serves several outlines in one process, and a
- * grant reaches every outline that host serves (a new connection names the outline, as any client's does).
+ * grant reaches every outline that host serves (a new connection names the outline, as any client's does), as far as
+ * that outline's access level lets it when its owner set one (src/server.ts `crossOutlineAccess`).
  */
 export interface ExtensionGrant {
   readonly extensionId: string;
+  /**
+   * The outline the process runs for (its `EP0CH_WS`). A request to another outline is checked against that outline's
+   * access level when its owner set one (spike/echonet: one access rule for MCP, shares, subscriptions and other
+   * outlines' extensions).
+   */
+  readonly outline?: string;
   /** The change feed's action for what it writes: `ext.<id>.<action or handler>`. */
   readonly label: string;
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */

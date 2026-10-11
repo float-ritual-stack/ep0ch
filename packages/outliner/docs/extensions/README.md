@@ -1097,6 +1097,13 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
+- **Another outline's access level holds** (spike/echonet), once its owner set one (`ep0ch mcp access <level> --ws
+  <name>`): a request to an outline other than the one the call runs for needs `read` to read, `propose` to comment or
+  annotate, `full` for anything else, and is refused saying which. An outline whose owner never set a level stays open
+  to the host's extensions. It holds the grant, not the process: the host's socket has no per-client access, so an
+  extension that writes without its grant is an unattributed client like any other (extensions are trusted code).
+  [echonet](../../extensions/echonet) is the example: outlines as nodes, copying each other's areas and carrying
+  marks back as netmail.
 
 ### Writes to an outside service
 

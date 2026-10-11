@@ -3706,6 +3706,7 @@ export class OutlinerServer {
     const { grant: _grant, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown };
     // What it writes never carries a secret it was given (its answers are scrubbed the same way).
     const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
+    if (action !== "secrets.group") this.crossOutlineAccess(action, grant);
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -3751,6 +3752,26 @@ export class OutlinerServer {
         } as unknown as OutlinerRequest;
       }
     }
+  }
+
+  /**
+   * An extension's request to an outline other than the one it runs for (spike/echonet). When this outline's owner set
+   * an access level (`ep0ch mcp access`), it holds for other outlines' extensions as for the MCP: `none` refuses,
+   * `read` reads, `propose` also comments and marks (never a change to a note), `full` everything. An outline whose
+   * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one). It holds
+   * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
+   */
+  private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
+    const here = this.outline?.name;
+    if (!grant.outline || !here || grant.outline === here || !this.store.mcpAccessConfigured()) return;
+    const level = this.store.mcpAccessStatus().level;
+    const writes = EXTENSION_WRITES.has(action);
+    const marks = action.startsWith("annotations.");
+    const need = !writes ? "read" : marks ? "propose" : "full";
+    const allowed = level === "full" || (level === "propose" && need !== "full") || (level === "read" && need === "read");
+    if (allowed) return;
+    throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
+      `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);
   }
 
   /**

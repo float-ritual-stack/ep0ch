@@ -1,0 +1,29 @@
+{
+  "contract": 2,
+  "id": "echonet",
+  "version": 1,
+  "name": "EchoNet",
+  "description": "This outline as a node on a FidoNet-style network of outlines: copies of other outlines' echo areas, netmail both ways on marks, seen-by marks, a nodelist and a toss log. Store and forward, never a sync.",
+  "run": ["bun", "echonet.ts"],
+  "deadline": "4m",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "offline": { "type": "array", "items": { "type": "string" }, "description": "Nodes (name@machine) to treat as unreachable this toss: a lid shut on purpose" },
+      "outlines": { "type": "string", "minLength": 1, "description": "The outlines folder whose .remote/ holds the machines' forwards (default: the host's)" },
+      "keepLogs": { "type": "integer", "minimum": 1, "maximum": 200, "description": "How many toss logs stay under the nodelist (default 20)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "toss", "label": "Toss mail", "on": "outline", "effects": "write",
+      "description": "Copies new messages from every subscribed area, marks copies whose original is newer, carries netmail both ways, writes the nodelist and a toss log",
+      "schedule": { "every": "30m" }
+    },
+    {
+      "id": "nodelist", "label": "Write the nodelist", "on": "outline", "effects": "write",
+      "description": "Writes the nodelist again without tossing: each known node, reachable or not, its access, areas and subscriptions"
+    }
+  ]
+}

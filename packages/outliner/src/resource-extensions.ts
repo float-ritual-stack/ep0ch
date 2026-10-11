@@ -646,6 +646,7 @@ export class ResourceExtensionRuntime {
     const secretValues = Object.values(secrets);
     const grant = issueGrant({
       extensionId: loaded.manifest.id,
+      ...(connection.outline ? { outline: connection.outline } : {}),
       label: callFor.label ?? `ext.${loaded.manifest.id}.${operation}`,
       writes: callFor.writes === true,
       secrets: secretValues,

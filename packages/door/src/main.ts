@@ -118,6 +118,10 @@ ${VIEW_USAGE}
 ${SHARE_USAGE}
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
+  ep0ch echo toss [--node <outline>] | nodelist [--node <outline>]   [--json]
+                                   EchoNet (spike): run the echonet extension's tosser in one node or every
+                                   node on this host (copies in, netmail both ways, nodelist and toss log), or
+                                   write and print the nodelist
   ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
         | run <name> <action:id|handler:key>
                                    the outline's extensions: ls lists each folder, what it serves and each
@@ -202,6 +206,12 @@ if (args[0] === "ext") {
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "ext", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+// EchoNet (spike/echonet): toss mail or write the nodelist, through the outliner's own command; --node names the outline.
+if (args[0] === "echo") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "echo", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
