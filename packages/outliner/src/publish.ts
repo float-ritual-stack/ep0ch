@@ -1022,7 +1022,7 @@ export class Publisher {
       try {
         await this.client.request(path === "/shares/start"
           ? {
-            action: "shares.start", scope: form.get("scope") ?? "", ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" },
+            action: "shares.start", ...(form.get("open") ? { open: form.get("open")! } : {}), ...(form.get("only") === "on" && form.get("open") ? { scope: form.get("open")! } : {}), ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" },
             ...(form.get("via") ? { via: form.get("via")! } : {}), ...(form.get("allowMail")?.trim() ? { allowMail: form.get("allowMail")! } : {}),
           }
           : form.get("all") === "1" ? { action: "shares.revoke", all: true } : { action: "shares.revoke", shareId: form.get("id") ?? "" });
@@ -1040,9 +1040,9 @@ export class Publisher {
       const minutes = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60_000));
       return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
     };
-    const what = (share: ShareSession) => share.scope.kind === "outline"
-      ? `the whole outline`
-      : `<a href="${escapeHtml(`${base}/p/${share.scope.blockId}`)}">${escapeHtml(noteTitle(share.scope.title) || share.scope.blockId)}</a> and what's under it`;
+    const note = (blockId: string, title: string) => `<a href="${escapeHtml(`${base}/p/${blockId}`)}">${escapeHtml(noteTitle(title) || blockId)}</a>`;
+    const what = (share: ShareSession) => (share.scope.kind === "outline" ? "the whole outline" : `only ${note(share.scope.blockId, share.scope.title)} and what's under it`) +
+      (share.opens ? `, opening on ${note(share.opens.blockId, share.opens.title)}` : "");
     const how = (share: ShareSession) => share.via === "cloudflare" ? ` · Cloudflare tunnel${share.allowMail?.length ? ` for ${share.allowMail.join(", ")}` : ", public"}` : "";
     const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}${escapeHtml(how(share))}</div></td>` +
       `<td>${share.url ? `<a href="${escapeHtml(share.url)}" rel="noreferrer">${escapeHtml(share.url)}</a>` : `<span class="dim">${share.via === "cloudflare" ? `its tunnel is ${escapeHtml(share.tunnel?.state ?? "starting")}` : "no public listener has said its address"}</span>`}</td>` +
@@ -1052,21 +1052,22 @@ export class Publisher {
       ? `<table class="shares"><thead><tr><th>shares</th><th>link</th><th>ends in</th><th>comments</th><th></th></tr></thead><tbody>\n${rows}\n</tbody></table>\n` +
         `<form method="post" action="${escapeHtml(`${base}/shares/revoke`)}" class="share-new"><input type="hidden" name="all" value="1"><button type="submit">Kill all ${shares.length}</button></form>\n`
       : `<p class="dim">No share is open. Start one from a note's page (share… at its foot), from chat, or with <code>ep0ch share start &lt;ref&gt;</code>.</p>\n`;
-    const wanted = new URL(request.url).searchParams.get("scope")?.trim();
+    // A note's page links here with ?open=<id>: the link opens on it. Without one, the form shares from the top.
+    const wanted = new URL(request.url).searchParams.get("open")?.trim();
+    const read = wanted && BLOCK_ID.test(wanted) ? await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [wanted], fields: ["title"] }) : { blocks: [] };
+    const block = read.blocks[0];
     let start = "";
-    if (wanted) {
-      const read = BLOCK_ID.test(wanted) ? await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [wanted], fields: ["title"] }) : { blocks: [] };
-      const block = read.blocks[0];
-      start = block
-        ? `<h2>Share “${escapeHtml(noteTitle(block.title ?? "") || block.id)}”</h2>\n<form method="post" action="${escapeHtml(`${base}/shares/start`)}" class="share-new">` +
-          `<input type="hidden" name="scope" value="${escapeHtml(block.id)}">` +
+    if (!wanted || block) {
+      const named = block ? escapeHtml(noteTitle(block.title ?? "") || block.id) : "";
+      start = `<h2>${block ? `Share, opening on “${named}”` : "Share the outline"}</h2>\n<form method="post" action="${escapeHtml(`${base}/shares/start`)}" class="share-new">` +
+          (block ? `<input type="hidden" name="open" value="${escapeHtml(block.id)}">` +
+            `<label><input type="checkbox" name="only"> only this note and below</label>` : "") +
           `<label>for <select name="ttl"><option value="15m">15 minutes</option><option value="1h" selected>1 hour</option><option value="4h">4 hours</option><option value="24h">24 hours</option></select></label>` +
           `<label><input type="checkbox" name="comments" checked> comments (highlight, comment, ask, reply)</label>` +
           `<label>by <select name="via"><option value="edge" selected>this outline's public host</option><option value="cloudflare">a Cloudflare tunnel of its own</option></select></label>` +
           `<label>only for (Cloudflare, by email PIN) <input type="text" name="allowMail" placeholder="someone@example.org, @example.org" size="32"></label>` +
-          `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads this note and what's under it until it ends; [publish::never] notes stay hidden.</p>\n`
-        : `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
-    }
+          `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads the outline as this site shows it (or, ticked, only that note and below) until it ends; [publish::never] notes stay hidden.</p>\n`;
+    } else start = `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
     const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Short-lived public links. Each ends by itself; Revoke ends it now.</p>\n${start}${list}</article>\n` +
       `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a></footer>`;
     const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.outlineName ?? "outline")}</a> / <span>Shares</span></nav>`;
@@ -1259,7 +1260,7 @@ export class Publisher {
     const href = (query: string) => escapeHtml(`${share?.base ?? this.basePath}${entry.path}${query}`);
     const other = full ? `<a href="${href("")}">as a folder</a>` : `<a href="${href("?view=full")}">whole page</a>`;
     // On the tailnet, a note can be shared from its page: a short-lived public link (the shares page starts it).
-    const sharing = share ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?scope=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
+    const sharing = share ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?open=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
     return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}</footer>`;
   }
 

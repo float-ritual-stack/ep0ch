@@ -980,14 +980,16 @@ once the domain serves it, or keep both.
 
 #### Share links
 
-A share session is a short-lived public link to a note and what's under it, or to the whole outline, for opening as
-an ordinary public site (a browser that would ask before every tailnet page, a phone, someone else). It's the
-tailnet web client, cut to what's shared, on the public listener:
+A share session is the tailnet's web client with a short life, on the public listener: a public link to the whole
+outline, navigated as on the tailnet, for opening as an ordinary public site (a browser that would ask before every
+tailnet page, a phone, someone else). Narrowing it to one note and below is opt-in:
 
 - **Start one** from chat (the MCP's `share_start`: the tool call is the one approval), from a shell
-  (`ep0ch share start <ref>|outline [--ttl 1h] [--no-comments]`), from the door (`share.start`, `> share.start` in
-  the power bar) or from a note's tailnet page (`share…` at its foot). Left out, the note is the one the person's web
-  client shows now. It lives 1 hour by default (`--ttl` from 1m to 24h) and takes comments unless told not to.
+  (`ep0ch share start [<ref>] [--only <ref>] [--ttl 1h] [--no-comments]`), from the door (`share.start`,
+  `> share.start` in the power bar) or from a note's tailnet page (`share…` at its foot). A ref (an id, a page name
+  bare or as `[[page]]`, PIE-123) is only the page the link opens on (`…/s/<token>/p/<id>`); `--only <ref>` (MCP
+  `only`, the form's "only this note and below", off by default) shows only that note and what's under it. It lives 1
+  hour by default (`--ttl` from 1m to 24h) and takes comments unless told not to.
 - **Two ways in** (`--via`, `via`):
   - `edge` (the default): `https://<outline>.ep0ch.sh/s/<token>/`, at the root of the public listener's own host
     (`--public-url`'s origin), through the proxy already in front of it (Caddy on float-2), so nothing is
@@ -1004,11 +1006,12 @@ tailnet web client, cut to what's shared, on the public listener:
     skip the email gate). Needs cloudflared 2026.9.3 or later on the publisher's PATH (or `EP0CH_CLOUDFLARED`):
     `brew install cloudflared`.
 - **The token** is 256 random bits, compared in constant time, never logged (a logged path says `/s/…`).
-- **Inside it** every page, folder, breadcrumb and link stays below the link and inside the scope: a link to a note
-  outside is its label, and that note's address is `404` there; an embed of a note outside shows "not shared".
+- **Inside it** every page, folder, breadcrumb and link stays below the link. Narrowed (`--only`), they also stay
+  inside the note: a link to a note outside is its label, and that note's address is `404` there; an embed of a note
+  outside shows "not shared".
   `[publish::never]` notes stay locked. There's no index, no Recent replies, and an attached file shows as its note.
-  With comments on, highlights, comments, asks and replies land as the person's (`author: user`), a comment marked
-  `[via::share:<id>]`; with them off it's a reading copy (no threads, Copy only). Every other public route stays
+  With comments on, highlights, comments, asks and replies land as the person's (`author: user`), each comment and
+  reply marked `[via::share:<id>]` (`annotations.reply` takes properties, as a comment does); with them off it's a reading copy (no threads, Copy only). Every other public route stays
   read-only.
 - **It ends** at its time or when revoked, checked by the service on every request (not by a timer): from then on
   the link answers `410` with a plain dark page. `ep0ch share list` (and the tailnet's `<base>/shares` page) shows

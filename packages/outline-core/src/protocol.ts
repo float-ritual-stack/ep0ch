@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 141;
+export const PROTOCOL = 142;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -287,8 +287,13 @@ export interface McpAccessStatus {
 export interface ShareSession {
   /** A short id to name it by (`ep0ch share revoke <id>`): not the secret, which is only in `url`. */
   id: string;
-  /** What it shows: one note with its subtree, or the whole outline. A `[publish::never]` note is never shown either way. */
+  /**
+   * What it shows: the whole outline (the default, navigated as the tailnet's web client is), or only one note and
+   * what's under it. A `[publish::never]` note is never shown either way.
+   */
   scope: { kind: "note"; blockId: string; title: string } | { kind: "outline" };
+  /** The note the link opens on (`url` ends `/p/<id>`), when it was started from or for one. */
+  opens?: { blockId: string; title: string };
   /** Whether a reader may highlight, comment, ask and reply (attributed to the person, via this share). */
   comments: boolean;
   /**

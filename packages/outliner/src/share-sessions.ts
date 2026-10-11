@@ -36,6 +36,7 @@ export interface ShareStartInput {
   by: string;
   via?: ShareVia;
   allowMail?: string[];
+  opens?: ShareSession["opens"];
 }
 
 /** `via` as asked: `edge` (the default) or `cloudflare`; anything else is refused with the choices. */
@@ -124,6 +125,7 @@ export class ShareSessions {
       id, token: randomBytes(32).toString("base64url"), scope: input.scope, comments: input.comments,
       createdAt: new Date(now).toISOString(), expiresAt: new Date(now + input.ttlMs).toISOString(), state: "active", by: input.by,
       via: input.via ?? "edge",
+      ...(input.opens ? { opens: input.opens } : {}),
       ...(input.via === "cloudflare" ? { tunnel: { state: "starting" as const }, ...(input.allowMail?.length ? { allowMail: input.allowMail } : {}) } : {}),
     };
     this.save([...sessions, session]);
@@ -199,7 +201,7 @@ export function shareOnWire(session: StoredShare, publicUrl: string | undefined)
   // Sessions kept before there were two ways are the edge's.
   const via = rest.via ?? "edge";
   const origin = via === "cloudflare" ? (rest.tunnel?.state === "up" && rest.tunnel.host ? `https://${rest.tunnel.host}` : undefined) : publicUrl ? new URL(publicUrl).origin : undefined;
-  return { ...rest, via, ...(origin ? { url: shareUrl(origin, token) } : {}) };
+  return { ...rest, via, ...(origin ? { url: `${shareUrl(origin, token)}${rest.opens ? `p/${rest.opens.blockId}` : ""}` } : {}) };
 }
 
 /** A share's link: `/s/<token>/` at the root of its host (`https://pie.ep0ch.sh/s/<token>/`); no proxy route is added per share. */

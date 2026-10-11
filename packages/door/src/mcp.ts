@@ -787,12 +787,12 @@ const isShareTool = (name: string): name is ShareTool => (SHARE_TOOLS as readonl
 const shareToolDefinitions = (outline: Record<string, unknown>) => [
   {
     name: "share_start",
-    description: "Start a short-lived public link (a share session) to a note and what's under it, or to the whole outline, for the person to open as an ordinary public web page: anyone with the link reads it until it expires (ttl, 1h by default, at most 24h) or is revoked. " +
+    description: "Start a short-lived public link (a share session) to the outline, for the person to open as an ordinary public web site and navigate as the tailnet's web client: anyone with the link reads it until it expires (ttl, 1h by default, at most 24h) or is revoked. ref is the page the link opens on; only narrows it to one note and what's under it. " +
       "[publish::never] notes stay hidden, and every page and link stays inside what's shared. With comments (default true) the reader can highlight, comment, ask and reply, as the person. This call is the approval: nothing asks again. " +
-      "Answers the share with its url (give the person the link), id (for share_revoke) and expiresAt. Leave out ref and whole to share the note the person's web client shows now.",
+      "Answers the share with its url (give the person the link: it opens on ref), id (for share_revoke) and expiresAt.",
     inputSchema: { type: "object", properties: {
-      ref: { type: "string", description: "The note to share, with its subtree: its id, ((id)), [[page]] or Work ID (PIE-123)" },
-      whole: { type: "boolean", default: false, description: "Share the whole outline instead of one note" },
+      ref: { type: "string", description: "The page the link opens on: its id, ((id)), [[page]], a page name or Work ID (PIE-123); left out, the top of the outline" },
+      only: { type: "string", description: "Show only this note and what's under it (as ref names one); left out, the whole outline" },
       ttl: { type: "string", default: "1h", description: "How long it lives: 30m, 1h, 2h30m (1m to 24h)" },
       comments: { type: "boolean", default: true, description: "Let the link's reader highlight, comment, ask and reply" },
       via: { type: "string", enum: ["edge", "cloudflare"], default: "edge", description: "edge: the outline's own public host (one stable origin, https://pie.ep0ch.sh/s/…). cloudflare: a Cloudflare tunnel of its own on a random trycloudflare.com host, for sharing with someone else; with allowMail only they get in" },
@@ -830,10 +830,8 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
     }
     if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (name === "share_start") {
-      if (args.whole === true && args.ref !== undefined) return toolError("Give ref (one note) or whole: true (the whole outline), not both.");
-      const ref = args.whole === true ? "outline" : typeof args.ref === "string" ? args.ref : undefined;
       const started = await startShare(board, {
-        ...(ref ? { ref } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
+        ...(typeof args.ref === "string" ? { ref: args.ref } : {}), ...(typeof args.only === "string" ? { only: args.only } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
         ...(typeof args.via === "string" ? { via: args.via } : {}), ...(Array.isArray(args.allowMail) ? { allowMail: args.allowMail as string[] } : {}),
       }, { kind: "agent", id: actorOf(caller).actorId });
       outlines.log?.(`mcp share_start: ${actorOf(caller).actorId} (${caller.sub}) ${started.share.id} ${started.share.scope.kind === "note" ? started.share.scope.blockId : "outline"} until ${started.share.expiresAt}`);

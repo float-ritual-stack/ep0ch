@@ -3562,23 +3562,37 @@ export class OutlinerServer {
           throw new Error("no publisher with a public listener is connected to run the tunnel: start it with --public-port (systemctl --user restart outliner-publish), or share by the edge (leave out via)");
         }
         const by = declaredRequester(request, "shares.start");
-        const wanted = typeof request.scope === "string" && request.scope.trim() ? request.scope.trim() : this.readers.view("tailnet").view?.blockId;
-        if (!wanted) throw new Error("name what to share: a note (ep0ch share start <ref>) or the whole outline (ep0ch share start outline)");
-        let scope: ShareSession["scope"];
-        if (wanted === "outline") scope = { kind: "outline" };
-        else {
-          const block = this.store.require(wanted);
+        // A note that can be shared: live, and neither [publish::never] nor under one. Its chain of parents, top last.
+        const shareable = (id: string) => {
+          const block = this.store.require(id);
           if (block.effectiveDeletedRootId) throw new Error(`${block.id} is in Trash`);
+          const chain: string[] = [];
           for (let at: string | null = block.id, level = 0; at && level < 256; level++) {
             const above = this.store.require(at);
             if (blockPublishIntent(above.properties) === "never") {
               throw new Error(`${block.id} is [publish::never]${above.id === block.id ? "" : `, under ${above.id}`}: it isn't shared outside the outline`);
             }
+            chain.push(above.id);
             at = above.parentId;
           }
-          scope = { kind: "note", blockId: block.id, title: blockDisplayTitle(block) };
+          return { block, chain };
+        };
+        // A narrowing that was asked for and can't be read is refused, never widened to the whole outline.
+        for (const key of ["scope", "open"] as const) {
+          const value = request[key];
+          if (value !== undefined && (typeof value !== "string" || !value.trim())) throw new Error(`${key} is a note's id${key === "scope" ? " (or outline)" : ""}; leave it out for ${key === "scope" ? "the whole outline" : "the top"}`);
         }
-        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you", via, ...(allowMail.length ? { allowMail } : {}) });
+        // The whole outline, as the tailnet's web client shows it, unless `scope` narrows it to one note and below.
+        const narrowed = typeof request.scope === "string" && request.scope.trim() && request.scope.trim() !== "outline" ? shareable(request.scope.trim()).block : undefined;
+        const scope: ShareSession["scope"] = narrowed ? { kind: "note", blockId: narrowed.id, title: blockDisplayTitle(narrowed) } : { kind: "outline" };
+        // The page the link opens on: inside what's shared.
+        let opens: ShareSession["opens"];
+        if (typeof request.open === "string" && request.open.trim()) {
+          const { block, chain } = shareable(request.open.trim());
+          if (narrowed && !chain.includes(narrowed.id)) throw new Error(`${block.id} isn't under ${narrowed.id}, which is all this share shows: open it on a note inside, or leave only out`);
+          if (block.id !== narrowed?.id) opens = { blockId: block.id, title: blockDisplayTitle(block) };
+        }
+        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you", via, ...(allowMail.length ? { allowMail } : {}), ...(opens ? { opens } : {}) });
         this.sharesChanged();
         if (via === "cloudflare") {
           // The publisher starts the tunnel and says its host: the answer waits for it, so the caller gets the link.

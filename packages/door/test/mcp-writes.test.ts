@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     for (const b of [garden, pond, attic]) await b.request("work-ids.configure", { prefix: "GDN" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request<{ id: string }>("create", { parentId: null, text, author: "user" })).id; };
     await make(garden, "seeds", "Seed swap list [season::spring]\nRunner beans for the allotment next door.");
-    await make(pond, "frogs", "Frog count\nTwelve at dusk by the reeds.");
+    await make(pond, "frogs", "Frog count [page::Frog Count]\nTwelve at dusk by the reeds.");
     await make(quiet, "still", "Still water\nNothing stirs.");
     await make(attic, "trunk", "Trunk contents [room::attic]\nOld maps of the canal.");
     await make(attic, "lamps", "Lamp list\nTwo oil lamps, one cracked.");
@@ -145,13 +145,18 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
   });
 
   test("share tools: a short-lived link started by the tool call alone, listed and ended; a read-only outline is refused", async () => {
-    const started = await tool("share_start", { whole: true, outline: "pond-notes", ttl: "2m" });
+    // No ref: the whole outline. A ref (a bare page name too) is only where the link opens; only narrows.
+    const started = await tool("share_start", { outline: "pond-notes", ttl: "2m", ref: "Frog Count" });
     expect(started.isError, started.text).toBe(false);
-    expect(started.json.share).toMatchObject({ scope: { kind: "outline" }, state: "active", comments: true, by: "mcp:chat.example.test" });
+    expect(started.json.share).toMatchObject({ scope: { kind: "outline" }, opens: { blockId: ids.frogs, title: "Frog count" }, state: "active", comments: true, by: "mcp:chat.example.test" });
+    const only = await tool("share_start", { outline: "pond-notes", only: ids.frogs });
+    expect(only.json.share).toMatchObject({ scope: { kind: "note", blockId: ids.frogs } });
+    expect(only.json.share.opens).toBeUndefined();
+    await tool("share_revoke", { id: only.json.share.id, outline: "pond-notes" });
     // No publisher has said its public address here: no link yet, and what to run.
     expect(started.json.said).toContain("--public-url");
     expect(((await tool("share_list", { outline: "pond-notes" })).json.shares as { id: string }[]).map(s => s.id)).toEqual([started.json.share.id]);
-    expect((await tool("share_start", { whole: true, outline: "quiet-notes" })).isError).toBe(true);
+    expect((await tool("share_start", { outline: "quiet-notes" })).isError).toBe(true);
     expect((await tool("reader_view", { outline: "pond-notes" })).json.view).toBeNull();
     expect((await tool("share_revoke", { all: true, outline: "pond-notes" })).json.revoked).toEqual([started.json.share.id]);
     expect((await tool("share_list", { outline: "pond-notes" })).json.shares).toEqual([]);

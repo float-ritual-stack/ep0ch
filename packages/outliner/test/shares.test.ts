@@ -125,6 +125,28 @@ test("a note's share: its pages and folders stay inside the link and the note; a
   expect((await get(`/s/${"x".repeat(43)}/`)).status).toBe(404);
 });
 
+test("by default a share is the whole outline, navigated as on the tailnet; a ref is only the page the link opens on", async () => {
+  const { share } = await client.request<{ share: ShareSession }>({ action: "shares.start", open: swap.id });
+  expect(share).toMatchObject({ scope: { kind: "outline" }, opens: { blockId: swap.id, title: "Seed swap" } });
+  const token = /\/s\/([^/]+)\/p\//.exec(share.url!)![1]!;
+  tokens.push(token);
+  const base = `/s/${token}`;
+  expect(share.url).toBe(`https://${HOST}${base}/p/${swap.id}`);
+  const opened = await (await get(new URL(share.url!).pathname)).text();
+  expect(opened).toContain("Bring the saved marigold seed.");
+  // Its crumbs go all the way up, and a link to a note anywhere in the outline is a link.
+  expect(hrefs(opened.match(/<nav class="crumbs">([\s\S]*?)<\/nav>/)![1]!)).toEqual([`${base}/`, `${base}/p/Field%20Notes`]);
+  expect(hrefs(await (await get(`${base}/p/${survey.id}`)).text())).toContain(`${base}/p/${letter.id}?view=html`);
+  expect((await get(`${base}/p/${letter.id}`)).status).toBe(200);
+  expect((await get(`${base}/p/${ledger.id}`)).status).toBe(404);
+  // Narrowed, it opens only on a note inside.
+  await expect(client.request({ action: "shares.start", scope: swap.id, open: letter.id })).rejects.toThrow(/isn't under/);
+  // A narrowing asked for and unreadable is refused, never widened.
+  await expect(client.request({ action: "shares.start", scope: "" })).rejects.toThrow(/scope is a note's id/);
+  await expect(client.request({ action: "shares.start", scope: { blockId: swap.id } } as never)).rejects.toThrow(/scope is a note's id/);
+  await client.request({ action: "shares.revoke", shareId: share.id });
+});
+
 test("comments through a share land as the person's, marked by the share; the page says what's selected", async () => {
   const { share, base } = await start({ scope: hub.id });
   const words = { page: survey.id, quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk." };
@@ -137,6 +159,11 @@ test("comments through a share land as the person's, marked by the share; the pa
   // A write from another site, or about a note outside the share, is refused.
   expect((await post(`${base}/_marginalia/write`, { ...words, action: "comment", body: "x" }, { origin: "https://example.com" })).status).toBe(403);
   expect((await post(`${base}/_marginalia/write`, { page: letter.id, action: "comment", quote: "", body: "x" })).status).toBe(404);
+  // A reply through the share is marked the same way.
+  expect((await post(`${base}/_marginalia/write`, { page: survey.id, action: "reply", thread: written.thread, body: "And note the weather.", requestId: "share-reply-01" })).status).toBe(200);
+  const replied = (await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: survey.id }, includeResolved: false } }))
+    .find((thread) => thread.block.id === written.thread)!;
+  expect(replied.replies.map((reply) => [reply.body, reply.block.author, reply.properties?.via])).toEqual([["And note the weather.", "user", [`share:${share.id}`]]]);
   const listed = await (await get(`${base}/_marginalia/threads?page=${survey.id}`, "public", {})).json();
   expect(listed.threads.some((thread: { id: string }) => thread.id === written.thread)).toBe(true);
 
@@ -222,11 +249,16 @@ test("the tailnet's shares page lists each open share and ends one, or all, from
   expect(done.headers.get("location")).toBe("/pub/shares");
   expect((await client.request<{ shares: ShareSession[] }>({ action: "shares.list" })).shares).toEqual([]);
   // Started from a note's page: its form, then a link that works.
-  expect(await (await get(`/pub/shares?scope=${swap.id}`, "tailnet")).text()).toContain("Start a public link");
-  expect((await post("/pub/shares/start", `scope=${swap.id}&ttl=15m&comments=on`, { audience: "tailnet", form: true })).status).toBe(303);
+  expect(await (await get(`/pub/shares?open=${swap.id}`, "tailnet")).text()).toContain("only this note and below");
+  expect((await post("/pub/shares/start", `open=${swap.id}&only=on&ttl=15m&comments=on`, { audience: "tailnet", form: true })).status).toBe(303);
   const [started] = (await client.request<{ shares: ShareSession[] }>({ action: "shares.list" })).shares;
   expect(started).toMatchObject({ scope: { blockId: swap.id }, comments: true });
   tokens.push(/\/s\/([^/]+)\/$/.exec(started!.url!)![1]!);
+  // Left unticked (the default), the whole outline, opening on the note.
+  expect((await post("/pub/shares/start", `open=${swap.id}&ttl=15m`, { audience: "tailnet", form: true })).status).toBe(303);
+  const whole = (await client.request<{ shares: ShareSession[] }>({ action: "shares.list" })).shares.find((share) => share.id !== started!.id)!;
+  expect(whole).toMatchObject({ scope: { kind: "outline" }, opens: { blockId: swap.id }, comments: false });
+  tokens.push(/\/s\/([^/]+)\/p\//.exec(whole.url!)![1]!);
   expect((await post("/pub/shares/revoke", "all=1", { audience: "tailnet", form: true })).status).toBe(303);
   // The public listener has no shares page.
   expect((await get("/share/shares")).status).toBe(404);

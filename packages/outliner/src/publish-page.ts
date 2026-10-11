@@ -337,7 +337,8 @@ export class PageMarginalia {
           const body = text(input.body).trim() ? text(input.body) : "";
           if (!body) return refused(400, "write a reply first");
           const receipt = await this.host.request<AnnotationBatchReceipt>({
-            action: "annotations.reply", requestId, author: "user", input: { annotationId: thread, body, source: "user" },
+            action: "annotations.reply", requestId, author: "user",
+            input: { annotationId: thread, body, source: "user", ...(share ? { properties: { via: `share:${share.id}` } } : {}) },
           });
           return said(200, { ok: true, thread, reply: receipt.annotations[0]?.block.id, said: "replied" });
         }

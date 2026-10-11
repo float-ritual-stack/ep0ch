@@ -623,6 +623,8 @@ export interface AnnotationReplyInput {
   readonly body: string;
   /** `user` or `agent`; an extension's is always `agent` (the service sets it). */
   readonly source: AnnotationSource;
+  /** Its own properties, open as a comment's are (`via: share:<id>` for a reply made through a share link). */
+  readonly properties?: Readonly<Record<string, string | readonly string[]>>;
 }
 
 export type AnnotationBatchOperation =
@@ -2479,12 +2481,12 @@ export type OutlinerRequestAction =
    */
   | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean }
   /**
-   * A share session (`ShareSession`): a short-lived public link to `scope` (a block id, with its subtree; `outline`
-   * for the whole outline; left out, the note the person's web client shows now). `ttl`: `30m`, `1h` (the default), up
+   * A share session (`ShareSession`): a short-lived public link to the whole outline, as the tailnet's web client shows
+   * it, or with `scope` (a block id) to that note and below only. `open`: the note the link opens on (inside it). `ttl`: `30m`, `1h` (the default), up
    * to `24h`, or seconds. `comments` (default true) lets the link's reader highlight, comment, ask and reply. `mutation`
    * names who started it. Answers the session with its `url` (when a public listener has said where it is opened).
    */
-  | { id: string; action: "shares.start"; scope?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
+  | { id: string; action: "shares.start"; scope?: string; open?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
   /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
   | { id: string; action: "shares.list"; all?: boolean }
   /** Ends one share session now (its link answers 410), or with `all: true` every open one. */
