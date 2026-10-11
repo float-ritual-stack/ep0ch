@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 139;
+export const PROTOCOL = 140;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -277,6 +277,49 @@ export interface McpAccessStatus {
   sequence: number;
   /** The principal that made this outline over MCP (PIE-679): it writes with `full`, whatever `level` lets the others. */
   owner?: string;
+}
+
+/**
+ * A share session: a short-lived public link to a note and what's under it, or to the whole outline, opened by
+ * anyone who has it until it expires or is revoked (`shares.start`, `ep0ch share`, the MCP's share tools). The
+ * publisher's public listener serves it at `url`; inside it every page stays below that URL and inside its scope.
+ */
+export interface ShareSession {
+  /** A short id to name it by (`ep0ch share revoke <id>`): not the secret, which is only in `url`. */
+  id: string;
+  /** What it shows: one note with its subtree, or the whole outline. A `[publish::never]` note is never shown either way. */
+  scope: { kind: "note"; blockId: string; title: string } | { kind: "outline" };
+  /** Whether a reader may highlight, comment, ask and reply (attributed to the person, via this share). */
+  comments: boolean;
+  createdAt: string;
+  expiresAt: string;
+  /** `active` until it expires or is revoked; an ended one answers 410 and is forgotten after a week. */
+  state: "active" | "expired" | "revoked";
+  revokedAt?: string;
+  /** Who started it: `you`, or the agent's actor id. */
+  by: string;
+  /** The link, when a public listener has said where it is opened (`publish serve --public-url`). Holds the secret. */
+  url?: string;
+}
+
+/** The longest and default life of a share session, and the shortest. */
+export const SHARE_TTL = { defaultMs: 60 * 60_000, maxMs: 24 * 60 * 60_000, minMs: 60_000 } as const;
+
+/**
+ * What a reader of the web client has in front of them now (`reader.view`): the page, and the words selected on it
+ * with the drawn text either side. Reported by the page itself as presence (a debounced post), kept in memory only.
+ */
+export interface ReaderView {
+  /** Who: `tailnet` (the person on the tailnet web client), or `share:<id>` for a share session's page. */
+  reader: string;
+  /** The page's note (the outline's top level has none). */
+  blockId?: string;
+  title: string;
+  url: string;
+  /** The words selected, at most 2,000 characters, with the text around them and the note row they're in. */
+  selection?: { text: string; before: string; after: string; blockId?: string; truncated?: boolean };
+  /** When the page last said so. */
+  at: string;
 }
 
 /**

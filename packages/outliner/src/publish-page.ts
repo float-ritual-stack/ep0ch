@@ -10,7 +10,9 @@
 //   which clears its replies from `unread:me` (the `/replies` page's marks).
 //
 // Being on the tailnet is the sign-in (Evan, Oct 10: "tailnet access is good enough to verify it's me"): the tailnet
-// listener takes these writes with no token, and the public listener has none of these routes. A write comes from the
+// listener takes these writes with no token. The public listener has these routes only below a share link (its token is
+// the sign-in, checked on every request; share-sessions.ts), for the notes inside the share, and writes only when it
+// takes comments. A write comes from the
 // page's own origin (`Origin` names the host the request was sent to) as JSON, on a passage or thread of the note the
 // page shows now. Writes are the person's (`author: user`, with no actor id, exactly as the door writes his: the
 // service takes provenance only on an agent's writes). A selection is mapped to its source by publish-passage.ts,
@@ -23,6 +25,7 @@ import type { ExtensionsListResult } from "./extension-registry";
 import { plainBody } from "./publish-marginalia";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, BlockProperty } from "./types";
+import type { ShareSession } from "@ep0ch/outline-core/protocol";
 
 /** The script, read once: served at `<base>/_marginalia/reader.js`, the only script a rendered page may run. */
 export const READER_SCRIPT = readFileSync(new URL("./publish-reader.js", import.meta.url), "utf8");
@@ -68,14 +71,29 @@ export interface PageView {
   annotations: ReadonlyMap<string, string>;
 }
 
+/**
+ * A share session's page (share-sessions.ts): the same routes below its link, for notes inside its scope only. Its
+ * writes (when it takes comments) are the person's, marked as made through the share (`via: share:<id>`).
+ */
+export interface PageShare {
+  id: string;
+  /** The share's own base path (`/share/s/<token>`): every link and route of its pages is below it. */
+  base: string;
+  scope: ShareSession["scope"];
+  comments: boolean;
+}
+
 /** What the routes ask of the publisher. */
 export interface PageHost {
   request<T>(request: Record<string, unknown>): Promise<T>;
   /**
    * The note at `page` (a published slug, a page name or an id) as the tailnet shows it now, locks read now: the note
-   * alone (a folder page), or with what's under it (`full`). Undefined when there's no such note or it's locked.
+   * alone (a folder page), or with what's under it (`full`). Undefined when there's no such note or it's locked, or
+   * (with `share`) it's outside the share.
    */
-  view(page: string, full: boolean): Promise<PageView | undefined>;
+  view(page: string, full: boolean, share?: PageShare): Promise<PageView | undefined>;
+  /** Says what a reader has in front of them now (`reader.report`). */
+  report(view: Record<string, unknown>): Promise<unknown>;
   /** Whether a block's own properties lock it (`[publish::never]`). */
   locks(properties: readonly BlockProperty[]): boolean;
   /** Goes up with every change to the outline. */
@@ -119,24 +137,56 @@ export class PageMarginalia {
 
   constructor(private readonly host: PageHost) {}
 
-  /** Answers a request below `<base>/_marginalia/` on the tailnet listener (`route` is the rest: `/threads`, `/write`, …). */
-  async handle(request: Request, route: string): Promise<Response> {
+  /**
+   * Answers a request below `<base>/_marginalia/` on the tailnet listener, or below a share's link (`share`; `route` is
+   * the rest: `/threads`, `/write`, `/view`, …).
+   */
+  async handle(request: Request, route: string, share?: PageShare): Promise<Response> {
     if (route === "/reader.js") {
       if (request.method !== "GET" && request.method !== "HEAD") return refused(405, "read-only");
       return new Response(READER_SCRIPT, { headers: {
-        "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=86400, immutable",
+        // Below a share's link the path holds its secret: no shared cache keeps it.
+        "content-type": "text/javascript; charset=utf-8", "cache-control": `${share ? "private" : "public"}, max-age=86400, immutable`,
         "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cross-origin-resource-policy": "same-origin",
       } });
     }
     if (route === "/threads") {
       if (request.method !== "GET") return refused(405, "use GET");
-      return this.threads(request);
+      return this.threads(request, share);
     }
     if (route === "/write") {
       if (request.method !== "POST") return refused(405, "use POST");
-      return this.write(request);
+      return this.write(request, share);
+    }
+    if (route === "/view") {
+      if (request.method !== "POST") return refused(405, "use POST");
+      return this.view(request, share);
     }
     return refused(404, "not here");
+  }
+
+  /**
+   * What the reader has in front of them (presence, `reader.report`): the page's note, its title and address, and the
+   * words selected with the drawn text either side, placed in the note row they're in when they can be. A share's
+   * address is said without its secret.
+   */
+  private async view(request: Request, share?: PageShare): Promise<Response> {
+    if (!sameOrigin(request)) return refused(403, "a page says what's on it itself");
+    if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
+    const raw = await request.text();
+    if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
+    let input: { page?: unknown; view?: unknown; title?: unknown; url?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown };
+    try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
+    const text = (value: unknown) => typeof value === "string" ? value : "";
+    const view = await this.host.view(text(input.page), text(input.view) === "full", share);
+    if (!view) return refused(404, "no such note here");
+    const quote = text(input.quote).trim();
+    const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    await this.host.report({
+      reader: share ? `share:${share.id}` : "tailnet", blockId: view.root.id, title: text(input.title), url: text(input.url).replace(/\/s\/[^/?#]+/, "/s/…"),
+      ...(quote ? { selection: { text: quote, before: text(input.prefix), after: text(input.suffix), ...(found?.ok ? { blockId: found.block.id } : {}) } } : {}),
+    });
+    return json(200, { ok: true });
   }
 
   private extensionList(): Promise<ExtensionsListResult> {
@@ -216,7 +266,7 @@ export class PageMarginalia {
    * The page's threads and what its toolbar offers. `since`: the generation the script last saw; while nothing has
    * changed the answer waits (up to 20 s) for a change, so a new answer reaches the page soon after it lands.
    */
-  private async threads(request: Request): Promise<Response> {
+  private async threads(request: Request, share?: PageShare): Promise<Response> {
     const url = new URL(request.url);
     const page = url.searchParams.get("page") ?? "";
     const since = Number(url.searchParams.get("since"));
@@ -224,8 +274,10 @@ export class PageMarginalia {
       await this.host.changed(since, Math.min(Number(url.searchParams.get("wait")) || MAX_POLL_MS, MAX_POLL_MS));
     }
     const generation = this.host.generation();
-    const view = await this.host.view(page, url.searchParams.get("view") === "full");
+    const view = await this.host.view(page, url.searchParams.get("view") === "full", share);
     if (!view) return refused(404, "no such note here");
+    // A share without comments is a reading copy: no threads, and Copy alone.
+    if (share && !share.comments) return json(200, { generation, note: view.root.id, choices: [{ action: "copy", label: "Copy" }], threads: [] });
     const kit = await this.kit();
     const choices: PageChoice[] = [
       ...kit.actions.filter((action) => action.id === "highlight").map((action) => ({ action: action.id, label: action.label })),
@@ -238,8 +290,9 @@ export class PageMarginalia {
     return json(200, { generation, note: view.root.id, ...(kit.agent ? { agent: kit.agent } : {}), choices, threads: await this.pageThreads(view) });
   }
 
-  private async write(request: Request): Promise<Response> {
+  private async write(request: Request, share?: PageShare): Promise<Response> {
     if (!sameOrigin(request)) return refused(403, "a write comes from the page itself");
+    if (share && !share.comments) return refused(403, "this link is for reading: it takes no comments");
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return refused(415, "send JSON");
     const raw = await request.text();
     if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
@@ -248,7 +301,7 @@ export class PageMarginalia {
     const text = (value: unknown) => typeof value === "string" ? value : "";
     const action = text(input.action);
     const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(text(input.requestId)) ? text(input.requestId) : crypto.randomUUID();
-    const view = await this.host.view(text(input.page), text(input.view) === "full");
+    const view = await this.host.view(text(input.page), text(input.view) === "full", share);
     if (!view) return refused(404, "this note isn't here now (moved to Trash, or locked)");
     const said = (status: number, body: Record<string, unknown>) => json(status, { ...body, generation: this.host.generation() });
     try {
@@ -290,18 +343,19 @@ export class PageMarginalia {
       const body = action === "explain" ? `@${kit.agent} explain this passage`
         : action === "ask" ? `@${kit.agent} ${asked || "what does this mean?"}` : asked;
       if (!body) return refused(400, "write a comment first (a highlight is its own action)");
-      const properties = action === "ask" ? { kind: "question" } : action === "explain" ? { kind: "explain" } : undefined;
+      // Through a share it's still the person's comment, said to have come by that link.
+      const properties = { ...(action === "ask" ? { kind: "question" } : action === "explain" ? { kind: "explain" } : {}), ...(share ? { via: `share:${share.id}` } : {}) };
       const selected = text(input.quote).trim();
       if (!found.ok) {
         // What he wrote still lands: on the page's own note, the words he meant quoted above it.
         const quoted = selected.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
-        const thread = await this.batch(requestId, { blockId: view.root.id, expectedRevision: view.root.revision, body: selected ? `${quoted}\n\n${body}` : body, source: "user", ...(properties ? { properties } : {}) });
+        const thread = await this.batch(requestId, { blockId: view.root.id, expectedRevision: view.root.revision, body: selected ? `${quoted}\n\n${body}` : body, source: "user", ...(Object.keys(properties).length ? { properties } : {}) });
         return said(200, { ok: true, thread, landed: "note", said: selected ? `${found.why}; it landed on the whole note, with the words quoted` : "commented on the whole note" });
       }
       const p = found.passage;
       const thread = await this.batch(requestId, {
         blockId: found.block.id, expectedRevision: found.block.revision, body, source: "user",
-        passage: { quote: p.quote, start: p.start, prefix: p.prefix, suffix: p.suffix }, ...(properties ? { properties } : {}),
+        passage: { quote: p.quote, start: p.start, prefix: p.prefix, suffix: p.suffix }, ...(Object.keys(properties).length ? { properties } : {}),
       });
       return said(200, { ok: true, thread, said: action === "comment" ? "commented" : `asked @${kit.agent}: the answer lands in the margin` });
     } catch (error) {

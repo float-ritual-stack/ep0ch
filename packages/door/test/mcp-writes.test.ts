@@ -136,12 +136,25 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
     const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_set_property", "outline_assign_id", "outline_write_status"]);
+    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_set_property", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
     ]);
     expect(listed.at(-1)).toMatchObject({ source: "mirror", queue: { waiting: 0, lastPull: null } });
+  });
+
+  test("share tools: a short-lived link started by the tool call alone, listed and ended; a read-only outline is refused", async () => {
+    const started = await tool("share_start", { whole: true, outline: "pond-notes", ttl: "2m" });
+    expect(started.isError, started.text).toBe(false);
+    expect(started.json.share).toMatchObject({ scope: { kind: "outline" }, state: "active", comments: true, by: "mcp:chat.example.test" });
+    // No publisher has said its public address here: no link yet, and what to run.
+    expect(started.json.said).toContain("--public-url");
+    expect(((await tool("share_list", { outline: "pond-notes" })).json.shares as { id: string }[]).map(s => s.id)).toEqual([started.json.share.id]);
+    expect((await tool("share_start", { whole: true, outline: "quiet-notes" })).isError).toBe(true);
+    expect((await tool("reader_view", { outline: "pond-notes" })).json.view).toBeNull();
+    expect((await tool("share_revoke", { all: true, outline: "pond-notes" })).json.revoked).toEqual([started.json.share.id]);
+    expect((await tool("share_list", { outline: "pond-notes" })).json.shares).toEqual([]);
   });
 
   test("full: a patch, a property, a new block and a comment apply, attributed to the client and subject", async () => {
