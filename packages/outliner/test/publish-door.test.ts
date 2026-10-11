@@ -35,7 +35,7 @@ for await (const line of console) { n++; console.log(JSON.stringify({ base: n - 
   return dir;
 }
 
-async function setup(doorOptions: { recheckMs?: number } = {}) {
+async function setup(doorOptions: { recheckMs?: number; max?: number; composeMax?: number } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-door-")));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const paths = scratchOutline(root, { folder: root });
@@ -306,4 +306,20 @@ test("a note page's comment box is the door's composer: placed on the source wor
   expect((await pub(`${shared}/_marginalia/place`, { method: "POST", headers: { origin: "https://garden.example.test", "content-type": "application/json" }, body: JSON.stringify({ page: note.id, quote: "hawk-moths came" }) })).status).toBe(404);
   expect((await pub(`${shared}/door/compose?on=${note.id}`)).status).toBe(404);
   await client.request({ action: "shares.revoke", shareId: share.id });
+});
+
+test("composers have a cap of their own: a full door doesn't stop a comment box, nor the other way", async () => {
+  const { publisher, note } = await setup({ max: 1, composeMax: 1 });
+  const start = async (path: string) => {
+    const t = (await (await tailnet(publisher, path)).text()).match(/data-t="([^"]+)"/)![1]!;
+    return tailnet(publisher, `/pub/door/stream?t=${t}`, SSE);
+  };
+  const door = await start(`/pub/door?open=${note.id}`);
+  expect(door.status).toBe(200);
+  const box = await start(`/pub/door/compose?on=${note.id}`);
+  expect(box.status).toBe(200);
+  const second = await start(`/pub/door/compose?on=${note.id}`);
+  expect(second.status).toBe(503);
+  expect(await second.text()).toContain("Too many composers open (1)");
+  await door.body!.cancel(); await box.body!.cancel();
 });
