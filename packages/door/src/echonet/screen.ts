@@ -91,6 +91,8 @@ export class EchoAreas implements Pane {
   messages: EchoMessages | null = null;
   reader: EchoReader | null = null;
   machine = "";
+  /** The door's own outline, as the areas name where they're read. */
+  own = "";
   private view = new RowView();
   /** The other outlines' boards, by name; the door's own is its ctx's. */
   private boards = new Map<string, SocketBoard>();
@@ -116,7 +118,8 @@ export class EchoAreas implements Pane {
   /** The outlines on the door's host, its own first; a door on a single-outline service has only its own. */
   private async reach(desk: DeskApi): Promise<{ outline: string; board: SocketBoard }[]> {
     const ctx = desk.ctx, own = ctx.outline;
-    const out = [{ outline: ownName(ctx), board: ctx.board }];
+    this.own = ownName(ctx);
+    const out = [{ outline: this.own, board: ctx.board }];
     if (!own) return out;
     let names: string[] = [];
     try { names = (await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(ctx.board.path, "outlines.list", {}, 4000)).outlines.filter(o => !o.archived).map(o => o.name); } catch { return out; }
@@ -230,16 +233,17 @@ export class EchoAreas implements Pane {
       ],
     };
     // Renegade's area list: number, tag, name, where it comes from, messages, new, last toss.
-    const tagW = Math.min(14, Math.max(4, ...this.areas.map(a => a.tag.length))), nodeW = Math.min(24, Math.max(4, ...this.areas.map(a => a.origin.length)));
+    const tagW = Math.min(14, Math.max(4, ...this.areas.map(a => a.tag.length))), nodeW = Math.min(24, Math.max(5, ...this.areas.map(a => (a.kind === "sub" ? a.origin : a.node).length)));
     const nameW = Math.max(6, w - 4 - tagW - nodeW - 5 - 5 - 6 - 6);
     const head = paint(`|09 #  ${"Tag".padEnd(tagW)} ${"Area".padEnd(nameW)} ${"From".padEnd(nodeW)}  Msgs  |14New|09  Toss`);
     const rows = this.areas.map((a, i) => {
       const n = String(i + 1).padStart(2), total = a.total === null ? "  …" : String(a.total).padStart(4), fresh = a.fresh ? String(a.fresh).padStart(4) : "   ·";
-      const toss = a.lastToss ? ago(a.lastToss).padStart(5) : "    -", from = a.kind === "local" ? "local" : a.origin;
+      // Where it comes from: an area that starts in the door's own outline is local; another outline's, that outline.
+      const toss = a.lastToss ? ago(a.lastToss).padStart(5) : "    -", from = a.kind === "sub" ? a.origin : a.outline === this.own ? "local" : a.node;
       const text = ` ${n}  ${pad(a.tag.toUpperCase(), tagW)} ${pad(a.name, nameW)} ${pad(from, nodeW)} ${total} ${fresh} ${toss}`;
       if (i === this.at) return selected(focused) + pad(text, w) + RESET;
       if (a.problem) return pad(`${fg(C.dark)} ${n}  ${pad(a.tag.toUpperCase(), tagW)} ${fg(C.lred)}${pad(a.problem, w - tagW - 6)}`, w) + RESET;
-      return pad(`${fg(C.dark)} ${n}  ${fg(a.fresh ? C.lcyan : C.cyan)}${pad(a.tag.toUpperCase(), tagW)} ${fg(a.fresh ? C.white : C.grey)}${pad(a.name, nameW)} ${fg(a.kind === "local" ? C.brown : C.lblue)}${pad(from, nodeW)} ${fg(C.grey)}${total} ${fg(a.fresh ? C.yellow : C.dark)}${fresh} ${fg(C.dark)}${toss}`, w) + RESET;
+      return pad(`${fg(C.dark)} ${n}  ${fg(a.fresh ? C.lcyan : C.cyan)}${pad(a.tag.toUpperCase(), tagW)} ${fg(a.fresh ? C.white : C.grey)}${pad(a.name, nameW)} ${fg(from === "local" ? C.brown : C.lblue)}${pad(from, nodeW)} ${fg(C.grey)}${total} ${fg(a.fresh ? C.yellow : C.dark)}${fresh} ${fg(C.dark)}${toss}`, w) + RESET;
     });
     const room = Math.max(1, h - 1);
     const top = this.view.place(this.at >= 0 ? this.at : null, rows.length, room);
@@ -472,6 +476,7 @@ export class EchoReader extends ReaderPane {
   override hint() { return this.message ? `] [ next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
   /** It reads what its list opens: the desk's current note doesn't move it. */
   override select() {}
+  protected override emptyFor(): string { return "⏎ on a message in the list reads it here · ] [ then step through the area · r replies · q quotes"; }
 
   override host(desk: DeskApi): SurfaceHost {
     const base = super.host(desk), a = this.area, net = this.net;
