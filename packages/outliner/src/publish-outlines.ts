@@ -40,7 +40,9 @@ export class OutlinePublishers {
     }
     const root = this.webRoot;
     const pathname = new URL(request.url).pathname;
-    const below = root && (pathname === root || pathname.startsWith(`${root}/`)) ? pathname.slice(root.length) : root ? null : pathname;
+    // A proxy that mounts the web root and strips it (`tailscale serve` /pub) sends `/o/…`; the publisher takes both
+    // forms for its own pages, so the outlines do too.
+    const below = root && (pathname === root || pathname.startsWith(`${root}/`)) ? pathname.slice(root.length) : pathname;
     if (below === "/o" || below === "/o/") return this.list(request);
     const named = below === null ? null : OUTLINE_PATH.exec(below);
     if (!named) return this.options.home.handle(request, audience, undefined, signedIn);
@@ -55,7 +57,12 @@ export class OutlinePublishers {
       this.log(`publish: outline ${name}: ${error instanceof Error ? error.message : String(error)}`);
       return plainPage("Not reachable", `<h1>${escapeHtml(name)} can't be read now</h1>\n<p class="dim">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>\n`, 502);
     }
-    return publisher.handle(request, audience, undefined, signedIn);
+    if (pathname.startsWith(`${root}/`)) return publisher.handle(request, audience, undefined, signedIn);
+    // Stripped by a proxy: hand the outline's publisher its own path below `/o/<name>`, which it takes as it takes
+    // `/p/…` for the home outline.
+    const url = new URL(request.url);
+    url.pathname = named[2] ?? "/";
+    return publisher.handle(new Request(url, request), audience, undefined, signedIn);
   }
 
   private publisher(name: string): Promise<Publisher> {

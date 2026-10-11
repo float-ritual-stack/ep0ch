@@ -198,6 +198,11 @@ test("a sign-in through Clerk lands on the page asked for, with a 30-day HttpOnl
   // The tailnet keeps answering with no sign-in, the same pages.
   const tailnet = await web.handle(new Request(`https://${TAILNET}/pub/o/orchard/`, { headers: { host: TAILNET, ...html } }));
   expect(tailnet.status).toBe(200);
+  // `tailscale serve` mounts /pub and strips it, so the same outlines arrive as /o/…, as note pages arrive as /p/….
+  const stripped = await web.handle(new Request(`https://${TAILNET}/o/orchard/`, { headers: { host: TAILNET, ...html } }));
+  expect(stripped.status).toBe(200);
+  expect(await stripped.text()).toContain("Pruning plan");
+  expect((await web.handle(new Request(`https://${TAILNET}/o/`, { headers: { host: TAILNET, ...html } }))).status).toBe(200);
   expect(await tailnet.text()).toContain("Pruning plan");
   // …under its own names only: another Host gets no list of outlines.
   expect((await web.handle(new Request("https://rebound.example/pub/o/", { headers: { host: "rebound.example", ...html } }))).status).toBe(421);
