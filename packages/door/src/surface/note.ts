@@ -2582,7 +2582,7 @@ export class NoteSurface {
    * keeps writing. Null when there's nothing to ask (no comment written, or `actor` is an agent: an agent's action never
    * asks the person, and never takes their keys).
    */
-  async askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): Promise<unknown> {
+  askLeave(name: LeaveAsk["name"], args: Record<string, unknown>, actor: Actor, host: SurfaceHost, elem?: string): Promise<unknown> | null {
     const cs = this.session;
     if (actor.kind === "agent" || !cs || cs.mode !== "compose" || !cs.writing) return null;
     // Nothing typed yet: nothing to lose, so it closes and the reader goes.
@@ -6010,7 +6010,8 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
   if (actor.kind === "agent" && host.history) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
-  const asked = await surface.askLeave(word, {}, actor, host);
+  // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
+  const asked = surface.askLeave(word, {}, actor, host);
   if (asked) return asked;
   const why = await surface.travel(dir, host);
   if (why) throw new ActionRefused(why);
@@ -6271,7 +6272,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, fresh }, { surface, host }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
-      const asked = await surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
+      const asked = surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
       if (asked) return asked;
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
       if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
@@ -6338,7 +6339,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
       if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
-        const asked = await surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
+        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
       // A step's box opens the person's status choice; an agent sets the status itself.
