@@ -2703,6 +2703,11 @@ export class OutlinerServer {
         case "annotations.read":
           result = this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER));
           break;
+        case "blocks.markRead":
+          if (!Array.isArray(request.blocks) || !request.blocks.every((b: unknown) => !!b && typeof (b as { id?: unknown }).id === "string" && Number.isFinite((b as { revision?: unknown }).revision)))
+            throw new Error("blocks.markRead needs blocks: [{ id, revision }], each block read and the revision it was shown at");
+          result = { marked: this.store.readMarks.markShown(readerKey(request.reader ?? PERSON_READER), request.blocks) };
+          break;
         case "annotations.lifecycle":
           result = this.store.setAnnotationLifecycle(
             request.input,
@@ -3287,6 +3292,12 @@ export class OutlinerServer {
         if (!(response.result as { marked: number }).marked) return null;
         domain = "content";
         blockId = (response.result as { thread: string }).thread;
+        break;
+      case "blocks.markRead":
+        // As a thread read: nothing in a block changed, but views that ask `unread:` read again.
+        if (!(response.result as { marked: number }).marked) return null;
+        domain = "content";
+        blockId = request.blocks[0]?.id;
         break;
       case "attention.mark":
       case "attention.advance":

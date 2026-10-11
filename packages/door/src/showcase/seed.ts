@@ -73,8 +73,36 @@ export const SEED = {
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
   margin: "Writing in the margin",
+  echoArea: "Plot chat",
+  echoSub: "Seed swap",
+  nodelist: "EchoNet nodelist",
 } as const;
 export type SeedName = keyof typeof SEED;
+
+/** EchoNet's mini network (the spike): Plot chat's posts, Seed swap's copies, the nodelist's entries. */
+export const ECHO_TOSSER = { kind: "agent", id: "echo-tosser" } as const satisfies Actor;
+export const ECHO_POSTS = [["Hosepipe ban from Monday", "Water cans only; the butts are full.", "ana"], ["Who has the long ladder?", "The shed gutter wants clearing before the rain.", "ravi"]] as const;
+const copyOf = (n: number, title: string, body: string, by: string, more = "") =>
+  `${title} [from::society@box-a/5eed5a90-0000-4000-8000-00000000000${n}] [echo::seed.swap] [from-rev::1] [tossed::2026-03-0${n}T09:30:00Z] [by::${by}]${more}\n${body}`;
+export const ECHO_COPIES = [
+  copyOf(1, "Runner beans to swap", "Two jars of Scarlet Emperor. Swap for any squash.", "june"),
+  copyOf(2, "Tomato seed, saved last year", "Gardener's Delight, dried on kitchen paper.\nAsk before the end of March.", "ravi", " [upstream-newer::2]"),
+  copyOf(3, "Swap table on Saturday", "By the water trough from ten. Bring labels.", "ana"),
+];
+/** The nodelist as the tosser writes it (a section per node) and its toss logs under it. */
+export const ECHO_NODELIST = [
+  `${SEED.nodelist} [type::nodelist] [node::kitchen@box-b] [last-toss::2026-03-03T09:31:00Z]`, "",
+  "The nodes this outline knows, written again by EchoNet's tosser at every toss.", "",
+  "## kitchen@box-b", "- this node · access read", "- last toss: 2026-03-03T09:31:00Z", "- areas: plot.chat (Plot chat)", "- subscriptions: seed.swap from society@box-a", "",
+  "## society@box-a", "- reachable · access propose · we read its areas", "- last toss: 2026-03-03T09:30:00Z", "- areas: seed.swap (Seed swap)", "- subscriptions: plot.chat from kitchen@box-b", "",
+  "## attic@box-c", "- unreachable: no forward to box-c · reads our areas", "- last toss: unknown", "- areas: unknown", "- subscriptions: unknown",
+].join("\n");
+export const ECHO_TOSSES = [
+  "Toss 2026-03-02 09:30 UTC [type::toss] [node::kitchen@box-b] [at::2026-03-02T09:30:00Z] [copies::2] [updated::0] [skipped::0] [netmail-out::0] [netmail-in::0] [queued::0]",
+  "Toss 2026-03-03 09:31 UTC [type::toss] [node::kitchen@box-b] [at::2026-03-03T09:31:00Z] [copies::1] [updated::1] [skipped::0] [netmail-out::1] [netmail-in::1] [queued::1]",
+];
+/** The nodes that read Plot chat: the seen-by marks the tosser leaves on each of its posts. */
+export const ECHO_SEEN_BY = ["society@box-a", "attic@box-c"] as const;
 
 /** The board's lanes, in delivery order: saved views (virtual branches) over the house's roadmap items. */
 export const LANES = ["Queued", "Doing", "Review", "Done"] as const;
@@ -1200,6 +1228,21 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     }
     await board.request("extensions.schedule.run", { extension: "notify", entry: "action:pull" }).catch(() => null);
   }
+  // EchoNet (the spike): a mini network. Plot chat starts here; Seed swap is the society's area, its posts copied in by
+  // the tosser (as the tosser writes them); the nodelist says who answered the last toss. Fictional nodes, as all of it.
+  notes.echoArea = await make(notes.root.id, `${SEED.echoArea} [type::echo-area] [echo::plot.chat] [query::type=plot-post]\nThe allotment's own echo area: it starts here, and the tosser copies its posts to every outline subscribed to it.`);
+  for (const [title, body, by] of ECHO_POSTS) {
+    const post = await make(notes.echoArea.id, `${title} [type::plot-post] [by::${by}]\n${body}`);
+    // Seen by: a whole-note mark per node it reached, as the tosser leaves them.
+    for (const node of ECHO_SEEN_BY) await board.request("annotations.batch", {
+      requestId: `showcase-seen-${node}-${post.id}`, author: "agent", provenance: { actorId: ECHO_TOSSER.id },
+      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision, source: "agent", body: `also in: ${node} (${SEED.echoArea})`, properties: { kind: "echo-seen-by", "echo.node": node, via: `echonet:${node}` } } }],
+    });
+  }
+  notes.echoSub = await make(notes.root.id, `${SEED.echoSub} [type::echo-sub] [subscribe::society@box-a] [echo::seed.swap]\nThe allotment society's seed swap, carried here: each post under it is a copy the tosser brought.`);
+  for (const c of ECHO_COPIES) await make(notes.echoSub.id, c, ECHO_TOSSER);
+  notes.nodelist = await make(notes.root.id, ECHO_NODELIST, ECHO_TOSSER);
+  for (const t of ECHO_TOSSES) await make(notes.nodelist.id, t, ECHO_TOSSER);
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);
   await make(notes.rules.id, "Mend the water butt [status::todo]\nSetting its status to done stamps the day it was done (done-stamp); setting it back takes the stamp off.");
