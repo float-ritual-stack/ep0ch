@@ -110,6 +110,8 @@ interface Receipt { id: string; extension: string; action: string; steps: UndoSt
 /** What an applied group answers: the blocks it wrote, or the proposal it waits as; `undo` names the step that undoes it. */
 export interface GroupOutcome {
   written: string[];
+  /** The blocks it made (of `written`). */
+  made?: string[];
   proposalId?: string;
   proposed?: string;
   undo?: string;
@@ -164,7 +166,8 @@ export class ExtensionWrites {
     const outcome = await this.store.changes.run(attribution, () => this.deps.patchGroup!({ edits: plan.edits, mutation: actor, group, touched: plan.touched, write: writer.write }));
     if (outcome.outcome !== "applied") return { written: [], proposalId: outcome.proposalId, proposed: `proposed instead: ${outcome.reason}${unwritten}` };
     const written = [...new Set([...writer.steps.map((step) => step.kind === "order" ? step.parentId : step.blockId), ...outcome.edits.map((edit) => edit.blockId)])];
-    return { written, ...this.keep(extension, action, writer.steps, outcome.edits) };
+    const madeIds = writer.steps.flatMap((step) => step.kind === "create" ? [step.blockId] : []);
+    return { written, ...(madeIds.length ? { made: madeIds } : {}), ...this.keep(extension, action, writer.steps, outcome.edits) };
   }
 
   /**

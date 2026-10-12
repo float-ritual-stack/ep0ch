@@ -646,6 +646,10 @@ function checkManifest(manifest: ExtensionManifest): void {
       if ((action.on ?? "block") !== "block") throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which acts on ${action.on}; a rule's action acts on the block (on: block)`);
     }
     if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change) throw new ExtensionLoadError(`${where}/on names no action: give start, stop or change`);
+    for (const wait of ["quiet", "batch"] as const) {
+      const ms = durationMs(rule.on?.[wait]);
+      if (ms !== undefined && ms > 86_400_000) throw new ExtensionLoadError(`${where}/on/${wait} is longer than a day (24h at most)`);
+    }
   }
   const barIds = new Set<string>();
   for (const [index, source] of (manifest.bar ?? []).entries()) {

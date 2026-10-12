@@ -14,7 +14,6 @@ import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionActionArg, type LoadedEx
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
-import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
@@ -954,7 +953,8 @@ export class ExtensionCalls {
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
       ...(request.trigger ? { trigger: this.triggerInput(request.trigger) } : {}),
-    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
+    }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote,
+      ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}), ...(request.trigger ? { trigger: request.trigger.rule } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
@@ -967,13 +967,9 @@ export class ExtensionCalls {
       ? { rule: request.trigger.rule, agents: new Set((extension.manifest.agents ?? []).map((agent) => agent.name)) }
       : undefined;
     const applied: GroupOutcome = parsed.writes.length ? await this.writes.apply(extension.id, action.name, parsed.writes as BlockWrite[], request.requestedBy, block?.id, trigger) : { written: [] };
-    // A trigger's new block that asks the extension's agent: asked now (a block it made carries the trigger's mark).
+    // A block the trigger's writes made that asks the extension's agent (checked when planned): asked now.
     if (trigger && this.options.ask) {
-      const mark = `[${VIA_TRIGGER}::${trigger.rule}]`;
-      for (const id of applied.written) {
-        const made = this.store.get(id);
-        if (made?.text.split("\n", 1)[0]!.includes(mark)) void this.options.ask(id, request.requestedBy).catch(() => {});
-      }
+      for (const id of applied.made ?? []) void this.options.ask(id, request.requestedBy).catch(() => {});
     }
     // What its process wrote over its connection counts as written too; a write to the acted-on block or a child of
     // it redraws the line as a returned write does.

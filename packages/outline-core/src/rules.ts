@@ -304,6 +304,16 @@ export const VIA_TRIGGER = "via-trigger";
 
 /** A duration as manifests and rule notes write it: `30s`, `5m`, `2h`. */
 export const RULE_DURATION = /^[1-9][0-9]{0,4}[smh]$/;
+/** The longest a trigger waits (`quiet`, `batch`): a day. */
+export const RULE_MAX_WAIT_MS = 86_400_000;
+
+/** A trigger's wait in milliseconds, or why it isn't one (not a duration, or longer than a day). */
+export function ruleWaitMs(raw: string): number | { problem: string } {
+  const m = RULE_DURATION.test(raw.trim()) ? /^(\d+)([smh])$/.exec(raw.trim()) : null;
+  if (!m) return { problem: `${JSON.stringify(raw)} is a duration, like 30s, 5m or 2h` };
+  const ms = Number(m[1]) * (m[2] === "s" ? 1_000 : m[2] === "m" ? 60_000 : 3_600_000);
+  return ms > RULE_MAX_WAIT_MS ? { problem: `${JSON.stringify(raw)} is longer than a day (24h at most)` } : ms;
+}
 
 const ACTION_REF = /^([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,63})$/;
 
@@ -335,7 +345,8 @@ export function parseRuleCap(raw: string): number | { problem: string } {
 /** Which writer a save was made by, as `rule-from` names them. */
 export function ruleWriter(actor: { author?: string; actorId?: string } | undefined): RuleWriter {
   const id = actor?.actorId?.trim();
-  if (id?.startsWith("ext:")) return id.toLowerCase() as RuleWriter;
+  // Another machine's extension relayed (`ext:echonet@shack@float-2`) is that extension.
+  if (id?.startsWith("ext:")) return id.toLowerCase().split("@", 1)[0] as RuleWriter;
   return actor?.author === "agent" ? "agent" : "user";
 }
 
@@ -409,20 +420,24 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
       if ("problem" in ref) problems.push(`${where}: ${key} ${ref.problem}`);
       else on[when] = ref;
     }
-    const runs = !!(on.start || on.stop || on.change);
+    let runs = !!(on.start || on.stop || on.change);
     const guards: string[] = [];
+    // A guard written wrong turns the trigger off rather than run it with less guarding than was asked.
+    let broken = false;
+    const bad = (problem: string) => { problems.push(`${where}: ${problem}`); broken = true; };
     for (const [key, field] of [["rule-quiet", "quiet"], ["rule-batch", "batch"]] as const) {
       const value = prop(key);
       if (!value) continue;
       guards.push(key);
-      if (RULE_DURATION.test(value)) on[field] = value;
-      else problems.push(`${where}: ${key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`);
+      const ms = ruleWaitMs(value);
+      if (typeof ms === "number") on[field] = value;
+      else bad(`${key} ${ms.problem}`);
     }
     const from = prop("rule-from");
     if (from) {
       guards.push("rule-from");
       const read = parseRuleWriters(from);
-      problems.push(...read.problems.map(p => `${where}: rule-from ${p}`));
+      for (const p of read.problems) bad(`rule-from ${p}`);
       if (read.writers.length) on.from = read.writers;
     }
     const cap = prop("rule-cap");
@@ -430,12 +445,16 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
       guards.push("rule-cap");
       const read = parseRuleCap(cap);
       if (typeof read === "number") on.cap = read;
-      else problems.push(`${where}: rule-${read.problem}`);
+      else bad(`rule-${read.problem}`);
     }
     const skip = prop("rule-skip");
     if (skip) { guards.push("rule-skip"); on.skip = skip; }
     if (!runs && guards.length) problems.push(`${where}: ${guards.join(", ")} guard${guards.length === 1 ? "s" : ""} a rule that runs something: add rule-on`);
-    if (!decorate && !runs) { problems.push(`${where}: rule ${name} draws nothing and runs nothing: add rule-decorate or rule-on`); continue; }
+    if (runs && broken) { problems.push(`${where}: rule ${name} runs nothing until its guards are fixed`); runs = false; }
+    if (!decorate && !runs) {
+      if (!broken) problems.push(`${where}: rule ${name} draws nothing and runs nothing: add rule-decorate or rule-on`);
+      continue;
+    }
     const placeRaw = prop("rule-place")?.toLowerCase();
     let place: Place | undefined;
     if (placeRaw) {

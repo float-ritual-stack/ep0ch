@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtInSpec, compileRulePattern, expandTemplate, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks, ruleWriter } from "../src/rules";
+import { builtInSpec, compileRulePattern, expandTemplate, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks, ruleWaitMs, ruleWriter } from "../src/rules";
 
 const NOTE = [
   "Allotment plan",
@@ -158,7 +158,9 @@ describe("a rule note that runs (PIE-786)", () => {
       block("44444444-0000-4000-8000-000000000002", { "rule-name": "b", "rule-match": "x=1", "rule-on": "ext/act", "rule-from": "everyone, ext:echonet", "rule-batch": "soon" }),
       block("44444444-0000-4000-8000-000000000003", { "rule-name": "c", "rule-match": "x=1" }),
     ]);
-    expect(rules.map(r => [r.name, r.on?.from ?? null])).toEqual([["a", null], ["b", ["ext:echonet"]]]);
+    // a's cap is wrong: it draws still, and runs nothing until it's fixed; b's writer is wrong: it's left out.
+    expect(rules.map(r => [r.name, r.on ?? null])).toEqual([["a", null]]);
+    expect(problems.join("\n")).toContain("rule b runs nothing until its guards are fixed");
     expect(problems.join("\n")).toContain("rule-on \"nope\" isn't an action");
     expect(problems.join("\n")).toContain("rule-cap \"lots\" is a number of runs a day");
     expect(problems.join("\n")).toContain("guards a rule that runs something");
@@ -169,5 +171,13 @@ describe("a rule note that runs (PIE-786)", () => {
   test("who wrote a save, as rule-from names them", () => {
     expect([ruleWriter(undefined), ruleWriter({ author: "user" }), ruleWriter({ author: "agent", actorId: "claude-code@box" }), ruleWriter({ author: "agent", actorId: "ext:echonet" })])
       .toEqual(["user", "user", "agent", "ext:echonet"]);
+    expect(ruleWriter({ author: "agent", actorId: "ext:echonet@shack@float-2" })).toBe("ext:echonet");
   });
+});
+
+test("a trigger waits a day at most", () => {
+  expect(ruleWaitMs("90s")).toBe(90_000);
+  expect(ruleWaitMs("24h")).toBe(86_400_000);
+  expect(ruleWaitMs("99999h")).toEqual({ problem: "\"99999h\" is longer than a day (24h at most)" });
+  expect(ruleWaitMs("soon")).toEqual({ problem: "\"soon\" is a duration, like 30s, 5m or 2h" });
 });

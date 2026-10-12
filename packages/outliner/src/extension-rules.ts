@@ -10,6 +10,7 @@ import {
   parseRuleWriters,
   ruleHits,
   rulesFromBlocks,
+  ruleWaitMs,
   ruleWriter,
   RULE_KEYS,
   VIA_TRIGGER,
@@ -144,6 +145,8 @@ export interface ExtensionRulesOptions {
 }
 
 const DEFAULT_QUIET_MS = 2_000;
+/** The most blocks one batched call takes: a bigger burst is several calls. */
+const MAX_BATCH = 50;
 const MAX_RUNNING = 4;
 const MAX_DECORATIONS = 48;
 const RETRY_FAILED_MS = 60_000;
@@ -189,10 +192,11 @@ function triggerOn(on: {
   const start = ref(on.start), stop = ref(on.stop), change = ref(on.change);
   const from = on.from === undefined ? undefined : parseRuleWriters(on.from).writers;
   const cap = on.cap === undefined ? undefined : typeof on.cap === "number" ? on.cap : parseRuleCap(on.cap);
-  const batchMs = durationMs(on.batch);
+  const wait = (raw: string | undefined) => { const ms = raw === undefined ? undefined : ruleWaitMs(raw); return typeof ms === "number" ? ms : undefined; };
+  const batchMs = wait(on.batch);
   return {
     ...(start ? { start } : {}), ...(stop ? { stop } : {}), ...(change ? { change } : {}),
-    quietMs: durationMs(on.quiet) ?? DEFAULT_QUIET_MS,
+    quietMs: wait(on.quiet) ?? DEFAULT_QUIET_MS,
     ...(from?.length ? { from } : {}), ...(batchMs ? { batchMs } : {}), ...(typeof cap === "number" ? { cap } : {}), ...(on.skip ? { skip: on.skip } : {}),
   };
 }
@@ -224,9 +228,13 @@ export class ExtensionRules {
   /** Per block, the triggers running or waiting to run, one after another. */
   private readonly chains = new Map<string, Promise<void>>();
   /** Per rule and action: the blocks a burst gathered (`batch`), called together when its window closes. */
-  private readonly batches = new Map<string, { ruleKey: string; when: "start" | "stop" | "change"; blocks: string[]; requestedBy: MutationProvenance | undefined; timer: ReturnType<typeof setTimeout> }>();
-  /** Each rule's calls today (`cap`), by its key: the day they're for, kept in `runsFile`. */
-  private runs: { day: string; counts: Record<string, number> } | null = null;
+  private readonly batches = new Map<string, {
+    ruleKey: string; when: "start" | "stop" | "change"; requestedBy: MutationProvenance | undefined; timer: ReturnType<typeof setTimeout>;
+    /** Each block, with the generation it joined at: a write that drops what waits there drops it from the batch too. */
+    blocks: Map<string, number>;
+  }>();
+  /** Each rule's calls today (`cap`), by its key: the day they're for, kept in `runsFile`; `broken` when that file can't be read. */
+  private runs: { day: string; counts: Record<string, number>; broken?: string } | null = null;
   private started = false;
   private stopped = false;
 
@@ -725,7 +733,7 @@ export class ExtensionRules {
     if (!when || !action || !this.options.act) return;
     // `skip`: a block its query holds for (already handled, say) never sets the rule off.
     if (rule.on!.skip && this.skips(rule.on!.skip, blockId)) return;
-    if (rule.on!.batchMs) { this.gather(rule, when, blockId, pending.requestedBy); return; }
+    if (rule.on!.batchMs) { this.gather(rule, when, blockId, pending.requestedBy, this.generations.get(`${ruleKey}\n${blockId}`) ?? 0); return; }
     await this.call(rule, when, [blockId], pending.requestedBy);
   }
 
@@ -739,11 +747,11 @@ export class ExtensionRules {
   }
 
   /** A burst's block joins its rule's batch; the first opens the window, which closes `batch` later with one call for all. */
-  private gather(rule: RuleEntry, when: "start" | "stop" | "change", blockId: string, requestedBy: MutationProvenance | undefined): void {
+  private gather(rule: RuleEntry, when: "start" | "stop" | "change", blockId: string, requestedBy: MutationProvenance | undefined, generation: number): void {
     const key = `${rule.key}\n${when}`;
     const open = this.batches.get(key);
     if (open) {
-      if (!open.blocks.includes(blockId)) open.blocks.push(blockId);
+      open.blocks.set(blockId, generation);
       open.requestedBy ??= requestedBy;
       return;
     }
@@ -753,13 +761,19 @@ export class ExtensionRules {
       if (!batch) return;
       this.queue(`batch:${key}`, async () => {
         const current = this.triggerRules().find((candidate) => candidate.key === batch.ruleKey);
-        // Blocks gone, or skipped since they joined, are left out; nothing left, nothing called.
-        const blocks = batch.blocks.filter((id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId && !(current?.on?.skip && this.skips(current.on.skip, id)); });
-        if (current && blocks.length && !this.stopped) await this.call(current, batch.when, blocks, batch.requestedBy, true);
+        if (!current || this.stopped) return;
+        // Each block as it is now: still in the state that set it off (a start still matches, a stop doesn't), nothing
+        // written over what waited there since it joined, not skipped since. Nothing left, nothing called.
+        const blocks = [...batch.blocks].filter(([id, joined]) =>
+          (this.generations.get(`${current.key}\n${id}`) ?? 0) === joined &&
+          this.matchesNow(current, id) === (batch.when !== "stop") &&
+          !(current.on?.skip && this.skips(current.on.skip, id))).map(([id]) => id);
+        // A call takes 50 blocks at most: a bigger burst is several calls, each counted against the cap.
+        for (let at = 0; at < blocks.length && !this.stopped; at += MAX_BATCH) await this.call(current, batch.when, blocks.slice(at, at + MAX_BATCH), batch.requestedBy, true);
       });
     }, rule.on!.batchMs);
     timer.unref?.();
-    this.batches.set(key, { ruleKey: rule.key, when, blocks: [blockId], requestedBy, timer });
+    this.batches.set(key, { ruleKey: rule.key, when, blocks: new Map([[blockId, generation]]), requestedBy, timer });
   }
 
   /** Runs a rule's action once for `blocks` (one, or a batch's, the first acted on), within its daily cap. */
@@ -768,11 +782,19 @@ export class ExtensionRules {
     const blockId = blocks[0]!;
     const at = new Date(this.now).toISOString();
     const cap = rule.on!.cap;
+    if (cap !== undefined && this.runsBroken()) {
+      this.lastRun.set(rule.key, { at, blockId, when, error: `held: ${this.runsBroken()}, so a capped rule can't count its runs; it runs again once the file can be read and written (remove it to count today from nothing)` });
+      return;
+    }
     if (cap !== undefined && this.ranToday(rule.key) >= cap) {
       this.lastRun.set(rule.key, { at, blockId, when, error: `capped: it ran ${cap} time${cap === 1 ? "" : "s"} today (its cap is ${cap}/day); ${blocks.length === 1 ? "this block" : `these ${blocks.length} blocks`} didn't set it off, and it runs again tomorrow` });
       return;
     }
-    this.countRun(rule.key);
+    const kept = this.countRun(rule.key);
+    if (cap !== undefined && kept !== true) {
+      this.lastRun.set(rule.key, { at, blockId, when, error: `held: ${kept}, so a capped rule can't count its runs` });
+      return;
+    }
     try {
       const result = await this.options.act!({
         extension: action.extension, action: action.action, blockId, ...(requestedBy ? { requestedBy } : {}),
@@ -796,34 +818,47 @@ export class ExtensionRules {
     if (!this.runs) {
       this.runs = { day, counts: {} };
       const file = this.options.runsFile;
-      try {
-        if (file && existsSync(file)) {
+      if (file && existsSync(file)) {
+        try {
           const read = JSON.parse(readFileSync(file, "utf8")) as { day?: unknown; counts?: unknown };
-          if (read.day === day && read.counts && typeof read.counts === "object") this.runs.counts = Object.fromEntries(Object.entries(read.counts).filter(([, n]) => Number.isSafeInteger(n))) as Record<string, number>;
+          if (!read || typeof read !== "object" || typeof read.day !== "string" || !read.counts || typeof read.counts !== "object") throw new Error("not a day and its counts");
+          if (read.day === day) this.runs.counts = Object.fromEntries(Object.entries(read.counts).filter(([, n]) => Number.isSafeInteger(n))) as Record<string, number>;
+        } catch (error) {
+          // A file there that can't be read isn't counted from nothing: a capped rule holds until it can be.
+          this.runs = null;
+          return {};
         }
-      } catch {
-        // A file that can't be read counts from nothing: the cap is a guard, not a ledger.
       }
     }
     if (this.runs.day !== day) this.runs = { day, counts: {} };
     return this.runs.counts;
   }
 
+  /** Why the runs file can't be used (it's there and can't be read), or nothing. */
+  private runsBroken(): string | undefined {
+    this.counts();
+    return this.runs ? undefined : `${this.options.runsFile} can't be read`;
+  }
+
   private ranToday(ruleKey: string): number {
     return this.counts()[ruleKey] ?? 0;
   }
 
-  private countRun(ruleKey: string): void {
+  /** Counts a run, kept in the runs file: true, or why it couldn't be kept (the count stays as it was). */
+  private countRun(ruleKey: string): true | string {
     const counts = this.counts();
+    if (!this.runs) return `${this.options.runsFile} can't be read`;
     counts[ruleKey] = (counts[ruleKey] ?? 0) + 1;
     const file = this.options.runsFile;
-    if (!file) return;
+    if (!file) return true;
     try {
       mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(`${file}.tmp`, JSON.stringify(this.runs));
+      writeFileSync(`${file}.tmp`, JSON.stringify({ day: this.runs.day, counts }));
       renameSync(`${file}.tmp`, file);
-    } catch {
-      // Kept in memory still.
+      return true;
+    } catch (error) {
+      counts[ruleKey] -= 1;
+      return `${file} can't be written (${message(error)})`;
     }
   }
 

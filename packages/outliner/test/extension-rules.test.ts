@@ -417,3 +417,59 @@ else process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "cr
   await expect(client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON }))
     .rejects.toThrow("extensions can't ask agents");
 });
+
+test("what a triggered action writes over its own connection carries the trigger's marks too, so a rule hearing it doesn't loop", async () => {
+  const { create, store, extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "self", { run: ["bun", "main.ts"], actions: [{ id: "grow", label: "Grow", on: "block", effects: "write" }] }, `import { connect } from "node:net";
+const r = await Bun.stdin.json();
+const call = (request) => new Promise((resolve, reject) => {
+  const c = connect(process.env.EP0CH_SOCKET); let b = "";
+  c.on("data", (d) => { b += d; const n = b.indexOf("\\n"); if (n < 0) return; c.end(); const x = JSON.parse(b.slice(0, n)); x.ok ? resolve(x.result) : reject(new Error(x.error)); });
+  c.on("error", reject);
+  c.write(JSON.stringify({ id: crypto.randomUUID(), ...(process.env.EP0CH_WS ? { outline: process.env.EP0CH_WS } : {}), ...request, grant: process.env.EP0CH_EXT_GRANT }) + "\\n");
+});
+await call({ action: "create", parentId: r.input.target.blockId, text: "grown [type::seed]" });
+process.stdout.write(JSON.stringify({ ok: true, value: {} }));`);
+  await until("self", async () => (await list(true)).extensions.some((extension) => extension.id === "self"));
+  // It hears its own extension: only the trigger's marks keep it from growing forever.
+  await create("Grow [rule-name::grow] [rule-match::type=seed] [rule-on::self/grow] [rule-from::user, ext:self]");
+  await until("the rule", async () => (await list()).rules.some((rule) => rule.name === "grow"));
+  const seed = await create("A seed [type::seed]");
+  const grown = await until("the child", () => store.children(seed.id)[0]);
+  expect(grown.text).toBe("grown [type::seed] [via-trigger::grow]");
+  await Bun.sleep(500);
+  expect(store.children(grown.id)).toEqual([]);
+  expect((await list()).rules.find((rule) => rule.name === "grow")?.ranToday).toBe(1);
+});
+
+test("a batch calls only what still stands when its window closes", async () => {
+  const { create, update, store, extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);
+  await until("seen", async () => (await list(true)).extensions.some((extension) => extension.id === "seen"));
+  await create("Intake [rule-name::intake] [rule-match::type=ask] [rule-on::seen/note] [rule-batch::1s]");
+  await until("the rule", async () => (await list()).rules.some((rule) => rule.name === "intake"));
+  const kept = await create("Fix the gate [type::ask]");
+  const dropped = await create("Paint the shed [type::ask]");
+  // Joined the batch, then stopped matching before the window closed: left out.
+  await Bun.sleep(300);
+  await update(dropped.id, (text) => text.replace("type::ask", "type::idea"));
+  await until("the batch", () => store.children(kept.id).length === 1);
+  expect(store.children(kept.id)[0]!.text).toBe("seen by intake in a batch of 1 [via-trigger::intake]");
+  expect(store.children(dropped.id)).toEqual([]);
+});
+
+test("a runs file there that can't be read holds a capped rule rather than count from nothing", async () => {
+  const { create, store, extensionsFolder, list, root } = await setup();
+  // As the host finds it when it starts.
+  writeFileSync(join(root, "rule-runs.json"), "{ not json");
+  writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);
+  await until("seen", async () => (await list(true)).extensions.some((extension) => extension.id === "seen"));
+  await create("Capped [rule-name::capped] [rule-match::type=chore] [rule-on::seen/note] [rule-cap::5/day]");
+  await create("Uncapped [rule-name::uncapped] [rule-match::type=chore] [rule-on::seen/note]");
+  await until("the rules", async () => (await list()).rules.filter((rule) => rule.name.endsWith("capped")).length === 2);
+  const chore = await create("Sweep [type::chore]");
+  const rules = await until("held", async () => { const l = (await list()).rules; return l.find((rule) => rule.name === "capped")?.lastRun?.error?.startsWith("held:") && l; });
+  // The uncapped rule runs; the capped one doesn't.
+  expect(rules.find((rule) => rule.name === "uncapped")?.lastRun?.error).toBeUndefined();
+  await until("the uncapped rule's child", () => store.children(chore.id).length === 1);
+});
