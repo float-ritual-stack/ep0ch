@@ -36,6 +36,7 @@ import { resourceProviderEntries } from "./extension-registry";
 import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
 import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
+import { markTriggered } from "./extension-writes";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
@@ -313,7 +314,7 @@ function relayedGrant(relayed: unknown): ExtensionGrant | undefined {
 
 /** A grant's actor: the extension (`ext:<id>`), as an agent. */
 function grantActor(grant: ExtensionGrant): MutationProvenance {
-  return { author: "agent", actorId: extensionActorId(grant.extensionId) };
+  return { author: "agent", actorId: extensionActorId(grant.extensionId), ...(grant.trigger ? { taskId: `trigger:${grant.trigger}` } : {}) };
 }
 
 /** A request annotation input as the extension's own: its source is an agent's. */
@@ -495,6 +496,8 @@ export class OutlinerServer {
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),
+      // A trigger's new block asking the extension's own agent: asked as r would, by whoever set the trigger off.
+      ask: (blockId, requestedBy) => this.agentRequests.refresh(blockId, undefined, requestedBy),
     });
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
@@ -505,6 +508,8 @@ export class OutlinerServer {
       // A rule note written: readers read the rules (extensions.list) and draw every note again.
       rulesChanged: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
       ...(options.ruleQuietMs !== undefined ? { quietMs: options.ruleQuietMs } : {}),
+      // How many times each rule ran today, kept across restarts: a rule's daily cap holds through one.
+      runsFile: join(this.stateDirectory, "rule-runs.json"),
     });
     this.extensionSchedules = new ExtensionSchedules({
       serving: () => this.extensionRegistry.serving(),
@@ -3758,7 +3763,9 @@ export class OutlinerServer {
     const as = rest as Record<string, unknown>;
     switch (action) {
       case "create":
-        return { ...as, author: "agent", provenance: { actorId: actor.actorId } } as OutlinerRequest;
+        // A triggered call's new block carries the trigger's mark, as its returned writes' do.
+        return { ...as, ...(grant.trigger && typeof as.text === "string" ? { text: markTriggered(as.text, grant.trigger) } : {}),
+          author: "agent", provenance: { actorId: actor.actorId, ...(actor.taskId ? { taskId: actor.taskId } : {}) } } as OutlinerRequest;
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
       case "move":

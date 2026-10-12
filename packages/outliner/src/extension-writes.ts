@@ -14,6 +14,7 @@
  *   marks, `marks.quote`) are kept the same way (`keepMade`), so one undo contract serves both.
  */
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import { requestLines } from "./agent-requests";
 import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftPatchApplied, type DraftPatchInput, type DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
@@ -33,6 +34,20 @@ export type ExtensionWrite =
    * its own properties (`kind`, `tags`, `color` as a theme tone, any other).
    */
   | { readonly op: "annotate"; readonly body: string; readonly properties?: Readonly<Record<string, string | readonly string[]>> };
+
+/**
+ * Writes a rule's trigger made (PIE-786): attributed with `taskId: trigger:<rule>`, and every block they make carries
+ * `[via-trigger::<rule>]`, so no rule is set off by them, here or in an outline they're tossed to. A trigger's new blocks
+ * may ask the extension's own agents (`agents`): the person's rule is what asked, its guards what limits it.
+ */
+export interface TriggerWrite { readonly rule: string; readonly agents: ReadonlySet<string> }
+
+/** `[via-trigger::<rule>]` on a block's first line, once. */
+export function markTriggered(text: string, rule: string): string {
+  if (new RegExp(`\\[${VIA_TRIGGER}::`, "i").test(text.split("\n", 1)[0]!)) return text;
+  const [first, ...rest] = text.split("\n");
+  return [`${first!.trimEnd()} [${VIA_TRIGGER}::${rule}]`.trimStart(), ...rest].join("\n");
+}
 
 /** A write to a block (not an annotation). */
 export type BlockWrite = Exclude<ExtensionWrite, { op: "annotate" }>;
@@ -95,6 +110,8 @@ interface Receipt { id: string; extension: string; action: string; steps: UndoSt
 /** What an applied group answers: the blocks it wrote, or the proposal it waits as; `undo` names the step that undoes it. */
 export interface GroupOutcome {
   written: string[];
+  /** The blocks it made (of `written`). */
+  made?: string[];
   proposalId?: string;
   proposed?: string;
   undo?: string;
@@ -129,9 +146,9 @@ export class ExtensionWrites {
    * anywhere in the outline (PIE-754): the limit is attribution, not place. A created block's text is inert BlockDown.
    * `hostId`: the block it acted on, beside which a proposal waits.
    */
-  async apply(extension: string, action: string, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined, hostId: string | undefined): Promise<GroupOutcome> {
-    const plan = this.plan(action, writes);
-    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension) };
+  async apply(extension: string, action: string, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined, hostId: string | undefined, trigger?: TriggerWrite): Promise<GroupOutcome> {
+    const plan = this.plan(action, writes, trigger);
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension), ...(trigger ? { taskId: `trigger:${trigger.rule}` } : {}) };
     const attribution = this.store.changes.attribution({ action, actor, ...(requestedBy ? { requestedBy } : {}) });
     const made = plan.structure.filter((write) => write.op === "create").length;
     const unwritten = made ? `; its ${made === 1 ? "new block wasn't" : `${made} new blocks weren't`} written` : "";
@@ -149,7 +166,8 @@ export class ExtensionWrites {
     const outcome = await this.store.changes.run(attribution, () => this.deps.patchGroup!({ edits: plan.edits, mutation: actor, group, touched: plan.touched, write: writer.write }));
     if (outcome.outcome !== "applied") return { written: [], proposalId: outcome.proposalId, proposed: `proposed instead: ${outcome.reason}${unwritten}` };
     const written = [...new Set([...writer.steps.map((step) => step.kind === "order" ? step.parentId : step.blockId), ...outcome.edits.map((edit) => edit.blockId)])];
-    return { written, ...this.keep(extension, action, writer.steps, outcome.edits) };
+    const madeIds = writer.steps.flatMap((step) => step.kind === "create" ? [step.blockId] : []);
+    return { written, ...(madeIds.length ? { made: madeIds } : {}), ...this.keep(extension, action, writer.steps, outcome.edits) };
   }
 
   /**
@@ -220,7 +238,7 @@ export class ExtensionWrites {
   }
 
   /** The group resolved: names minted and put in, every write checked against the outline as it is. */
-  private plan(action: string, writes: readonly BlockWrite[]): Plan {
+  private plan(action: string, writes: readonly BlockWrite[], trigger?: TriggerWrite): Plan {
     const names = new Map<string, string>();
     const local = (value: string) => names.get(value) ?? value;
     const usable = (blockId: string) => {
@@ -248,8 +266,15 @@ export class ExtensionWrites {
         const parentId = named(raw.parentId);
         if (!usable(parentId)) throw new Error(`${action} wrote to ${raw.parentId}, which is gone or in the Trash; ${nothing}`);
         if (raw.as !== undefined && names.has(raw.as)) throw new Error(`${action} names two new blocks ${raw.as}; ${nothing}`);
-        const text = inertBlockdown(rewriteDemoReferences(raw.text, names));
-        if (requestLines(text, null).length) throw new Error(`${action} tried to write an @request line; extensions can't ask agents (${nothing})`);
+        const inert = inertBlockdown(rewriteDemoReferences(raw.text, names));
+        const text = trigger ? markTriggered(inert, trigger.rule) : inert;
+        const asks = requestLines(text, null);
+        const strange = asks.find((line) => !trigger?.agents.has(line.agent));
+        if (strange) {
+          throw new Error(trigger
+            ? `${action} tried to ask @${strange.agent}; a trigger's new block asks only its own extension's agents (${[...trigger.agents].map((name) => `@${name}`).join(", ") || "it declares none"}; ${nothing})`
+            : `${action} tried to write an @request line; extensions can't ask agents (${nothing})`);
+        }
         const id = crypto.randomUUID();
         if (raw.as !== undefined) names.set(raw.as, id);
         structure.push({ op: "create", id, parentId, text, ...(raw.position !== undefined ? { position: raw.position } : {}) });
@@ -302,7 +327,7 @@ export class ExtensionWrites {
     const maker = extensionActorId(extension);
     const one = (write: DraftGroupWrite) => {
       if (write.op === "create") {
-        const block = this.store.create(write.text, write.parentId, "agent", { actorId: maker }, { id: write.id, ...(write.position !== undefined ? { position: write.position } : {}) });
+        const block = this.store.create(write.text, write.parentId, "agent", { actorId: maker, ...(by.actorId === maker && by.taskId ? { taskId: by.taskId } : {}) }, { id: write.id, ...(write.position !== undefined ? { position: write.position } : {}) });
         steps.push({ kind: "create", blockId: block.id, revision: block.revision });
       } else if (write.op === "move") {
         const block = this.store.get(write.blockId);

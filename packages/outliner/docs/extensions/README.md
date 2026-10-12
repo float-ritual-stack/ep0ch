@@ -628,8 +628,20 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 (default 2s): a burst of saves while typing is one trigger.
 
 - Fed by the change feed: creates, edits, moves and restores.
-- **No loops.** A save any extension made never sets a rule off; it only moves what the rule remembers. So
-  `done-stamp`'s own `[done-at::]` write runs nothing, and neither does another extension's.
+- **Who it hears** (`from`, PIE-786): `["user", "agent"]` by default, a person's and agents' saves. A save it doesn't
+  hear only moves what it remembers, so `done-stamp`'s own `[done-at::]` write runs nothing, and neither does another
+  extension's. Name an extension to hear its writes: `"from": ["user", "ext:echonet"]` lets an EchoNet copy arriving
+  set the rule off.
+- **No loops, here or across outlines.** Nothing a trigger wrote sets a rule off: its writes carry `taskId:
+  trigger:<rule>`, and every block it makes gets `[via-trigger::<rule>]` on its first line. A copy of such a block
+  tossed to another outline keeps the property, and there no writer but a person setting it off.
+- **Guards** for an action that starts an agent: `batch` (`"1m"`) gathers a burst of blocks into one call (the first
+  is `target`; `input.trigger.blocks` lists them all, at most 50); `cap` (`"20/day"`) is the most calls a day, kept
+  across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
+  (`"triage=done OR child:type=prior-art"`).
+- A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
+  agents (`@name` lines; any other extension's write of one is refused): it's asked at once, as `r` would, by whoever
+  set the trigger off. The rule the person wrote is what asked; its guards are the limit.
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
   whose save set it off.
@@ -647,7 +659,16 @@ Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [r
 ```
 
 `rule-match` (a query), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
-`rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw. A
+`rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
+`rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
+installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
+`quiet`, `from`, `batch`, `cap` and `skip` above. A rule note draws, runs, or both:
+
+```text
+Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:type=prior-art]
+```
+
+A
 rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
 Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` on a note or any line of one, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.

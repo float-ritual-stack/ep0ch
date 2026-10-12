@@ -33,6 +33,11 @@ export interface ExtensionGrant {
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */
   readonly requestedBy?: MutationProvenance;
   /**
+   * The rule whose trigger ran it (PIE-786): what it writes carries `taskId: trigger:<rule>`, and what it makes
+   * `[via-trigger::<rule>]`, as a triggered action's returned writes do, so nothing it writes sets a rule off.
+   */
+  readonly trigger?: string;
+  /**
    * Whether the call may write: an action with `effects: "write"`, a handler with `effects: "write"`. Every other call
    * (a read action, a read or spend handler, a rule's decorate, a bar source) reads only, as its answer may.
    */

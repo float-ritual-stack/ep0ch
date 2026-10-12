@@ -326,6 +326,8 @@ export interface ExtensionCallFor {
   /** Whether its process may write over its connection (default: no, it only reads). */
   readonly writes?: boolean;
   readonly requestedBy?: MutationProvenance;
+  /** The rule whose trigger ran it: the grant's `trigger`. */
+  readonly trigger?: string;
   /** Filled with what its process writes over its connection (the grant's `wrote`), for the caller to redraw. */
   readonly wrote?: { blockId?: string; parentId?: string | null; previousParentId?: string | null }[];
 }
@@ -653,6 +655,7 @@ export class ResourceExtensionRuntime {
       ...(loaded.manifest.secretGroups?.length ? { secretGroups: loaded.manifest.secretGroups } : {}),
       ...(callFor.wrote ? { wrote: callFor.wrote } : {}),
       ...(callFor.requestedBy ? { requestedBy: callFor.requestedBy } : {}),
+      ...(callFor.trigger ? { trigger: callFor.trigger } : {}),
     });
     // The host variables its manifest names (`env`), when the service has them: never a secret's place.
     const passed: Record<string, string> = {};

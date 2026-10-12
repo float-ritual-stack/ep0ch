@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtInSpec, compileRulePattern, expandTemplate, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks } from "../src/rules";
+import { builtInSpec, compileRulePattern, expandTemplate, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks, ruleWaitMs, ruleWriter } from "../src/rules";
 
 const NOTE = [
   "Allotment plan",
@@ -139,4 +139,45 @@ describe("a text hit's characters (ADR 0004 contract 6: place span)", () => {
     expect(hits.map(h => h.span && text.slice(h.span.start, h.span.end))).toEqual(["TODO", "TODO"]);
     expect(hits[0]!.span).toEqual({ start: text.indexOf("TODO"), end: text.indexOf("TODO") + 4 });
   });
+});
+
+describe("a rule note that runs (PIE-786)", () => {
+  const block = (id: string, props: Record<string, string>) => ({ id, properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
+  test("rule-on runs an action with its guards; a note need not draw", () => {
+    const { rules, problems } = rulesFromBlocks([block("33333333-0000-4000-8000-000000000001", {
+      "rule-name": "intake-prior-art", "rule-match": "type=request", "rule-on": "intake/prior-art", "rule-from": "user, ext:echonet",
+      "rule-batch": "1m", "rule-cap": "20/day", "rule-skip": "triage=done OR child:type=prior-art", "rule-quiet": "5s",
+    })]);
+    expect(problems).toEqual([]);
+    expect(rules).toEqual([{ name: "intake-prior-art", block: "33333333-0000-4000-8000-000000000001", match: { query: "type=request" },
+      on: { start: { extension: "intake", action: "prior-art" }, from: ["user", "ext:echonet"], batch: "1m", cap: 20, skip: "triage=done OR child:type=prior-art", quiet: "5s" } }]);
+  });
+  test("what can't be used is said: a bad action, writer, cap or duration; guards with nothing to run; a note that does nothing", () => {
+    const { rules, problems } = rulesFromBlocks([
+      block("44444444-0000-4000-8000-000000000001", { "rule-name": "a", "rule-match": "x=1", "rule-on": "nope", "rule-decorate": "badge", "rule-cap": "lots" }),
+      block("44444444-0000-4000-8000-000000000002", { "rule-name": "b", "rule-match": "x=1", "rule-on": "ext/act", "rule-from": "everyone, ext:echonet", "rule-batch": "soon" }),
+      block("44444444-0000-4000-8000-000000000003", { "rule-name": "c", "rule-match": "x=1" }),
+    ]);
+    // a's cap is wrong: it draws still, and runs nothing until it's fixed; b's writer is wrong: it's left out.
+    expect(rules.map(r => [r.name, r.on ?? null])).toEqual([["a", null]]);
+    expect(problems.join("\n")).toContain("rule b runs nothing until its guards are fixed");
+    expect(problems.join("\n")).toContain("rule-on \"nope\" isn't an action");
+    expect(problems.join("\n")).toContain("rule-cap \"lots\" is a number of runs a day");
+    expect(problems.join("\n")).toContain("guards a rule that runs something");
+    expect(problems.join("\n")).toContain("writer \"everyone\" is user, agent or ext:<extension>");
+    expect(problems.join("\n")).toContain("rule-batch \"soon\" is a duration");
+    expect(problems.join("\n")).toContain("rule c draws nothing and runs nothing");
+  });
+  test("who wrote a save, as rule-from names them", () => {
+    expect([ruleWriter(undefined), ruleWriter({ author: "user" }), ruleWriter({ author: "agent", actorId: "claude-code@box" }), ruleWriter({ author: "agent", actorId: "ext:echonet" })])
+      .toEqual(["user", "user", "agent", "ext:echonet"]);
+    expect(ruleWriter({ author: "agent", actorId: "ext:echonet@shack@float-2" })).toBe("ext:echonet");
+  });
+});
+
+test("a trigger waits a day at most", () => {
+  expect(ruleWaitMs("90s")).toBe(90_000);
+  expect(ruleWaitMs("24h")).toBe(86_400_000);
+  expect(ruleWaitMs("99999h")).toEqual({ problem: "\"99999h\" is longer than a day (24h at most)" });
+  expect(ruleWaitMs("soon")).toEqual({ problem: "\"soon\" is a duration, like 30s, 5m or 2h" });
 });
