@@ -209,6 +209,10 @@ if (process.argv[2] === "web") {
   const { runWebCommand } = await import("./web-cli");
   process.exit(await runWebCommand(process.argv.slice(3)));
 }
+if (process.argv[2] === "echo") {
+  const { runEchoCommand } = await import("./echo-cli");
+  process.exit(await runEchoCommand(process.argv.slice(3)));
+}
 if (process.argv[2] === "ext") {
   const { runExtCommand } = await import("./extension-install");
   process.exit(await runExtCommand(process.argv.slice(3)));
