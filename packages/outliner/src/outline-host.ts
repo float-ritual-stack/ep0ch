@@ -82,6 +82,41 @@ const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.impo
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
+/** How long a machine's protocol, once asked, is taken as known. */
+const RELAY_PROTOCOL_TTL_MS = 60_000;
+
+/**
+ * One request to another host's socket and its answer line. Gives up when `caller` (the extension's connection) goes,
+ * after RELAY_WAIT_MS, or when the answer runs past RELAY_MAX_ANSWER.
+ */
+function exchange(remoteSocket: string, request: Record<string, unknown>, caller: Socket, what: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const remote = connect(remoteSocket);
+    let buffer = "";
+    const done = (error?: Error, line?: string) => {
+      clearTimeout(timer);
+      caller.off("close", gone);
+      remote.destroy();
+      if (error) reject(error);
+      else resolve(line!);
+    };
+    // The extension gave up, or the other host is stuck: nothing is left waiting.
+    const gone = () => done(new Error("the extension went before the answer came"));
+    const timer = setTimeout(() => done(new Error(`no answer from ${what} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
+    caller.once("close", gone);
+    remote.setEncoding("utf8");
+    remote.once("connect", () => remote.write(`${JSON.stringify(request)}\n`));
+    remote.on("data", (chunk: string) => {
+      buffer += chunk;
+      const end = buffer.indexOf("\n");
+      if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${what} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
+      else if (end >= 0) done(undefined, buffer.slice(0, end));
+    });
+    remote.once("error", (error) => done(error));
+    remote.once("close", () => done(new Error(`${what} closed the connection without an answer`)));
+  });
+}
+
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -154,6 +189,8 @@ export class OutlineHost {
   private readonly layout: ReturnType<typeof outlineLayout>;
   private webSessions: WebSessions | undefined;
   private listener: Server | null = null;
+  /** Each other machine's protocol, as its host last said (`relayProtocol`). */
+  private readonly relayProtocols = new Map<string, { protocol: number; at: number }>();
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
   /** Outlines whose files are being moved away or written; they must not open meanwhile. */
@@ -702,32 +739,29 @@ export class OutlineHost {
     const relayed = {
       extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
     };
-    const answer = await new Promise<string>((resolve, reject) => {
-      const remote = connect(forward.socket);
-      let buffer = "";
-      const done = (error?: Error, line?: string) => {
-        clearTimeout(timer);
-        socket.off("close", gone);
-        remote.destroy();
-        if (error) reject(error);
-        else resolve(line!);
-      };
-      // The extension gave up, or the other host is stuck: nothing is left waiting.
-      const gone = () => done(new Error("the extension went before the answer came"));
-      const timer = setTimeout(() => done(new Error(`no answer from ${String(outline ?? "the host")}@${machine} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
-      socket.once("close", gone);
-      remote.setEncoding("utf8");
-      remote.once("connect", () => remote.write(`${JSON.stringify({ ...rest, relayed })}\n`));
-      remote.on("data", (chunk: string) => {
-        buffer += chunk;
-        const end = buffer.indexOf("\n");
-        if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${String(outline)}@${machine} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
-        else if (end >= 0) done(undefined, buffer.slice(0, end));
-      });
-      remote.once("error", (error) => done(error));
-      remote.once("close", () => done(new Error(`${machine}'s outline host closed the connection without an answer`)));
-    });
+    // An older host there would take `relayed` for nothing and answer as to any client: its protocol is asked first.
+    await this.relayProtocol(machine, forward.socket, socket);
+    if (socket.destroyed) return;
+    const answer = await exchange(forward.socket, { ...rest, relayed }, socket, `${String(outline ?? "the host")}@${machine}`);
     if (!socket.destroyed) socket.end(`${answer}\n`);
+  }
+
+  /**
+   * The protocol another machine's host speaks, asked (`ping`) before the first request relayed to it and again after
+   * a minute: a host on another version is refused before anything is sent, naming the machine to update.
+   */
+  private async relayProtocol(machine: string, remoteSocket: string, socket: Socket): Promise<void> {
+    const known = this.relayProtocols.get(machine);
+    let theirs = known && Date.now() - known.at < RELAY_PROTOCOL_TTL_MS ? known.protocol : undefined;
+    if (theirs === undefined) {
+      const answer = JSON.parse(await exchange(remoteSocket, { id: "relay-protocol", action: "ping" }, socket, `${machine}'s host`)) as { ok?: boolean; result?: { protocolVersion?: unknown } };
+      theirs = typeof answer.result?.protocolVersion === "number" ? answer.result.protocolVersion : -1;
+      this.relayProtocols.set(machine, { protocol: theirs, at: Date.now() });
+    }
+    if (theirs === PROTOCOL) return;
+    const older = theirs < PROTOCOL ? machine : canonicalLocalMachineName();
+    throw new Error(`protocol mismatch: ${machine} speaks protocol ${theirs < 0 ? "an unknown one" : theirs} and ${canonicalLocalMachineName()} ${PROTOCOL}; ` +
+      `update ${older} (\`ssh ${older} ep0ch install --apply\`)`);
   }
 
   private async route(socket: Socket, line: string, buffered: string): Promise<void> {

@@ -3,7 +3,7 @@
 // never set is none. A scratch outline host with three made-up outlines and a made-up extension, "poker".
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -98,7 +98,7 @@ async function setup() {
  * A second machine, `box-b`: an outline host in a scratch folder of its own, reached through the fake ssh
  * (test/fake-ssh.ts as EP0CH_SSH), its outlines folder named in this machine's `.remote/box-b.json`.
  */
-async function farMachine(root: string, outlines: string) {
+async function farMachine(root: string, outlines: string, serve = true) {
   const far = join(root, "far");
   for (const dir of ["home", "outlines", "bin"]) mkdirSync(join(far, dir), { recursive: true, mode: 0o700 });
   mkdirSync(join(outlines, ".remote"), { recursive: true, mode: 0o700 });
@@ -108,18 +108,20 @@ async function farMachine(root: string, outlines: string) {
   const vars = { EP0CH_SSH: join(far, "bin", "ssh"), FAKE_SSH_HOME: join(far, "home"), FAKE_SSH_OUTLINES: join(far, "outlines"), FAKE_SSH_BIN: join(far, "bin") };
   const saved = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
   Object.assign(process.env, vars);
-  const host = new OutlineHost({ outlinesFolder: join(far, "outlines"), log: () => {} });
-  await host.start();
+  const host = serve ? new OutlineHost({ outlinesFolder: join(far, "outlines"), log: () => {} }) : undefined;
+  if (host) await host.start();
+  else mkdirSync(join(far, "outlines", ".host"), { recursive: true, mode: 0o700 });
   cleanups.push(async () => {
     try { process.kill(Number(readFileSync(join(outlines, ".remote", "box-b.ctl"), "utf8"))); } catch { /* not running */ }
-    await host.close();
+    await host?.close();
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
   });
-  const call = <T>(outline: string, request: Record<string, unknown>) => send<T>(host.socketPath, { outline, ...request });
-  return { call, socket: host.socketPath };
+  const socket = join(far, "outlines", ".host", "host.sock");
+  const call = <T>(outline: string, request: Record<string, unknown>) => send<T>(socket, { outline, ...request });
+  return { call, socket };
 }
 
 test("another outline's extension is held to this outline's access level once its owner set one; its own never is", async () => {
@@ -182,3 +184,23 @@ test("a machine that can't be reached is refused with why, so the extension can 
     delete process.env.FAKE_SSH_DOWN;
   }
 }, 60_000);
+
+test("a host there on another protocol is asked first, and nothing else is sent to it", async () => {
+  const { root, outlines, machine, aim, poke } = await setup();
+  // box-b answered by an older host: it says its protocol and records what it's asked.
+  const far = await farMachine(root, outlines, false);
+  const asked: string[] = [];
+  const server = createServer((connection) => connection.on("data", (chunk) => {
+    const request = JSON.parse(chunk.toString().split("\n")[0]!) as { id: string; action: string };
+    asked.push(request.action);
+    connection.end(`${JSON.stringify({ id: request.id, ok: true, result: { status: "ready", protocolVersion: PROTOCOL - 1 } })}\n`);
+  }));
+  await new Promise<void>((resolve) => server.listen(far.socket, resolve));
+  cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  aim({ outline: "field", machine: "box-b" });
+  const tries = await poke();
+  expect(tries.read).toContain(`protocol mismatch: box-b speaks protocol ${PROTOCOL - 1} and ${machine} ${PROTOCOL}; update box-b (\`ssh box-b ep0ch install --apply\`)`);
+  expect(tries.create).toContain("protocol mismatch");
+  // The forward's own probe lists outlines; past it, only the protocol was asked.
+  expect([...new Set(asked)].filter((action) => action !== "outlines.list")).toEqual(["ping"]);
+}, 90_000);
