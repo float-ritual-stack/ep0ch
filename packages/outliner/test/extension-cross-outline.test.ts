@@ -7,6 +7,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { OutlineHost } from "../src/outline-host";
 import type { Block } from "../src/types";
 
@@ -42,11 +43,12 @@ import { join } from "node:path";
 import { outline } from "./outline";
 const target = JSON.parse(readFileSync(join(import.meta.dir, "target.json"), "utf8"));
 const tries: Record<string, string> = {};
-const attempt = async (name: string, run: () => Promise<unknown>) => { try { await run(); tries[name] = "ok"; } catch (e) { tries[name] = String((e as Error).message); } };
+const attempt = async (name: string, run: () => Promise<unknown>) => { try { const said = await run(); tries[name] = typeof said === "string" ? said : "ok"; } catch (e) { tries[name] = String((e as Error).message); } };
 const [note] = (await outline<{ blocks: Array<{ id: string; revision: number }> }>({ action: "blocks.query", query: { where: "type=recon" } }, target).catch(() => ({ blocks: [] }))).blocks;
 await attempt("read", () => outline({ action: "blocks.query", query: { where: "type=recon" } }, target));
 await attempt("comment", () => outline({ action: "annotations.batch", requestId: crypto.randomUUID(), operations: [{ operationId: "c", type: "block-comment", input: { blockId: note?.id, expectedRevision: note?.revision, body: "hi", source: "agent" } }] }, target));
 await attempt("create", () => outline({ action: "create", text: "from the cafe" }, target));
+if (target.machine) await attempt("list", async () => JSON.stringify(await outline({ action: "outlines.list" }, { machine: target.machine })));
 // Refusals run longer than an answer's message may: they go to a file beside it.
 await Bun.write(join(import.meta.dir, "tries.json"), JSON.stringify(tries));
 process.stdout.write(JSON.stringify({ ok: true, value: { message: "poked" } }));
@@ -145,17 +147,24 @@ test("another machine: the request goes through the ssh forward, as the extensio
   const hedge = await far.call<Block>("field", { action: "create", text: "Recon: the hedge flowers late [type::recon]", author: "user" });
   aim({ outline: "field", machine: "box-b" });
 
-  // Never set is none across machines, held by the field's own host.
-  expect(await poke()).toMatchObject({ read: expect.stringContaining(`ext:poker@cafe@${machine} runs for cafe@${machine}, and field grants other outlines none: blocks.query needs read`) });
+  await send(far.socket, { action: "outlines.create", name: "attic" });
+  // Never set is none across machines, held by the field's own host; nor is it listed there.
+  expect(await poke()).toMatchObject({
+    read: expect.stringContaining(`ext:poker@cafe@${machine} runs for cafe@${machine}, and field grants other outlines none: blocks.query needs read`),
+    list: JSON.stringify({ outlines: [] }),
+  });
   await far.call("field", { action: "mcp.access.configure", level: "propose" });
-  expect(await poke()).toMatchObject({ read: "ok", comment: "ok", create: expect.stringContaining("create needs full") });
+  await far.call("attic", { action: "mcp.access.configure", level: "none" });
+  expect(await poke()).toMatchObject({ read: "ok", comment: "ok", create: expect.stringContaining("create needs full"), list: JSON.stringify({ outlines: [{ name: "field", level: "propose" }] }) });
   const threads = await far.call<Array<{ body: string; block: Block }>>("field", { action: "annotations.list", query: { subject: { kind: "block", blockId: hedge.id } } });
   expect(threads.map((t) => [t.body, t.block.actorId])).toEqual([["hi", `ext:poker@cafe@${machine}`]]);
   await far.call("field", { action: "mcp.access.configure", level: "full" });
-  expect(await poke()).toEqual({ read: "ok", comment: "ok", create: "ok" });
+  expect(await poke()).toMatchObject({ read: "ok", comment: "ok", create: "ok" });
 
   // Asked directly, as another machine's host would: host management, secrets and a read-only call's write are refused.
-  const relayed = { extension: "poker", node: `cafe@${machine}`, label: "ext.poker.poke", writes: true };
+  const relayed = { extension: "poker", node: `cafe@${machine}`, label: "ext.poker.poke", writes: true, protocol: PROTOCOL };
+  await expect(far.call("field", { action: "get", blockId: hedge.id, relayed: { ...relayed, protocol: PROTOCOL - 1 } }))
+    .rejects.toThrow(`protocol mismatch: ${machine} speaks protocol ${PROTOCOL} and cafe@${machine} ${PROTOCOL - 1}; update ${machine} (\`ssh ${machine} ep0ch install --apply\`)`);
   await expect(send(far.socket, { action: "outlines.delete", name: "field", relayed })).rejects.toThrow("is the host's");
   await expect(far.call("field", { action: "secrets.group", group: "anything", relayed })).rejects.toThrow("runs on another machine");
   await expect(far.call("field", { action: "create", text: "from the cafe", relayed: { ...relayed, writes: false } })).rejects.toThrow("only reads");

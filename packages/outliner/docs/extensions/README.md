@@ -1110,7 +1110,9 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
   (`<outlines>/.remote/<machine>.sock`, started when nobody has) without the grant, carrying `relayed`: which
   extension, from which node (`<outline>@<machine>`), and whether the call may write. That machine's host writes as
   `ext:<id>@<node>` and holds the request to its own outline's access level, where a level never set is `none`; it
-  never answers host management (`outlines.*`) or secrets for it. A machine that can't be reached is refused with why,
+  never answers host management or secrets for it. `outlines.list` with only `machine` answers the outlines there
+  that set a level other than `none`, by name and level (`{ outlines: [{ name, level }] }`). Both hosts speak one
+  `PROTOCOL`: a request between two versions is refused naming the machine to update and its command. A machine that can't be reached is refused with why,
   so an extension can count it offline and try again next run. When that machine's own `ep0ch status` isn't the host
   to reach (a second host there, an old `ep0ch` on its login PATH), name its outlines folder in
   `<outlines>/.remote/<machine>.json`: `{ "outlines": "/home/sam/outlines" }`.

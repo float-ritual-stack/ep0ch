@@ -15,7 +15,7 @@ import { forwardFor } from "./machine-forward";
 import { canonicalLocalMachineName } from "./machine-name";
 import { scrubCredentials } from "./resource-extensions";
 import { OutlinerServer } from "./server";
-import { OutlinerStore, readOutlineAbout } from "./store";
+import { MCP_ACCESS_METADATA_KEY, OutlinerStore, readOutlineAbout } from "./store";
 import {
   type HostedArchivedOutline,
   type HostedOutlineArchival,
@@ -284,6 +284,33 @@ export class OutlineHost {
       const about = this.aboutOf(name, file);
       return [{ name, ...(about ? { about } : {}) }];
     });
+  }
+
+  /**
+   * The outlines here another machine's extensions may reach (PIE-779): each whose owner set an access level other
+   * than `none` (`ep0ch mcp access`), by name and level. An outline never set is `none` across machines, so a mask
+   * such as `*@float-2` finds only the outlines that opted in. Reads only.
+   */
+  private listForRelay(): { outlines: Array<{ name: string; level: string }> } {
+    return {
+      outlines: this.names().flatMap(name => {
+        const level = this.accessOf(name);
+        return level && level !== "none" ? [{ name, level }] : [];
+      }),
+    };
+  }
+
+  /** The access level an outline's owner set (`ep0ch mcp access`), from the open store, else its file read-only. */
+  private accessOf(name: string): string | undefined {
+    const open = this.opened.get(name);
+    if (open) return open.store.mcpAccessConfigured() ? open.store.mcpAccessStatus().level : undefined;
+    let database: Database | undefined;
+    try {
+      database = new Database(this.layout.database(name), { readonly: true });
+      const row = database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
+      return row?.value.trim().toLowerCase();
+    } catch { return undefined; }
+    finally { database?.close(); }
   }
 
   /** Every outline in the folder, open or not. Reads only; never creates anything. */
@@ -665,7 +692,7 @@ export class OutlineHost {
     if (!grant) throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
     const { machine, outline } = request;
     if (!isMachineName(machine)) throw new Error(`machine must be an ssh config name; got ${JSON.stringify(machine)}`);
-    if (!isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
+    if (request.action !== "outlines.list" && !isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
     const { grant: _grant, machine: _machine, ...unscrubbed } = request;
     // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
     const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
@@ -673,7 +700,7 @@ export class OutlineHost {
     // Starting the forward can take a while: an extension that gave up meanwhile sends nothing.
     if (socket.destroyed) return;
     const relayed = {
-      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes,
+      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
     };
     const answer = await new Promise<string>((resolve, reject) => {
       const remote = connect(forward.socket);
@@ -687,7 +714,7 @@ export class OutlineHost {
       };
       // The extension gave up, or the other host is stuck: nothing is left waiting.
       const gone = () => done(new Error("the extension went before the answer came"));
-      const timer = setTimeout(() => done(new Error(`no answer from ${String(outline)}@${machine} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
+      const timer = setTimeout(() => done(new Error(`no answer from ${String(outline ?? "the host")}@${machine} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
       socket.once("close", gone);
       remote.setEncoding("utf8");
       remote.once("connect", () => remote.write(`${JSON.stringify({ ...rest, relayed })}\n`));
@@ -715,8 +742,22 @@ export class OutlineHost {
     const fail = (error: unknown) => this.reply(socket, {
       id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
     });
+    // Another machine's host speaks this one's protocol, or nothing it asks is answered (the nodes' versions differ).
+    if (request && request.relayed !== undefined) {
+      const theirs = (request.relayed as { protocol?: unknown } | null)?.protocol;
+      if (theirs !== PROTOCOL) {
+        const node = String((request.relayed as { node?: unknown } | null)?.node ?? "the other node");
+        const older = typeof theirs === "number" && theirs > PROTOCOL ? canonicalLocalMachineName() : node.split("@").at(-1);
+        fail(new Error(`protocol mismatch: ${canonicalLocalMachineName()} speaks protocol ${PROTOCOL} and ${node} ${typeof theirs === "number" ? theirs : "an older one"}; ` +
+          `update ${older} (\`ssh ${older} ep0ch install --apply\`)`));
+        return;
+      }
+    }
     if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
-      fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
+      // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
+      if (request.action === "outlines.list" && request.machine !== undefined && request.grant !== undefined) await this.relay(socket, request).catch(fail);
+      else if (request.action === "outlines.list" && request.relayed !== undefined) this.reply(socket, { id, ok: true, result: this.listForRelay(), sequence: 0 });
+      else fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
       return;
     }
     if (request && HOST_ACTIONS.has(String(request.action))) {
