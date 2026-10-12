@@ -3,6 +3,7 @@ import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
+import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
 import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
@@ -302,13 +303,15 @@ function normalizePublisherAddress(address: unknown): PublisherAddress {
  */
 function relayedGrant(relayed: unknown): ExtensionGrant | undefined {
   if (relayed === undefined) return undefined;
-  const r = relayed as { extension?: unknown; node?: unknown; label?: unknown; writes?: unknown };
+  const r = relayed as { extension?: unknown; node?: unknown; label?: unknown; writes?: unknown; trigger?: unknown };
   if (typeof r.extension !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(r.extension) || typeof r.node !== "string" || !/^[a-z0-9][a-z0-9-]*@[A-Za-z0-9][\w.-]*$/.test(r.node)) {
     throw new Error("relayed needs { extension, node: <outline>@<machine>, label, writes }: what another machine's host sends for its extension");
   }
+  if (r.trigger !== undefined && (typeof r.trigger !== "string" || !RULE_NAME.test(r.trigger))) throw new Error(`relayed.trigger must be a rule's name; got ${JSON.stringify(r.trigger)}`);
   return {
     extensionId: `${r.extension}@${r.node}`, outline: r.node, relayed: true, secrets: [],
     label: typeof r.label === "string" ? r.label : `ext.${r.extension}`, writes: r.writes === true,
+    ...(r.trigger ? { trigger: r.trigger as string } : {}),
   };
 }
 

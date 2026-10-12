@@ -738,6 +738,8 @@ export class OutlineHost {
     if (socket.destroyed) return;
     const relayed = {
       extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
+      // A trigger's call keeps its mark there, so what it writes sets no rule off on that machine either (PIE-786).
+      ...(grant.trigger ? { trigger: grant.trigger } : {}),
     };
     // An older host there would take `relayed` for nothing and answer as to any client: its protocol is asked first.
     await this.relayProtocol(machine, forward.socket, socket);

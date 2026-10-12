@@ -171,6 +171,10 @@ test("another machine: the request goes through the ssh forward, as the extensio
   await expect(send(far.socket, { action: "outlines.delete", name: "field", relayed })).rejects.toThrow("is the host's");
   await expect(far.call("field", { action: "secrets.group", group: "anything", relayed })).rejects.toThrow("runs on another machine");
   await expect(far.call("field", { action: "create", text: "from the cafe", relayed: { ...relayed, writes: false } })).rejects.toThrow("only reads");
+  // A trigger's call keeps its mark across machines: what it makes there sets no rule off.
+  const triggered = await far.call<Block>("field", { action: "create", text: "from a rule in the cafe", relayed: { ...relayed, trigger: "intake" } });
+  expect(triggered.text).toContain("[via-trigger::intake]");
+  await expect(far.call("field", { action: "get", blockId: hedge.id, relayed: { ...relayed, trigger: "Not A Rule" } })).rejects.toThrow("relayed.trigger");
 }, 90_000);
 
 test("a machine that can't be reached is refused with why, so the extension can try again next run", async () => {

@@ -39,8 +39,10 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
 - **A copy** is the original's text with `[from::<outline>@<machine>/<id>] [echo::<area>] [from-rev::<n>]
   [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
   `[[page]]`) becomes an `ep0ch://` link into it; a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
-  becomes `[from-page::…]` and so on, and a key EchoNet writes becomes `source-<key>`. An original kept off the web
-  (`[publish::never]`) makes a copy kept off it too.
+  becomes `[from-page::…]` and so on, and a key EchoNet writes becomes `source-<key>`. A rule note's keys become
+  `[from-rule-name::…]` and so on: a copy never runs as a rule here. An original kept off the web
+  (`[publish::never]`) makes a copy kept off it too, and one kept off after it was copied makes the copy kept off at
+  the next toss; a copy kept off here stays off when it takes the newer text.
 - **Copies never post.** A note with a `from` in that shape is never a message, whatever its tags, so two nodes that
   read each other never bounce a copy; a mark that came over the network (`netmail-from`) never goes out again. The
   loop guard holds across any number of nodes.

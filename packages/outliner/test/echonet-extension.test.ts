@@ -359,6 +359,36 @@ test("take the newer version: replace a copy's text, or propose it beside the co
   expect((await act("cafe", "take-newer", copy.id)).message).toContain("gone");
 }, 60_000);
 
+test("a copy never runs as a rule, and stays off the web once either side keeps it off", async () => {
+  const { machine, toss, create, get, edit, act, board } = await setup(["shack", "cafe"]);
+  await create("shack", "Recon: loud bands [echo::recon] [rule-name::loud] [rule-match::type=recon] [rule-decorate::band]");
+  const gate = await create("shack", "Recon: the gate code [echo::recon]");
+  const hedge = await create("shack", "Recon: the hedge [echo::recon]");
+  const sub = await create("cafe", `Recon [subscribe::shack@${machine}] [echo::recon] [since::all]`);
+  await toss("cafe");
+  const copyOf = async (title: string) => (await board("cafe", sub, `shack@${machine}`)).copies.find((copy) => copy.text.startsWith(title))!;
+  const rule = await copyOf("Recon: loud bands");
+  expect(rule.text).toContain("[from-rule-name::loud] [from-rule-match::type=recon] [from-rule-decorate::band]");
+  expect(rule.text).not.toMatch(/\[rule-/);
+
+  // Kept off the web there after it was copied: the copy is kept off at once, its text not taken.
+  await edit("shack", gate.id, (text) => `${text} [publish::never]`);
+  await toss("cafe");
+  const gateCopy = await copyOf("Recon: the gate code");
+  expect(gateCopy.text).toContain("[publish::never]");
+  expect(gateCopy.text).toContain("[upstream-newer::2]");
+
+  // Kept off the web here: taking the newer text keeps it off.
+  const hedgeCopy = await copyOf("Recon: the hedge");
+  await edit("cafe", hedgeCopy.id, (text) => `${text} [publish::never]`);
+  await edit("shack", hedge.id, (text) => text.replace("hedge", "hedge, trimmed"));
+  await toss("cafe");
+  expect((await act("cafe", "take-newer", hedgeCopy.id)).message).toContain("now has");
+  const taken = await get("cafe", hedgeCopy.id);
+  expect(taken.text).toStartWith("Recon: the hedge, trimmed");
+  expect(taken.text).toContain("[publish::never]");
+}, 60_000);
+
 test("another machine: a mask finds the outlines there that opted in, and copies, seen-by and netmail go through the forward", async () => {
   const { root, outlines, machine, toss, create, threads, where, comment, board } = await setup(["cafe"]);
   const far = await farMachine(root, outlines);

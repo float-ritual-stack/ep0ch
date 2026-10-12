@@ -204,8 +204,11 @@ const cameIn = (mark: Mark) => !!netmailFrom(mark) || !!mark.properties?.via?.so
 const day = now.slice(0, 10);
 const time = (block: Block) => Date.parse(block.updatedAt ?? block.createdAt ?? "") || 0;
 
-/** Header properties a copy can't keep as they are: an address or an id the original owns in its own outline. */
-const OWNED = /\[(page|work-id|welcome|publish)::([^\]]*)\]/g;
+/**
+ * Header properties a copy can't keep as they are: an address or an id the original owns in its own outline, and a
+ * rule's keys (a copy of a rule note never runs here: it reads `from-rule-*` until someone here makes it a rule).
+ */
+const OWNED = /\[(page|work-id|welcome|publish|rule(?:-[a-z-]+)?)::([^\]]*)\]/gi;
 /** The keys EchoNet writes on a copy: an original that already has one keeps it as `source-<key>`. */
 const TRANSPORT = /\[(from|echo|from-rev|tossed|upstream-newer|upstream-gone|echo-source|subscribe)::([^\]]*)\]/g;
 /** Code fences and code spans: their words are literal, so a copy keeps them as written. */
@@ -241,9 +244,9 @@ async function localProse(origin: Link, text: string): Promise<string> {
  * A copy's text: the original's, localized, with EchoNet's keys on its first line. A note its writer kept off the web
  * (`[publish::never]`) stays off it here too.
  */
-async function copyText(origin: Link, message: Block, area: string, tossed?: string): Promise<string> {
+async function copyText(origin: Link, message: Block, area: string, tossed?: string, keptOff = false): Promise<string> {
   const [head, ...rest] = (await localText(origin, message.text)).split("\n");
-  const keep = prop(message, "publish") === "never" ? " [publish::never]" : "";
+  const keep = keptOff || prop(message, "publish") === "never" ? " [publish::never]" : "";
   const keys = `[from::${origin.node.id}/${message.id}] [echo::${area}] [from-rev::${message.revision}]${tossed ? ` [tossed::${tossed}]` : ""}${keep}`;
   return [`${head!.trimEnd()} ${keys}`, ...rest].join("\n");
 }
@@ -396,6 +399,8 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
       await copyChildren(link, entry.area, message.id, copy.id, everyCopy, 0);
       await setOn(copy.id, (text) => setHeaderProperty(text, "echo-partial", undefined));
     }
+    // Kept off the web there since it was copied: the copy is kept off at once, whether or not its text is taken.
+    if (prop(message, "publish") === "never" && prop(copy, "publish") !== "never") await setOn(copy.id, (text) => setHeaderProperty(text, "publish", "never"));
     const seen = Number(prop(copy, "from-rev") ?? 0);
     if (message.revision > seen && prop(copy, "upstream-newer") !== String(message.revision)) {
       await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-newer", String(message.revision)));
@@ -710,7 +715,8 @@ async function takeNewer(propose: boolean): Promise<{ message: string; open?: st
   const current = await mine<Block>({ action: "get", blockId: block.id });
   const area = prop(current, "echo") ?? "?";
   const tossed = prop(current, "tossed");
-  const text = await copyText(link, original, area, tossed);
+  // A copy kept off the web here stays off, whatever the original says.
+  const text = await copyText(link, original, area, tossed, prop(current, "publish") === "never");
   if (text === current.text) return { message: `This copy already has ${node.id}'s revision ${original.revision}` };
   if (propose) {
     const result = await mine<{ outcome: string; proposalId?: string }>({
