@@ -1258,8 +1258,9 @@ Text from outside (a highlight, a message, a title) must not become properties o
   escapes do); the door's note surface shows it as typed, as it does a `\[key::value]`'s. This is the escape: the
   grammar has no separate one for `[[` and `((`, and needs none (PIE-767 checked; adding one would change what
   outline-core matches in text people already wrote).
-- **Every block an extension writes is a normal write**, through an action's `writes` or over the connection: its
-  `key::` lines and `[key::value]` are properties, so escape what you import.
+- **A block an action's `writes` creates, or one written over the connection, is a normal write**: its `key::` lines
+  and `[key::value]` are properties, so escape what you import. (A collection's records and a kept output are
+  written by the service from your fields and markdown, and stay words.)
 
 ### Secrets by with-secrets group
 

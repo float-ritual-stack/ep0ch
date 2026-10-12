@@ -285,6 +285,12 @@ test("a created block's properties are live, as anyone's, with no terminal escap
   expect(child.properties?.map(({ key, value }) => [key, value])).toEqual(expect.arrayContaining([["type", "prior-art"], ["status", "open"]]));
   expect(child).toMatchObject({ author: "agent", actorId: "ext:scribe" });
   expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=prior-art" } })).blocks.map((block) => block.id)).toEqual([child.id]);
+  // What stays guarded is what guards anyone's write: a Work ID another block owns is refused, and nothing is made.
+  await client.request({ action: "work-ids.configure", prefix: "YARD" });
+  const owner = await client.request<Block>({ action: "create", text: "Fix the gate [work-id::YARD-001]", author: "user" });
+  const before = store.children(owner.id).length;
+  await expect(act("child", owner.id, { text: "copy [work-id::YARD-001]" })).rejects.toThrow(/YARD-001/);
+  expect(store.children(owner.id)).toHaveLength(before);
 });
 
 test("wholeTextSpan: the changed lines as one span, widened to a neighbour when the change is at a blank line", () => {
