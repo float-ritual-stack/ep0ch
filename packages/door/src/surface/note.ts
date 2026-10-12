@@ -7102,8 +7102,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
       const field = surface.settingFields(m, schema).find(f => f.prop.key === key.trim().toLowerCase());
       if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}`);
-      const own = schema[field.section]!;
-      if (field.prop.key === own.source.note?.name) throw new ActionRefused(`${field.prop.key} is what makes this note a ${own.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
+      // A key any of its components declares or requires (a view's query, an area's echo) is what makes it one.
+      const own = schema.find(s => s.source.note?.name === field.prop.key || (s.source.note?.requires ?? []).includes(field.prop.key));
+      if (own) throw new ActionRefused(`${field.prop.key} is what makes this note a ${own.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
       if (field.value === null) return { cleared: false, key: field.prop.key, unset: true };
       let saved: Msg;
       try { saved = await surface.writeSetting(m, field.prop.key, null, host, actor); } catch (e) {

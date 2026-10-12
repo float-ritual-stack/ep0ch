@@ -2668,7 +2668,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("settings · Views + EchoNet areas") && screen().includes("  EchoNet areas"), "both sections", 5000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     press({ kind: "enter" });
-    while (!screen().includes("echo · text")) ch("j");
+    for (let i = 0; i < 12 && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
+    expect(screen()).toContain("echo · text");
     press({ kind: "enter" });
     await until(() => asked()[0] === "EchoNet areas · echo · echo = plot.chat", "the area's name asked, its own first", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
@@ -2680,6 +2681,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Put back for the sections after this one.
     await app.act({ action: "settings.set", tile: "reader2", args: { key: "echo", value: "plot.chat" }, as: "test-agent" });
     expect(await areaText()).toContain("[echo::plot.chat]");
+    // The view's query is what the area requires: clearing it is refused, as clearing the area's name would be.
+    await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "query" }, as: "test-agent" })).rejects.toThrow("what makes this note");
+    await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "echo" }, as: "test-agent" })).rejects.toThrow("what makes this note");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
