@@ -445,6 +445,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["library: one property", () => openScreen("library"), [k("2")]],
     ["library: grids", () => openScreen("library"), [k("3")]],
     ["library: every combination", () => openScreen("library"), [k("4")]],
+    // EchoNet's message areas (PIE-779), on the showcase's mini network: an area's messages, then one read.
+    ["echonet: messages", () => openScreen("echonet"), [{ kind: "enter" }]],
+    ["echonet: a message read", () => openScreen("echonet"), [{ kind: "down" }, { kind: "enter" }, { kind: "enter" }]],
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──

@@ -1116,6 +1116,8 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
   so an extension can count it offline and try again next run. When that machine's own `ep0ch status` isn't the host
   to reach (a second host there, an old `ep0ch` on its login PATH), name its outlines folder in
   `<outlines>/.remote/<machine>.json`: `{ "outlines": "/home/sam/outlines" }`.
+  [echonet](../../extensions/echonet) is the example: outlines as nodes, copying each other's areas across machines
+  and carrying marks back as netmail.
 
 ### Writes to an outside service
 

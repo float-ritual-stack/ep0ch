@@ -122,6 +122,10 @@ ${SHARE_USAGE}
                                    The web client's /sessions page does the same
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
+  ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
+                                   EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
+                                   both ways, nodelist and toss log), write and print the nodelist, subscribe
+                                   to an area by node mask, or list the areas an outline offers and reads
   ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
         | run <name> <action:id|handler:key>
                                    the outline's extensions: ls lists each folder, what it serves and each
@@ -212,6 +216,12 @@ if (args[0] === "ext") {
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "ext", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+// EchoNet (PIE-779): `ep0ch echo …`, through the outliner's own command.
+if (args[0] === "echo") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "echo", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));

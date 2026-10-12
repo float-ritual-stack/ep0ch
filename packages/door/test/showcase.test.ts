@@ -18,6 +18,7 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
@@ -304,6 +305,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     folds: ["outline", "children", "◂", "▾"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
+    // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node.
+    echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", "last tosses"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
@@ -650,6 +653,39 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
     await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
+  }, 20_000);
+
+  test("the echonet section: an agent reads the mini network through act; the person's read marks stay theirs", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "echonet" }, as: "test-agent" })).toMatchObject({ key: "echonet" });
+    const desk = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "echonet")).top; };
+    await until(() => (desk().describe().areas?.length ?? 0) === 2 && desk().describe().areas.every((a: any) => a.messages !== null), "both areas counted", 8000);
+    // Plot chat: the view's two posts and the note posted to it by its tag; Seed swap: the society's board, two more waiting.
+    expect(desk().describe().areas.map((a: any) => [a.tag, a.kind, a.from, a.messages, a.new, a.waiting])).toEqual([["plot.chat", "local", expect.stringMatching(/@/), 3, 3, undefined], ["seed.swap", "sub", "society@box-a", 3, 3, 2]]);
+    expect(await app.act({ action: "echo.area", args: { tag: "SEED.SWAP" }, as: "test-agent" })).toMatchObject({ n: 2, messages: 3, new: 3 });
+    await until(() => desk().describe().list?.messages?.length === 3, "Seed swap's copies listed", 5000);
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.message", args: { n: 2, read: true }, as: "test-agent" })).toMatchObject({ n: 2, of: 3, subject: "Tomato seed, saved last year", read: true });
+    await until(() => screen().includes("a newer version is upstream") && /SEEN-BY: society@box-a \S+@/.test(screen()), "the copy, upstream newer, its SEEN-BY", 8000);
+    expect(screen()).toContain(" * Origin: society@box-a (Seed swap)");
+    expect(screen()).toContain("take it: ext.echonet.take-newer");
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ n: 3, subject: "Swap table on Saturday" });
+    await until(() => screen().includes("gone upstream since 2026-03-04"), "the copy whose original is gone", 8000);
+    // Plot chat starts here: its posts' SEEN-BY names the nodes whose seen-by marks are on them.
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.area", args: { tag: "plot.chat" }, as: "test-agent" });
+    await until(() => desk().describe().list?.area?.tag === "plot.chat" && desk().describe().list?.messages?.length === 3, "Plot chat's posts", 5000);
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.message", args: { n: 1, read: true }, as: "test-agent" })).toMatchObject({ subject: "Hosepipe ban from Monday" });
+    await until(() => /SEEN-BY: \S+@\S+ attic@box-c society@box-a/.test(screen()), "the post's SEEN-BY from its marks", 8000);
+    expect(screen()).toContain("From : ana @ ");
+    // The agent read them: the person hasn't, so the copies stay new for them.
+    const society = (await board.queryNotes(`parent:((${seeded.notes.echoSub.id})) echo-source`)).notes[0]!;
+    expect((await board.queryNotes(`parent:((${society.id})) from unread:me`)).notes).toHaveLength(3);
+    const agentUnread = async () => (await board.queryNotes(`parent:((${society.id})) from unread:test-agent`)).notes.map(m => subject(m));
+    for (let i = 0; i < 100 && (await agentUnread()).length !== 1; i++) await Bun.sleep(25);
+    expect(await agentUnread()).toEqual(["Runner beans to swap"]);
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {
