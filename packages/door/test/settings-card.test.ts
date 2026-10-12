@@ -1,7 +1,7 @@
 // The settings card's parts (PIE-786): which schema configures a note, its fields, and each field's picker in the
 // power bar, built from the outline's own properties (here a made-up catalog). Fictional notes and values.
 import { describe, expect, test } from "bun:test";
-import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
+import { BUILTIN_COMPONENT_SCHEMAS, componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
 import { listSuggestions, querySuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingValue, type SettingSources } from "../src/surface/settings-card";
 
 const CATALOG = [
@@ -75,4 +75,18 @@ describe("the settings card", () => {
     expect((await q("rule-quiet").suggest!(""))!.map(s => s.value)).toEqual(["2s", "1m"]);
     expect(q("rule-match")).toMatchObject({ type: "text", free: true });
   });
+});
+
+test("EchoNet ships its subscription's schema: a subscription note gets a card, subscribe a node field", async () => {
+  // The manifest as written (the outliner's own test loads it through its checker, componentSchemaProblem included).
+  const manifest = await Bun.file(new URL("../../outliner/extensions/echonet/extension.json", import.meta.url)).json() as { components: import("@ep0ch/outline-core/component-schema").ComponentSchema[] };
+  const schemas = manifest.components;
+  for (const s of schemas) expect(componentSchemaProblem(s)).toBeNull();
+  const schema = settingsSchema(schemas, props({ subscribe: "shack@float-2", echo: "recon" }))!;
+  expect(schema.id).toBe("echonet-subscription");
+  // A posting ([echo::] alone) is no subscription: no card.
+  expect(settingsSchema(schemas, props({ echo: "recon" }))).toBeNull();
+  const fields = settingFields(schema, props({ subscribe: "shack@float-2", echo: "recon" }));
+  expect(fields.map(f => [f.prop.key, f.prop.type, f.value])).toEqual([["subscribe", "node", "shack@float-2"], ["echo", "text", "recon"], ["since", "text", null], ["cap", "int", null]]);
+  expect(settingProblem(fields[3]!, "0")).toContain("is a whole number");
 });
