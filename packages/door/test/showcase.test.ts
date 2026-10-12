@@ -650,7 +650,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "library.clear", args: {}, as: "test-agent" });
     // Every component the readers draw has a page (PIE-701): the section lists as many as there are schemas, the figures and the box among them.
     const listed = () => (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.components as string[]);
-    expect(listed()).toHaveLength(BUILTIN_COMPONENT_SCHEMAS.length);
+    // ...and the installed extensions' (EchoNet's subscription and area, for the settings card).
+    expect(listed()).toHaveLength(BUILTIN_COMPONENT_SCHEMAS.length + 2);
+    expect(listed()).toEqual(expect.arrayContaining(["echonet-subscription", "echonet-area"]));
     for (const id of ["graph-stat", "graph-table", "graph-quadrant", "links", "box", "image", "hero-image", "embed", "code-fence"]) expect(listed()).toContain(id);
     expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
