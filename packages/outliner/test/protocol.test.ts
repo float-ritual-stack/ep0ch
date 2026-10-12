@@ -1572,6 +1572,7 @@ test("serves mutations and property queries over the local socket", async () => 
     nextWorkId: null,
     reservedCount: 0,
     observedPrefixes: [],
+    prefixesInUse: [],
   });
   await client.request({ action: "work-ids.configure", prefix: "pie" });
   const workTarget = await client.request<Block>({
@@ -1598,6 +1599,7 @@ test("serves mutations and property queries over the local socket", async () => 
     nextWorkId: "PIE-002",
     reservedCount: 1,
     observedPrefixes: ["PIE"],
+    prefixesInUse: ["PIE"],
   });
   const workQueue = await client.request<Block>({
     action: "create",

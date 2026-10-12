@@ -49,6 +49,24 @@ describe("references a save warns about (PIE-761)", () => {
     expect(w).toEqual({ written: `((${NOTE}`, problem: "isn't closed with ))", didYouMean: { reference: `((${NOTE}))`, title: "Meeting notes, for real" } });
   });
 
+  test("an aside that opens with a reference, (((id|label)) …), is the reference in parentheses: no warning", async () => {
+    for (const text of [`(((${NOTE}|meeting notes)) are where it started)`, `(((${NOTE}|meeting notes)))`, `see (((${NOTE})))`]) {
+      expect(referenceSuspects(text)).toEqual([]);
+      expect(await referenceWarnings(text, lookups)).toEqual([]);
+    }
+    // One whose id leads nowhere names that id, never a note found by its words.
+    expect(await referenceWarnings(`(((${GONE}|the old plan)) said so)`, lookups)).toEqual([{ written: `((${GONE}|the old plan))`, problem: "names no note in this outline" }]);
+  });
+
+  test("words in double parentheses read as text: no suggestion; an unclosed one never suggests the note being saved", async () => {
+    expect(await referenceWarnings("an aside ((Meeting minutes, roughly)) here", lookups)).toEqual([
+      { written: "((Meeting minutes, roughly))", problem: "reads as text, not a reference (a reference holds a note's id: ((id)))" },
+    ]);
+    const twoHits: ReferenceLookups = { ...lookups, async search() { return [{ id: GONE, title: "This very note" }, { id: NOTE, title: "Meeting notes, for real" }]; } };
+    expect((await referenceWarnings("and ((Meeting", { ...twoHits, self: GONE }))[0]!.didYouMean).toEqual({ reference: `((${NOTE}))`, title: "Meeting notes, for real" });
+    expect((await referenceWarnings("and ((Meeting", { ...lookups, self: NOTE }))[0]!.didYouMean).toBeUndefined();
+  });
+
   test("lookups that fail drop the suggestion, never the warning", async () => {
     const failing: ReferenceLookups = { resolve: async () => { throw new Error("no answer"); }, search: async () => { throw new Error("no answer"); } };
     expect((await referenceWarnings("and ((Meeting", failing)).map(w => w.written)).toEqual(["((Meeting"]);

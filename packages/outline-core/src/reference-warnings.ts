@@ -30,6 +30,9 @@ export function referenceSuspects(text: string): ReferenceSuspect[] {
   for (let start = text.indexOf("(("); start >= 0; start = text.indexOf("((", start + 2)) {
     const covering = refs.find(r => start >= r.start && start < r.end);
     if (covering) { start = covering.end - 2; continue; }
+    // `(((id|label)) …)`: a parenthesis, then a reference. The grammar reads the reference from the next `(`, so the
+    // first `((` is no suspect.
+    if (refs.some(r => r.start === start + 1)) continue;
     if (offsetInRanges(start, code)) continue;
     const lineEnd = (() => { const n = text.indexOf("\n", start); return n < 0 ? text.length : n; })();
     // A `((` that another `((` follows before it closes is unclosed: it ends where the next one starts.
@@ -70,6 +73,8 @@ export interface ReferenceLookups {
   search?(query: string): Promise<readonly { id: string; title: string }[]>;
   /** Note `blockId`'s text, for the `^anchors` it has; null when there's no such note. */
   text?(blockId: string): Promise<string | null>;
+  /** The note being saved: never offered as what one of its own references meant (its text holds the words). */
+  self?: string;
 }
 
 /** A reference a save kept as written that leads nowhere, and what it may have meant. */
@@ -150,16 +155,22 @@ export async function referenceWarnings(text: string, lookups: ReferenceLookups)
     }
   }
   for (const s of referenceSuspects(text)) {
-    const problem = s.kind === "unclosed" ? "isn't closed with ))" : "isn't a reference (a note's id goes inside (( ))";
     let didYouMean: ReferenceWarning["didYouMean"];
-    const id = s.query.split(/\s/)[0]!;
+    // The id that was typed (`((((id …` names it too): what a suggestion names, never a note found by other words.
+    const id = s.query.replace(/^\(+/, "").split(/\s/)[0]!;
     if (ID_LIKE.test(id)) {
       const [found] = (await quietly(() => lookups.resolve(`((${id}${s.fragment ? `^${s.fragment}` : ""}))`))) ?? [];
       if (found && found.status !== "missing") didYouMean = { reference: `((${found.blockId}${s.fragment ? `^${s.fragment}` : ""}))`, ...(found.title ? { title: found.title } : {}) };
+    } else if (s.kind === "not-a-reference") {
+      // `((words))` closed round no id: an aside in double parentheses reads as text. Nothing to suggest.
+      out.push({ written: s.written, problem: "reads as text, not a reference (a reference holds a note's id: ((id)))" });
+      continue;
     } else if (s.query) {
-      const [hit] = (await quietly(lookups.search ? () => lookups.search!(s.query) : undefined)) ?? [];
+      const hits = (await quietly(lookups.search ? () => lookups.search!(s.query) : undefined)) ?? [];
+      const hit = hits.find(h => h.id !== lookups.self);
       if (hit) didYouMean = { reference: `((${hit.id}))`, title: hit.title };
     }
+    const problem = s.kind === "unclosed" ? "isn't closed with ))" : "isn't a reference (a note's id goes inside (( ))";
     out.push({ written: s.written, problem, ...(didYouMean ? { didYouMean } : {}) });
   }
   return out;

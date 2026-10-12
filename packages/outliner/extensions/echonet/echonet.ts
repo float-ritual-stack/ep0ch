@@ -22,7 +22,7 @@ import { readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { outline, type OutlineRequest, type Route } from "./outline";
 import {
-  areaQuery, areasIn, type Block, firstLine, FROM, fromOf, glob, hasStar, isCopy, isMessage, kindOf, type Mask, masksIn, postsTo,
+  areaQuery, areasIn, type Block, firstLine, FROM, fromOf, glob, hasStar, isCopy, isMark, isMarkCopy, isMessage, kindOf, type Mask, masksIn, postsTo,
   type Node, nodeOf, parseMask, parseNode, prop, sameMachine, setHeaderProperty, trashed, values,
 } from "./shapes";
 
@@ -209,6 +209,11 @@ const time = (block: Block) => Date.parse(block.updatedAt ?? block.createdAt ?? 
  * rule's keys (a copy of a rule note never runs here: it reads `from-rule-*` until someone here makes it a rule).
  */
 const OWNED = /\[(page|work-id|welcome|publish|rule(?:-[a-z-]+)?)::([^\]]*)\]/gi;
+/**
+ * A mark's own keys (the annotation store's): a copy of a comment is a note here, never a mark with no passage, so it
+ * reads `[from-type::annotation]`, `[from-annotation-status::open]` and so on.
+ */
+const MARK_KEYS = /\[(type|annotation-source|annotation-status|parent-annotation|promoted-block)::([^\]]*)\]/g;
 /** The keys EchoNet writes on a copy: an original that already has one keeps it as `source-<key>`. */
 const TRANSPORT = /\[(from|echo|from-rev|tossed|upstream-newer|upstream-gone|echo-source|subscribe)::([^\]]*)\]/g;
 /** Code fences and code spans: their words are literal, so a copy keeps them as written. */
@@ -245,10 +250,25 @@ async function localProse(origin: Link, text: string): Promise<string> {
  * (`[publish::never]`) stays off it here too.
  */
 async function copyText(origin: Link, message: Block, area: string, tossed?: string, keptOff = false): Promise<string> {
-  const [head, ...rest] = (await localText(origin, message.text)).split("\n");
+  const [head, ...rest] = (isMark(message) ? await markText(origin, message) : await localText(origin, message.text)).split("\n");
   const keep = keptOff || prop(message, "publish") === "never" ? " [publish::never]" : "";
   const keys = `[from::${origin.node.id}/${message.id}] [echo::${area}] [from-rev::${message.revision}]${tossed ? ` [tossed::${tossed}]` : ""}${keep}`;
   return [`${head!.trimEnd()} ${keys}`, ...rest].join("\n");
+}
+
+/**
+ * A comment's text as a copy reads it: its heading says what it's on and links the note it's on in the origin
+ * (`Comment on “forty seconds” in [Recon: flaky cron](ep0ch://…)`), and the store's keys are the original's
+ * (`from-type`), so the copy is a note here with its thread (the replies, copied under it) and a way back.
+ */
+async function markText(origin: Link, mark: Block): Promise<string> {
+  const [heading, ...rest] = (await localText(origin, mark.text)).split("\n");
+  const local = rest.map((line) => line.replace(MARK_KEYS, (all, key: string, value: string) =>
+    key === "type" && !["annotation", "annotation-reply"].includes(value.trim()) ? all : `[from-${key}::${value}]`));
+  if (prop(mark, "type") !== "annotation" || !mark.parentId) return [heading!, ...local].join("\n");
+  const note = await originalOf(origin, mark.parentId).catch(() => undefined);
+  const title = note ? firstLine(note.text).replace(/[[\]]/g, "") || "a note" : `a note in ${origin.node.outline}`;
+  return [`${heading!.trimEnd()} in [${title}](ep0ch://${origin.node.id}/b/${mark.parentId})`, ...local].join("\n");
 }
 
 /** A note's first line changed in place, read fresh, written only when it changes. */
@@ -399,7 +419,7 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
       continue;
     }
     if (prop(copy, "echo-partial") !== undefined) {
-      await copyChildren(link, entry.area, message.id, copy.id, everyCopy, 0);
+      await copyChildren(link, entry.area, message.id, copy.id, everyCopy, 0, isMark(message));
       await setOn(copy.id, (text) => setHeaderProperty(text, "echo-partial", undefined));
     }
     // Kept off the web there since it was copied: the copy is kept off at once, whether or not its text is taken.
@@ -410,7 +430,7 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
       newer += 1;
     }
     if (prop(copy, "upstream-gone") !== undefined) await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-gone", undefined));
-    if (canMark(link.level)) await seenBy(link, message, copy, name, ledger);
+    if (canMark(link.level) && !isMark(message)) await seenBy(link, message, copy, name, ledger);
   }
   // Oldest first, `cap` a toss: a broad area's first toss doesn't flood, and what waits is said on the board.
   fresh.sort((a, b) => time(a.message) - time(b.message));
@@ -422,7 +442,7 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
     if (everyCopy.has(from) || await copyHeld(from, everyCopy)) continue;
     const made = await mine<Block>({ action: "create", parentId: board.id, text: await copyText(link, message, area, now) });
     try {
-      await copyChildren(link, area, message.id, made.id, everyCopy, 0);
+      await copyChildren(link, area, message.id, made.id, everyCopy, 0, isMark(message));
     } catch (error) {
       // Stopped partway through the notes under it: the next toss finishes them (`echo-partial`).
       await setOn(made.id, (text) => setHeaderProperty(text, "echo-partial", "yes")).catch(() => undefined);
@@ -430,7 +450,7 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
     }
     everyCopy.set(from, made);
     copied += 1;
-    if (canMark(link.level)) await seenBy(link, message, made, name, ledger);
+    if (canMark(link.level) && !isMark(message)) await seenBy(link, message, made, name, ledger);
   }
   const waiting = fresh.filter(({ message }) => !everyCopy.has(`${link.node.id}/${message.id}`)).length;
   await setOn(board.id, (text) => setHeaderProperty(text, "waiting", waiting ? String(waiting) : undefined));
@@ -455,16 +475,17 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
  * The notes under a message, each a copy with its own `from` (so it is never echoed again as an original here, and a
  * mark on it is netmail too). Copied once, with the message; later notes under the original are upstream's.
  */
-async function copyChildren(origin: Link, area: string, fromId: string, toId: string, everyCopy: Map<string, Block>, depth: number): Promise<void> {
+async function copyChildren(origin: Link, area: string, fromId: string, toId: string, everyCopy: Map<string, Block>, depth: number, markParent = false): Promise<void> {
   if (depth > 4) return;
   const children = await origin.call<Block[]>({ action: "children", parentId: fromId });
   for (const child of children) {
     const from = `${origin.node.id}/${child.id}`;
-    // A copy there (moved under a note of its own) is never sent on: it's another node's.
-    if (everyCopy.has(from) || isCopy(child)) continue;
+    // A copy there (moved under a note of its own) is never sent on: it's another node's. A note's marks travel as
+    // netmail and seen-by, never as copies; a comment's replies are its thread, copied with it.
+    if (everyCopy.has(from) || isCopy(child) || (isMark(child) && !markParent)) continue;
     const made = await mine<Block>({ action: "create", parentId: toId, text: await copyText(origin, child, area) });
     everyCopy.set(from, made);
-    await copyChildren(origin, area, child.id, made.id, everyCopy, depth + 1);
+    await copyChildren(origin, area, child.id, made.id, everyCopy, depth + 1, isMark(child));
   }
 }
 
@@ -509,9 +530,13 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
     await undeliverable(origin, copy, waiting(), ledger);
     return;
   }
-  const remoteThreads = await threadsOn(origin.call, originalId);
   // A mark left as undeliverable stays so, even if its original comes back.
   const gaveUp = (mark: Mark) => ledger.lines.has(`undeliverable ${mark.block.id}`);
+  if (isMarkCopy(copy)) {
+    await threadNetmail(origin, original, local.flatMap(outgoing).filter((mark) => !gaveUp(mark)), ledger);
+    return;
+  }
+  const remoteThreads = await threadsOn(origin.call, originalId);
   for (const thread of local) {
     if (cameIn(thread) || gaveUp(thread)) continue;
     const key = `${self.id}/${thread.block.id}`;
@@ -562,6 +587,28 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
       ledger.lines.set(`in ${receipt.annotations[0]!.block.id}`, replyKey);
       counts.netmailIn += 1;
     }
+  }
+}
+
+/**
+ * Netmail for a copy of a comment: what's written on the copy here joins the original's thread there, as replies (a
+ * mark can't be marked), each once, `via echonet:<this node>`. Its replies there were copied with it; later ones are
+ * upstream's, like later notes under a copied note.
+ */
+async function threadNetmail(origin: Link, original: Block, marks: Mark[], ledger: Ledger): Promise<void> {
+  const root = prop(original, "type") === "annotation-reply" && original.parentId ? original.parentId : original.id;
+  for (const mark of marks) {
+    if (ledger.lines.has(`out ${mark.block.id}`)) continue;
+    const key = `${self.id}/${mark.block.id}`;
+    const quote = quoteOf(mark);
+    const body = `${quote ? `(on “${quote}”)${mark.body ? "\n" : ""}` : ""}${mark.body}`;
+    const receipt = await origin.call<{ annotations: Mark[] }>({
+      action: "annotations.reply", requestId: `echonet-out-${key}`,
+      input: { annotationId: root, body: body || "(a highlight on the copy)", source: "agent", properties: { via: `echonet:${self.id}`, "netmail-from": key, "netmail-author": authorOf(mark) } },
+    });
+    ledger.lines.set(`out ${mark.block.id}`, `${origin.node.id}/${receipt.annotations[0]!.block.id}`);
+    ledger.lines.delete(`tries ${mark.block.id}`);
+    counts.netmailOut += 1;
   }
 }
 

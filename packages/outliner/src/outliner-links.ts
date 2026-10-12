@@ -22,7 +22,7 @@ import {
   dispatchNavigation,
   resolveNavigationDestination,
 } from "./navigation-routes";
-import { isWorkIdAddress } from "./work-ids";
+import { isWorkIdAddress, type TicketPrefixes } from "./work-ids";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { parsePropertyRecords } from "./properties";
 import type {
@@ -527,7 +527,7 @@ export async function navigateOutlinerLink(
 
 export function firstOutlinerReference(
   text: string,
-  workIdPrefix: string | null = null,
+  workIdPrefix: TicketPrefixes = null,
 ): OutlinerLinkTarget | null {
   const first = outlinerReferenceOccurrences(text, workIdPrefix)[0];
   if (!first) return null;
@@ -545,7 +545,7 @@ export function firstOutlinerReference(
 function genericLinkSpans(
   text: string,
   canLinkBlock: (blockId: string) => boolean,
-  workIdPrefix: string | null,
+  workIdPrefix: TicketPrefixes,
 ): LinkSpan[] {
   const spans: LinkSpan[] = [];
   const blockReferenceRanges = blockReferenceEnvelopeRanges(text).filter((range) =>
@@ -586,7 +586,7 @@ function selectLinkSpans(
   text: string,
   exactSpans: readonly LinkSpan[],
   canLinkBlock: (blockId: string) => boolean,
-  workIdPrefix: string | null,
+  workIdPrefix: TicketPrefixes,
 ): LinkSpan[] {
   const protectedRanges = protectedMarkdownRanges(text);
   const selected: LinkSpan[] = [];
@@ -682,7 +682,7 @@ function resolvedReferenceSpans(rawText: string, resolvedText: string): LinkSpan
 export function linkOutlinerMarkdown(
   resolvedText: string,
   rawText: string,
-  workIdPrefix: string | null = null,
+  workIdPrefix: TicketPrefixes = null,
   linksEnabled = true,
   resourceLinks: ReadonlyMap<number, string> = new Map(),
 ): string {
@@ -693,7 +693,7 @@ export function linkOutlinerMarkdown(
 export function linkOutlinerDocument(
   document: MappedDocument,
   rawText: string,
-  workIdPrefix: string | null = null,
+  workIdPrefix: TicketPrefixes = null,
   linksEnabled = true,
   resourceLinks: ReadonlyMap<number, string> = new Map(),
 ): MappedDocument {
@@ -772,7 +772,7 @@ export interface OutlinerTextLinker {
 export function createOutlinerTextLinker(
   resolved: readonly BlockReferenceResolution[] | Pick<TreeIndexBlock, "preview" | "previewReferences">,
   hasBlock: (blockId: string) => boolean,
-  workIdPrefix: string | null = null,
+  workIdPrefix: TicketPrefixes = null,
 ): OutlinerTextLinker {
   const references = "preview" in resolved ? resolved.previewReferences.map(reference => ({
     visible: resolved.preview.slice(reference.start, reference.end),

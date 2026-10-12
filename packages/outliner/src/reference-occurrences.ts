@@ -4,7 +4,7 @@ import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
-import { ticketKeyReferences } from "./work-ids";
+import { ticketKeyReferences, type TicketPrefixes } from "./work-ids";
 
 export interface TextRange {
   start: number;
@@ -96,7 +96,7 @@ export function propertyReferenceOccurrences(
 
 export function outlinerReferenceOccurrences(
   text: string,
-  workIdPrefix: string | null = null,
+  workIdPrefix: TicketPrefixes = null,
   propertyRecords: readonly PropertyRecord[] = parsePropertyRecords(text),
 ): OutlinerReferenceOccurrence[] {
   const blockReferences = blockReferenceOccurrences(text);

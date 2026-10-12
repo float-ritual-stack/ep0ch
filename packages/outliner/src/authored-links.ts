@@ -536,9 +536,8 @@ export function readAuthoredLinks(
     };
   }
 
-  const workIdPrefix = source.workIdAllocatorStatus().prefix;
   const candidates: AuthoredCandidate[] = [
-    ...outlinerReferenceOccurrences(owner.text, workIdPrefix),
+    ...outlinerReferenceOccurrences(owner.text, source.workIdAllocatorStatus()),
     ...resourceReferenceCandidates(owner.text, source.resourceProviders),
   ].sort((left, right) => left.start - right.start || left.end - right.end);
   const candidateLimited = candidates.length > AUTHORED_LINKS_MAX_CANDIDATES;

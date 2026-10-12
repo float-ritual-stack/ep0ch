@@ -3280,6 +3280,7 @@ export class OutlinerStore {
       blocksById: graph.byId,
       addressTargets,
       workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
+      ticketPrefixes: this.workIdAllocatorStatusFromCurrentRead(),
     };
   }
 
@@ -4960,7 +4961,29 @@ export class OutlinerStore {
         : null,
       reservedCount: reservations.length,
       observedPrefixes,
+      prefixesInUse: this.workIdPrefixesInUseFromCurrentRead(allocator?.prefix ?? null, observedPrefixes),
     };
+  }
+
+  /**
+   * The prefixes a ticket key may have to be one here: the allocator's, the reserved ids', the `[work-id::]` values
+   * notes carry (an imported or echoed item), the pages named like a key (`[page::PC-7]`) and the ticket pages' keys
+   * (`[jira::KEY-1]`). Any other `LETTERS-digits`
+   * (a synth's name, `FM-1`) is plain text.
+   */
+  private workIdPrefixesInUseFromCurrentRead(configured: string | null, observed: readonly string[]): string[] {
+    const prefixes = new Set<string>([...(configured ? [configured] : []), ...observed]);
+    const values = this.database.query(
+      "SELECT DISTINCT upper(trim(property.value)) AS value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL",
+    ).all() as Array<{ value: string }>;
+    const pages = this.database.query(
+      "SELECT upper(display_address) AS value FROM page_addresses WHERE kind IN ('page', 'alias')",
+    ).all() as Array<{ value: string }>;
+    for (const key of [...values, ...pages].map((row) => row.value).concat([...this.ticketPagesFromCurrentRead().keys()])) {
+      const match = /^([A-Z][A-Z0-9]{0,15})-\d+$/.exec(key);
+      if (match) prefixes.add(match[1]!);
+    }
+    return [...prefixes].sort();
   }
 
   private nextWorkIdNumberForPrefixFromCurrentRead(prefix: string): number {

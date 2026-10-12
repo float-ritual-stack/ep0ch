@@ -336,6 +336,35 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
   expect((await threads("shack", cron.id)).filter((thread) => thread.body === "still there?")).toEqual([]);
 }, 90_000);
 
+test("a comment in an area is copied as a note: what it's on, linked back, its thread under it; a comment on the copy joins that thread", async () => {
+  const { machine, toss, create, get, children, threads, comment, reply, access, board } = await setup();
+  await access("shack", "propose");
+  await create("shack", "Asks [type::virtual-branch] [query::#garden-ask] [echo::asks]");
+  const bed = await create("shack", "The north bed\n\nMulch is thin by the fence.");
+  const ask = await comment("shack", bed, "#garden-ask more mulch by the fence?", "Mulch is thin");
+  await reply("shack", ask.id, "after the rain");
+  const sub = await create("cafe", `Asks from the shack [subscribe::shack@${machine}] [echo::asks] [since::all]`);
+  expect(await toss("cafe")).toContain("copies 1");
+  const copy = (await board("cafe", sub, `shack@${machine}`)).copies[0]!;
+  const [head, meta] = copy.text.split("\n");
+  expect(head).toBe(`Comment on “Mulch is thin” in [The north bed](ep0ch://shack@${machine}/b/${bed.id}) [from::shack@${machine}/${ask.id}] [echo::asks] [from-rev::${ask.revision}] [tossed::${head!.match(/\[tossed::([^\]]*)\]/)![1]}]`);
+  expect(meta).toContain("[from-type::annotation]");
+  expect(copy.text).not.toContain("[type::annotation]");
+  expect(copy.text).toContain("#garden-ask more mulch by the fence?");
+  const thread = await children("cafe", copy.id);
+  expect(thread.map((note) => [note.text.split("\n").at(-1), note.properties.find((p) => p.key === "from-type")?.value])).toEqual([["after the rain", "annotation-reply"]]);
+  // No seen-by on a comment: the original thread has only its own reply.
+  expect((await threads("shack", bed.id)).find((t) => t.block.id === ask.id)!.replies.map((r) => r.body)).toEqual(["after the rain"]);
+  // A comment on the copy joins the original's thread as a reply, once.
+  await comment("cafe", await get("cafe", copy.id), "the cafe has spare mulch");
+  expect(await toss("cafe")).toContain("netmail out 1");
+  expect(await toss("cafe")).toContain("netmail out 0");
+  const there = (await threads("shack", bed.id)).find((t) => t.block.id === ask.id)!;
+  expect(there.replies.map((r) => [r.body, r.properties?.via?.[0] ?? "here"])).toEqual([
+    ["after the rain", "here"], ["the cafe has spare mulch", `echonet:cafe@${machine}`],
+  ]);
+}, 60_000);
+
 test("take the newer version: replace a copy's text, or propose it beside the copy, only when asked", async () => {
   const { machine, toss, create, get, edit, act, call, board } = await setup(["shack", "cafe"]);
   const original = await create("shack", "Recon: the kettle's disk is at 80% [echo::recon] [page::kettle]");

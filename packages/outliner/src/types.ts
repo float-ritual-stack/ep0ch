@@ -1283,6 +1283,11 @@ export interface WorkIdAllocatorStatus {
   nextWorkId: string | null;
   reservedCount: number;
   observedPrefixes: string[];
+  /**
+   * Every prefix a ticket key may have to be one in this outline: the allocator's, the reserved ids', the
+   * `[work-id::]` values notes carry and the ticket pages' keys. Any other `LETTERS-digits` token is plain text.
+   */
+  prefixesInUse: string[];
 }
 
 

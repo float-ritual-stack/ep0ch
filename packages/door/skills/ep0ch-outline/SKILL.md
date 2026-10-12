@@ -529,7 +529,10 @@ Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] 
 
 A rule note can also run an installed extension's action (`[rule-on::<extension>/<action>]`), with guards for one that
 starts an agent: `[rule-from::user, ext:echonet]` (whose saves set it off), `[rule-batch::1m]`, `[rule-cap::20/day]`,
-`[rule-skip::triage=done]`. Nothing a trigger writes sets a rule off again.
+`[rule-skip::triage=done]`. Nothing a trigger writes sets a rule off again. `rule-match` takes the views' whole grammar, a
+tag included (`[rule-match::#pie-request]`), and rules see comments and replies as they see notes: a `#tag` typed in a
+comment sets a tag rule off, and a lane's query on the tag lists the comment (a comment carries `annotation-status`,
+not a note's `status`, so a lane that asks `status=new` also wants `OR (type=annotation annotation-status=open)`).
 
 Scope it with `rule-under` unless they want it everywhere. The examples to copy for code: `meeting-card`
 (decorate), `done-stamp` (on), `shout` (a text pattern). `R` in the door shows a note as written; `peek` lists a

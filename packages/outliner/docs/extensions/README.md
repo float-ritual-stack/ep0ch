@@ -659,11 +659,12 @@ Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] 
 Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
 ```
 
-`rule-match` (a query), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
+`rule-match` (a query; a tag is one, `[rule-match::#pie-request]`), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
 `rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
 `rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
 installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
-`quiet`, `from`, `batch`, `cap` and `skip` above. A rule note draws, runs, or both:
+`quiet`, `from`, `batch`, `cap` and `skip` above. Rules see a comment, a question or a reply as they see a note (it is a
+block, saved like one): a `#tag` typed in a comment sets off a rule on that tag. A rule note draws, runs, or both:
 
 ```text
 Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:via-trigger=intake-prior-art]

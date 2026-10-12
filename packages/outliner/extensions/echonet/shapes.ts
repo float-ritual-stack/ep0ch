@@ -38,6 +38,10 @@ export const values = (block: Block, key: string) =>
 export const fromOf = (block: Block) => block.properties.find((p) => p.key === "from" && FROM.test(p.value.trim()))?.value.trim();
 export const isCopy = (block: Block) => fromOf(block) !== undefined;
 export const trashed = (block: Block) => !!(block.effectiveDeletedRootId || block.deletedAt);
+/** A highlight, comment or question (`type::annotation`), or a reply in its thread (`type::annotation-reply`). */
+export const isMark = (block: Block) => ["annotation", "annotation-reply"].includes(prop(block, "type") ?? "");
+/** A copy of a mark: a note here that says it was a comment there (`[from-type::annotation]`). */
+export const isMarkCopy = (block: Block) => isCopy(block) && ["annotation", "annotation-reply"].includes(prop(block, "from-type") ?? "");
 
 export type Kind = "copy" | "own" | "source" | "subscription" | "area" | "posting" | "other";
 /** What a block is to EchoNet. A copy is a copy before anything else: it never posts, names an area or subscribes. */
