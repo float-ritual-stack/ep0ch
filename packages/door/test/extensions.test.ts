@@ -195,7 +195,12 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(t).toMatch(/Virgo, \d{4}-\d\d-\d\d\. /);                         // the output's markdown, drawn
     expect(t).toContain("Colour: ");
     expect(t).toMatch(/▌ Virgo: week of \d{4}-\d\d-\d\d {2}\[uneasy\]/);    // the card, from its primitives
-    expect(t).toMatch(/\[ \] (a door that closes by itself|the lift stops at a floor that isn't there)/);
+    // The omens change with the week, so assert the shape: an unwarded omen drawn, from the extension's own list.
+    const source = readFileSync(join(outliner!, "extensions/fancy-horror/fancy-horror.ts"), "utf8");
+    const omenList = [...source.match(/const OMENS = \[([\s\S]*?)\];/)![1]!.matchAll(/"([^"]+)"/g)].map(m => m[1]!);
+    expect(omenList.length).toBeGreaterThan(3);
+    const drawn = omenList.filter(o => t.includes(`[ ] ${o}`));
+    expect(drawn.length).toBeGreaterThanOrEqual(1);
     expect(t).toContain("[w ward] [keep] [r run again]");
     expect(t).toMatch(/Tidy @tidy · applied · tidied 1 line above/);
     expect(t).toContain("[r ask again]");
