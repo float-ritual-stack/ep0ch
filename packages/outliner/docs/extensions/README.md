@@ -693,11 +693,13 @@ props' keys`):
 
 - `props[]`: `key`, `where` (`line`, `note` for a property of a note that declares a style or type, `yaml` for a
   figure's), `type` (`enum`, `int`, `number`, `levels`, `name`, `room`, `text`, `list`, `ref`, `template`, `pattern`,
-  `query`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
+  `query`; for the settings card's pickers `action`, `writers`, `duration`, `property`, `node`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
   (values worth drawing for a type with no list), `token` (how it's written when that isn't `[key::value]`), `use`
   (the source to show this property with).
 - `source.use`: the text a variation writes, `{key}` a value and `{yaml}` the YAML properties given; `source.note`
-  (`{ title, name, value, uses? }`): the declaring note a variation writes when it sets a `note` property.
+  (`{ title, name, value, uses?, requires? }`): the declaring note a variation writes when it sets a `note` property.
+  A note carrying `name` (and every key in `requires`) is one of these: the door's settings card (`,`) draws its `note`
+  properties as fields, a section per component a note is (echonet's `echonet-area` requires `query`).
 - `example`, `sweep` (the properties drawn one value at a time), `grids` (`[key, key]` pairs), `space` (the axes of
   every combination).
 

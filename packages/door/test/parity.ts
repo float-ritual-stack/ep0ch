@@ -507,6 +507,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: a rule note's settings card", reading(SEED.settings), [k(",")]],
     ["reader: a rule note's settings card on its third field", reading(SEED.settings), [k(","), k("j"), k("j")]],
     ["reader: a view's settings card", reading(SEED.gardenView), [k(",")]],
+    ["reader: a view that is an EchoNet area: a two-section card", reading(SEED.echoArea), [k(",")]],
   ];
 
   const ALL = { screens: [...SCREENS, ...READER], board: [...BOARD, ...RIVER], desk: DESK }[part];

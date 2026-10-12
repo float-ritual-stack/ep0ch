@@ -13,7 +13,7 @@ import type { Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
-import { DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { CARD_EXAMPLES, DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -1195,7 +1195,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES]).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
   }

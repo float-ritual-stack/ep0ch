@@ -17,24 +17,44 @@ import { bg, C, ellipsize, fg, pad, RESET, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { rule } from "../text";
 
-/** One field of the card: a property the schema says the declaring note takes, and its value on the note (null: unset). */
-export interface SettingField { n: number; prop: PropSchema; value: string | null }
+/**
+ * One field of the card: a property a schema says the declaring note takes, its value on the note (null: unset), and
+ * the section it's in (the index of its schema among the note's).
+ */
+export interface SettingField { n: number; prop: PropSchema; value: string | null; section: number }
 
 /** A note's block properties, as the card reads them. */
 type Props = readonly { key: string; value: string }[];
 
-/** The schema a note is configured by: the first whose declaring property (`source.note.name`) the note carries. */
-export function settingsSchema(schemas: readonly ComponentSchema[], props: Props): ComponentSchema | null {
+/**
+ * The schemas a note is configured by, in the list's order (the built-ins, then the extensions'): each whose declaring
+ * property (`source.note.name`) the note carries, with the others it `requires` (a view with `[echo::]` is a view and an
+ * EchoNet area; a plain note with `[echo::]` is a posting, no area).
+ */
+export function settingsSchemas(schemas: readonly ComponentSchema[], props: Props): ComponentSchema[] {
   const keys = new Set(props.map(p => p.key.toLowerCase()));
-  return schemas.find(s => s.source.note && keys.has(s.source.note.name)) ?? null;
+  return schemas.filter(s => s.source.note && keys.has(s.source.note.name) && (s.source.note.requires ?? []).every(k => keys.has(k.toLowerCase())));
 }
 
-/** The card's fields: the declaring property first, then the note's other properties in the schema's order. */
-export function settingFields(schema: ComponentSchema, props: Props): SettingField[] {
-  const name = schema.source.note?.name;
-  const own = schema.props.filter(p => p.where === "note");
-  const ordered = [...own.filter(p => p.key === name), ...own.filter(p => p.key !== name)];
-  return ordered.map((prop, i) => ({ n: i + 1, prop, value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null }));
+/** The first schema a note is configured by, or null. */
+export const settingsSchema = (schemas: readonly ComponentSchema[], props: Props): ComponentSchema | null => settingsSchemas(schemas, props)[0] ?? null;
+
+/**
+ * The card's fields, a section per schema: in each, the declaring property first, then the note's other properties in
+ * that schema's order. A key two schemas both take is the first one's field (one property, one field).
+ */
+export function settingFields(schemas: ComponentSchema | readonly ComponentSchema[], props: Props): SettingField[] {
+  const list: readonly ComponentSchema[] = Array.isArray(schemas) ? schemas : [schemas as ComponentSchema];
+  const out: SettingField[] = [], seen = new Set<string>();
+  list.forEach((schema, section) => {
+    const name = schema.source.note?.name;
+    const own = schema.props.filter(p => p.where === "note" && !seen.has(p.key));
+    for (const prop of [...own.filter(p => p.key === name), ...own.filter(p => p.key !== name)]) {
+      seen.add(prop.key);
+      out.push({ n: out.length + 1, prop, value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null, section });
+    }
+  });
+  return out;
 }
 
 /** Why `value` can't be written to `field`: the schema's own check, then the property grammar's (one line, balanced brackets). */
@@ -128,7 +148,13 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     case "writers":
       return { ...base, type: "text", free: true, suggest: typed => listSuggestions(typed, [...BUILT_IN_WRITERS, ...src.extensions().map(id => `ext:${id}`)]) };
     default:
-      return { ...base, type: "text", free: true, suggest: samples };
+      // Samples, then the values this outline's notes already have for the key (an area name in use, a cap): open properties.
+      return { ...base, type: "text", free: true, suggest: async typed => {
+        const own = await src.catalog(p.key, typed.trim()).catch(() => []);
+        const values = [...samples(typed)];
+        for (const r of own) if (!values.some(v => v.value === r.value)) values.push({ value: r.value, detail: `on ${r.count} note${r.count === 1 ? "" : "s"}` });
+        return values;
+      } };
   }
 }
 
@@ -148,7 +174,10 @@ export class SettingsCard {
   /** Where the last render drew each field (`y` in its lines), for clicks. */
   at: { y: number; n: number }[] = [];
 
-  constructor(readonly schema: ComponentSchema) {}
+  constructor(readonly schemas: readonly ComponentSchema[]) {}
+
+  /** The schemas' ids, joined: whether a card drawn before still fits the note. */
+  get id(): string { return this.schemas.map(s => s.id).join("+"); }
 
   key(k: Key, rows: number): CardIntent {
     const c = ch(k);
@@ -166,22 +195,32 @@ export class SettingsCard {
     return "tab/j k field · enter picks · x clears · i every property · esc close";
   }
 
-  /** The card's lines, at most `h`, `w` wide. */
+  /** The card's lines, at most `h`, `w` wide: a heading per section when the note is more than one thing. */
   render(fields: readonly SettingField[], w: number, h: number, revision: number | undefined): string[] {
-    const name = this.schema.source.note?.name;
+    const first = this.schemas[0]!, name = first.source.note?.name;
     const named = fields.find(f => f.prop.key === name)?.value;
-    const title = `settings · ${this.schema.title}${named ? ` · ${printable(named)}` : ""}${revision !== undefined ? ` · rev ${revision}` : ""}`;
+    const title = `settings · ${this.schemas.map(s => s.title).join(" + ")}${named ? ` · ${printable(named)}` : ""}${revision !== undefined ? ` · rev ${revision}` : ""}`;
     const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
+    this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
     const sel = fields[this.sel];
     const about = sel ? `${sel.prop.key} · ${sel.prop.type} · ${sel.prop.meaning}` : "";
     const foot = this.note || about;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
-    this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
-    this.view.place(this.sel, fields.length, room);
+    // The rows: a section's heading (only with more than one), then its fields.
+    const rows: ({ field: SettingField } | { heading: string })[] = [];
+    for (const f of fields) {
+      if (this.schemas.length > 1 && (rows.length === 0 || f.section !== fields[f.n - 2]?.section)) rows.push({ heading: this.schemas[f.section]!.title });
+      rows.push({ field: f });
+    }
+    const at = rows.findIndex(r => "field" in r && r.field.n - 1 === this.sel);
+    // A section's first field brings its heading into view with it.
+    const from = at > 0 && "heading" in rows[at - 1]! ? at - 1 : at;
+    this.view.place(at < 0 ? null : at, rows.length, room, at < 0 ? null : [from, at]);
     const keyW = Math.min(18, Math.max(4, ...fields.map(f => width(f.prop.key))));
     this.at = [];
-    for (const f of fields.slice(this.view.top, this.view.top + room)) {
-      const on = f.n - 1 === this.sel;
+    for (const r of rows.slice(this.view.top, this.view.top + room)) {
+      if ("heading" in r) { out.push(fg(C.lcyan) + pad(`  ${r.heading}`, w) + RESET); continue; }
+      const f = r.field, on = f.n - 1 === this.sel;
       const value = f.value !== null ? fg(C.yellow) + printable(f.value)
         : f.prop.default !== undefined ? fg(C.dark) + `${f.prop.default} (default)` : fg(C.dark) + "—";
       const tag = fg(C.dark) + f.prop.type;

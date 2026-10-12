@@ -2,7 +2,7 @@
 // power bar, built from the outline's own properties (here a made-up catalog). Fictional notes and values.
 import { describe, expect, test } from "bun:test";
 import { BUILTIN_COMPONENT_SCHEMAS, componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
-import { listSuggestions, querySuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingValue, type SettingSources } from "../src/surface/settings-card";
+import { listSuggestions, querySuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingsSchemas, settingValue, type SettingSources } from "../src/surface/settings-card";
 
 const CATALOG = [
   { key: "type", value: "request", count: 4 }, { key: "type", value: "chore", count: 9 }, { key: "triage", value: "done", count: 2 },
@@ -91,4 +91,20 @@ test("EchoNet ships its subscription's schema: a subscription note gets a card, 
   const fields = settingFields(schema, props({ subscribe: "shack@float-2", echo: "recon" }));
   expect(fields.map(f => [f.prop.key, f.prop.type, f.value])).toEqual([["subscribe", "node", "shack@float-2"], ["echo", "text", "recon"], ["since", "text", null], ["cap", "int", null]]);
   expect(settingProblem(fields[3]!, "0")).toContain("is a whole number");
+});
+
+test("a note that is two things gets a section each: a view named as an EchoNet area; a posting is neither", async () => {
+  const manifest = await Bun.file(new URL("../../outliner/extensions/echonet/extension.json", import.meta.url)).json() as { components: import("@ep0ch/outline-core/component-schema").ComponentSchema[] };
+  const all = [...BUILTIN_COMPONENT_SCHEMAS, ...manifest.components];
+  const view = props({ type: "virtual-branch", query: "type=plot-post", echo: "plot.chat" });
+  const found = settingsSchemas(all, view);
+  expect(found.map(s => s.id)).toEqual(["view", "echonet-area"]);
+  const fields = settingFields(found, view);
+  expect(fields.map(f => [f.section, f.prop.key]).filter(([, k]) => k === "query" || k === "echo")).toEqual([[0, "query"], [1, "echo"]]);
+  expect(fields.map(f => f.n)).toEqual(fields.map((_, i) => i + 1));
+  // [echo::] on a plain note is a posting: no area card (the area requires a query).
+  expect(settingsSchemas(all, props({ echo: "plot.chat" }))).toEqual([]);
+  // A key two sections both take is one field, the first section's.
+  const twice = settingFields([found[1]!, { ...found[1]!, id: "again" }], view);
+  expect(twice.map(f => f.prop.key)).toEqual(["echo"]);
 });

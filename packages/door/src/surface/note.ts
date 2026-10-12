@@ -58,7 +58,7 @@ import { askingFirst, extensionList, passageActions, runExtensionAction, threadA
 import { componentsOf, componentsReady } from "../component-schemas";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
-import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchema, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -1238,9 +1238,9 @@ export class NoteSurface {
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
-      const card = this.panel.card, fields = this.settingFields(m, card.schema);
+      const card = this.panel.card, fields = this.settingFields(m, card.schemas);
       const at = head.length;
-      head.push(...card.render(fields, w, Math.min(fields.length + 2, Math.max(4, Math.floor((h - head.length) * 0.6))), m.revision));
+      head.push(...card.render(fields, w, Math.min(fields.length + (card.schemas.length > 1 ? card.schemas.length : 0) + 2, Math.max(4, Math.floor((h - head.length) * 0.6))), m.revision));
       for (const r of card.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false });
     } else if (this.panel) {
       const rows = this.rows(m);
@@ -1831,12 +1831,13 @@ export class NoteSurface {
   // ── the settings card (PIE-786): a configurable note's fields, from its component schema ──────────────
 
   /** The schema `m` is configured by (a rule note's, a view's, a callout type's…), or null when it's no such note. */
-  settingsSchemaOf(m: Msg) {
-    return settingsSchema(componentsOf(this.src), this.rows(m).filter(r => r.scope === "block"));
+  settingsSchemaOf(m: Msg): ComponentSchema[] | null {
+    const found = settingsSchemas(componentsOf(this.src), this.rows(m).filter(r => r.scope === "block"));
+    return found.length ? found : null;
   }
 
   /** The card's fields for `m`, as the note is now. */
-  settingFields(m: Msg, schema: ComponentSchema): SettingField[] {
+  settingFields(m: Msg, schema: readonly ComponentSchema[]): SettingField[] {
     return settingFields(schema, this.rows(m).filter(r => r.scope === "block"));
   }
 
@@ -1846,7 +1847,8 @@ export class NoteSurface {
     if (!schema) throw new ActionRefused("this note isn't configured by a component: a rule note ([rule-name::]), a view ([query::]), a callout type, a heading style or an extension's own has a card · i lists its properties");
     if (!this.panel) this.panel = new PropertyPanel();
     this.panel.full = false;
-    if (this.panel.card?.schema.id !== schema.id) this.panel.card = new SettingsCard(schema);
+    const card = new SettingsCard(schema);
+    if (this.panel.card?.id !== card.id) this.panel.card = card;
     return this.panel.card;
   }
 
@@ -2010,7 +2012,7 @@ export class NoteSurface {
     }
     if (!m || m.partial) { if (k.kind === "esc" || ch(k) === "i") void this.runKey("props.close", {}, host); host.redraw(); return true; }
     if (P.card) {
-      const fields = this.settingFields(m, P.card.schema);
+      const fields = this.settingFields(m, P.card.schemas);
       const intent = P.card.key(k, fields.length), f = fields[P.card.sel];
       // The card's commands are the settings.* actions; moving its selection is its own.
       if (intent === "close") void this.runKey("props.close", {}, host);
@@ -2497,7 +2499,7 @@ export class NoteSurface {
         if (!h || !("prop" in h)) return undefined;
         if (P.card) {
           // A click selects a field; a click on the selected one opens its picker (as enter does).
-          const m = this.msg, f = m ? this.settingFields(m, P.card.schema)[h.prop - 1] : undefined;
+          const m = this.msg, f = m ? this.settingFields(m, P.card.schemas)[h.prop - 1] : undefined;
           if (!f) return false;
           if (P.card.sel === h.prop - 1) void this.runKey("settings.set", { key: f.prop.key }, host);
           else { P.card.sel = h.prop - 1; P.card.note = ""; }
@@ -2529,8 +2531,8 @@ export class NoteSurface {
       describe: () => {
         const m = this.msg;
         if (m && P.card) {
-          return { open: "settings", schema: P.card.schema.id, selected: P.card.sel + 1, note: P.card.note || null, editing: null,
-            fields: this.settingFields(m, P.card.schema).map(f => ({ n: f.n, key: f.prop.key, type: f.prop.type, value: f.value, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}) })), rows: [] };
+          return { open: "settings", schemas: P.card.schemas.map(s => s.id), selected: P.card.sel + 1, note: P.card.note || null, editing: null,
+            fields: this.settingFields(m, P.card.schemas).map(f => ({ n: f.n, section: P.card!.schemas[f.section]!.id, key: f.prop.key, type: f.prop.type, value: f.value, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}) })), rows: [] };
         }
         return m ? {
           open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
@@ -7029,11 +7031,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       typing();
       // The card holds the reader's keys: an agent reads the fields in its reply and leaves the reader be.
       const card = actor.kind === "user" ? surface.openSettings(m) : null;
-      const schema = card?.schema ?? surface.settingsSchemaOf(m);
-      if (!schema) surface.openSettings(m);
+      const schemas = card?.schemas ?? surface.settingsSchemaOf(m);
+      if (!schemas) surface.openSettings(m);
       host.redraw();
-      return { id: m.id, revision: m.revision, schema: schema!.id, title: schema!.title, fields: surface.settingFields(m, schema!).map(f => ({
-        key: f.prop.key, type: f.prop.type, value: f.value, meaning: f.prop.meaning,
+      // A note may be more than one thing (a view that is an EchoNet area): a section each, in the card's order.
+      return { id: m.id, revision: m.revision, schema: schemas![0]!.id, schemas: schemas!.map(s => ({ id: s.id, title: s.title })), title: schemas!.map(s => s.title).join(" + "),
+        fields: surface.settingFields(m, schemas!).map(f => ({
+        key: f.prop.key, section: schemas![f.section]!.id, type: f.prop.type, value: f.value, meaning: f.prop.meaning,
         ...(f.prop.default !== undefined ? { default: f.prop.default } : {}),
         ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}),
       })) };
@@ -7055,7 +7059,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
       const fields = surface.settingFields(m, schema);
       const field = fields.find(f => f.prop.key === key.trim().toLowerCase());
-      if (!field) throw new ActionRefused(`${schema.title} has no field ${key}; its fields are ${fields.map(f => f.prop.key).join(", ")}`);
+      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}; its fields are ${fields.map(f => f.prop.key).join(", ")}`);
       const write = async (answer: string) => {
         const to = settingValue(field, answer);
         const why = settingProblem(field, to);
@@ -7082,7 +7086,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const p = field.prop;
         throw new ActionRefused(`say value=…: ${p.key} is ${p.type}${p.values ? ` (one of ${p.values.map(v => v.value).join(", ")})` : p.samples ? ` (like ${p.samples.join(", ")})` : ""}: ${p.meaning}`);
       }
-      return askInBar(host.ctx as never, `${schema.title} · ${field.prop.key}`, [settingQuestion(field, surface.settingSources(host))], {}, actor, answers => write(answers[field.prop.key] ?? ""));
+      return askInBar(host.ctx as never, `${schema[field.section]!.title} · ${field.prop.key}`, [settingQuestion(field, surface.settingSources(host))], {}, actor, answers => write(answers[field.prop.key] ?? ""));
     },
   }),
   "settings.clear": def({
@@ -7097,8 +7101,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const schema = surface.settingsSchemaOf(m);
       if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
       const field = surface.settingFields(m, schema).find(f => f.prop.key === key.trim().toLowerCase());
-      if (!field) throw new ActionRefused(`${schema.title} has no field ${key}`);
-      if (field.prop.key === schema.source.note?.name) throw new ActionRefused(`${field.prop.key} is what makes this note a ${schema.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
+      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}`);
+      // A key any of its components declares or requires (a view's query, an area's echo) is what makes it one.
+      const own = schema.find(s => s.source.note?.name === field.prop.key || (s.source.note?.requires ?? []).includes(field.prop.key));
+      if (own) throw new ActionRefused(`${field.prop.key} is what makes this note a ${own.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
       if (field.value === null) return { cleared: false, key: field.prop.key, unset: true };
       let saved: Msg;
       try { saved = await surface.writeSetting(m, field.prop.key, null, host, actor); } catch (e) {

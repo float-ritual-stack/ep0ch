@@ -61,7 +61,14 @@ export interface PropSchema {
  * The note that declares a style or type: its first line is `title [name::value]`, the variation's `note` properties
  * after it; `uses` is the line property that then names it (`heading`: the heading line says `[heading::mine]`).
  */
-export interface DeclaringNote { title: string; name: string; value: string; uses?: string }
+export interface DeclaringNote {
+  title: string; name: string; value: string; uses?: string;
+  /**
+   * Other properties the note must also have to be one (an EchoNet area is `[echo::]` on a note with a `[query::]`; on
+   * any other note `[echo::]` is a posting): what a settings card asks before it draws this component's fields.
+   */
+  requires?: string[];
+}
 
 export interface ComponentSchema {
   /** A slug: `heading-style`, `callout`, `graph-meter`, an extension's `ext-<id>-<name>`. */
@@ -347,6 +354,7 @@ export function componentSchemaProblem(raw: unknown): string | null {
     const n = src.note as Record<string, unknown>;
     if (!n || typeof n !== "object" || !isStr(n.title, 200) || !isStr(n.name, 64) || !keys.has(n.name) || !isStr(n.value, 64)) return "source/note is { title, name (one of its props), value }";
     if (n.uses !== undefined && (!isStr(n.uses, 64) || !keys.has(n.uses))) return "source/note/uses is one of its props";
+    if (n.requires !== undefined && (!Array.isArray(n.requires) || n.requires.length > 8 || !n.requires.every(k => isStr(k, 64) && KEY.test(k)))) return "source/note/requires is a list of property keys";
   }
   if (!isRecordOfStrings(c.example)) return "example is { key: value }";
   for (const k of Object.keys(c.example)) if (!keys.has(k)) return `example names ${k}, which props doesn't declare`;

@@ -36,6 +36,8 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
     says `[waiting::n]` while more wait.
   - In the door, `,` on a subscription opens its settings card (the `echonet-subscription` component in
     `extension.json`): `subscribe` picks from the nodelist's nodes and masks over their machines.
+  - An area's card is the view's with an `echonet-area` section under it (`[echo::]` declares it only with a
+    `[query::]`, so a posting gets none).
 - **A copy** is the original's text with `[from::<outline>@<machine>/<id>] [echo::<area>] [from-rev::<n>]
   [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
   `[[page]]`) becomes an `ep0ch://` link into it; a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
