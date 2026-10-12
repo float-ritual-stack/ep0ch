@@ -1,0 +1,35 @@
+{
+  "contract": 2,
+  "id": "intake",
+  "version": 1,
+  "name": "Intake",
+  "description": "Prior art for a new request: a rule note runs prior-art when a request arrives, and @prior-art searches this outline, the others in config and optionally an archive, then writes what it found under the request with a line on likely duplicates.",
+  "run": ["bun", "intake.ts"],
+  "deadline": "5m",
+  "demo": "demo",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "outlines": {
+        "type": "array",
+        "description": "other outlines to search, each { outline, machine? } (machine: an ssh config name; left out, this machine)",
+        "items": {
+          "type": "object",
+          "properties": { "outline": { "type": "string" }, "machine": { "type": "string" } },
+          "required": ["outline"],
+          "additionalProperties": false
+        }
+      },
+      "archive": { "type": "array", "items": { "type": "string" }, "description": "a command that searches an archive: {terms} is the search words, each line it prints a hit (for example [\"ssh\", \"float-box\", \"rg\", \"-l\", \"-i\", \"-m1\", \"{terms}\", \"/srv/archive/notes\"]). Left out, no archive" },
+      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that reads what was found on stdin and prints the note's words (for example [\"claude\", \"-p\"]). Left out, the list and a duplicate line from the titles alone" },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 20, "description": "the most hits shown from each place (default 6)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    { "id": "prior-art", "label": "Look for prior art", "on": "block", "effects": "write", "description": "Under the request, a note \"Prior art and related\": run by a rule, it asks @prior-art; run by hand, it searches at once (no model)" }
+  ],
+  "agents": [
+    { "name": "prior-art", "description": "Searches this outline, the others in config and the archive for what came before a request, and fills in its \"Prior art and related\" note", "effects": "spend", "deadline": "5m" }
+  ]
+}
