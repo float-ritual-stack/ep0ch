@@ -1066,6 +1066,7 @@ import { outline } from "./outline";
 const home = await outline<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: "almanac" });
 const note = await outline({ action: "create", parentId: home.block!.id, text: "Almanac for 2026-10-09 [type::almanac]" });
 await outline({ action: "get", blockId: "…" }, "another-outline");   // any outline the host serves, by name
+await outline({ action: "get", blockId: "…" }, { outline: "field", machine: "float-box" });   // one on another machine
 ```
 
 One request per connection: a JSON line out (`{ id, outline?, grant, action, … }`), a JSON line back
@@ -1097,6 +1098,24 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
+- **Another outline's access level holds.** A request to an outline other than the one the call runs for is checked
+  against that outline's access level (`ep0ch mcp access <level> --ws <name>`), the one rule the MCP gateway and
+  shares follow: `read` reads, `propose` also comments and annotates (never a change to a note), `full` everything,
+  `none` nothing, each refusal saying which level it needs and the command that sets it. On this machine an outline
+  whose owner never set a level stays open to the host's extensions (readwise's board outline, for one); set one to
+  close it. It holds the grant, not the process: the host's socket has no per-client access, so an extension that
+  writes without its grant is an unattributed client like any other (extensions are trusted code).
+- **An outline on another machine** is named with `machine` too (`{ outline, machine }` in `outline.ts`, an ssh config
+  name). This host checks the grant, then sends the request through the ssh forward the clients share
+  (`<outlines>/.remote/<machine>.sock`, started when nobody has) without the grant, carrying `relayed`: which
+  extension, from which node (`<outline>@<machine>`), and whether the call may write. That machine's host writes as
+  `ext:<id>@<node>` and holds the request to its own outline's access level, where a level never set is `none`; it
+  never answers host management or secrets for it. `outlines.list` with only `machine` answers the outlines there
+  that set a level other than `none`, by name and level (`{ outlines: [{ name, level }] }`). Both hosts speak one
+  `PROTOCOL`: a request between two versions is refused naming the machine to update and its command. A machine that can't be reached is refused with why,
+  so an extension can count it offline and try again next run. When that machine's own `ep0ch status` isn't the host
+  to reach (a second host there, an old `ep0ch` on its login PATH), name its outlines folder in
+  `<outlines>/.remote/<machine>.json`: `{ "outlines": "/home/sam/outlines" }`.
 
 ### Writes to an outside service
 

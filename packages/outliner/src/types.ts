@@ -2285,6 +2285,17 @@ export type OutlinerRequestAction =
       annotationId: string;
       reader?: string;
     }
+  /**
+   * Blocks read by `reader` (EchoNet's message reader): each marked read at the revision it was shown at (`user`, the
+   * person, when left out; an agent passes its actor id). Bookkeeping only: clears them from `unread:` views until
+   * they change again.
+   */
+  | {
+      id: string;
+      action: "blocks.markRead";
+      blocks: { id: string; revision: number }[];
+      reader?: string;
+    }
   | {
       id: string;
       action: "annotations.lifecycle";

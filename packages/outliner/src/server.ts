@@ -5,7 +5,7 @@ import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
@@ -292,6 +292,23 @@ function normalizePublisherAddress(address: unknown): PublisherAddress {
     out[key] = publisherUrl(value, `A client's publish.${key}`);
   }
   return out;
+}
+
+/**
+ * The grant another machine's host relayed with its extension's request (`relayed`, PIE-779): the extension as
+ * `<id>@<node>`, so what it writes here reads `ext:echonet@echo-cafe@float-2`. The socket has no per-client access, so
+ * this claims nothing a client couldn't already do; it says who, and holds the request to this outline's access level.
+ */
+function relayedGrant(relayed: unknown): ExtensionGrant | undefined {
+  if (relayed === undefined) return undefined;
+  const r = relayed as { extension?: unknown; node?: unknown; label?: unknown; writes?: unknown };
+  if (typeof r.extension !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(r.extension) || typeof r.node !== "string" || !/^[a-z0-9][a-z0-9-]*@[A-Za-z0-9][\w.-]*$/.test(r.node)) {
+    throw new Error("relayed needs { extension, node: <outline>@<machine>, label, writes }: what another machine's host sends for its extension");
+  }
+  return {
+    extensionId: `${r.extension}@${r.node}`, outline: r.node, relayed: true, secrets: [],
+    label: typeof r.label === "string" ? r.label : `ext.${r.extension}`, writes: r.writes === true,
+  };
 }
 
 /** A grant's actor: the extension (`ext:<id>`), as an agent. */
@@ -2712,6 +2729,11 @@ export class OutlinerServer {
         case "annotations.read":
           result = this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER));
           break;
+        case "blocks.markRead":
+          if (!Array.isArray(request.blocks) || !request.blocks.every((b: unknown) => !!b && typeof (b as { id?: unknown }).id === "string" && Number.isFinite((b as { revision?: unknown }).revision)))
+            throw new Error("blocks.markRead needs blocks: [{ id, revision }], each block read and the revision it was shown at");
+          result = { marked: this.store.readMarks.markShown(readerKey(request.reader ?? PERSON_READER), request.blocks) };
+          break;
         case "annotations.lifecycle":
           result = this.store.setAnnotationLifecycle(
             request.input,
@@ -3297,6 +3319,12 @@ export class OutlinerServer {
         domain = "content";
         blockId = (response.result as { thread: string }).thread;
         break;
+      case "blocks.markRead":
+        // As a thread read: nothing in a block changed, but views that ask `unread:` read again.
+        if (!(response.result as { marked: number }).marked) return null;
+        domain = "content";
+        blockId = request.blocks[0]?.id;
+        break;
       case "attention.mark":
       case "attention.advance":
         domain = "attention";
@@ -3712,9 +3740,13 @@ export class OutlinerServer {
   private asExtension(request: OutlinerRequest, grant: ExtensionGrant): OutlinerRequest {
     const action = String(request.action);
     const actor = grantActor(grant);
-    const { grant: _grant, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown };
+    const { grant: _grant, relayed: _relayed, ...unscrubbed } = request as OutlinerRequest & { grant?: unknown; relayed?: unknown };
     // What it writes never carries a secret it was given (its answers are scrubbed the same way).
     const rest = (grant.secrets.length ? scrubCredentials(unscrubbed, grant.secrets) : unscrubbed) as typeof unscrubbed;
+    // Secrets are this machine's, for its own extensions: another machine's never asks for them.
+    if (grant.relayed && action === "secrets.group") throw new Error(`${actor.actorId} runs on another machine: secrets.group is for this machine's own extensions`);
+    // Asking an outline's access level is what finds out what it allows.
+    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -3760,6 +3792,33 @@ export class OutlinerServer {
         } as unknown as OutlinerRequest;
       }
     }
+  }
+
+  /**
+   * An extension's request to an outline other than the one it runs for (PIE-779). When this outline's owner set
+   * an access level (`ep0ch mcp access`), it holds for other outlines' extensions as for the MCP: `none` refuses,
+   * `read` reads, `propose` also comments and marks (never a change to a note), `full` everything. An outline whose
+   * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one). It holds
+   * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
+   */
+  private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
+    const level = this.grantedLevel(grant);
+    if (level === "full") return;
+    const here = this.outline!.name;
+    const writes = EXTENSION_WRITES.has(action);
+    const marks = action.startsWith("annotations.");
+    const need = !writes ? "read" : marks ? "propose" : "full";
+    const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
+    if (allowed) return;
+    throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
+      `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);
+  }
+
+  /** What this outline lets an extension do (`crossOutlineAccess`; `mcp.access.status` answers it as `granted`). */
+  private grantedLevel(grant: ExtensionGrant): McpAccessLevel {
+    const here = this.outline?.name;
+    if (!grant.outline || !here || grant.outline === here || (!grant.relayed && !this.store.mcpAccessConfigured())) return "full";
+    return this.store.mcpAccessStatus().level;
   }
 
   /**
@@ -3833,6 +3892,7 @@ export class OutlinerServer {
       if (grantToken !== undefined && !grant) {
         throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
       }
+      grant ??= relayedGrant((request as { relayed?: unknown }).relayed);
       if (grant) request = this.asExtension(request, grant);
       const claimed = grant ? undefined : claimedExtensionActor(request);
       if (claimed) {
@@ -3859,6 +3919,7 @@ export class OutlinerServer {
       // What ran before the handler first waited held the loop; the waits after it didn't.
       loopMs = performance.now() - started;
       response = await pending;
+      if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);
       response = {
