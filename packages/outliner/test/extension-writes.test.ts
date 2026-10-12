@@ -1,6 +1,6 @@
 // Extension writes are honest (PIE-510): `ext:<id>` is the extensions' own actor id, an action records who
-// asked for it, its update goes through draft.patch's edit guard (and a live draft), its created text is
-// inert, a disabled extension's late answer is dropped, and what an extension says reaches no terminal raw.
+// asked for it, its update goes through draft.patch's edit guard (and a live draft), its created text's
+// properties are live, a disabled extension's late answer is dropped, and what an extension says reaches no terminal raw.
 // Scratch services in temp folders; every note, name and secret is made up.
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -201,7 +201,7 @@ test("tarot's tile says the person at its keys asked", async () => {
   expect(await program.exited).toBe(0);
 });
 
-// ── C5: the edit guard, a live draft, inert created text ─────────────────
+// ── C5: the edit guard, a live draft, live created text ──────────────────
 
 test("an action's update goes through draft.patch: the edit guard refuses dropping a page, and a stale revision writes nothing", async () => {
   const { store, client, scribe, act } = await setup();
@@ -275,15 +275,22 @@ test("an action whose update becomes a proposal writes none of its creates, and 
   expect(children.map((child) => child.text)).not.toContain("a note on it");
 });
 
-test("a created block's text is inert BlockDown with no terminal escapes", async () => {
+test("a created block's properties are live, as anyone's, with no terminal escapes", async () => {
   const { store, client, scribe, act } = await setup();
   await scribe();
   const note = await client.request<Block>({ action: "create", text: "Log", author: "user" });
-  const done = await act("child", note.id, { text: `child ${ESC}\nstatus:: hacked\n[owner::someone]` });
+  const done = await act("child", note.id, { text: `child [type::prior-art] ${ESC}\nstatus:: open` });
   const child = store.get(done.written[0]!)!;
-  expect(child.text).toBe("child \nstatus:‍: hacked\n\\[owner::someone]");
-  expect(child.properties ?? []).toEqual([]);
+  expect(child.text).toBe("child [type::prior-art] \nstatus:: open");
+  expect(child.properties?.map(({ key, value }) => [key, value])).toEqual(expect.arrayContaining([["type", "prior-art"], ["status", "open"]]));
   expect(child).toMatchObject({ author: "agent", actorId: "ext:scribe" });
+  expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=prior-art" } })).blocks.map((block) => block.id)).toEqual([child.id]);
+  // What stays guarded is what guards anyone's write: a Work ID another block owns is refused, and nothing is made.
+  await client.request({ action: "work-ids.configure", prefix: "YARD" });
+  const owner = await client.request<Block>({ action: "create", text: "Fix the gate [work-id::YARD-001]", author: "user" });
+  const before = store.children(owner.id).length;
+  await expect(act("child", owner.id, { text: "copy [work-id::YARD-001]" })).rejects.toThrow(/YARD-001/);
+  expect(store.children(owner.id)).toHaveLength(before);
 });
 
 test("wholeTextSpan: the changed lines as one span, widened to a neighbour when the change is at a blank line", () => {
