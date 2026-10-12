@@ -64,7 +64,7 @@ test("a burst of requests is one call; each gets its prior art from @prior-art, 
   const earlier = await create("The hose reel jams when it's wound fast [type::idea]\n\nThe guide arm catches on the third turn.");
   await create("Rain barrel overflow: add a diverter [type::note]");
   const inbox = await create("Inbox");
-  await create(`Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((${inbox.id}))] [rule-on::intake/prior-art] [rule-batch::1s] [rule-cap::5/day] [rule-skip::triage=done OR child:via-trigger=intake-prior-art]`);
+  await create(`Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((${inbox.id}))] [rule-on::intake/prior-art] [rule-batch::1s] [rule-cap::5/day] [rule-skip::triage=done OR child:type=prior-art]`);
   await until("the rule", async () => (await list()).rules.some((rule) => rule.name === "intake-prior-art"));
   const hose = await create("The hose reel jams again [type::request]", inbox.id);
   const shed = await create("Paint the shed door green [type::request]", inbox.id);
@@ -74,7 +74,10 @@ test("a burst of requests is one call; each gets its prior art from @prior-art, 
   const shedNote = await until("the shed request's prior art", () => filled(shed.id));
   expect(hoseNote.text).toContain(`((${earlier.id}|The hose reel jams when it's wound fast))`);
   expect(hoseNote.text).toContain("Likely duplicate");
-  expect(hoseNote.text).toContain("[via-trigger::intake-prior-art]");
+  expect(hoseNote.text).toStartWith("Prior art and related [type::prior-art] [via-trigger::intake-prior-art]");
+  // Its properties are live, as anyone's: a query finds the notes, and the rule's skip below does.
+  const found = await client.request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { where: "type=prior-art" } });
+  expect(found.blocks.map((block) => block.id).sort()).toEqual([hoseNote.id, shedNote.id].sort());
   expect(shedNote.text).toContain("No likely duplicates");
   expect(priorArt(store, handled.id)).toBeUndefined();
   // One call for the burst; the agent's answer is an edit of the note, asked by the person whose save set it off.

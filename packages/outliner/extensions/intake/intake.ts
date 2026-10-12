@@ -1,7 +1,7 @@
 // Intake (PIE-786): prior art for a new request, set off by a rule note, answered by an agent in the note.
 //
 // - `act` prior-art, on a request (or, from a rule with `rule-batch`, every request a burst brought: `trigger.blocks`):
-//   a child under each, "Prior art and related", unless one is there already.
+//   a child under each, "Prior art and related [type::prior-art]", unless one is there already.
 //   - Run by a rule (`input.trigger`): the child asks this extension's own agent (`@prior-art what came before
 //     ((id))?`), which the service asks at once. A trigger's new block may ask its own extension's agents; nothing it
 //     writes sets a rule off again (it carries `[via-trigger::<rule>]`).
@@ -28,11 +28,9 @@ const LIMIT = Math.min(20, Math.max(1, config.limit ?? 6));
 const ok = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 const fail = (code: string) => process.stdout.write(JSON.stringify({ ok: false, code }));
 
-/**
- * The note's title. An action's new blocks are inert Blockdown (their properties stay text), so it carries no
- * `[type::…]`; a rule's note is known by the trigger's own mark, `[via-trigger::<rule>]`, which is live.
- */
+/** The note's title, and its first line: `[type::prior-art]` is what a rule's skip and a query find it by. */
 const NOTE_TITLE = "Prior art and related";
+const NOTE_LINE = `${NOTE_TITLE} [type::prior-art]`;
 const LOOKING = "Looking in ";
 const STOP = new Set("a an and are as at be but by can do does for from has have how i if in into is it its not of on or our so that the their them then there these this to too was we were what when where which who why will with would you your again also any just more need needs should some still want".split(" "));
 
@@ -160,10 +158,10 @@ if (request.operation === "act" && request.input.action === "prior-art") {
     if (children.some((child) => isPriorArt(child.text))) { already += 1; continue; }
     const title = titleOf(target.text);
     if (trigger) {
-      writes.push({ op: "create", parentId: target.blockId, text: [NOTE_TITLE, "", `${LOOKING}${places().join(", ")}…`, "", `@prior-art what came before ((${target.blockId}|${label(title)}))?`].join("\n") });
+      writes.push({ op: "create", parentId: target.blockId, text: [NOTE_LINE, "", `${LOOKING}${places().join(", ")}…`, "", `@prior-art what came before ((${target.blockId}|${label(title)}))?`].join("\n") });
     } else {
       const { body } = await findings({ id: target.blockId, text: target.text, revision: 0 }, { model: false });
-      writes.push({ op: "create", parentId: target.blockId, text: [NOTE_TITLE, "", body].join("\n") });
+      writes.push({ op: "create", parentId: target.blockId, text: [NOTE_LINE, "", body].join("\n") });
     }
   }
   const asked = writes.length;

@@ -6,7 +6,7 @@ what it found lands under the request as a note of its own.
 ```text
 Inbox
 └─ The hose reel jams again [type::request]            ← a person files it, or an EchoNet copy arrives
-   └─ Prior art and related [via-trigger::intake-prior-art]
+   └─ Prior art and related [type::prior-art] [via-trigger::intake-prior-art]
         **In this outline**
         - ((…|The hose reel jams when it's wound fast))
         **In float-hub on macbook**
@@ -20,7 +20,7 @@ Inbox
 Intake does nothing on its own. One rule note in the outline says when it runs (PIE-786: rules run actions):
 
 ```text
-Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, agent, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:via-trigger=intake-prior-art]
+Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, agent, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:type=prior-art]
 ```
 
 - `rule-on::intake/prior-art`: runs when a block **starts** matching (a new request), never on later edits.
@@ -29,16 +29,16 @@ Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-
 - `rule-batch::1m`: a burst (a toss's arrivals) is one call, every request in it at once.
 - `rule-cap::20/day`: the most calls a day, each of which may start an agent. Past it, the rule says so in
   `extensions.list` (`lastRun`) and runs again tomorrow.
-- `rule-skip`: a request marked handled, or one that has its prior art already, never sets it off. An action's new
-  note is inert Blockdown (its properties would stay text), so the note is known by the trigger's own live mark:
-  `child:via-trigger=intake-prior-art`.
+- `rule-skip`: a request marked handled, or one that has its prior art already, never sets it off. The note carries
+  `[type::prior-art]`, so `child:type=prior-art` finds it however it was made (the trigger's own mark,
+  `child:via-trigger=intake-prior-art`, works too, for notes the rule made).
 
 The door's settings card (`,` on the rule note) sets each of these with a picker.
 
 ## What it does
 
-- **`prior-art`** (an action on a block): under each request, "Prior art and related", unless one is
-  there already.
+- **`prior-art`** (an action on a block): under each request, "Prior art and related [type::prior-art]", unless
+  one is there already.
   - **Run by a rule**, the note asks `@prior-art`, this extension's own agent, and the service asks it at once. Only a
     trigger's new note may ask an agent, and only its own extension's.
   - **Run by hand** (the action's key or `ep0ch act`), it looks now, without a model, and the list is the note.

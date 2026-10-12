@@ -48,8 +48,8 @@ import { createHash } from "node:crypto";
  *   the socket, to any outline the host serves, under the same attribution
  *   (src/extension-grants.ts). An update goes through `draft.patch` (the
  *   `edit` policy, a live draft's routing), as an `@agent`'s edit does; a
- *   created block's text is inert BlockDown. No write adds an `@name` request
- *   line.
+ *   created block is Blockdown like anyone's, its properties live. No write
+ *   adds an `@name` request line.
  * - **Collections** (PIE-754): a data handler's `read` may answer `records`,
  *   many records keyed by the extension's own ids, written under the line's
  *   record as blocks it owns. Writing one again is idempotent.

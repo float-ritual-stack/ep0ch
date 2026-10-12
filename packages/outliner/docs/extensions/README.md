@@ -755,7 +755,7 @@ actions yet; `r` is its path today.
 
   | Write | Does |
   |---|---|
-  | `{ "op": "create", "parentId", "text", "as"?, "position"? }` | makes a block (inert BlockDown, below); `as: "c1"` names it for the group's later writes |
+  | `{ "op": "create", "parentId", "text", "as"?, "position"? }` | makes a block (its properties live, below); `as: "c1"` names it for the group's later writes |
   | `{ "op": "update", "blockId", "expectedRevision", "text" }` | an agent's edit of the block (below) |
   | `{ "op": "move", "blockId", "parentId", "position"?, "expectedRevision" }` | moves the block, revision-checked |
   | `{ "op": "order", "parentId", "children": [ids] }` | the block's children in this order, in one step: exactly the children it has, or refused |
@@ -797,10 +797,12 @@ actions yet; `r` is its path today.
   a door holds a live draft of any block it edits, moves or reorders, the **whole group** waits as one proposal beside
   the note it acted on (its new blocks' text shown in it), and applying that proposal writes all of it in one step.
   Either way the answer's `message` says so and nothing else is written.
-- **A created block's text is inert BlockDown**: a `key::` line or `[key::value]` in it stays words,
-  not a property, and terminal escapes go. (A block the extension's process creates over its
-  [connection](#a-connection-to-the-service) is a normal write, properties and all, as an agent's is.) No write may add an `@name` request line (extensions
-  can't ask agents).
+- **A created block is Blockdown like anyone's**: a `key::` line or `[key::value]` in it is a property, as in a
+  block written over the [connection](#a-connection-to-the-service). Code the person installed is trusted in their
+  outline; what keeps it safe is the rest: every write is attributed `ext:<id>`, revision-checked and undoable
+  (`extensions.undo`), and the store refuses a `work-id` or page address another block owns, as it does anyone's.
+  Terminal escapes go. No write may add an `@name` request line (extensions can't ask agents; a trigger's new block
+  may ask its own extension's). Escape text you import (below).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
   `author`/`provenance` as on `create` work too. The action gets it as its input's `requestedBy`
@@ -1256,8 +1258,8 @@ Text from outside (a highlight, a message, a title) must not become properties o
   escapes do); the door's note surface shows it as typed, as it does a `\[key::value]`'s. This is the escape: the
   grammar has no separate one for `[[` and `((`, and needs none (PIE-767 checked; adding one would change what
   outline-core matches in text people already wrote).
-- **A block an action's `writes` creates is inert** by itself (its `key::` lines and `[key::value]` stay words); a
-  block written over the connection is a normal write, so escape what you import there.
+- **Every block an extension writes is a normal write**, through an action's `writes` or over the connection: its
+  `key::` lines and `[key::value]` are properties, so escape what you import.
 
 ### Secrets by with-secrets group
 
@@ -1326,8 +1328,8 @@ Where a view, a bar row or an action answer names something to open, it may name
 - A bar row's `resource`; a table's `links` and a card's `link`; an action's `open`.
 - The door opens it the way the links tile opens a Resource row: registered first when it isn't yet, then its
   stored text shown as a note, where opens land (`act open resource=<ref>`).
-- A bad ref is refused with why (`file: takes an absolute path`). A `[file::…]` token in a block an action returns is
-  inert words; write it over the connection, or link it from a view, to make it something to open.
+- A bad ref is refused with why (`file: takes an absolute path`). A `[file::…]` token in a block an action makes is
+  a property like one written by hand.
 
 ## The call reference
 

@@ -19,7 +19,7 @@ import { requestLines } from "./agent-requests";
 import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftPatchApplied, type DraftPatchInput, type DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { namesDemoIds, rewriteDemoReferences } from "./extension-demo";
-import { cleanExtensionText, extensionActorId, inertBlockdown } from "./extension-records";
+import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { OutlinerStore } from "./store";
 import type { MutationProvenance } from "./types";
 
@@ -143,7 +143,9 @@ export class ExtensionWrites {
    * Commits an action's writes as the extension, with who asked beside it. Every write is checked first (a block
    * that exists and isn't in the Trash or owned by an extension's record, no new `@name` request line, an update's or a
    * move's revision still the saved one, a name made before it's used), so a refusal writes nothing. They may land
-   * anywhere in the outline (PIE-754): the limit is attribution, not place. A created block's text is inert BlockDown.
+   * anywhere in the outline (PIE-754): the limit is attribution, not place. A created block's text is Blockdown like
+   * anyone's, its properties live (code the person installed is trusted in their outline; the store still refuses a
+   * `work-id` or page address another block owns).
    * `hostId`: the block it acted on, beside which a proposal waits.
    */
   async apply(extension: string, action: string, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined, hostId: string | undefined, trigger?: TriggerWrite): Promise<GroupOutcome> {
@@ -266,8 +268,8 @@ export class ExtensionWrites {
         const parentId = named(raw.parentId);
         if (!usable(parentId)) throw new Error(`${action} wrote to ${raw.parentId}, which is gone or in the Trash; ${nothing}`);
         if (raw.as !== undefined && names.has(raw.as)) throw new Error(`${action} names two new blocks ${raw.as}; ${nothing}`);
-        const inert = inertBlockdown(rewriteDemoReferences(raw.text, names));
-        const text = trigger ? markTriggered(inert, trigger.rule) : inert;
+        const written = cleanExtensionText(rewriteDemoReferences(raw.text, names), true);
+        const text = trigger ? markTriggered(written, trigger.rule) : written;
         const asks = requestLines(text, null);
         const strange = asks.find((line) => !trigger?.agents.has(line.agent));
         if (strange) {
