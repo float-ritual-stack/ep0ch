@@ -2,7 +2,7 @@
 // note it writes asks @prior-art, which finds the earlier notes and says which look like duplicates. A scratch service in
 // a temp folder; every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -27,7 +27,7 @@ async function until<T>(what: string, check: () => T | undefined | null | false 
   }
 }
 
-async function setup() {
+async function setup(config?: (root: string) => Record<string, unknown>) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-intake-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -35,6 +35,7 @@ async function setup() {
   const outlineFolder = join(root, "outline");
   mkdirSync(join(outlineFolder, "extensions"), { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "intake"), join(outlineFolder, "extensions", "intake"), { recursive: true });
+  if (config) writeFileSync(join(outlineFolder, "extensions", "intake", "config.json"), JSON.stringify({ config: config(root) }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outlineFolder });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, ruleQuietMs: 100, agentRequestQuietMs: 100 });
@@ -51,8 +52,9 @@ async function setup() {
   });
   const create = (text: string, parentId?: string) => client.request<Block>({ action: "create", text, ...(parentId ? { parentId } : {}), author: "user" });
   const list = (reload = false) => client.request<ExtensionsListResult & { rules: RuleListEntry[]; ruleProblems: string[] }>({ action: "extensions.list", ...(reload ? { reload: true } : {}) });
-  await until("intake", async () => (await list(true)).extensions.some((extension) => extension.id === "intake"));
-  return { store, client, create, list };
+  const listed = await until("intake", async () => (await list(true)).extensions.find((extension) => extension.id === "intake"));
+  if ((listed as { state?: string }).state !== "active") throw new Error(`intake isn't active: ${JSON.stringify(listed).slice(0, 600)}`);
+  return { root, store, client, create, list };
 }
 
 const priorArt = (store: OutlinerStore, id: string) => store.children(id).find((child) => child.text.startsWith("Prior art and related"));
@@ -102,4 +104,23 @@ test("run by hand, prior-art looks at once and asks no agent", async () => {
   // Again: it has its prior art already.
   expect((await client.request<{ message?: string }>({ action: "extensions.act", extension: "intake", extensionAction: "prior-art", blockId: ask.id, mutation: { author: "user" } })).message)
     .toBe("every request here has its prior art already");
+});
+
+test("the archive is searched by its command with one word, a failing one is said, and by hand the model is never asked", async () => {
+  const { root, store, client, create } = await setup((dir) => {
+    writeFileSync(join(dir, "archive.ts"), `const word = process.argv[2]; const all = await Bun.stdin.text();
+if (word === "trellis") { console.error("archive offline"); process.exit(2); }
+if (!all.includes("cracked")) process.exit(1);
+console.log("notes/" + word + ".md");`);
+    writeFileSync(join(dir, "answer.ts"), `await Bun.write(${JSON.stringify(join(dir, "asked"))}, "yes"); console.log("a model's words");`);
+    return { archive: ["bun", join(dir, "archive.ts"), "{word}"], answer: ["bun", join(dir, "answer.ts")] };
+  });
+  const act = (blockId: string) => client.request({ action: "extensions.act", extension: "intake", extensionAction: "prior-art", blockId, mutation: { author: "user" } });
+  const trays = await create("Seed trays cracked again [type::request]");
+  await act(trays.id);
+  expect(priorArt(store, trays.id)!.text).toContain("**In the archive**\n- `notes/cracked.md`");
+  const trellis = await create("Trellis wobbles [type::request]");
+  await act(trellis.id);
+  expect(priorArt(store, trellis.id)!.text).toContain("- couldn't search: the archive command exited 2: archive offline");
+  expect(existsSync(join(root, "asked"))).toBe(false);
 });

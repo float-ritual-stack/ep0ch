@@ -81,20 +81,28 @@ async function searchOutline(title: string, skip: ReadonlySet<string>, route: Ro
   }).filter((hit) => hit.score >= 2 || alike(title, hit.title) >= 0.25).sort((a, b) => b.score - a.score).slice(0, LIMIT);
 }
 
-/** The archive's hits: what its command prints, a line each. */
+/**
+ * The archive's hits: what its command prints, a line each. `{word}` is the request's most telling word, letters,
+ * digits and `-` only, so it is one argument even where a remote shell reads the command again (ssh); every word, a
+ * line each, is on its stdin. Exit 1 with nothing printed is no hits (grep's and rg's way); any other failure is said.
+ */
 async function searchArchive(title: string): Promise<string[]> {
   if (!config.archive?.length) return [];
-  const terms = keywords(title).slice(0, 2).join(" ");
-  const proc = Bun.spawn(config.archive.map((part) => part.replaceAll("{terms}", terms)), { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => proc.kill(), 60_000);
-  const out = await new Response(proc.stdout).text();
+  const all = keywords(title).map((w) => w.replace(/[^a-z0-9-]/g, "")).filter(Boolean);
+  if (!all.length) return [];
+  const proc = Bun.spawn(config.archive.map((part) => part.replaceAll("{word}", all[0]!)), { stdin: new Blob([`${all.join("\n")}\n`]), stdout: "pipe", stderr: "pipe" });
+  let late = false;
+  const timer = setTimeout(() => { late = true; proc.kill(); }, 60_000);
+  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   clearTimeout(timer);
-  await proc.exited;
+  if (late) throw new Error("the archive command took longer than a minute");
+  if (code === 1 && !out.trim()) return [];
+  if (code !== 0) throw new Error(`the archive command exited ${code}${err.trim() ? `: ${err.trim().split("\n").at(-1)!.slice(0, 200)}` : ""}`);
   return out.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, LIMIT);
 }
 
 /** Everything found for a request, as the note's body: a list per place, then a line on likely duplicates. */
-async function findings(request: Block): Promise<{ body: string; found: number }> {
+async function findings(request: Block, ask: { model: boolean }): Promise<{ body: string; found: number }> {
   const title = titleOf(request.text);
   if (!keywords(title).length) return { body: "Nothing to search for: the request's title has no words worth looking up.", found: 0 };
   const skip = new Set([request.id]);
@@ -118,7 +126,8 @@ async function findings(request: Block): Promise<{ body: string; found: number }
   let verdict = dupes.length
     ? `Likely duplicate${dupes.length === 1 ? "" : "s"}: ${dupes.slice(0, 3).map((h) => h.link).join(", ")} (most of the same words in the title).`
     : "No likely duplicates (judged by the titles' words alone).";
-  if (config.answer?.length) verdict = await judged(request, list.join("\n")).catch((error: Error) => `${verdict} The answer command failed: ${error.message}`);
+  // Only the agent (effects: spend) asks the model; the action run by hand never does.
+  if (ask.model && config.answer?.length) verdict = await judged(request, list.join("\n")).catch((error: Error) => `${verdict} The answer command failed: ${error.message}`);
   return { body: [...list, verdict].join("\n").trim(), found: all.length };
 }
 
@@ -149,7 +158,7 @@ if (request.operation === "act" && request.input.action === "prior-art") {
     if (trigger) {
       writes.push({ op: "create", parentId: target.blockId, text: [NOTE_TITLE, "", `${LOOKING}${places().join(", ")}…`, "", `@prior-art what came before ((${target.blockId}|${label(title)}))?`].join("\n") });
     } else {
-      const { body } = await findings({ id: target.blockId, text: target.text, revision: 0 });
+      const { body } = await findings({ id: target.blockId, text: target.text, revision: 0 }, { model: false });
       writes.push({ op: "create", parentId: target.blockId, text: [NOTE_TITLE, "", body].join("\n") });
     }
   }
@@ -168,7 +177,7 @@ if (request.operation === "act" && request.input.action === "prior-art") {
   if (!target) {
     ok({ reply: "Name the request to look into: @prior-art what came before ((id))?" });
   } else {
-    const { body, found } = await findings(target);
+    const { body, found } = await findings(target, { model: true });
     const looking = note.text.split("\n").find((line) => line.startsWith(LOOKING));
     // The "Looking in …" line is where it goes; gone (the person rewrote the note), the answer is a reply instead.
     ok(looking

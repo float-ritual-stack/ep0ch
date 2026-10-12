@@ -20,7 +20,7 @@
           "additionalProperties": false
         }
       },
-      "archive": { "type": "array", "items": { "type": "string" }, "description": "a command that searches an archive: {terms} is the search words, each line it prints a hit (for example [\"ssh\", \"float-box\", \"rg\", \"-l\", \"-i\", \"-m1\", \"{terms}\", \"/srv/archive/notes\"]). Left out, no archive" },
+      "archive": { "type": "array", "items": { "type": "string" }, "description": "a command that searches an archive: {word} is the request's most telling word (letters, digits and -), every word is on its stdin, and each line it prints is a hit; exit 1 with nothing printed is no hits (for example [\"ssh\", \"float-box\", \"rg\", \"-l\", \"-i\", \"-m1\", \"{word}\", \"/srv/archive/notes\"]). Left out, no archive" },
       "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that reads what was found on stdin and prints the note's words (for example [\"claude\", \"-p\"]). Left out, the list and a duplicate line from the titles alone" },
       "limit": { "type": "integer", "minimum": 1, "maximum": 20, "description": "the most hits shown from each place (default 6)" }
     },

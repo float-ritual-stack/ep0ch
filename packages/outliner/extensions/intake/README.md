@@ -51,16 +51,20 @@ The door's settings card (`,` on the rule note) sets each of these with a picker
 
 ```json
 {
-  "outlines": [{ "outline": "float-hub", "machine": "macbook" }],
-  "archive": ["ssh", "float-box", "rg", "-l", "-i", "-m1", "{terms}", "/srv/archive/notes"],
-  "answer": ["claude", "-p"],
-  "limit": 6
+  "config": {
+    "outlines": [{ "outline": "float-hub", "machine": "macbook" }],
+    "archive": ["ssh", "float-box", "rg", "-l", "-i", "-m1", "{word}", "/srv/archive/notes"],
+    "answer": ["claude", "-p"],
+    "limit": 6
+  }
 }
 ```
 
 - `outlines`: other outlines, by name, and `machine` (an ssh config name) for one on another machine. Each is read
   as far as its access level lets Intake (PIE-779); one it can't reach says why in the note.
-- `archive`: a command; `{terms}` is the search words, and each line it prints is a hit. It runs on this machine.
+- `archive`: a command; `{word}` is the request's most telling word (letters, digits and `-`, so it stays one
+  argument through ssh), every word is on its stdin, and each line it prints is a hit. Exit 1 with nothing printed is
+  no hits; any other failure is said in the note. It runs on this machine.
 - `answer`: a command that reads the request and the list on stdin and prints the closing words.
 
 ## The demo
