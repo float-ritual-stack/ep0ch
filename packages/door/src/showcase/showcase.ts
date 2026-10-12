@@ -616,10 +616,10 @@ export const SECTIONS: Section[] = [
     key: "settings", need: "set up a configurable note (a rule, a view, a callout type, a heading style, an extension's component) without typing its properties",
     part: "the settings card (PIE-786, src/surface/settings-card.ts): the property panel's other face, its fields the note's component schema's (outline-core component-schema.ts, components.schemas: a note is configurable when it carries a schema's declaring property), each set with a picker in the power bar (askInBar, src/bar/ask.ts: an enum's values, a query built over this outline's own properties and values from properties.catalog, a note by search, the actions extensions offer, the writers a rule hears, a duration); settings.set and settings.clear write one properties.patch, attributed",
     files: "src/surface/settings-card.ts, src/surface/note.ts (settings, settings.set, settings.clear), src/surface/props-panel.ts, src/bar/ask.ts, outline-core/src/component-schema.ts",
-    aside: ", on a rule note or a view opens its card · tab or j k to a field, ⏎ (or a click on the selected field) picks in the power bar, x clears it, i lists every property, esc closes · try rule-tone: the badge on the job beside changes colour · rule-match builds a query from what this outline's notes have · an agent: `act settings` lists the fields, `act settings.set key=rule-tone value=good`",
+    aside: ", on a rule note or a view opens its card; on the right, Plot chat is a view and an EchoNet area, so its card has a section for each · tab or j k to a field, ⏎ (or a click on the selected field) picks in the power bar, x clears it, i lists every property, esc closes · try rule-tone: the badge on the job beside changes colour · rule-match builds a query from what this outline's notes have · an agent: `act settings` lists the fields, `act settings.set key=rule-tone value=good`",
     stage(n, show) {
       const r = new ReaderPane(), view = new ReaderPane();
-      return deskOf({ title: "showcase · settings", panes: [r, view], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.settings], [view, n.gardenView]]);
+      return deskOf({ title: "showcase · settings", panes: [r, view], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.settings], [view, n.echoArea]]);
     },
   },
   {
