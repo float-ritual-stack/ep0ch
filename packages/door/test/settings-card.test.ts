@@ -62,6 +62,8 @@ describe("the settings card", () => {
     expect(settingProblem(f!, "rexall-*@laptop")).toBeNull();
     expect(settingProblem(f!, "@reading-list")).toBeNull();
     expect(settingProblem(f!, "not a node")).toContain("is a node");
+    expect(settingProblem(f!, ", ,")).toContain("is a node");
+    expect(settingProblem(f!, "pie@float-2, *@laptop")).toBeNull();
   });
 
   test("each field's picker, by its type", async () => {

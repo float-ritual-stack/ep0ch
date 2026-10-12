@@ -382,7 +382,7 @@ export function checkValue(p: PropSchema, value: string): string | null {
   if (p.type === "room" && !/^\s*\d+(?:\s+\d+)?\s*$/.test(v)) return `${p.key} ${JSON.stringify(value)} is columns, or "rows columns"`;
   if (p.type === "property" && !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a property's name`;
   // A node (`<outline>@<machine>`) or a mask over them, as EchoNet reads one: `*@float-2`, `rexall-*@laptop`, `@<page>`.
-  if (p.type === "node" && !v.split(",").map(x => x.trim()).filter(Boolean).every(x => /^@\S+$/.test(x) || /^[a-z0-9*][a-z0-9*-]*(?:@[A-Za-z0-9*][\w.*-]*)?$/i.test(x))) return `${p.key} ${JSON.stringify(value)} is a node (outline@machine) or a mask (*@float-2, @<page>)`;
+  if (p.type === "node" && !v.split(",").map(x => x.trim()).every(x => /^@\S+$/.test(x) || /^[a-z0-9*][a-z0-9*-]*(?:@[A-Za-z0-9*][\w.*-]*)?$/i.test(x))) return `${p.key} ${JSON.stringify(value)} is a node (outline@machine) or a mask (*@float-2, @<page>)`;
   if (p.type === "duration" && !/^[1-9][0-9]{0,4}[smh]$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`;
   if (p.type === "action" && !/^[a-z][a-z0-9-]{0,31}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is <extension>/<action>`;
   if (p.type === "writers" && !v.split(",").map(x => x.trim().toLowerCase()).filter(Boolean).every(x => x === "user" || x === "agent" || /^ext:[a-z][a-z0-9-]{0,31}$/.test(x))) return `${p.key} ${JSON.stringify(value)} is user, agent or ext:<extension>, comma-separated`;
