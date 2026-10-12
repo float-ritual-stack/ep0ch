@@ -140,7 +140,11 @@ async function judged(request: Block, list: string): Promise<string> {
     "", "THE REQUEST:", request.text.slice(0, 4_000), "", "WHAT THE SEARCH FOUND:", list,
   ].join("\n");
   const proc = Bun.spawn(config.answer!, { stdin: new Blob([prompt]), stdout: "pipe", stderr: "pipe" });
+  let late = false;
+  const timer = setTimeout(() => { late = true; proc.kill(); }, 60_000);
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  clearTimeout(timer);
+  if (late) throw new Error("it took longer than a minute");
   if (code !== 0) throw new Error(`exited ${code}`);
   return out.trim().replace(/\[[A-Za-z][\w.-]*::[^\]\n]*\]/g, "") || "(the answer command said nothing)";
 }

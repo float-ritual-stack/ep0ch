@@ -639,7 +639,7 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 - **Guards** for an action that starts an agent: `batch` (`"1m"`) gathers a burst of blocks into one call (the first
   is `target`; `input.trigger.blocks` lists them all, at most 50); `cap` (`"20/day"`) is the most calls a day, kept
   across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
-  (`"triage=done OR child:type=prior-art"`).
+  (`"triage=done OR child:via-trigger=intake-prior-art"`).
 - A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
   agents (`@name` lines; any other extension's write of one is refused): it's asked at once, as `r` would, by whoever
   set the trigger off. The rule the person wrote is what asked; its guards are the limit.
@@ -666,7 +666,7 @@ installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rul
 `quiet`, `from`, `batch`, `cap` and `skip` above. A rule note draws, runs, or both:
 
 ```text
-Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:type=prior-art]
+Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:via-trigger=intake-prior-art]
 ```
 
 The door's settings card (`,` on a rule note, a view, a callout type or a heading style) sets these with pickers, from the component schema.

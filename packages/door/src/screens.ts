@@ -452,6 +452,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
   I: ["library", "components"], "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
+  A: ["echonet", "message areas", "areas"],
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
@@ -1542,6 +1543,7 @@ const HELP: Record<string, string> = {
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
   "+": "a new note at the top of the Inbox, opened to be written (ctrl+n on every screen; from a reader, under the note it shows)",
   M: "a blank screen to build from: its rows start it with an outline, a reader, a terminal or a query lane; ^W w saves it as a screen note, its o opens the ones you made",
+  A: "EchoNet's message areas: every area and subscription the door reaches, their messages, the nodelist",
 };
 
 export class Goodbye implements Screen {

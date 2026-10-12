@@ -79,7 +79,8 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   }
   if (first !== undefined && !first.startsWith("-")) {
     if (!KNOWN.has(first)) return first.includes("/") ? null : noCommand(first);
-    if (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first))) return { help: first };
+    // EchoNet says its own help (`ep0ch echo help`, the outliner's usage, each command's flags).
+    if (first !== "echo" && (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first)))) return { help: first };
     return null;
   }
   if (args.some(a => HELP.has(a))) return { help: "" };

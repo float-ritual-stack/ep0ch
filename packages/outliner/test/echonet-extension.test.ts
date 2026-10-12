@@ -217,7 +217,7 @@ test("an area is a named view: its query, its children and the notes tagged with
 }, 60_000);
 
 test("a subscription takes what's new from its first toss, at most its cap a toss, and says how many wait", async () => {
-  const { machine, toss, create, get, board } = await setup(["shack", "cafe"]);
+  const { machine, toss, create, get, board, where, call } = await setup(["shack", "cafe"]);
   for (const n of [1, 2, 3, 4, 5]) await create("shack", `Plot ${n}: notes on the beans [echo::plot]`);
   const fromNow = await create("cafe", `Plot from the shack [subscribe::shack@${machine}] [echo::plot]`);
   expect(await toss("cafe")).toContain("copies 0");
@@ -226,6 +226,11 @@ test("a subscription takes what's new from its first toss, at most its cap a tos
   await create("shack", "Plot 6: frost tonight [echo::plot]");
   expect(await toss("cafe")).toContain("copies 1");
   expect((await board("cafe", fromNow, `shack@${machine}`)).copies.map((copy) => copy.text.split(" [")[0])).toEqual(["Plot 6: frost tonight"]);
+  // A since it can't read is said in the toss log, never taken as "all".
+  const typo = await create("cafe", `Plot typo [subscribe::shack@${machine}] [echo::plot] [since::yesterday]`);
+  expect(await toss("cafe")).toContain("copies 0");
+  expect((await where("cafe", "type=toss")).some((log) => log.text.includes("[since::yesterday] isn't a date"))).toBe(true);
+  await call("cafe", { action: "delete", blockId: typo.id, author: "user" });
 
   const backlog = await create("cafe", `Every plot [subscribe::shack@${machine}] [echo::plot] [since::all] [cap::2]`);
   expect(await toss("cafe")).toContain("waiting 3");

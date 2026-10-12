@@ -301,10 +301,13 @@ function wantedBy(sub: Block): Wanted | string {
   if (!masks.length || masks.some((mask) => !mask)) return `[subscribe::…] names a node (outline@machine, * for any part) or a list (@<page>); got ${values(sub, "subscribe").join(", ") || "nothing"}`;
   if (!areas.length) return "needs [echo::<area>] (a name, or a mask such as ep0ch.*)";
   const since = prop(sub, "since")?.trim();
+  const from = !since || since === "all" ? 0 : Date.parse(since);
+  // A date it can't read is said, never taken as "all": that would copy the whole backlog.
+  if (Number.isNaN(from)) return `[since::${since}] isn't a date: write one (2026-10-01) or all`;
   const cap = Number(prop(sub, "cap"));
   return {
     masks: masks as Mask[], areas,
-    since: !since || since === "all" ? 0 : Date.parse(since) || 0,
+    since: from,
     cap: Number.isInteger(cap) && cap > 0 ? cap : CAP,
   };
 }
