@@ -324,3 +324,96 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "update"
   expect(store.get(job.id)!.text.match(/noted/g)).toHaveLength(1);
   expect(store.get(job.id)!.text.match(/done-at/g)).toHaveLength(1);
 });
+
+// ── PIE-786: who a rule hears, rules in notes that run, and the guards ──────────────────────────
+
+/** `seen` makes a child under each block it's called for, naming the trigger and the batch it was told of. */
+const SEEN = `const r = await Bun.stdin.json();
+const t = r.input.target, trig = r.input.trigger ?? {};
+const ids = (trig.blocks ?? [{ blockId: t.blockId }]).map((b) => b.blockId);
+process.stdout.write(JSON.stringify({ ok: true, value: { writes: ids.map((id) => ({ op: "create", parentId: id, text: "seen by " + trig.rule + " in a batch of " + ids.length })) } }));`;
+
+/** An arrival another extension writes (what an EchoNet copy landing looks like): attributed to it. */
+const arrive = (store: OutlinerStore, actorId: string, text: string, parentId?: string) =>
+  store.changes.run(store.changes.attribution({ action: "test.arrive", actor: { author: "agent", actorId } }), () =>
+    store.create(text, parentId ?? null, "agent", { actorId }));
+
+test("rule-from: a rule note hears an extension's arrivals when it names it, never a trigger's own writes, here or tossed back", async () => {
+  const { create, store, extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);
+  await until("seen", async () => (await list(true)).extensions.some((extension) => extension.id === "seen"));
+  await create("Arrivals [rule-name::arrivals] [rule-match::type=request] [rule-on::seen/note] [rule-from::user, ext:relay]");
+  await until("the rule", async () => (await list()).rules.find((rule) => rule.name === "arrivals")?.on?.from.includes("ext:relay"));
+  const children = (id: string) => store.children(id).map((child) => child.text);
+  // A copy arriving from ext:relay sets it off; the child it writes carries the trigger's mark and its task.
+  const arrived = arrive(store, "ext:relay", "A request from the hub [type::request]");
+  await until("the arrival seen", () => children(arrived.id).length === 1);
+  expect(children(arrived.id)).toEqual(["seen by arrivals in a batch of 1 [via-trigger::arrivals]"]);
+  // Another extension it doesn't name: nothing.
+  const other = arrive(store, "ext:other", "A request from elsewhere [type::request]");
+  // A copy of something a trigger wrote, tossed back (it keeps its mark): nothing, though ext:relay is heard.
+  const tossed = arrive(store, "ext:relay", "Echoed [type::request] [via-trigger::arrivals]");
+  // The trigger's own new block, if it matched (it's a request too): nothing.
+  const own = store.children(arrived.id)[0]!;
+  await store.changes.run(store.changes.attribution({ action: "test", actor: { author: "agent", actorId: "ext:seen", taskId: "trigger:arrivals" } }), () =>
+    store.update(own.id, `${own.text} [type::request]`, own.revision, { author: "agent", actorId: "ext:seen", taskId: "trigger:arrivals" }));
+  // A person's request: heard (user is named).
+  const mine = await create("My own request [type::request]");
+  await until("the person's seen", () => children(mine.id).length === 1);
+  await Bun.sleep(400);
+  expect([children(other.id), children(tossed.id), children(own.id)]).toEqual([[], [], []]);
+  expect((await list()).rules.find((rule) => rule.name === "arrivals")).toMatchObject({ on: { start: "seen/note", from: ["user", "ext:relay"] }, ranToday: 2 });
+});
+
+test("guards: a batch gathers a burst into one call, a daily cap stops the rest, and skip leaves handled blocks alone", async () => {
+  const { create, store, extensionsFolder, list, root } = await setup();
+  writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);
+  await until("seen", async () => (await list(true)).extensions.some((extension) => extension.id === "seen"));
+  await create("Intake [rule-name::intake] [rule-match::type=ask] [rule-on::seen/note] [rule-batch::1s] [rule-cap::1/day] [rule-skip::triage=done]");
+  await until("the rule", async () => (await list()).rules.find((rule) => rule.name === "intake")?.on?.batch === "1s");
+  const asks = await Promise.all(["Fix the gate", "Paint the shed", "Order compost"].map((title) => create(`${title} [type::ask]`)));
+  const handled = await create("Mow the lawn [type::ask] [triage::done]");
+  await until("the batch", () => asks.every((ask) => store.children(ask.id).length === 1));
+  expect(asks.map((ask) => store.children(ask.id)[0]!.text)).toEqual(Array(3).fill("seen by intake in a batch of 3 [via-trigger::intake]"));
+  expect(store.children(handled.id)).toEqual([]);
+  const listed = (await list()).rules.find((rule) => rule.name === "intake")!;
+  expect(listed).toMatchObject({ ranToday: 1, lastRun: { when: "start", blocks: 3 } });
+  // The cap is spent: the next burst calls nothing, and the rule says why.
+  const late = await create("Sharpen the shears [type::ask]");
+  await until("the cap said", async () => (await list()).rules.find((rule) => rule.name === "intake")?.lastRun?.error?.startsWith("capped"));
+  expect(store.children(late.id)).toEqual([]);
+  // The count is kept across a restart.
+  expect(JSON.parse(await Bun.file(join(root, "rule-runs.json")).text()).counts).toEqual({ [listed.key]: 1 });
+});
+
+test("a rule note's action that can't run is said in ruleProblems", async () => {
+  const { create, list } = await setup();
+  await create("Ghost [rule-name::ghost] [rule-match::type=ask] [rule-on::nobody/nothing]");
+  await create("Odd [rule-name::odd] [rule-match::type=ask] [rule-on::bad action] [rule-decorate::badge]");
+  const { ruleProblems } = await until("problems", async () => { const l = await list(); return l.ruleProblems.length >= 2 && l; });
+  expect(ruleProblems.join("\n")).toContain("rule-on names nobody/nothing, but nobody isn't installed here");
+  expect(ruleProblems.join("\n")).toContain("rule-on \"bad action\" isn't an action");
+});
+
+test("a trigger's new block may ask its own extension's agent, which is asked at once; the same action run by hand can't", async () => {
+  const { create, store, client, extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "asker", {
+    run: ["bun", "main.ts"],
+    actions: [{ id: "ask", label: "Ask", on: "block", effects: "write" }],
+    agents: [{ name: "helper", description: "Says what it found", effects: "spend" }],
+  }, `const r = await Bun.stdin.json();
+if (r.operation === "respond") process.stdout.write(JSON.stringify({ ok: true, value: { reply: "found two" } }));
+else process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "create", parentId: r.input.target.blockId, text: "Related\\n@helper what else is like this?" }] } }));`);
+  await until("asker", async () => (await list(true)).extensions.some((extension) => extension.id === "asker"));
+  await create("Look around [rule-name::look] [rule-match::type=ask] [rule-on::asker/ask]");
+  await until("the rule", async () => (await list()).rules.some((rule) => rule.name === "look"));
+  const ask = await create("Where do the hoses go [type::ask]");
+  const child = await until("the child", () => store.children(ask.id)[0]);
+  expect(child.text).toBe("Related [via-trigger::look]\n@helper what else is like this?");
+  const row = await until("the agent's answer", () => store.agentRequests(child.id).find((r) => r.status === "replied"));
+  expect(row).toMatchObject({ agent: "helper", reply: "found two", requestedBy: "user" });
+  // By hand (no rule asked): an extension still can't write an @request line.
+  const other = await create("Another [type::note]");
+  await expect(client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON }))
+    .rejects.toThrow("extensions can't ask agents");
+});

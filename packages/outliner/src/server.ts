@@ -495,6 +495,8 @@ export class OutlinerServer {
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),
+      // A trigger's new block asking the extension's own agent: asked as r would, by whoever set the trigger off.
+      ask: (blockId, requestedBy) => this.agentRequests.refresh(blockId, undefined, requestedBy),
     });
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
@@ -505,6 +507,8 @@ export class OutlinerServer {
       // A rule note written: readers read the rules (extensions.list) and draw every note again.
       rulesChanged: () => this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence }),
       ...(options.ruleQuietMs !== undefined ? { quietMs: options.ruleQuietMs } : {}),
+      // How many times each rule ran today, kept across restarts: a rule's daily cap holds through one.
+      runsFile: join(this.stateDirectory, "rule-runs.json"),
     });
     this.extensionSchedules = new ExtensionSchedules({
       serving: () => this.extensionRegistry.serving(),

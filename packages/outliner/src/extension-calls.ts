@@ -13,7 +13,8 @@ import { handlerCalls, mayHaveHandlerLines, type HandlerCall } from "./extension
 import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionActionArg, type LoadedExtension } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
-import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome } from "./extension-writes";
+import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
+import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
@@ -76,6 +77,11 @@ export interface ExtensionCallsOptions {
   readonly patchGroup?: (input: DraftGroupInput) => Promise<DraftPatchResult>;
   /** Whether a door holds a live draft of the block (an undo of an edit waits for it). */
   readonly held?: (blockId: string) => boolean;
+  /**
+   * A trigger's action made a block that asks the extension's own agent (`@name`, PIE-786): ask it now, as `requestedBy`
+   * (the agent-requests' `r`). The rule the person wrote is what asked; its guards (cap, batch, skip) are the limit.
+   */
+  readonly ask?: (blockId: string, requestedBy: MutationProvenance | undefined) => Promise<unknown>;
 }
 
 /** An action's declared argument as a client asks for it (`extensions.args`): its spec, the choices it has here, its value now. */
@@ -121,6 +127,11 @@ export interface ExtensionActRequest {
    * the extension's (`ext:<id>`); this is recorded beside them as the change feed's `requestedBy`.
    */
   readonly requestedBy?: MutationProvenance;
+  /**
+   * A rule's trigger runs it (PIE-786): the rule's name, and with a batch (`rule-batch`) every block the burst gathered
+   * (`blockId` the first). Its writes carry the trigger's marks, so no rule is set off by them.
+   */
+  readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[] };
 }
 
 export interface ExtensionActResult {
@@ -908,6 +919,15 @@ export class ExtensionCalls {
 
   private readonly outlineRuns = new Map<string, Promise<ExtensionActResult>>();
 
+  /** What a triggered action is told: the rule, and a batch's blocks as they are now (at most 50). */
+  private triggerInput(trigger: NonNullable<ExtensionActRequest["trigger"]>): Record<string, unknown> {
+    const blocks = (trigger.blocks ?? []).slice(0, 50).flatMap((id) => {
+      const block = this.store.get(id);
+      return block && !block.effectiveDeletedRootId ? [{ blockId: block.id, revision: block.revision, text: block.text.slice(0, 16_000) }] : [];
+    });
+    return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}) };
+  }
+
   private async actNow(request: ExtensionActRequest): Promise<ExtensionActResult> {
     const extension = this.registry.extension(request.extension);
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
@@ -933,6 +953,7 @@ export class ExtensionCalls {
       context: block ? this.context(block, call?.line ?? request.line) : { now: request.scheduled?.at ?? new Date(this.now).toISOString() },
       ...(call ? { output: this.store.extensionOutputs(block!.id).find((row) => row.callKey === call.callKey)?.result ?? null } : {}),
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
+      ...(request.trigger ? { trigger: this.triggerInput(request.trigger) } : {}),
     }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote, ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}) });
     let parsed: ReturnType<typeof validateAct>;
     try {
@@ -942,7 +963,18 @@ export class ExtensionCalls {
     }
     if (parsed.writes.length && action.effects !== "write") throw new Error(`${action.name} is declared read-only (effects: read) but returned writes`);
     if (parsed.writes.some((write) => write.op === "annotate")) throw new Error(`${action.name} returned an annotation, but it acts on ${action.on ?? "a block"}: only an action on a passage annotates`);
-    const applied: GroupOutcome = parsed.writes.length ? await this.writes.apply(extension.id, action.name, parsed.writes as BlockWrite[], request.requestedBy, block?.id) : { written: [] };
+    const trigger: TriggerWrite | undefined = request.trigger
+      ? { rule: request.trigger.rule, agents: new Set((extension.manifest.agents ?? []).map((agent) => agent.name)) }
+      : undefined;
+    const applied: GroupOutcome = parsed.writes.length ? await this.writes.apply(extension.id, action.name, parsed.writes as BlockWrite[], request.requestedBy, block?.id, trigger) : { written: [] };
+    // A trigger's new block that asks the extension's agent: asked now (a block it made carries the trigger's mark).
+    if (trigger && this.options.ask) {
+      const mark = `[${VIA_TRIGGER}::${trigger.rule}]`;
+      for (const id of applied.written) {
+        const made = this.store.get(id);
+        if (made?.text.split("\n", 1)[0]!.includes(mark)) void this.options.ask(id, request.requestedBy).catch(() => {});
+      }
+    }
     // What its process wrote over its connection counts as written too; a write to the acted-on block or a child of
     // it redraws the line as a returned write does.
     const written = [...new Set([...applied.written, ...wrote.flatMap((change) => change.blockId ? [change.blockId] : [])])];

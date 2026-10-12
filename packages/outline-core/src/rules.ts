@@ -275,8 +275,69 @@ export const RULE_NAME = /^[a-z0-9][a-z0-9_-]{0,39}$/;
  */
 export interface RuleMatch { query?: string; view?: string; under?: string; text?: string; kind?: string }
 
-/** A rule read from a note (`[rule-name::name]` and its `rule-*` properties). */
-export interface NoteRule { name: string; block: string; match: RuleMatch; place?: Place; decorate: BuiltInSpec }
+/** An extension's action a rule runs: `[rule-on::intake/prior-art]`. */
+export interface ActionRef { extension: string; action: string }
+
+/**
+ * Who a rule hears (`[rule-from::user, agent, ext:echonet]`, a manifest rule's `on.from`): a person's saves (`user`),
+ * an agent's (`agent`), one extension's (`ext:<id>`). Left out, a person's and agents' saves; an extension's never, so
+ * a trigger can't loop on its own writes or another extension's.
+ */
+export type RuleWriter = "user" | "agent" | `ext:${string}`;
+export const DEFAULT_RULE_FROM: readonly RuleWriter[] = ["user", "agent"];
+
+/**
+ * What a rule runs, and its guards (each firing may start an agent): `start`, `stop`, `change` the actions; `quiet`
+ * how long a block must be still first; `from` the writers it hears; `batch` a window that gathers a burst into one
+ * call; `cap` the most calls a day; `skip` a query whose blocks never set it off.
+ */
+export interface RuleOn {
+  start?: ActionRef; stop?: ActionRef; change?: ActionRef;
+  quiet?: string; from?: RuleWriter[]; batch?: string; cap?: number; skip?: string;
+}
+
+/** A rule read from a note (`[rule-name::name]` and its `rule-*` properties): it draws, runs an action, or both. */
+export interface NoteRule { name: string; block: string; match: RuleMatch; place?: Place; decorate?: BuiltInSpec; on?: RuleOn }
+
+/** The property a trigger puts on what it creates (`[via-trigger::<rule>]`): no rule is set off by it again, here or in the outline it's tossed to. */
+export const VIA_TRIGGER = "via-trigger";
+
+/** A duration as manifests and rule notes write it: `30s`, `5m`, `2h`. */
+export const RULE_DURATION = /^[1-9][0-9]{0,4}[smh]$/;
+
+const ACTION_REF = /^([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,63})$/;
+
+/** `<extension>/<action>`, or why it isn't one. */
+export function parseActionRef(raw: string): ActionRef | { problem: string } {
+  const m = ACTION_REF.exec(raw.trim());
+  if (!m) return { problem: `${JSON.stringify(raw)} isn't an action: write <extension>/<action>, like intake/prior-art` };
+  return { extension: m[1]!, action: m[2]! };
+}
+
+/** `user, agent, ext:echonet`: the writers, or why one isn't. */
+export function parseRuleWriters(raw: string | readonly string[]): { writers: RuleWriter[]; problems: string[] } {
+  const list = typeof raw === "string" ? raw.split(",") : raw;
+  const writers: RuleWriter[] = [], problems: string[] = [];
+  for (const item of list.map(x => x.trim()).filter(Boolean)) {
+    const w = item.toLowerCase();
+    if (w === "user" || w === "agent" || /^ext:[a-z][a-z0-9-]{0,31}$/.test(w)) { if (!writers.includes(w as RuleWriter)) writers.push(w as RuleWriter); }
+    else problems.push(`writer ${JSON.stringify(item)} is user, agent or ext:<extension>`);
+  }
+  return { writers, problems };
+}
+
+/** `20/day` (or `20`): the most calls a day, or why it isn't one. */
+export function parseRuleCap(raw: string): number | { problem: string } {
+  const m = /^\s*([1-9][0-9]{0,3})\s*(?:\/\s*day)?\s*$/i.exec(raw);
+  return m ? Number(m[1]) : { problem: `cap ${JSON.stringify(raw)} is a number of runs a day, like 20/day` };
+}
+
+/** Which writer a save was made by, as `rule-from` names them. */
+export function ruleWriter(actor: { author?: string; actorId?: string } | undefined): RuleWriter {
+  const id = actor?.actorId?.trim();
+  if (id?.startsWith("ext:")) return id.toLowerCase() as RuleWriter;
+  return actor?.author === "agent" ? "agent" : "user";
+}
 
 /** A note that might declare a rule: its id and its block properties. */
 export interface RuleDeclaringBlock { id: string; properties: readonly { key: string; value: string }[] }
@@ -293,7 +354,10 @@ const blockRef = (raw: string) => /^\(\(([0-9a-f-]{36})(?:\|[^)]*)?\)\)$/i.exec(
  *   below, replace, around), `[rule-label::{title}]`, `[rule-tone::accent]`, `[rule-fields::attendees, when]`,
  *   `[rule-pattern::stack]`, `[rule-align::center]`, `[rule-style::plot]` (a heading style by name, PIE-599: a band or
  *   divider draws with it, the pattern and align above over it).
- * What can't be used is said in `problems` (a bad tone or pattern is left out and the rest still works); the first
+ * - what it runs (PIE-786): `[rule-on::intake/prior-art]` (an extension's action, when a block starts matching),
+ *   `[rule-on-stop::…]`, `[rule-on-change::…]`; its guards `[rule-quiet::2s]`, `[rule-from::user, ext:echonet]`,
+ *   `[rule-batch::1m]`, `[rule-cap::20/day]`, `[rule-skip::triage=done OR child:type=prior-art]`.
+ * A rule draws, runs, or both. What can't be used is said in `problems` (a bad tone or pattern is left out and the rest still works); the first
  * note to take a name has it.
  */
 export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules: NoteRule[]; problems: string[] } {
@@ -329,19 +393,60 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
     }
     if (!scoped) continue;
     if (!match.query && !match.view && !match.text && !match.kind) { problems.push(`${where}: rule ${name} matches nothing: add rule-match, rule-view, rule-text or rule-kind`); continue; }
-    const read = builtInSpec({ use: prop("rule-decorate") ?? "", label: prop("rule-label"), tone: prop("rule-tone"), fields: prop("rule-fields"), pattern: prop("rule-pattern"), align: prop("rule-align"), style: prop("rule-style") });
-    if ("problem" in read) { problems.push(`${where}: ${read.problem}`); continue; }
-    problems.push(...read.problems.map(p => `${where}: ${p}`));
+    const decorating = prop("rule-decorate") !== undefined;
+    let decorate: BuiltInSpec | undefined;
+    if (decorating) {
+      const read = builtInSpec({ use: prop("rule-decorate") ?? "", label: prop("rule-label"), tone: prop("rule-tone"), fields: prop("rule-fields"), pattern: prop("rule-pattern"), align: prop("rule-align"), style: prop("rule-style") });
+      if ("problem" in read) { problems.push(`${where}: ${read.problem}`); continue; }
+      problems.push(...read.problems.map(p => `${where}: ${p}`));
+      decorate = read.spec;
+    }
+    const on: RuleOn = {};
+    for (const [key, when] of [["rule-on", "start"], ["rule-on-stop", "stop"], ["rule-on-change", "change"]] as const) {
+      const value = prop(key);
+      if (value === undefined || !value) continue;
+      const ref = parseActionRef(value);
+      if ("problem" in ref) problems.push(`${where}: ${key} ${ref.problem}`);
+      else on[when] = ref;
+    }
+    const runs = !!(on.start || on.stop || on.change);
+    const guards: string[] = [];
+    for (const [key, field] of [["rule-quiet", "quiet"], ["rule-batch", "batch"]] as const) {
+      const value = prop(key);
+      if (!value) continue;
+      guards.push(key);
+      if (RULE_DURATION.test(value)) on[field] = value;
+      else problems.push(`${where}: ${key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`);
+    }
+    const from = prop("rule-from");
+    if (from) {
+      guards.push("rule-from");
+      const read = parseRuleWriters(from);
+      problems.push(...read.problems.map(p => `${where}: rule-from ${p}`));
+      if (read.writers.length) on.from = read.writers;
+    }
+    const cap = prop("rule-cap");
+    if (cap) {
+      guards.push("rule-cap");
+      const read = parseRuleCap(cap);
+      if (typeof read === "number") on.cap = read;
+      else problems.push(`${where}: rule-${read.problem}`);
+    }
+    const skip = prop("rule-skip");
+    if (skip) { guards.push("rule-skip"); on.skip = skip; }
+    if (!runs && guards.length) problems.push(`${where}: ${guards.join(", ")} guard${guards.length === 1 ? "s" : ""} a rule that runs something: add rule-on`);
+    if (!decorate && !runs) { problems.push(`${where}: rule ${name} draws nothing and runs nothing: add rule-decorate or rule-on`); continue; }
     const placeRaw = prop("rule-place")?.toLowerCase();
     let place: Place | undefined;
     if (placeRaw) {
       if ((PLACES as readonly string[]).includes(placeRaw)) place = placeRaw as Place;
       else problems.push(`${where}: rule-place ${JSON.stringify(placeRaw)} is one of ${PLACES.join(", ")}`);
     }
-    rules.push({ name, block: b.id, match, ...(place ? { place } : {}), decorate: read.spec });
+    rules.push({ name, block: b.id, match, ...(place ? { place } : {}), ...(decorate ? { decorate } : {}), ...(runs ? { on } : {}) });
   }
   return { rules, problems };
 }
 
 /** The `rule-*` keys a rule note writes: its own words, never matched as the block's own properties by a card. */
-export const RULE_KEYS = ["rule-name", "rule-match", "rule-view", "rule-under", "rule-text", "rule-kind", "rule-decorate", "rule-place", "rule-label", "rule-tone", "rule-fields", "rule-pattern", "rule-align", "rule-style"] as const;
+export const RULE_KEYS = ["rule-name", "rule-match", "rule-view", "rule-under", "rule-text", "rule-kind", "rule-decorate", "rule-place", "rule-label", "rule-tone", "rule-fields", "rule-pattern", "rule-align", "rule-style",
+  "rule-on", "rule-on-stop", "rule-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip"] as const;

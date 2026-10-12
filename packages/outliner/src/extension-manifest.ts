@@ -316,10 +316,19 @@ const RuleSchema = Type.Object(
     )),
     /**
      * Run an action (from `actions[]`) on the block when it starts matching, stops matching, or is saved while it
-     * matches, once it has been quiet for `quiet` (default 2s). Never for a save an extension made.
+     * matches, once it has been quiet for `quiet` (default 2s). `from` names the writers whose saves set it off
+     * (`user`, `agent`, `ext:<id>`; default a person's and agents', never an extension's); nothing a trigger wrote sets
+     * it off. Guards for an action that starts an agent: `batch` gathers a burst into one call, `cap` (`20/day`) the
+     * calls a day, `skip` a query whose blocks never set it off.
      */
     on: Type.Optional(Type.Object(
-      { start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), quiet: Type.Optional(Duration) },
+      {
+        start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), quiet: Type.Optional(Duration),
+        from: Type.Optional(Type.Array(Type.String({ pattern: "^(user|agent|ext:[a-z][a-z0-9-]{0,31})$" }), { minItems: 1, maxItems: 16 })),
+        batch: Type.Optional(Duration),
+        cap: Type.Optional(Type.String({ pattern: "^[1-9][0-9]{0,3}(/day)?$" })),
+        skip: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+      },
       { additionalProperties: false },
     )),
   },

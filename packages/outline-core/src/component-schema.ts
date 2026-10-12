@@ -16,7 +16,7 @@ import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 
 /** What a property's value is. */
-export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query"] as const;
+export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration"] as const;
 export type PropType = (typeof PROP_TYPES)[number];
 
 /**
@@ -183,6 +183,14 @@ const RULE: ComponentSchema = {
     { key: "rule-pattern", where: "note", type: "enum", meaning: "a band's or divider's glyph track", values: enumOf({ stack: "shades fading out", waffle: "a checkerboard", uptime: "an uptime strip's bars", dots: "sparse dots", rule: "a ruled line" }) },
     { key: "rule-align", where: "note", type: "enum", meaning: "where a band's words sit", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }) },
     { key: "rule-style", where: "note", type: "enum", meaning: "a band's or divider's heading style by name; pattern and align above go over it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES) },
+    { key: "rule-on", where: "note", type: "action", meaning: "an extension's action it runs on a block that starts matching (<extension>/<action>)", samples: ["intake/prior-art"] },
+    { key: "rule-on-stop", where: "note", type: "action", meaning: "an action it runs on a block that stops matching" },
+    { key: "rule-on-change", where: "note", type: "action", meaning: "an action it runs on a block saved while it matches" },
+    { key: "rule-from", where: "note", type: "writers", meaning: "whose saves set it off: user, agent, ext:<extension> (an EchoNet arrival is ext:echonet)", default: "user, agent", samples: ["user, ext:echonet"] },
+    { key: "rule-quiet", where: "note", type: "duration", meaning: "how long a block must be still before its action runs", default: "2s", samples: ["2s", "1m"] },
+    { key: "rule-batch", where: "note", type: "duration", meaning: "gather a burst into one call with all its blocks, this long after the first", samples: ["1m"] },
+    { key: "rule-cap", where: "note", type: "text", meaning: "the most calls a day; past it, nothing runs until the next day, and the rule says so", samples: ["20/day"] },
+    { key: "rule-skip", where: "note", type: "query", meaning: "blocks this query holds for never set it off", samples: ["triage=done OR child:type=prior-art"] },
   ],
   source: {
     use: "Planning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions\nShip the shelf !!today!!\n\n- buy screws\n- paint it",
@@ -351,6 +359,9 @@ export function checkValue(p: PropSchema, value: string): string | null {
   }
   if (p.type === "levels" && !v.split(",").map(x => x.trim()).filter(Boolean).every(x => /^[1-6]$/.test(x) || x.toLowerCase() === "rule")) return `${p.key} ${JSON.stringify(value)} is levels (1 to 6) or rule, comma-separated`;
   if (p.type === "room" && !/^\s*\d+(?:\s+\d+)?\s*$/.test(v)) return `${p.key} ${JSON.stringify(value)} is columns, or "rows columns"`;
+  if (p.type === "duration" && !/^[1-9][0-9]{0,4}[smh]$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`;
+  if (p.type === "action" && !/^[a-z][a-z0-9-]{0,31}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is <extension>/<action>`;
+  if (p.type === "writers" && !v.split(",").map(x => x.trim().toLowerCase()).filter(Boolean).every(x => x === "user" || x === "agent" || /^ext:[a-z][a-z0-9-]{0,31}$/.test(x))) return `${p.key} ${JSON.stringify(value)} is user, agent or ext:<extension>, comma-separated`;
   return null;
 }
 
