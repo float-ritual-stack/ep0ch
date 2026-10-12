@@ -670,6 +670,8 @@ export class OutlineHost {
     // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
     const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
     const forward = await forwardFor(machine, this.outlinesFolder);
+    // Starting the forward can take a while: an extension that gave up meanwhile sends nothing.
+    if (socket.destroyed) return;
     const relayed = {
       extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes,
     };
@@ -692,8 +694,8 @@ export class OutlineHost {
       remote.on("data", (chunk: string) => {
         buffer += chunk;
         const end = buffer.indexOf("\n");
-        if (end >= 0) done(undefined, buffer.slice(0, end));
-        else if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${String(outline)}@${machine} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
+        if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${String(outline)}@${machine} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
+        else if (end >= 0) done(undefined, buffer.slice(0, end));
       });
       remote.once("error", (error) => done(error));
       remote.once("close", () => done(new Error(`${machine}'s outline host closed the connection without an answer`)));
