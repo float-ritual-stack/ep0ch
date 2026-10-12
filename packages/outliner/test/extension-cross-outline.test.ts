@@ -46,6 +46,7 @@ const tries: Record<string, string> = {};
 const attempt = async (name: string, run: () => Promise<unknown>) => { try { const said = await run(); tries[name] = typeof said === "string" ? said : "ok"; } catch (e) { tries[name] = String((e as Error).message); } };
 const [note] = (await outline<{ blocks: Array<{ id: string; revision: number }> }>({ action: "blocks.query", query: { where: "type=recon" } }, target).catch(() => ({ blocks: [] }))).blocks;
 await attempt("read", () => outline({ action: "blocks.query", query: { where: "type=recon" } }, target));
+await attempt("granted", async () => (await outline<{ granted?: string }>({ action: "mcp.access.status" }, target)).granted ?? "unsaid");
 await attempt("comment", () => outline({ action: "annotations.batch", requestId: crypto.randomUUID(), operations: [{ operationId: "c", type: "block-comment", input: { blockId: note?.id, expectedRevision: note?.revision, body: "hi", source: "agent" } }] }, target));
 await attempt("create", () => outline({ action: "create", text: "from the cafe" }, target));
 if (target.machine) await attempt("list", async () => JSON.stringify(await outline({ action: "outlines.list" }, { machine: target.machine })));
@@ -126,9 +127,9 @@ test("another outline's extension is held to this outline's access level once it
   aim({ outline: "shack" });
   await create("shack", "Recon: the shed's cert [type::recon]");
   // Never set: open to the host's extensions.
-  expect(await poke()).toEqual({ read: "ok", comment: "ok", create: "ok" });
+  expect(await poke()).toEqual({ read: "ok", granted: "full", comment: "ok", create: "ok" });
   await access("shack", "propose");
-  expect(await poke()).toMatchObject({ read: "ok", comment: "ok", create: expect.stringContaining("ext:poker runs for cafe, and shack grants other outlines propose: create needs full (its owner runs `ep0ch mcp access full --ws shack`)") });
+  expect(await poke()).toMatchObject({ read: "ok", granted: "propose", comment: "ok", create: expect.stringContaining("ext:poker runs for cafe, and shack grants other outlines propose: create needs full (its owner runs `ep0ch mcp access full --ws shack`)") });
   await access("shack", "read");
   expect(await poke()).toMatchObject({ read: "ok", comment: expect.stringContaining("annotations.batch needs propose") });
   await access("shack", "none");
@@ -137,7 +138,7 @@ test("another outline's extension is held to this outline's access level once it
   aim({ outline: "cafe" });
   await create("cafe", "Recon: the cafe's own [type::recon]");
   await access("cafe", "none");
-  expect(await poke()).toEqual({ read: "ok", comment: "ok", create: "ok" });
+  expect(await poke()).toEqual({ read: "ok", granted: "full", comment: "ok", create: "ok" });
 }, 60_000);
 
 test("another machine: the request goes through the ssh forward, as the extension from its node, and that outline's level holds there", async () => {
@@ -151,7 +152,7 @@ test("another machine: the request goes through the ssh forward, as the extensio
   // Never set is none across machines, held by the field's own host; nor is it listed there.
   expect(await poke()).toMatchObject({
     read: expect.stringContaining(`ext:poker@cafe@${machine} runs for cafe@${machine}, and field grants other outlines none: blocks.query needs read`),
-    list: JSON.stringify({ outlines: [] }),
+    granted: "none", list: JSON.stringify({ outlines: [] }),
   });
   await far.call("field", { action: "mcp.access.configure", level: "propose" });
   await far.call("attic", { action: "mcp.access.configure", level: "none" });

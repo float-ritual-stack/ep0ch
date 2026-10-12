@@ -5,7 +5,7 @@ import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
@@ -3802,16 +3802,23 @@ export class OutlinerServer {
    * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
    */
   private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
-    const here = this.outline?.name;
-    if (!grant.outline || !here || grant.outline === here || (!grant.relayed && !this.store.mcpAccessConfigured())) return;
-    const level = this.store.mcpAccessStatus().level;
+    const level = this.grantedLevel(grant);
+    if (level === "full") return;
+    const here = this.outline!.name;
     const writes = EXTENSION_WRITES.has(action);
     const marks = action.startsWith("annotations.");
     const need = !writes ? "read" : marks ? "propose" : "full";
-    const allowed = level === "full" || (level === "propose" && need !== "full") || (level === "read" && need === "read");
+    const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
     if (allowed) return;
     throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
       `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);
+  }
+
+  /** What this outline lets an extension do (`crossOutlineAccess`; `mcp.access.status` answers it as `granted`). */
+  private grantedLevel(grant: ExtensionGrant): McpAccessLevel {
+    const here = this.outline?.name;
+    if (!grant.outline || !here || grant.outline === here || (!grant.relayed && !this.store.mcpAccessConfigured())) return "full";
+    return this.store.mcpAccessStatus().level;
   }
 
   /**
@@ -3912,6 +3919,7 @@ export class OutlinerServer {
       // What ran before the handler first waited held the loop; the waits after it didn't.
       loopMs = performance.now() - started;
       response = await pending;
+      if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);
       response = {

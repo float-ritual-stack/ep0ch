@@ -277,6 +277,11 @@ export interface McpAccessStatus {
   sequence: number;
   /** The principal that made this outline over MCP (PIE-679): it writes with `full`, whatever `level` lets the others. */
   owner?: string;
+  /**
+   * Asked by an extension (PIE-779): what this outline lets it do. `full` on its own outline and on an outline of this
+   * host whose owner never set a level; `level` otherwise, and always for another machine's extension (unset: `none`).
+   */
+  granted?: McpAccessLevel;
 }
 
 /**
