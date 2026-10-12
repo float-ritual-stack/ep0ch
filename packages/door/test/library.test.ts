@@ -155,7 +155,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await act("library.component", { name: "rule" });
     await act("library.axis", { key: "rule-decorate" });
     await until(() => lines().some(l => l.includes("D E C I S I O N S") || l.includes("DECISIONS")), "the band the service drew", 8000);
-    await expect(act("library.component", { name: "nope" })).rejects.toThrow("no component nope; components: heading-style, callout, rule, graph-meter, graph-spark, graph-stat,");
+    await expect(act("library.component", { name: "nope" })).rejects.toThrow("no component nope; components: heading-style, callout, rule, view, graph-meter, graph-spark, graph-stat,");
   });
 
   test("an extension that ships a schema gets a page and completion, with no code of its own", async () => {

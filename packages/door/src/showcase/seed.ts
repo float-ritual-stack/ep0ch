@@ -53,6 +53,7 @@ export const SEED = {
   spacingLab: "Spacing lab",
   looksLab: "Looks lab",
   rules: "Allotment committee, Saturday",
+  settings: "Compost bay jobs get a badge",
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
   labels: "Jar labels",
@@ -1250,6 +1251,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);
   await make(notes.rules.id, "Mend the water butt [status::todo]\nSetting its status to done stamps the day it was done (done-stamp); setting it back takes the stamp off.");
+  // A rule note whose settings card (`,`) sets its fields with pickers (PIE-786), and the job it badges.
+  notes.settings = await make(notes.root.id, `${SEED.settings} [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-label::{status}] [rule-tone::accent]\nA rule note is configured, not typed: , opens its card, each field a picker (the tone's values, a query over this outline's own properties, the actions extensions offer, whose saves set it off).`);
+  await make(notes.settings.id, "Turn the compost bay [type::bay-job] [status::todo]");
 
   // Comment threads on the shed: one open, one resolved with a reply.
   const quote = (text: string, q: string) => ({ quote: q, start: text.indexOf(q) });

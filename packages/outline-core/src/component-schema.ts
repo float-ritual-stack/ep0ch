@@ -16,7 +16,7 @@ import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 
 /** What a property's value is. */
-export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration"] as const;
+export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "node"] as const;
 export type PropType = (typeof PROP_TYPES)[number];
 
 /**
@@ -202,6 +202,27 @@ const RULE: ComponentSchema = {
   space: ["rule-decorate", "rule-place", "rule-tone", "rule-kind"],
 };
 
+const VIEW: ComponentSchema = {
+  id: "view",
+  title: "Views",
+  intro: "A saved view: a note whose `[query::]` gathers the blocks it holds for, sorted and limited, listed as its children wherever the note is (a virtual branch). The service answers it; every client lists what it answers. A lane, a hub and a rule's `rule-view` all read one.",
+  where: "a note with `[type::virtual-branch]` and `[query::…]`",
+  props: [
+    { key: "query", where: "note", type: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
+    { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },
+    { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
+    { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
+    { key: "child-depth", where: "note", type: "int", meaning: "how deep each row's own children are listed under it", min: 0, max: 8, default: "0" },
+    { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
+    { key: "summary-properties", where: "note", type: "list", meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
+  ],
+  source: { use: "Planning call [type::meeting] [when::Tuesday]", note: { title: "Meetings", name: "query", value: "type=meeting" } },
+  example: {},
+  sweep: [],
+  grids: [],
+  space: [],
+};
+
 const FIGURE_TITLE: PropSchema = { key: "title", where: "yaml", type: "text", meaning: "the title in the figure's frame", samples: ["Disk"] };
 
 const METER: ComponentSchema = {
@@ -242,7 +263,7 @@ const SPARK: ComponentSchema = {
 };
 
 /** The components every outline has. */
-export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS].map(s => ({ ...s, origin: "built-in" }));
+export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS].map(s => ({ ...s, origin: "built-in" }));
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────
 
@@ -359,6 +380,9 @@ export function checkValue(p: PropSchema, value: string): string | null {
   }
   if (p.type === "levels" && !v.split(",").map(x => x.trim()).filter(Boolean).every(x => /^[1-6]$/.test(x) || x.toLowerCase() === "rule")) return `${p.key} ${JSON.stringify(value)} is levels (1 to 6) or rule, comma-separated`;
   if (p.type === "room" && !/^\s*\d+(?:\s+\d+)?\s*$/.test(v)) return `${p.key} ${JSON.stringify(value)} is columns, or "rows columns"`;
+  if (p.type === "property" && !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a property's name`;
+  // A node (`<outline>@<machine>`) or a mask over them, as EchoNet reads one: `*@float-2`, `rexall-*@laptop`, `@<page>`.
+  if (p.type === "node" && !v.split(",").map(x => x.trim()).every(x => /^@\S+$/.test(x) || /^[a-z0-9*][a-z0-9*-]*(?:@[A-Za-z0-9*][\w.*-]*)?$/i.test(x))) return `${p.key} ${JSON.stringify(value)} is a node (outline@machine) or a mask (*@float-2, @<page>)`;
   if (p.type === "duration" && !/^[1-9][0-9]{0,4}[smh]$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`;
   if (p.type === "action" && !/^[a-z][a-z0-9-]{0,31}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is <extension>/<action>`;
   if (p.type === "writers" && !v.split(",").map(x => x.trim().toLowerCase()).filter(Boolean).every(x => x === "user" || x === "agent" || /^ext:[a-z][a-z0-9-]{0,31}$/.test(x))) return `${p.key} ${JSON.stringify(value)} is user, agent or ext:<extension>, comma-separated`;

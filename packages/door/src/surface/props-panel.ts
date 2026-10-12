@@ -15,6 +15,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
 import { RowView } from "../scroll";
 import { LineInput } from "./line";
+import type { SettingsCard } from "./settings-card";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
 export interface PropRow {
@@ -95,6 +96,8 @@ export class PropertyPanel {
   note = "";
   /** Where the last render drew each row (`y` in its lines) and where its value starts, for clicks. */
   at: { y: number; n: number; from: number; target: boolean }[] = [];
+  /** The settings card (PIE-786), when the panel shows a configurable note's fields instead of its tokens (`,`). */
+  card: SettingsCard | null = null;
 
   /** Keys while the panel is open. Most become intents the surface runs (the same code as the actions). */
   key(k: Key, rows: number): PanelIntent {

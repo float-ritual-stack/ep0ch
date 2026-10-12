@@ -34,6 +34,8 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
   - `[since::<date>|all]`: what counts as new. Left out, the first toss writes `[since::<now>]`: from now.
   - `[cap::n]`: new copies a toss takes from each node (default 25, config `cap`), oldest first; the source board
     says `[waiting::n]` while more wait.
+  - In the door, `,` on a subscription opens its settings card (the `echonet-subscription` component in
+    `extension.json`): `subscribe` picks from the nodelist's nodes and masks over their machines.
 - **A copy** is the original's text with `[from::<outline>@<machine>/<id>] [echo::<area>] [from-rev::<n>]
   [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
   `[[page]]`) becomes an `ep0ch://` link into it; a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
