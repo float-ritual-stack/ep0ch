@@ -374,7 +374,7 @@ export class CommentSession {
     // Sent first; then a reference in it that leads nowhere is said, with what it may have meant (PIE-761).
     const b = env.board;
     if (b.resolveReferences && b.searchBlocks && b.get) {
-      const w = await savedReferenceWarning(b as ReferenceBoard, body, this.msg.id);
+      const w = await savedReferenceWarning(b as ReferenceBoard, body, this.msg.id, r.id);
       // Said only while nothing else has started here since (another comment, a reply, a passage being picked).
       if (w && this.mode === "threads" && !this.writing && !this.busy) { this.note = w; env.flash(w); env.redraw(); }
     }

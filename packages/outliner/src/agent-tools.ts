@@ -500,13 +500,14 @@ export function shortDiff(before: string, after: string, max = 40): string {
  * The references `text` kept that lead nowhere, each with what it may have meant (PIE-761): said after the write,
  * never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
  */
-export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string): Promise<string[]> {
+export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
   try {
     const warnings = await referenceWarnings(text, {
       resolve: async t => (await client.request<ResolvedBlockReferences>({ action: "references.resolve", text: t })).references,
       search: async query => (await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query, ...(near ? { contextBlockId: near } : {}) })).matches
-        .slice(0, 1).map(m => ({ id: m.block.id, title: m.title })),
+        .slice(0, 2).map(m => ({ id: m.block.id, title: m.title })),
       text: async blockId => (await client.request<Block | null>({ action: "get", blockId }))?.text ?? null,
+      ...(self ? { self } : {}),
     });
     return warnings.map(describeReferenceWarning);
   } catch {
@@ -574,8 +575,8 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   };
 }
 
-async function warned(client: AgentToolsClient, text: string, near?: string): Promise<{ warnings?: string[] }> {
-  const warnings = await referenceWarningsFor(client, text, near);
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[] }> {
+  const warnings = await referenceWarningsFor(client, text, near, self);
   return warnings.length ? { warnings } : {};
 }
 
@@ -719,7 +720,7 @@ export async function commentOn(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
-  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, block.id)) });
+  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, block.id, record.block.id)) });
 }
 
 /**
@@ -787,7 +788,7 @@ export async function replyTo(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
-  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body)) }), thread: annotationId, reply: record.block.id };
+  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, undefined, record.block.id)) }), thread: annotationId, reply: record.block.id };
 }
 
 /** Resolves (or reopens) a comment thread, as the agent. */

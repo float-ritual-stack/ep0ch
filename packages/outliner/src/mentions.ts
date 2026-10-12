@@ -4,6 +4,7 @@ import { blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
 import { pageAddressReferences } from '@ep0ch/outline-core/link-syntax';
 import { offsetInRanges, protectedCodeRanges } from '@ep0ch/outline-core/code-ranges';
 import {outlinerReferenceOccurrences} from './reference-occurrences';
+import type {TicketPrefixes} from './work-ids';
 import {marked} from 'marked';
 import {parseOutlinerLinkUri} from './outliner-links';
 import type {OutlinerStore} from './store';
@@ -20,11 +21,11 @@ function required(value:unknown,name:string,max=512):string{
  if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error(`${name} must be nonempty text, at most ${max} characters`);
  return value;
 }
-export function extractMentionReferences(text:string,prefix?:string):Reference[]{
+export function extractMentionReferences(text:string,prefix?:TicketPrefixes):Reference[]{
  const refs:Reference[]=[
   ...blockReferenceOccurrences(text).map(r=>({kind:'block' as const,value:r.blockId,start:r.start,end:r.end})),
   ...pageAddressReferences(text).map(r=>({kind:'address' as const,value:r.displayAddress,start:r.start,end:r.end})),
-  ...outlinerReferenceOccurrences(text,prefix).filter(r=>r.kind==='work-id').map(r=>({kind:'address' as const,value:r.address,start:r.start,end:r.end})),
+  ...outlinerReferenceOccurrences(text,prefix??null).filter(r=>r.kind==='work-id').map(r=>({kind:'address' as const,value:r.address,start:r.start,end:r.end})),
  ];
  marked.walkTokens(marked.lexer(text),token=>{
   if(token.type!=='link'||!token.href.startsWith('pi-outliner:'))return;
@@ -66,7 +67,7 @@ export class MentionRepository {
     const saved:StoredMessage=JSON.parse(existing.message_json);
     return{messageKey:key,deduplicated:true,references:saved.references.length,notChecked:saved.notChecked};
    }
-   const candidates=extractMentionReferences(input.text,this.store.workIdAllocatorStatus().prefix??undefined)
+   const candidates=extractMentionReferences(input.text,this.store.workIdAllocatorStatus())
     .filter(reference=>!reference.bare||!!this.store.get(reference.value));
    // Only what resolves in this outline is a mention: an identifier from another outline or a document
    // (S-87, a Work ID with another prefix, a page nobody made) is dropped here, never shown as gone. Every

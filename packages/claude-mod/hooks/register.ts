@@ -1108,8 +1108,8 @@ async function readPrefixes($: EngineInterface): Promise<void> {
       { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 },
     )
     if (status.exitCode !== 0) return
-    const { prefix, observedPrefixes } = JSON.parse(status.stdout) as { prefix?: unknown; observedPrefixes?: unknown }
-    const prefixes = [prefix, ...(Array.isArray(observedPrefixes) ? observedPrefixes : [])]
+    const { prefix, observedPrefixes, prefixesInUse } = JSON.parse(status.stdout) as { prefix?: unknown; observedPrefixes?: unknown; prefixesInUse?: unknown }
+    const prefixes = [prefix, ...(Array.isArray(observedPrefixes) ? observedPrefixes : []), ...(Array.isArray(prefixesInUse) ? prefixesInUse : [])]
       .filter((value): value is string => typeof value === 'string')
     if (references?.workspace === workspace) references = { workspace, prefixes: [...new Set(prefixes)] }
   } catch {

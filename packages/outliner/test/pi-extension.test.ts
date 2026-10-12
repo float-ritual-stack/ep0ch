@@ -480,6 +480,7 @@ test("nudges once per turn from prompt, focused block, or outliner tool text", a
         nextWorkId: "PIE-153",
         reservedCount: 40,
         observedPrefixes: ["PIE"],
+        prefixesInUse: ["PIE"],
       } as T;
     }
     throw new Error(`Unexpected request: ${input.action}`);

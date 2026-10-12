@@ -1,3 +1,4 @@
+import { ticketScope } from "./work-ids";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { FragmentCandidateCollection, FragmentCandidateQuery } from "./fragment-search";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
@@ -555,6 +556,8 @@ export interface DetailState {
   resourceProjections?: readonly ResourceProjection[];
   embedBackgroundEnabled: boolean;
   workIdPrefix: string | null;
+  /** Every prefix a ticket key may have here (the service's `ticketPrefixes`): what Detail links, with `workIdPrefix`. */
+  ticketPrefixes?: readonly string[];
   resolvedBreadcrumb: string;
   mode: DetailMode;
   buffer: TextBuffer;
@@ -1249,6 +1252,7 @@ export function createDetailController(
     state.resolvedSelectedText = resolved.text;
     state.resolvedProvenance = resolvedDocument(projection,resolved);
     state.workIdPrefix = resolved.workIdPrefix ?? null;
+    state.ticketPrefixes = resolved.ticketPrefixes ?? [];
     state.readStatus = "ready";
   };
 
@@ -1499,6 +1503,7 @@ export function createDetailController(
     state.embedRanges = [];
     state.resourceProjections = [];
     state.workIdPrefix = null;
+    state.ticketPrefixes = [];
     state.resolvedBreadcrumb = "";
     state.referencedFile = null;
     state.previewOffset = 0;
@@ -3475,7 +3480,7 @@ export function createDetailController(
           : state.context.selected && resourceEntries.length === 1
             ? resourceOccurrenceLink(state.context.selected, resourceEntries[0]!)
           : state.context.selected
-            ? firstOutlinerReference(state.projectedSelectedText, state.workIdPrefix)
+            ? firstOutlinerReference(state.projectedSelectedText, ticketScope(state.workIdPrefix, state.ticketPrefixes))
             : null;
         if (!reference) {
           state.status = "Selected block has no actionable references";

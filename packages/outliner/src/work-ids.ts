@@ -63,10 +63,26 @@ export function isTicketKey(input: string): boolean {
     Number(input.slice(input.lastIndexOf("-") + 1)) > 0;
 }
 
-export function ticketKeyReferences(text: string, configuredPrefix: string | null = null): WorkIdReference[] {
-  const prefix = configuredPrefix ? normalizeWorkIdPrefix(configuredPrefix) : null;
+/**
+ * Which prefixes make a ticket key: the configured Work-ID prefix alone (a string, or null for none), or an outline's
+ * Work-ID status (`work-ids.status`): its allocator's `prefix` and every one of its `prefixesInUse`.
+ */
+export type TicketPrefixes = string | null | { readonly prefix: string | null; readonly prefixesInUse: readonly string[] };
+
+/**
+ * The ticket keys in `text`: `LETTERS-digits` whose prefix the outline uses, the configured one only in its canonical
+ * form (`PIE-001`). Any other such token (a synth's name, `FM-1`, `TR-808`) is text, never a missing ticket.
+ */
+/** The ticket prefixes a client was told (`workIdPrefix`, `ticketPrefixes`), as `ticketKeyReferences` takes them. */
+export const ticketScope = (prefix: string | null, prefixesInUse: readonly string[] | undefined): TicketPrefixes =>
+  prefixesInUse?.length ? { prefix, prefixesInUse } : prefix;
+
+export function ticketKeyReferences(text: string, prefixes: TicketPrefixes = null): WorkIdReference[] {
+  const configured = typeof prefixes === "string" ? prefixes : prefixes?.prefix ?? null;
+  const prefix = configured ? normalizeWorkIdPrefix(configured) : null;
+  const inUse = new Set([...(prefix ? [prefix] : []), ...(prefixes && typeof prefixes === "object" ? prefixes.prefixesInUse : [])]);
   return [...text.matchAll(/(?<![\p{L}\p{N}_-])[A-Z][A-Z0-9]{0,15}-\d+(?![\p{L}\p{N}_-])/gu)]
-    .filter(match => isTicketKey(match[0]) &&
+    .filter(match => isTicketKey(match[0]) && inUse.has(match[0].slice(0, match[0].lastIndexOf("-"))) &&
       (!prefix || !match[0].startsWith(`${prefix}-`) || isCanonicalWorkId(match[0])))
     .map(match => ({ workId: match[0], start: match.index, end: match.index + match[0].length }));
 }

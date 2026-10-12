@@ -1,3 +1,4 @@
+import { type TicketPrefixes } from "./work-ids";
 import { checklistItems } from "./checklist-items";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { outlinerActionLink } from "./outliner-actions";
@@ -16,7 +17,7 @@ import type { Block, AnnotationRecord, AnnotationTarget, AnnotationThread, Block
 export interface AnnotationReaderState extends Pick<DetailState,
   "target" | "resolvedSelectedText" | "annotationThreads" | "selectedAnnotationId" | "previewRegions" | "annotationReferences"> {
   /** Work IDs in comment text link with the same prefix as the note they discuss. */
-  workIdPrefix?: string | null;
+  workIdPrefix?: TicketPrefixes;
   context: {selected: Pick<Block, "id" | "text"> | null};
   historical?:boolean;
   document: {kind: "empty" | "loading" | "failed"} | {

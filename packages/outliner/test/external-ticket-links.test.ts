@@ -13,18 +13,22 @@ import {ticketKeyReferences,workIdReferences} from '../src/work-ids';
 
 test('external keys preserve provider spelling without widening allocator recognition',()=>{
  const text='PC-7 PC-515 ABC-1234 HUB-001 HUB-7 HUB-0001 PC-0 pc-42 foo_PC-515 PC-515_bar éPC-8 PC-8é PC-9007199254740992';
- expect(ticketKeyReferences(text,'HUB').map(r=>r.workId)).toEqual(['PC-7','PC-515','ABC-1234','HUB-001']);
+ const inUse={prefix:'HUB',prefixesInUse:['ABC','HUB','PC']};
+ expect(ticketKeyReferences(text,inUse).map(r=>r.workId)).toEqual(['PC-7','PC-515','ABC-1234','HUB-001']);
  expect(workIdReferences(text,'HUB').map(r=>r.workId)).toEqual(['HUB-001']);
- expect(ticketKeyReferences('PC-7').map(r=>r.workId)).toEqual(['PC-7']);
+ // A prefix the outline doesn't use is text: a synth's name is no missing ticket.
+ expect(ticketKeyReferences(text,'HUB').map(r=>r.workId)).toEqual(['HUB-001']);
+ expect(ticketKeyReferences('the FM-1 and a TR-808 beside PIE-012',{prefix:'PIE',prefixesInUse:['PIE']}).map(r=>r.workId)).toEqual(['PIE-012']);
+ expect(ticketKeyReferences('PC-7').map(r=>r.workId)).toEqual([]);
  const uri=outlinerLinkUri('work','PC-7');
  expect(parseOutlinerLinkUri(uri)).toEqual({kind:'work',value:'PC-7'});
 });
 
 test('shared link recognition respects Markdown and property boundaries',()=>{
  const text='PC-7 `PC-8` [link](https://example.test/PC-9) [jira::PC-10] [[PC-11]]\n```\nPC-12\n```\nPC-13';
- expect(outlinerReferenceOccurrences(text,'HUB').map(r=>r.kind==='block'?r.blockId:r.address)).toEqual(['PC-7','PC-11','PC-13']);
+ expect(outlinerReferenceOccurrences(text,{prefix:'HUB',prefixesInUse:['HUB','PC']}).map(r=>r.kind==='block'?r.blockId:r.address)).toEqual(['PC-7','PC-11','PC-13']);
  const linker=createOutlinerTextLinker([],()=>false,'HUB');
- expect(getOsc8LinkAtColumn(linker.link('PC-7'),2)).toBe(outlinerLinkUri('work','PC-7'));
+ expect(getOsc8LinkAtColumn(linker.link('HUB-001'),2)).toBe(outlinerLinkUri('work','HUB-001'));
 });
 
 test('HUB outline resolves PC aliases in outlinks, backlinks, mentions and explicit navigation without mutation',async()=>{
@@ -35,7 +39,7 @@ test('HUB outline resolves PC aliases in outlinks, backlinks, mentions and expli
   const pc=store.create('Jira notes [page::PC-7]');
   const own=store.create('Own task');
   const allocated=store.allocateWorkId(own.id,own.revision);
-  const source=store.create('Compare PC-7 with HUB-001; also PC-99.');
+  const source=store.create('Compare PC-7 with HUB-001; also PC-99, but not the FM-1 on the desk.');
   const before=store.sequence;
   const links=readAuthoredLinks(store,source.id);
   if(links.kind!=='ready')throw Error(links.kind);
@@ -49,6 +53,7 @@ test('HUB outline resolves PC aliases in outlinks, backlinks, mentions and expli
   await expect(resolveOutlinerLinkTarget(requester,{kind:'work',value:'PC-99'})).rejects.toThrow('unresolved');
   expect(store.sequence).toBe(before);
   const mentions=new MentionRepository(store,root);
+  expect(store.workIdAllocatorStatus().prefixesInUse).toEqual(['HUB','PC']);
   mentions.ingest({workspaceRoot:root,agent:'test',sessionId:'session',messageId:'turn',text:'PC-7 and HUB-001; `PC-888`'});
   expect(mentions.list().entries.map(e=>e.block?.id)).toEqual([pc.id,own.id]);
   expect(store.workIdAllocatorStatus().prefix).toBe('HUB');

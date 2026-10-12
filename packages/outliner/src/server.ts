@@ -3500,9 +3500,11 @@ export class OutlinerServer {
         this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
       }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
-      // one in the Trash stops); an extension's own only moves what a trigger remembers.
-      if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")) {
-        this.extensionRules.blockChanged(event.blockId, event.change!.actor, event.change!.kind as "create" | "edit" | "move" | "restore" | "delete");
+      // one in the Trash stops); an extension's own only moves what a trigger remembers. A comment, a reply or a
+      // resolved thread (`annotate`) is a block saved like any other: a `#tag` in a comment sets a rule off as in a note.
+      const ruleKind = event.change?.kind === "annotate" ? "edit" : event.change?.kind ?? "";
+      if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(ruleKind)) {
+        this.extensionRules.blockChanged(event.blockId, event.change!.actor, ruleKind as "create" | "edit" | "move" | "restore" | "delete");
       }
     }
     return events;

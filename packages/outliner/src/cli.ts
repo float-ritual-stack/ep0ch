@@ -1283,8 +1283,11 @@ if (command === "capture") {
   const written = command === "comment" ? (result as AnnotationBatchReceipt | undefined)?.annotations?.[0]?.body
     : ["create", "new", "update"].includes(command) ? (result as { text?: string; block?: { text?: string } } | undefined)?.text ?? (result as { block?: { text?: string } } | undefined)?.block?.text
     : undefined;
+  // The block written, which a suggestion never names (its text holds the very words looked for).
+  const self = command === "comment" ? (result as AnnotationBatchReceipt | undefined)?.annotations?.[0]?.block?.id
+    : (result as { id?: string; block?: { id?: string } } | undefined)?.id ?? (result as { block?: { id?: string } } | undefined)?.block?.id;
   if (typeof written === "string" && written.includes("((")) {
     const { referenceWarningsFor } = await import("./agent-tools");
-    for (const warning of await referenceWarningsFor(client, written)) console.error(`warning: ${warning}`);
+    for (const warning of await referenceWarningsFor(client, written, undefined, self)) console.error(`warning: ${warning}`);
   }
 }

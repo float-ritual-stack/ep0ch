@@ -1767,6 +1767,7 @@ describe("Pi Markdown detail preview", () => {
     try {
       const detail = state("ABC-001 and PIE-001", "ABC-001 and PIE-001");
       detail.workIdPrefix = "ABC";
+      detail.ticketPrefixes = ["ABC", "PIE"];
       const layout = expandedPreview(detail, plainMarkdownTheme, true);
       layout.syncState();
       const line = layout.markdown.render(80).find((candidate) =>

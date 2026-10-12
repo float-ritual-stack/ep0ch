@@ -7,20 +7,21 @@ import type { SocketBoard } from "./socket";
 export type ReferenceBoard = Pick<SocketBoard, "resolveReferences" | "searchBlocks" | "get">;
 
 /** outline-core's lookups over a connection: `references.resolve`, the one search, a note's text for its anchors. */
-export function boardReferenceLookups(board: ReferenceBoard, near?: string): ReferenceLookups {
+export function boardReferenceLookups(board: ReferenceBoard, near?: string, self = near): ReferenceLookups {
   return {
     resolve: text => board.resolveReferences(text),
-    search: async query => (await board.searchBlocks(query, near ? { near } : {})).matches.slice(0, 1).map(m => ({ id: m.block.id, title: m.title })),
+    search: async query => (await board.searchBlocks(query, near ? { near } : {})).matches.slice(0, 2).map(m => ({ id: m.block.id, title: m.title })),
     text: async id => (await board.get(id))?.text ?? null,
+    ...(self ? { self } : {}),
   };
 }
 
-/** The warnings for text just saved; none when there's nothing to say or the outline can't be asked. */
-export async function savedReferenceWarnings(board: ReferenceBoard, text: string, near?: string): Promise<ReferenceWarning[]> {
-  try { return await referenceWarnings(text, boardReferenceLookups(board, near)); } catch { return []; }
+/** The warnings for text just saved (`self`, the block it was saved as: never a suggestion); none when there's nothing to say or the outline can't be asked. */
+export async function savedReferenceWarnings(board: ReferenceBoard, text: string, near?: string, self = near): Promise<ReferenceWarning[]> {
+  try { return await referenceWarnings(text, boardReferenceLookups(board, near, self)); } catch { return []; }
 }
 
 /** The same, said in one line ("" when there's nothing to say). */
-export async function savedReferenceWarning(board: ReferenceBoard, text: string, near?: string): Promise<string> {
-  return describeReferenceWarnings(await savedReferenceWarnings(board, text, near));
+export async function savedReferenceWarning(board: ReferenceBoard, text: string, near?: string, self = near): Promise<string> {
+  return describeReferenceWarnings(await savedReferenceWarnings(board, text, near, self));
 }

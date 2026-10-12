@@ -507,7 +507,7 @@ test("a bad or unresolved reference never blocks a save: edit, create, comment, 
   expect(edit.json.warnings).toEqual([
     `((${target.id}^a1)) points at ^a1, which “Meeting notes, for real” doesn't have · did you mean ((${target.id}^a10)) “Meeting notes, for real”?`,
     `((${target.id} and isn't closed with )) · did you mean ((${target.id})) “Meeting notes, for real”?`,
-    `((Meeting notes)) isn't a reference (a note's id goes inside (( )) · did you mean ((${target.id})) “Meeting notes, for real”?`,
+    "((Meeting notes)) reads as text, not a reference (a reference holds a note's id: ((id)))",
   ]);
 
   const created = await agent("create", { parent: "root", text: `A new note with ((${target.id}` });

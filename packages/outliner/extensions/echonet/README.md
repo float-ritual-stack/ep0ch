@@ -45,6 +45,12 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
   `[from-rule-name::…]` and so on: a copy never runs as a rule here. An original kept off the web
   (`[publish::never]`) makes a copy kept off it too, and one kept off after it was copied makes the copy kept off at
   the next toss; a copy kept off here stays off when it takes the newer text.
+- **A comment can be a message.** A comment or question whose tags put it in an area (a lane's
+  `[query::#pie-request]` lists comments as well as notes) is copied as a note, never as a mark with no passage: its
+  heading says what it's on and links the note there (`Comment on “Mulch is thin” in [The north bed](ep0ch://…)`), its
+  store keys read `[from-type::annotation]`, `[from-annotation-status::open]`, and its replies are copied under it, its
+  thread. A comment on that copy goes back as a reply in the original's thread. A note's own marks are never copied
+  with it: they travel as netmail and seen-by.
 - **Copies never post.** A note with a `from` in that shape is never a message, whatever its tags, so two nodes that
   read each other never bounce a copy; a mark that came over the network (`netmail-from`) never goes out again. The
   loop guard holds across any number of nodes.

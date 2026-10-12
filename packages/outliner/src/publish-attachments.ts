@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, isAbsolute, relative, sep } from "node:path";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
@@ -103,7 +103,7 @@ export function canonicalPublishRoots(
   return { roots: canonical, problems };
 }
 
-function refuse(refusal: AttachmentRefusal, reason: string): AttachmentCheck {
+function refuse(refusal: AttachmentRefusal, reason: string): { ok: false; refusal: AttachmentRefusal; reason: string } {
   return { ok: false, refusal, reason };
 }
 
@@ -123,6 +123,54 @@ function inside(root: string, path: string): string | null {
  * size cap; and a servable type. It reads no content.
  */
 export function checkAttachment(sourcePath: string, policy: AttachmentPolicy): AttachmentCheck {
+  return checkServable(sourcePath, policy, Math.min(policy.maxBytes, MAX_TEXT_FILE_BYTES), (extension) => PUBLISHED_FILE_TYPES[extension]);
+}
+
+/** The image types a published page shows (a media line's `[img::path]`), each with the type it is served as. */
+export const PUBLISHED_IMAGE_TYPES: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".svg": "image/svg+xml",
+};
+
+/** An image is larger than a text attachment can be: a screenshot or a photo. */
+export const MAX_PUBLISHED_IMAGE_BYTES = 20 * 1024 * 1024;
+
+export type ImageCheck =
+  | { ok: true; path: string; mime: string; size: number; mtimeNs: string; updatedAt: string; dev: bigint; ino: bigint }
+  | { ok: false; refusal: AttachmentRefusal; reason: string };
+
+/** Whether a media line's image may be served: the attachment rules (roots, no `..`, nothing hidden), image types only. */
+export function checkImage(sourcePath: string, policy: AttachmentPolicy): ImageCheck {
+  const check = checkServable(sourcePath, policy, MAX_PUBLISHED_IMAGE_BYTES, (extension) => PUBLISHED_IMAGE_TYPES[extension]);
+  return check.ok ? { ok: true, path: check.path, mime: check.type, size: check.size, mtimeNs: check.mtimeNs, updatedAt: check.updatedAt, dev: check.dev, ino: check.ino } : check;
+}
+
+/**
+ * The bytes of an image `checkImage` allowed, or null: read from one open file that is the very file checked (its
+ * device and inode), so a link swapped in after the check, here or in a folder above it, is never followed out.
+ */
+export function readCheckedImage(check: Extract<ImageCheck, { ok: true }>): Buffer | null {
+  let fd: number | undefined;
+  try {
+    fd = openSync(check.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || opened.dev !== check.dev || opened.ino !== check.ino || opened.size > BigInt(MAX_PUBLISHED_IMAGE_BYTES)) return null;
+    return readFileSync(fd);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: number, typeOf: (extension: string) => T | undefined):
+  | { ok: true; path: string; type: T; size: number; mtimeNs: string; updatedAt: string; dev: bigint; ino: bigint }
+  | { ok: false; refusal: AttachmentRefusal; reason: string } {
   if (policy.remoteService) return refuse("remote-service", "The service runs on another machine");
   if (!policy.roots.length) return refuse("no-roots", "No publish roots are configured");
   if (sourcePath.includes("\0")) return refuse("parent-segment", "Attachment path contains a NUL byte");
@@ -160,10 +208,9 @@ export function checkAttachment(sourcePath: string, policy: AttachmentPolicy): A
     return refuse("missing", "Attachment does not exist");
   }
   if (!stat.isFile()) return refuse("not-a-file", "Attachment is not a regular file");
-  const cap = Math.min(policy.maxBytes, MAX_TEXT_FILE_BYTES);
   if (stat.size > BigInt(cap)) return refuse("too-large", `Attachment exceeds ${cap} bytes`);
-  const type = PUBLISHED_FILE_TYPES[extname(real).toLowerCase()];
-  if (!type) return refuse("unsupported-type", `Attachment type ${extname(real) || "(none)"} is not served`);
+  const type = typeOf(extname(real).toLowerCase());
+  if (type === undefined) return refuse("unsupported-type", `Attachment type ${extname(real) || "(none)"} is not served`);
   return {
     ok: true,
     path: real,
@@ -171,5 +218,7 @@ export function checkAttachment(sourcePath: string, policy: AttachmentPolicy): A
     size: Number(stat.size),
     mtimeNs: stat.mtimeNs.toString(),
     updatedAt: new Date(Number(stat.mtimeMs)).toISOString(),
+    dev: stat.dev,
+    ino: stat.ino,
   };
 }

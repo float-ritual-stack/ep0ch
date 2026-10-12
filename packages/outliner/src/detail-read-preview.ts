@@ -1,3 +1,4 @@
+import { ticketScope } from "./work-ids";
 import type { OutlinerRequester } from "./client-target";
 import { projectDetailRead } from "./detail-embeds";
 import type { DetailReadPreviewDocument, DetailDraftProjection } from "./detail-pi-preview";
@@ -43,5 +44,5 @@ export async function loadDetailReadPreview(
   const provenance = sliceDocument(resolvedDocument(sliceDocument(projection.provenance, 0, projectedText.length), resolved), 0, resolvedText.length);
   return { ...(fragment ? {sourceSlice:{block,startLine:fragment.startLine,endLine:fragment.endLine}}
       : {sourceBlock:{id:block.id,revision:block.revision,text:block.text}}), canonicalText, resolvedText, projectedText, provenance, truncated,
-    embedRanges: projection.embedRanges, workIdPrefix: resolved.workIdPrefix ?? null };
+    embedRanges: projection.embedRanges, workIdPrefix: ticketScope(resolved.workIdPrefix ?? null, resolved.ticketPrefixes) };
 }

@@ -12,7 +12,7 @@ import {
   type PropertyReferenceOccurrence,
 } from "./reference-occurrences";
 import { blockDisplayTitle } from "./references";
-import { workIdReferences } from "./work-ids";
+import { workIdReferences, type TicketPrefixes } from "./work-ids";
 import type {
   BacklinkCollection,
   BacklinkOccurrence,
@@ -34,6 +34,8 @@ export interface BacklinkRelationInput {
   blocksById: ReadonlyMap<string, Block>;
   addressTargets: ReadonlyMap<string, string>;
   workIdPrefix: string | null;
+  /** The prefixes a ticket key may have here (`work-ids.status`); the configured one alone when left out. */
+  ticketPrefixes?: TicketPrefixes;
   facetRules?: BacklinkFacetRules;
 }
 
@@ -192,10 +194,11 @@ function sourceOccurrences(
   source: Block,
   addressTargets: ReadonlyMap<string, string>,
   workIdPrefix: string | null,
+  ticketPrefixes: TicketPrefixes = workIdPrefix,
 ): (BacklinkRelationOccurrence & { target: string | undefined })[] {
   const propertyRecords = parsePropertyRecords(source.text);
   return [
-    ...outlinerReferenceOccurrences(source.text, workIdPrefix, propertyRecords),
+    ...outlinerReferenceOccurrences(source.text, ticketPrefixes, propertyRecords),
     ...propertyReferenceOccurrences(source.text, propertyRecords),
   ]
     .sort((left, right) => left.start - right.start)
@@ -213,7 +216,7 @@ export function backlinkSourceIds(
   const out = new Map<string, string[]>([...targets].map((id) => [id, []]));
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId) continue;
-    const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix).map((o) => o.target));
+    const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes).map((o) => o.target));
     for (const target of linked) if (target && targets.has(target)) out.get(target)!.push(source.id);
   }
   return out;
@@ -225,11 +228,11 @@ export function backlinkSourceIds(
  * isn't a block it links to.
  */
 export function linkTargetIds(
-  input: Pick<BacklinkRelationInput, "blocksById" | "addressTargets" | "workIdPrefix">,
+  input: Pick<BacklinkRelationInput, "blocksById" | "addressTargets" | "workIdPrefix" | "ticketPrefixes">,
   source: Block,
 ): Set<string> {
   const out = new Set<string>();
-  for (const { target } of sourceOccurrences(source, input.addressTargets, input.workIdPrefix)) {
+  for (const { target } of sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)) {
     const block = target ? input.blocksById.get(target) : undefined;
     if (block && !block.effectiveDeletedRootId) out.add(block.id);
   }
@@ -245,7 +248,7 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
   const matches: BacklinkSource[] = [];
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
-    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix)
+    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)
       .filter((occurrence) => occurrence.target === input.target.id);
     if (occurrences.length === 0) continue;
     matches.push(backlinkSource(

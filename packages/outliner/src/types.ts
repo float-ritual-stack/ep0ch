@@ -1283,6 +1283,11 @@ export interface WorkIdAllocatorStatus {
   nextWorkId: string | null;
   reservedCount: number;
   observedPrefixes: string[];
+  /**
+   * Every prefix a ticket key may have to be one in this outline: the allocator's, the reserved ids', the
+   * `[work-id::]` values notes carry and the ticket pages' keys. Any other `LETTERS-digits` token is plain text.
+   */
+  prefixesInUse: string[];
 }
 
 
@@ -1846,6 +1851,8 @@ export interface ResolvedBlockReferences {
   text: string;
   references: BlockReferenceResolution[];
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 /** `outlines.pane`: the outline and client a live pane is registered on; empty when none is. */
@@ -2591,6 +2598,8 @@ export interface WorkspaceSnapshot {
   virtualOccurrenceRanks: VirtualOccurrenceRank[];
   sequence: number;
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 export interface TreeIndexSnapshot {
@@ -2604,6 +2613,8 @@ export interface TreeIndexSnapshot {
   virtualOccurrenceRanks: VirtualOccurrenceRank[];
   sequence: number;
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 export type OutlinerUiCommand = (

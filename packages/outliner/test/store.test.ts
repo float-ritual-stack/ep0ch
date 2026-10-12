@@ -1610,6 +1610,7 @@ Second paragraph`;
       nextWorkId: null,
       reservedCount: 0,
       observedPrefixes: [],
+      prefixesInUse: [],
     });
     expect(() => store.allocateWorkId(first.id, first.revision)).toThrow(
       "Configure the project Work-ID prefix",
@@ -1651,6 +1652,7 @@ Second paragraph`;
       nextWorkId: "PIE-004",
       reservedCount: 3,
       observedPrefixes: ["PIE"],
+      prefixesInUse: ["PIE"],
     });
   });
 

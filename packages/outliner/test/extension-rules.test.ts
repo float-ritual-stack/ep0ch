@@ -365,6 +365,24 @@ test("rule-from: a rule note hears an extension's arrivals when it names it, nev
   expect((await list()).rules.find((rule) => rule.name === "arrivals")).toMatchObject({ on: { start: "seen/note", from: ["user", "ext:relay"] }, ranToday: 2 });
 });
 
+test("a #tag in a comment counts as one in a note: a view lists the comment and a rule-match on the tag sets off for it", async () => {
+  const { create, store, client, extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);
+  await until("seen", async () => (await list(true)).extensions.some((extension) => extension.id === "seen"));
+  await create("Asks [rule-name::asks] [rule-match::#garden-ask] [rule-on::seen/note]");
+  await until("the rule", async () => (await list()).rules.find((rule) => rule.name === "asks"));
+  const lane = await create("Garden asks [type::virtual-branch] [query::#garden-ask]");
+  const bed = await create("The north bed");
+  const receipt = await client.request<{ annotations: { block: Block }[] }>({ action: "annotations.batch", requestId: crypto.randomUUID(), operations: [
+    { operationId: "ask", type: "block-comment", input: { blockId: bed.id, expectedRevision: bed.revision, body: "#garden-ask more mulch here", source: "user" } }] });
+  const comment = receipt.annotations[0]!.block;
+  expect(store.readSavedView(lane.id).blocks.map((block) => block.id)).toEqual([comment.id]);
+  // The rule note's own `#garden-ask` (a property's value) is no tag on it.
+  expect(store.queryBlocks({ where: "#garden-ask" }).blocks.map((block) => block.id)).toEqual([comment.id]);
+  await until("the comment seen", () => store.children(comment.id).length === 1);
+  expect(store.children(comment.id).map((child) => child.text)).toEqual(["seen by asks in a batch of 1 [via-trigger::asks]"]);
+});
+
 test("guards: a batch gathers a burst into one call, a daily cap stops the rest, and skip leaves handled blocks alone", async () => {
   const { create, store, extensionsFolder, list, root } = await setup();
   writeExtension(extensionsFolder, "seen", { run: ["bun", "main.ts"], actions: [{ id: "note", label: "Note it", on: "block", effects: "write" }] }, SEEN);

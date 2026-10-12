@@ -3,6 +3,8 @@ import type { ResourceProjection, ResourceProjectionReadResult } from "./resourc
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
 import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
+import { drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
+import { MEDIA_ATTRS } from "@ep0ch/outline-core/media-line";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
@@ -19,6 +21,8 @@ import { getProperty, parsePropertyRecords, stripPropertyTokens } from "./proper
 import {
   canonicalPublishRoots,
   checkAttachment,
+  checkImage,
+  readCheckedImage,
   type AttachmentPolicy,
   type PublishedFileType,
 } from "./publish-attachments";
@@ -380,7 +384,7 @@ th{color:var(--dim);font-weight:normal}
 img{max-width:100%}
 input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
 input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
-${CALLOUT_STYLE}${COMPONENT_STYLE}${FIGURE_STYLE}${MARGINALIA_STYLE}`;
+${CALLOUT_STYLE}${COMPONENT_STYLE}${FIGURE_STYLE}${MARGINALIA_STYLE}${MEDIA_STYLE}`;
 
 /**
  * A tailnet page (PIE-782): phone first, a reading measure, targets a thumb can hit, and dark throughout. Evan is
@@ -1059,6 +1063,8 @@ export class Publisher {
       if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
+      const media = MEDIA_PATH.exec(path);
+      if (media) return await this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), audience);
       let slug: string;
       try {
         slug = decodeURIComponent(path.slice(3)).replace(/\/+$/, "");
@@ -1097,6 +1103,8 @@ export class Publisher {
     };
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    const media = MEDIA_PATH.exec(rest);
+    if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share);
     const index = await this.shareIndex(share);
     const url = new URL(request.url);
     const view = url.searchParams.get("view");
@@ -1571,6 +1579,49 @@ export class Publisher {
     return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav);
   }
 
+  /**
+   * The image line `line` of note `blockId` names (`/p/<id>/media/<line>`), when a page here shows that note: not locked;
+   * inside a share's scope; on the public listener, under a note that is public now with nothing between them left out.
+   * The path is the note's, read again now, and checked as an attachment is (the publish roots, nothing hidden, image
+   * types only); the URL never carries one.
+   */
+  private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare): Promise<Response> {
+    const policy = this.requirePolicy();
+    if (policy.remoteService) return notFound();
+    if ((await this.lockedIds([blockId])).size) return notFound();
+    if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
+    if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
+    const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
+    const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
+    if (!spec || spec.kind !== "img") return notFound();
+    const check = checkImage(spec.path, policy);
+    if (!check.ok) return notFound();
+    const bytes = readCheckedImage(check);
+    if (!bytes) return notFound();
+    return new Response(request.method === "HEAD" ? null : new Uint8Array(bytes), {
+      headers: {
+        ...COMMON_HEADERS, "content-type": check.mime, "content-length": String(bytes.length), "cache-control": "private, max-age=300",
+        // An SVG opened on its own runs nothing.
+        ...(check.mime === "image/svg+xml" ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
+      },
+    });
+  }
+
+  /** Whether a public page shows `blockId`: it is a public note now, or under one with nothing between them left out. */
+  private async reachedFromPublic(blockId: string): Promise<boolean> {
+    const pages = new Set(audienceIndex(await this.readIndex(), "public").entries.map((entry) => entry.blockId));
+    let at: string | null = blockId;
+    for (let depth = 0; at && depth <= LOCK_WALK_LIMIT; depth++) {
+      if (pages.has(at)) return this.stillPublic(at);
+      const block: BlockReadCollection["blocks"][number] | undefined = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [at], fields: ["parent", "properties"] })).blocks[0];
+      if (!block) return false;
+      const intent = blockPublishIntent(block.properties ?? []);
+      if (intent === "off" || intent === "never") return false;
+      at = block.parentId ?? null;
+    }
+    return false;
+  }
+
   /** Whether the block still says `[publish::public…]` now, not just when the index was built. */
   private async stillPublic(blockId: string): Promise<boolean> {
     return (await this.publicNow([blockId])).has(blockId);
@@ -1837,6 +1888,11 @@ export class Publisher {
       drawn = await drawNoteComponents(host, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, { id: entry.blockId, title: entry.title });
       if (embeds) embeds.views = await this.embeddedViews(host, embeds, components);
     }
+    // Its images: served from this page's address when the file may leave the machine, else their words.
+    const policy = this.policy;
+    drawNoteMedia(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), options.format ?? "html", components, drawn,
+      (blockId, line, spec) => !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
+      { id: entry.blockId, title: entry.title });
     // A tailnet page knows where each block is (publish-anchors.ts); Markdown and public pages carry nothing extra.
     const anchors: string[] = [];
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined, drawn);
@@ -2080,6 +2136,12 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const match = matches[at]!;
     body = body.slice(0, match.index) + `\u0000${at}\u0000` + body.slice(match.index + match[0].length);
   }
+  // A media line no component drew (in an embed, or past a page's limit) is its alt text and its file's name, never an
+  // empty bullet and never its path.
+  if (!options.keepProperties) {
+    const media = noteMediaLines(body);
+    if (media.size) body = body.split("\n").map((line, at) => { const spec = media.get(at); return spec ? line.replace(/^(\s*(?:[-*]\s+)?).*$/, `$1${mediaMarkdown(spec, null)}`) : line; }).join("\n");
+  }
   // A `[file::path]` is a file on the note: shown by its name, never its path, and a link when the note it belongs to is
   // published as that file. (Taken out before the property tokens go, which would drop it without a word.)
   const files: string[] = [];
@@ -2222,13 +2284,18 @@ function metaValue(value: string, links: ReadonlyMap<string, LinkedNote>): strin
 function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined, links: ReadonlyMap<string, LinkedNote>): string {
   if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
   // `data-block`: the page's script finds the row by its note (ep0ch.view(), ep0ch.reveal()).
-  const title = noteTitle(serviceTitle) || "untitled";
+  // A note that is an image line names its picture by its alt text or its file's name, never its path.
+  const image = noteMediaLines(child.text.split("\n")[0] ?? "").get(0);
+  const title = image ? `${image.kind === "video" ? "video" : "image"}: ${image.alt || fileName(image.path)}` : noteTitle(serviceTitle) || "untitled";
   const summary = summaryLine(child.text, links);
-  const properties = rowProperties(child).map((property) => `${escapeHtml(property.key)}: ${metaValue(property.value, links)}`);
+  const properties = rowProperties(child).filter((property) => !image || !MEDIA_KEYS.has(property.key.toLowerCase())).map((property) => `${escapeHtml(property.key)}: ${metaValue(property.value, links)}`);
   const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", escapeHtml(child.updatedAt.slice(0, 10)), ...properties].filter(Boolean).join(" · ");
   return `<li data-block="${escapeHtml(child.id)}"><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
     `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}</a><span class="m">${meta}</span></li>`;
 }
+
+/** The keys of a media line, which a folder row of an image note doesn't list as its properties. */
+const MEDIA_KEYS = new Set<string>(["img", "image", "video", ...MEDIA_ATTRS]);
 
 /** At most this many blocks of one page are asked for their decorations. */
 const MAX_DECORATED_BLOCKS = 200;

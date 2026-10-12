@@ -1,3 +1,4 @@
+import { ticketScope } from "./work-ids";
 import type {DetailReadPreviewDocument} from './detail-pi-preview';
 import {getMarkdownTheme} from "@earendil-works/pi-coding-agent";
 import {renderDetailReadPreview} from "./detail-pi-preview";
@@ -321,7 +322,7 @@ export function buildDetailAnsiPreview(
       canonicalText: state.context.selected!.text,
       sourceBlock: state.context.selected!, resolvedText: state.resolvedSelectedText,
       projectedText: state.projectedSelectedText, embedRanges: state.embedRanges,
-      workIdPrefix: state.workIdPrefix, previewRegions,
+      workIdPrefix: ticketScope(state.workIdPrefix, state.ticketPrefixes), previewRegions,
     };
     let document=ansiReadDocuments.get(state.context.selected);
     if(document)Object.assign(document,current);

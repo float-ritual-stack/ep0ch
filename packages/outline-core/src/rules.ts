@@ -358,7 +358,8 @@ const blockRef = (raw: string) => /^\(\(([0-9a-f-]{36})(?:\|[^)]*)?\)\)$/i.exec(
 
 /**
  * The rules an outline's notes declare. A note with `[rule-name::name]` declares one; on the same note:
- * - what it matches: `[rule-match::type=meeting]` (a query), `[rule-view::((id))]`, `[rule-under::((id))]`,
+ * - what it matches: `[rule-match::type=meeting]` (a query, a tag too: `[rule-match::#pie-request]`; a comment or a
+ *   reply is matched like a note), `[rule-view::((id))]`, `[rule-under::((id))]`,
  *   `[rule-text::!!(.+)!!]` (a pattern; `]` written `\x5d`), `[rule-kind::heading:1]`; at least one of match, view,
  *   text or kind;
  * - what it draws: `[rule-decorate::band]` (band, card, badge, text, box, divider), `[rule-place::replace]` (above,
