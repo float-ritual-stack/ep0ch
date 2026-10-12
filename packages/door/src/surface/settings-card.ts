@@ -64,7 +64,8 @@ const BUILT_IN_WRITERS = ["user", "agent"];
 export async function querySuggestions(typed: string, src: SettingSources): Promise<BarSuggestion[]> {
   const m = /^(.*?)(\S*)$/s.exec(typed)!;
   const before = m[1]!, token = m[2]!;
-  const rel = /^((?:NOT\s*)?(?:child(?:>=\d+)?:)?)(.*)$/i.exec(token)!;
+  // NOT, AND and OR are words of their own (kept in `before`); a clause may open a group and be a child's.
+  const rel = /^(\(*(?:child(?:>=\d+)?:)?)(.*)$/i.exec(token)!;
   const lead = rel[1]!, clause = rel[2]!;
   const eq = clause.indexOf("=");
   const rows = eq >= 0

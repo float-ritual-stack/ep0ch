@@ -2635,6 +2635,20 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (const c of "type=bay-job AND status=t") ch(c);
     await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    // Changed elsewhere while the person chose: their answer is refused, never written over the change.
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{title}" }, as: "test-agent" });
+    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
+    press({ kind: "enter" });
+    await Bun.sleep(500);
+    expect(await text()).toContain("[rule-match::type=bay-job]");
+    expect(await text()).toContain("[rule-label::{title}]");
+    // Asked again, on the note as it is now: written.
+    if (app.bar && !app.bar.ended()) press({ kind: "esc" });
+    await until(() => !app.bar || app.bar.ended(), "the bar put away", 3000);
+    press({ kind: "enter" });
+    await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "asked again", 5000);
+    for (const c of "type=bay-job AND status=t") ch(c);
+    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause again", 5000);
     while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
     press({ kind: "enter" });
     for (let i = 0; i < 80 && !(await text()).includes("[rule-match::type=bay-job AND status=todo]"); i++) await Bun.sleep(50);

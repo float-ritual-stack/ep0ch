@@ -1870,6 +1870,8 @@ export class NoteSurface {
     const no = agentRefusal(actor, { board: host.ctx.board, blockId: m.id });
     if (no) throw new ActionRefused(no);
     const t = await host.ctx.board.propertyTokens(m.id, key);
+    // Written at the revision the card (or the question) was read at: a change made meanwhile is never written over.
+    if (m.revision === undefined || t.revision !== m.revision) throw new EditConflict(m.id, "changed since the settings were read");
     const own = t.tokens.filter(x => x.scope === "block");
     const operations = value === null ? own.map(x => ({ op: "remove" as const, ordinal: x.ordinal }))
       : own.length ? [{ op: "replace" as const, ordinal: own[0]!.ordinal, value }] : [{ op: "append" as const, key, value }];
@@ -7011,10 +7013,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     menu: noteRow("settings", ",", { now: ({ surface }) => (!surface.msg || surface.msg.partial || !surface.settingsSchemaOf(surface.msg) ? { hide: true } : null) }),
     args: {},
     async run(_, { surface, host }, actor) {
+      const typing = () => { if (surface.panel?.field) throw new ActionRefused(`a property value (${surface.panel.field.row.key}) is being typed here · enter saves it, esc cancels, then , opens the settings`); };
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      typing();
       const m = await surface.whole();
       await tokensFor(m.text, surface.src);
       if (surface.src) await componentsReady(surface.src);
+      typing();
       // The card holds the reader's keys: an agent reads the fields in its reply and leaves the reader be.
       const card = actor.kind === "user" ? surface.openSettings(m) : null;
       const schema = card?.schema ?? surface.settingsSchemaOf(m);
@@ -7048,7 +7053,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const to = settingValue(field, answer);
         const why = settingProblem(field, to);
         if (why) throw new ActionRefused(why);
-        if (to === field.value) return { saved: false, unchanged: true, key: field.prop.key, revision: m.revision };
+        if (to === field.value) {
+          // Unchanged only if the note still is as it was read (it may have moved on while the person chose).
+          const now = await host.ctx.board.get(m.id);
+          if (now?.revision !== m.revision) throw new ActionRefused("the note changed elsewhere since its settings were read · not saved; open them again (settings)");
+          return { saved: false, unchanged: true, key: field.prop.key, revision: m.revision };
+        }
         let saved: Msg;
         try { saved = await surface.writeSetting(m, field.prop.key, to, host, actor); } catch (e) {
           throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its settings were read · not saved; open them again (settings)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);

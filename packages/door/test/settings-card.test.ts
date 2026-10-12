@@ -43,6 +43,11 @@ describe("the settings card", () => {
     expect((await querySuggestions("type=re", src)).map(s => s.value)).toEqual(["type=request"]);
     expect((await querySuggestions("type=request AND tri", src)).map(s => s.value)).toEqual(["type=request AND triage=done"]);
     expect((await querySuggestions("type=request OR child:tri", src)).map(s => s.value)).toEqual(["type=request OR child:triage=done"]);
+    // A key that starts with "not" is a key, never a NOT; a real NOT is a word of its own.
+    const notes = { ...src, catalog: async (key: string | undefined, prefix: string) => [{ key: "notice", value: "posted", count: 1 }].filter(r => (key ? r.key === key && r.value.startsWith(prefix) : r.key.startsWith(prefix))) };
+    expect((await querySuggestions("noti", notes)).map(s => s.value)).toEqual(["notice=posted"]);
+    expect((await querySuggestions("type=request AND NOT noti", notes)).map(s => s.value)).toEqual(["type=request AND NOT notice=posted"]);
+    expect((await querySuggestions("(notice=po", notes)).map(s => s.value)).toEqual(["(notice=posted"]);
     expect(listSuggestions("user, ", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, agent", "user, ext:echonet"]);
     expect(listSuggestions("user, ext:", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, ext:echonet"]);
   });
