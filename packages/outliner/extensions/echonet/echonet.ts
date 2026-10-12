@@ -431,8 +431,8 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
   for (const copy of (await mine<Block[]>({ action: "children", parentId: board.id })).filter(isCopy)) {
     const id = fromOf(copy)!.match(FROM)![2]!;
     if (messages.has(id) || prop(copy, "upstream-gone") !== undefined) continue;
-    const original = await link.call<Block>({ action: "get", blockId: id }).catch(() => undefined);
-    if (!original || trashed(original)) {
+    // Gone only when the node says so: a request that failed on the way says nothing.
+    if ((await originalOf(link, id)) === null) {
       await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-gone", day));
       gone += 1;
     }

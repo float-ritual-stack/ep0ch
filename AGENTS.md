@@ -3,7 +3,7 @@
 Rules for any agent working in this repository. [CONTRIBUTING.md](CONTRIBUTING.md) has the verification
 steps and the review checklist. The `ep0ch-core` skill ([packages/door/skills/ep0ch-core](packages/door/skills/ep0ch-core/SKILL.md))
 is the short map across the packages, with the real-pane test recipe; `ep0ch-outline` is for working in an
-outline for someone, and `ep0ch` for driving a door. `ep0ch --skill` lists them with the outliner's
+outline for someone, `ep0ch` for driving a door, and `echonet` for carrying notes between outlines. `ep0ch --skill` lists them with the outliner's
 `pi-extension/skills/`.
 
 ## The repository
