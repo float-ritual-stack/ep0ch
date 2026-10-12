@@ -393,15 +393,20 @@ export class EchoMessages implements Pane {
 
   /** List `a`'s messages (the one lit stays lit; first shown, the first new one). */
   async showArea(a: Area, net: EchoAreas, desk: DeskApi) {
-    const same = this.area?.key === a.key, was = same ? this.items?.[this.at]?.msg.id : undefined;
+    const same = this.area?.key === a.key;
+    // An answer for a list asked before this one is let go, whatever this one turns out to be.
+    const ask = ++this.asked;
     this.net = net;
     this.area = a;
     if (!same) { this.items = null; this.at = -1; this.view.reset(); }
     if (a.problem) { this.items = []; this.problem = a.problem; desk.redraw(); return; }
-    const b = net.boardOf(a), ask = ++this.asked;
+    const b = net.boardOf(a);
+    let was: string | undefined;
     try {
       const [all, fresh] = await Promise.all([messagesOf(b, a), messagesOf(b, a, true)]);
       if (ask !== this.asked) return;
+      // The message lit when the answer came, not when it was asked: the person may have moved meanwhile.
+      was = same ? this.items?.[this.at]?.msg.id : undefined;
       const unread = new Set(fresh.map(m => m.id));
       this.items = inArrivalOrder(all).map((msg, i) => ({ msg, n: i + 1, fresh: unread.has(msg.id) }));
       this.problem = "";
