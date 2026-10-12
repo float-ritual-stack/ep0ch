@@ -1,3 +1,4 @@
+import { ticketScope, type TicketPrefixes } from "./work-ids";
 import {resourceDocumentObservation} from './document-resources';
 import {passageDocumentRepresentation} from './annotation-passages';
 import {createTextQuoteAnchor} from './annotations';
@@ -100,7 +101,7 @@ export interface DetailReadPreviewDocument {
   resolvedText: string;
   projectedText: string;
   embedRanges: DetailState["embedRanges"];
-  workIdPrefix: string | null;
+  workIdPrefix: TicketPrefixes;
 }
 
 function embedSourceLines(text: string): number[] {
@@ -367,7 +368,7 @@ function renderPreviewDocument(
   source: MappedDocument,
   rawText: string,
   linksEnabled: boolean,
-  workIdPrefix: string | null,
+  workIdPrefix: TicketPrefixes,
   resourceLinks: ReadonlyMap<number, string> = new Map(),
 ): MappedDocument {
   // Sanitize authored input before adding trusted navigation syntax.
@@ -578,7 +579,7 @@ function escapeGeneratedLinkLabel(value: string): string {
 export function annotationCommentMarkdown(
   body: string,
   resolvedBody: string | undefined,
-  workIdPrefix: string | null,
+  workIdPrefix: TicketPrefixes,
   linksEnabled: boolean,
 ): string[] {
   const raw = sanitizeMarkdownDocument(body);
@@ -922,7 +923,7 @@ function annotationBorder(text: string): string {
 
 interface CommentLinking {
   references: ReadonlyMap<string, string> | undefined;
-  workIdPrefix: string | null;
+  workIdPrefix: TicketPrefixes;
   linksEnabled: boolean;
   /** Mark each link occurrence so a wrapped link measures as one keyboard stop. */
   trackLinks?: boolean;
@@ -1387,6 +1388,7 @@ export class DetailPiPreviewLayout extends VStack {
   private renderedRawText: string | undefined;
   private renderedReferencesReady: boolean | undefined;
   private renderedWorkIdPrefix: string | null | undefined;
+  private renderedTicketPrefixes: readonly string[] | undefined;
   private renderedInspectorDocument: string | undefined;
   private renderedInspectorWidth: number | undefined;
   private renderedEmbedPresentation: string | undefined;
@@ -1919,6 +1921,7 @@ export class DetailPiPreviewLayout extends VStack {
       rawText !== this.renderedRawText ||
       referencesReady !== this.renderedReferencesReady ||
       workIdPrefix !== this.renderedWorkIdPrefix ||
+      this.state.ticketPrefixes !== this.renderedTicketPrefixes ||
       embedPresentation !== this.renderedEmbedPresentation ||
       this.draftProjectionError !== this.renderedDraftProjectionError;
     if (sourceChanged || calloutSourceChanged) {
@@ -1929,16 +1932,18 @@ export class DetailPiPreviewLayout extends VStack {
       this.renderedRawText = rawText;
       this.renderedReferencesReady = referencesReady;
       this.renderedWorkIdPrefix = workIdPrefix;
+      this.renderedTicketPrefixes = this.state.ticketPrefixes;
+      const tickets = ticketScope(workIdPrefix, this.state.ticketPrefixes);
       this.renderedEmbedPresentation = embedPresentation;
       this.renderedDraftProjectionError = this.draftProjectionError;
       const document = !selected
-        ? renderPreviewDocument(documentSource, sourceText, true, workIdPrefix)
+        ? renderPreviewDocument(documentSource, sourceText, true, tickets)
         : referencesReady
         ? renderPreviewDocument(
             documentSource,
             rawText,
             true,
-            workIdPrefix,
+            tickets,
             draftText === null
               ? resourceOccurrenceLinks(selected, rawText, renderedLineForAuthoredLine)
               : new Map(),

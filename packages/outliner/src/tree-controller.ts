@@ -1,3 +1,4 @@
+import { ticketScope } from "./work-ids";
 import {TreeComments} from "./tree-comments";
 import {TreeBranchFilter} from "./tree-branch-filter";
 import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ChromeLevel, type PaneBarButton, type PaneBarState, type ReaderMenu} from "./reader-chrome";
@@ -162,6 +163,7 @@ export interface TreeView {
   readonly physicalRowCount: number;
   readonly occurrenceRowCount: number;
   readonly workIdPrefix: string | null;
+  readonly ticketPrefixes?: readonly string[];
   readonly visibleCompleteness: BlockCollectionCompleteness;
   readonly branchStates: ReadonlyMap<string, VirtualBranchState>;
   readonly workspaceContextBlockId: string | null;
@@ -401,6 +403,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let physicalRowCount = 0;
   let occurrenceRowCount = 0;
   let workIdPrefix: string | null = null;
+  let ticketPrefixes: readonly string[] = [];
   let visibleCompleteness: BlockCollectionCompleteness = { kind: "complete" };
   let branchStates = new Map<string, VirtualBranchState>();
   const collapsedBlockIds = new Set<string>();
@@ -757,6 +760,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       physicalRowCount,
       occurrenceRowCount,
       workIdPrefix,
+      ticketPrefixes,
       visibleCompleteness,
       workspaceContextBlockId,
       branchStates,
@@ -845,6 +849,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         : undefined,
     });
     workIdPrefix = snapshot.workIdPrefix ?? null;
+    ticketPrefixes = snapshot.ticketPrefixes ?? [];
     const indexed = new Map(snapshot.blocks.map(block => [block.id, block]));
     const requireEntry = (id: string): TreeIndexBlock => {
       const block = indexed.get(id);
@@ -2124,7 +2129,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   ): Promise<void> {
     await flushBrowsingPublications();
     const source = await effects.request<Block>({ action: "get", blockId: selected.canonicalId });
-    const reference = firstOutlinerReference(source.text, workIdPrefix);
+    const reference = firstOutlinerReference(source.text, ticketScope(workIdPrefix, ticketPrefixes));
     if (!reference) {
       status = "Selected block has no block or page references";
       return;

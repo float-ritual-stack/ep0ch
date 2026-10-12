@@ -73,6 +73,10 @@ export type TicketPrefixes = string | null | { readonly prefix: string | null; r
  * The ticket keys in `text`: `LETTERS-digits` whose prefix the outline uses, the configured one only in its canonical
  * form (`PIE-001`). Any other such token (a synth's name, `FM-1`, `TR-808`) is text, never a missing ticket.
  */
+/** The ticket prefixes a client was told (`workIdPrefix`, `ticketPrefixes`), as `ticketKeyReferences` takes them. */
+export const ticketScope = (prefix: string | null, prefixesInUse: readonly string[] | undefined): TicketPrefixes =>
+  prefixesInUse?.length ? { prefix, prefixesInUse } : prefix;
+
 export function ticketKeyReferences(text: string, prefixes: TicketPrefixes = null): WorkIdReference[] {
   const configured = typeof prefixes === "string" ? prefixes : prefixes?.prefix ?? null;
   const prefix = configured ? normalizeWorkIdPrefix(configured) : null;

@@ -1,3 +1,4 @@
+import { ticketScope } from "./work-ids";
 import {renderHintRow, renderPaneBar} from "./reader-chrome";
 import type {TextViewerFrame} from "./text-viewer-input";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
@@ -661,7 +662,7 @@ export function renderTreeFrame(
     const linker = createOutlinerTextLinker(
       document?.resolved.references ?? block,
       (blockId) => view.physicalBlocksById.has(blockId),
-      view.workIdPrefix,
+      ticketScope(view.workIdPrefix, view.ticketPrefixes),
     );
 
     const branchState =

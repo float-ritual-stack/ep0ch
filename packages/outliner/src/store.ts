@@ -688,6 +688,7 @@ function treeIndexOf(snapshot: WorkspaceSnapshot, labels: ReadonlyMap<string, Tr
     virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
     sequence: snapshot.sequence,
     ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
+    ...(snapshot.ticketPrefixes ? { ticketPrefixes: snapshot.ticketPrefixes } : {}),
   };
 }
 
@@ -3236,7 +3237,8 @@ export class OutlinerStore {
   resolveBlockReferences(text: string): ResolvedBlockReferences {
     const resolved = resolveBlockReferencesWithStatus(text, (blockId) => this.get(blockId));
     const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
-    return workIdPrefix ? { ...resolved, workIdPrefix } : resolved;
+    const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
+    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}) };
   }
 
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
@@ -3980,6 +3982,7 @@ export class OutlinerStore {
       const physical = this.traverseLoadedGraph(graph, {});
 
       const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
+      const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
       return {
         visible,
         physical: { blocks: physical, completeness: { kind: "complete" } },
@@ -3987,6 +3990,7 @@ export class OutlinerStore {
         sequence: this.sequence,
         virtualOccurrenceRanks: this.virtualOccurrenceRanksFromCurrentRead(),
         ...(workIdPrefix ? { workIdPrefix } : {}),
+        ...(ticketPrefixes.length ? { ticketPrefixes } : {}),
       };
     })();
   }

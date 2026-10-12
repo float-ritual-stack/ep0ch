@@ -510,7 +510,7 @@ describe("renderTreeFrame", () => {
       displayText: "ABC-001 and PIE-001",
     });
     const frame = renderTreeFrame(
-      view([linked], { workIdPrefix: "ABC" }),
+      view([linked], { workIdPrefix: "ABC", ticketPrefixes: ["ABC", "PIE"] }),
       80,
       8,
     ).frame;

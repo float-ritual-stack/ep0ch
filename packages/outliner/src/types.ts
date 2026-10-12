@@ -1851,6 +1851,8 @@ export interface ResolvedBlockReferences {
   text: string;
   references: BlockReferenceResolution[];
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 /** `outlines.pane`: the outline and client a live pane is registered on; empty when none is. */
@@ -2596,6 +2598,8 @@ export interface WorkspaceSnapshot {
   virtualOccurrenceRanks: VirtualOccurrenceRank[];
   sequence: number;
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 export interface TreeIndexSnapshot {
@@ -2609,6 +2613,8 @@ export interface TreeIndexSnapshot {
   virtualOccurrenceRanks: VirtualOccurrenceRank[];
   sequence: number;
   workIdPrefix?: string;
+  /** Every prefix a ticket key may have here (`work-ids.status`'s `prefixesInUse`), when there are any. */
+  ticketPrefixes?: string[];
 }
 
 export type OutlinerUiCommand = (
