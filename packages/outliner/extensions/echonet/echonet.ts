@@ -262,9 +262,10 @@ async function copyText(origin: Link, message: Block, area: string, tossed?: str
  * (`from-type`), so the copy is a note here with its thread (the replies, copied under it) and a way back.
  */
 async function markText(origin: Link, mark: Block): Promise<string> {
-  const [heading, ...rest] = (await localText(origin, mark.text)).split("\n");
-  const local = rest.map((line) => line.replace(MARK_KEYS, (all, key: string, value: string) =>
-    key === "type" && !["annotation", "annotation-reply"].includes(value.trim()) ? all : `[from-${key}::${value}]`));
+  // The store's keys are on the line under the heading; the body after it is the writer's words, copied as written.
+  const [heading, meta = "", ...body] = (await localText(origin, mark.text)).split("\n");
+  const local = [meta.replace(MARK_KEYS, (all, key: string, value: string) =>
+    key === "type" && !["annotation", "annotation-reply"].includes(value.trim()) ? all : `[from-${key}::${value}]`), ...body];
   if (prop(mark, "type") !== "annotation" || !mark.parentId) return [heading!, ...local].join("\n");
   const note = await originalOf(origin, mark.parentId).catch(() => undefined);
   const title = note ? firstLine(note.text).replace(/[[\]]/g, "") || "a note" : `a note in ${origin.node.outline}`;

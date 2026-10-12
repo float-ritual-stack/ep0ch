@@ -341,7 +341,7 @@ test("a comment in an area is copied as a note: what it's on, linked back, its t
   await access("shack", "propose");
   await create("shack", "Asks [type::virtual-branch] [query::#garden-ask] [echo::asks]");
   const bed = await create("shack", "The north bed\n\nMulch is thin by the fence.");
-  const ask = await comment("shack", bed, "#garden-ask more mulch by the fence?", "Mulch is thin");
+  const ask = await comment("shack", bed, "#garden-ask more mulch by the fence?\nas `[type::annotation]` says", "Mulch is thin");
   await reply("shack", ask.id, "after the rain");
   const sub = await create("cafe", `Asks from the shack [subscribe::shack@${machine}] [echo::asks] [since::all]`);
   expect(await toss("cafe")).toContain("copies 1");
@@ -349,8 +349,8 @@ test("a comment in an area is copied as a note: what it's on, linked back, its t
   const [head, meta] = copy.text.split("\n");
   expect(head).toBe(`Comment on “Mulch is thin” in [The north bed](ep0ch://shack@${machine}/b/${bed.id}) [from::shack@${machine}/${ask.id}] [echo::asks] [from-rev::${ask.revision}] [tossed::${head!.match(/\[tossed::([^\]]*)\]/)![1]}]`);
   expect(meta).toContain("[from-type::annotation]");
-  expect(copy.text).not.toContain("[type::annotation]");
-  expect(copy.text).toContain("#garden-ask more mulch by the fence?");
+  expect(meta).not.toContain("[type::annotation]");
+  expect(copy.text).toContain("#garden-ask more mulch by the fence?\nas `[type::annotation]` says");
   const thread = await children("cafe", copy.id);
   expect(thread.map((note) => [note.text.split("\n").at(-1), note.properties.find((p) => p.key === "from-type")?.value])).toEqual([["after the rain", "annotation-reply"]]);
   // No seen-by on a comment: the original thread has only its own reply.

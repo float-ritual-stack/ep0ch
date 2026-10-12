@@ -5,7 +5,6 @@ import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
 import { drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { MEDIA_ATTRS } from "@ep0ch/outline-core/media-line";
-import { readFileSync } from "node:fs";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
@@ -23,6 +22,7 @@ import {
   canonicalPublishRoots,
   checkAttachment,
   checkImage,
+  readCheckedImage,
   type AttachmentPolicy,
   type PublishedFileType,
 } from "./publish-attachments";
@@ -1596,9 +1596,8 @@ export class Publisher {
     if (!spec || spec.kind !== "img") return notFound();
     const check = checkImage(spec.path, policy);
     if (!check.ok) return notFound();
-    let bytes: Buffer;
-    try { bytes = readFileSync(check.path); } catch { return notFound(); }
-    if (bytes.length !== check.size) return respond("Image changed while it was read; try again\n", "text/plain; charset=utf-8", 409);
+    const bytes = readCheckedImage(check);
+    if (!bytes) return notFound();
     return new Response(request.method === "HEAD" ? null : new Uint8Array(bytes), {
       headers: {
         ...COMMON_HEADERS, "content-type": check.mime, "content-length": String(bytes.length), "cache-control": "private, max-age=300",
