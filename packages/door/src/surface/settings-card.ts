@@ -53,6 +53,8 @@ export interface SettingSources {
   actions(): readonly BarSuggestion[];
   /** The extensions installed here, by id (each a writer `ext:<id>`). */
   extensions(): readonly string[];
+  /** The nodes the outline's nodelist knows (`<outline>@<machine>`, EchoNet's): none until it has one. */
+  nodes(): Promise<readonly string[]>;
 }
 
 const BUILT_IN_WRITERS = ["user", "agent"];
@@ -115,6 +117,14 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
       const actions = src.actions();
       return { ...base, type: "text", free: true, suggest: typed => actions.filter(a => !typed.trim() || a.value.includes(typed.trim().toLowerCase())) };
     }
+    case "node":
+      return { ...base, type: "text", free: true, suggest: async typed => {
+        const t = typed.trim().toLowerCase(), nodes = await src.nodes();
+        // The nodes themselves, then a mask for each machine they're on and every node anywhere.
+        const machines = [...new Set(nodes.map(n => n.slice(n.indexOf("@") + 1)))];
+        const all = [...nodes, ...machines.map(m => `*@${m}`), ...(nodes.length ? ["*@*"] : [])];
+        return all.filter(n => !t || n.toLowerCase().includes(t)).map(value => ({ value, ...(value.includes("*") ? { detail: "a mask" } : {}) }));
+      } };
     case "writers":
       return { ...base, type: "text", free: true, suggest: typed => listSuggestions(typed, [...BUILT_IN_WRITERS, ...src.extensions().map(id => `ext:${id}`)]) };
     default:

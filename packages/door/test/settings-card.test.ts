@@ -11,6 +11,7 @@ const src: SettingSources = {
   catalog: async (key, prefix) => CATALOG.filter(r => (key ? r.key === key && r.value.startsWith(prefix) : r.key.startsWith(prefix))),
   actions: () => [{ value: "intake/prior-art", label: "intake/prior-art · Find prior art" }, { value: "done-stamp/stamp", label: "done-stamp/stamp · Stamp" }],
   extensions: () => ["echonet", "intake"],
+  nodes: async () => ["pie@float-2", "hub@laptop"],
 };
 const props = (o: Record<string, string>) => Object.entries(o).map(([key, value]) => ({ key, value }));
 
@@ -50,6 +51,17 @@ describe("the settings card", () => {
     expect((await querySuggestions("(notice=po", notes)).map(s => s.value)).toEqual(["(notice=posted"]);
     expect(listSuggestions("user, ", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, agent", "user, ext:echonet"]);
     expect(listSuggestions("user, ext:", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, ext:echonet"]);
+  });
+
+  test("a node field offers the nodelist's nodes and masks over them, and checks what's typed", async () => {
+    const schema = { id: "ext-echonet-subscription", title: "Subscriptions", intro: "x", where: "x", example: {}, sweep: [], grids: [], space: [],
+      props: [{ key: "subscribe", where: "note" as const, type: "node" as const, meaning: "the nodes it reads" }], source: { use: "x", note: { title: "S", name: "subscribe", value: "pie@float-2" } } };
+    const [f] = settingFields(schema, []);
+    expect((await settingQuestion(f!, src).suggest!(""))!.map(s => s.value)).toEqual(["pie@float-2", "hub@laptop", "*@float-2", "*@laptop", "*@*"]);
+    expect((await settingQuestion(f!, src).suggest!("lap"))!.map(s => s.value)).toEqual(["hub@laptop", "*@laptop"]);
+    expect(settingProblem(f!, "rexall-*@laptop")).toBeNull();
+    expect(settingProblem(f!, "@reading-list")).toBeNull();
+    expect(settingProblem(f!, "not a node")).toContain("is a node");
   });
 
   test("each field's picker, by its type", async () => {

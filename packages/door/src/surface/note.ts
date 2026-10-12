@@ -56,6 +56,7 @@ import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, threadAgents } from "../extensions";
 import { componentsOf, componentsReady } from "../component-schemas";
+import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchema, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
@@ -1859,6 +1860,12 @@ export class NoteSurface {
         ...(a.args?.length ? { detail: `asks ${a.args.map(x => x.name).join(", ")}` } : a.effects ? { detail: a.effects } : {}),
       }))),
       extensions: () => listed().map(e => e.id),
+      // EchoNet's nodelist (one note per outline, `type=nodelist`), read with its own parser.
+      nodes: async () => {
+        const { notes } = await host.ctx.board.queryNotes(NODELIST_QUERY, 10).catch(() => ({ notes: [] as Msg[] }));
+        const whole = await Promise.all(notes.map(n => host.ctx.board.get(n.id).catch(() => null)));
+        return [...new Set(whole.flatMap(n => (n ? nodesOf(n.text).map(e => e.node) : [])))];
+      },
     };
   }
 
