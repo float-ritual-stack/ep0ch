@@ -177,6 +177,16 @@ test("an area is a named view: its query, its children and the notes tagged with
   expect((await get("shack", cron.id)).revision).toBe(1);
   expect((await threads("shack", cron.id)).map((thread) => [thread.body, thread.properties?.kind])).toEqual([[`also in: cafe@${machine} (Recon from the shack)`, ["echo-seen-by"]]]);
 
+  // A note and the note under it both in the area: one copy each, the child under its parent's copy.
+  const parent = await create("shack", "Recon: the well pump [type::recon]");
+  await create("shack", "Recon: its pressure switch [type::recon]", parent.id);
+  expect(await toss("cafe")).toContain("copies 1,");
+  ({ copies } = await board("cafe", sub, `shack@${machine}`));
+  expect(copies.map((copy) => copy.text.split(" [")[0])).toContain("Recon: the well pump");
+  expect(copies.map((copy) => copy.text.split(" [")[0])).not.toContain("Recon: its pressure switch");
+  await call("shack", { action: "delete", blockId: parent.id, author: "user" });
+  await toss("cafe");
+  await call("cafe", { action: "delete", blockId: copies.find((copy) => copy.text.startsWith("Recon: the well pump"))!.id, author: "user" });
   // A child of the view is a message too, as soon as it's written.
   await create("shack", "Recon: the gate sensor sleeps [type::note]", view.id);
   expect(await toss("cafe")).toContain("copies 1");
@@ -231,7 +241,7 @@ test("a subscription takes what's new from its first toss, at most its cap a tos
 }, 60_000);
 
 test("masks and dotted names: every node with a matching area gets a board of its own; a named list of nodes", async () => {
-  const { machine, toss, create, children, board } = await setup(["shack", "cafe", "attic", "porch"]);
+  const { machine, toss, create, children, where, edit, board } = await setup(["shack", "cafe", "attic", "porch"]);
   await create("shack", "Requests [type::virtual-branch] [query::type=request] [echo::ep0ch.requests]");
   await create("shack", "Request: a dark theme for the nodelist [type::request]");
   await create("attic", "Recon on the repos [echo::ep0ch.recon.repos]");
@@ -246,6 +256,12 @@ test("masks and dotted names: every node with a matching area gets a board of it
   const listed = await create("cafe", "Garden from the known nodes [subscribe::@known] [echo::garden] [since::all]");
   expect(await toss("cafe")).toContain("copies 1");
   expect((await board("cafe", listed, `porch@${machine}`)).copies[0]!.text).toStartWith("The porch has no ep0ch areas");
+  // Taken off the list, the porch isn't read any more; its board and copies stay.
+  const known = (await where("cafe", "page=known"))[0]!;
+  await edit("cafe", known.id, (text) => text.replace(`porch@${machine}`, "nobody yet"));
+  await create("porch", "Second porch note [echo::garden]");
+  expect(await toss("cafe")).toContain("copies 0");
+  expect((await board("cafe", listed, `porch@${machine}`)).copies).toHaveLength(1);
 }, 60_000);
 
 test("netmail both ways; nothing bounces between nodes that read each other; an original gone leaves it undeliverable", async () => {
@@ -309,6 +325,10 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
   expect(note.text).toContain(`Undeliverable: “still there?” [type::echo-undeliverable] [netmail::${late.id}]`);
   expect(note.text).toContain(`Netmail on ((${copy.id}))`);
   expect(await toss("cafe")).toContain("queued 1, undeliverable 0");
+  // Back from Trash, the original gets nothing that was left undeliverable.
+  await call("shack", { action: "trash.restore", blockId: cron.id, author: "user" });
+  expect(await toss("cafe")).toContain("netmail out 0");
+  expect((await threads("shack", cron.id)).filter((thread) => thread.body === "still there?")).toEqual([]);
 }, 90_000);
 
 test("take the newer version: replace a copy's text, or propose it beside the copy, only when asked", async () => {

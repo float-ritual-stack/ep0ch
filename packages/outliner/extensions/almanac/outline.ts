@@ -38,8 +38,10 @@ export function outline<T = unknown>(request: OutlineRequest, to: string | Route
     const wait = route.timeoutMs ?? 20_000;
     const timer = setTimeout(() => { connection.destroy(); reject(new Error(`no answer from ${where} in ${wait} ms`)); }, wait);
     let buffer = "";
-    connection.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
+    // Decoded as a stream: a character split across two chunks stays whole.
+    connection.setEncoding("utf8");
+    connection.on("data", (chunk: string) => {
+      buffer += chunk;
       const end = buffer.indexOf("\n");
       if (end < 0) return;
       clearTimeout(timer);

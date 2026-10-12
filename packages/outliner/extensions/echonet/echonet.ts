@@ -137,22 +137,32 @@ function outlinesOn(machine: string): Promise<string[]> {
   return listed.get(key)!;
 }
 
-/** The nodes a subscription's masks name, this node left out. A named list is read from its page here. */
-async function nodesFor(masks: readonly Mask[], named: readonly string[], depth = 0): Promise<Node[]> {
-  const out = new Map<string, Node>();
+type NodeMask = Extract<Mask, { kind: "node" }>;
+/** A subscription's masks with each named list read from its page here; `unread` when a list couldn't be. */
+async function flatten(masks: readonly Mask[], depth = 0): Promise<{ masks: NodeMask[]; unread: boolean }> {
+  const out: NodeMask[] = [];
+  let unread = false;
   for (const mask of masks) {
-    if (mask.kind === "list") {
-      if (depth > 2) continue;
-      const page = await mine<{ status: string; block?: Block }>({ action: "pages.resolve", address: mask.page }).catch(() => undefined);
-      if (page?.status !== "resolved" || !page.block) {
-        log.push(`- the node list ${mask.text} names no page here ([page::${mask.page}] on a note listing name@machine lines)`);
-        continue;
-      }
-      const under = await mine<Block[]>({ action: "children", parentId: page.block.id }).catch(() => []);
-      const inner = [page.block.text, ...under.map((child) => child.text)].flatMap(masksIn).map(parseMask).filter((m): m is Mask => !!m);
-      for (const node of await nodesFor(inner, named, depth + 1)) out.set(node.id, node);
+    if (mask.kind === "node") { out.push(mask); continue; }
+    if (depth > 2) continue;
+    const page = await mine<{ status: string; block?: Block }>({ action: "pages.resolve", address: mask.page }).catch(() => undefined);
+    if (page?.status !== "resolved" || !page.block) {
+      log.push(`- the node list ${mask.text} names no page here ([page::${mask.page}] on a note listing name@machine lines)`);
+      unread = true;
       continue;
     }
+    const under = await mine<Block[]>({ action: "children", parentId: page.block.id }).catch(() => []);
+    const inner = await flatten([page.block.text, ...under.map((child) => child.text)].flatMap(masksIn).map(parseMask).filter((m): m is Mask => !!m), depth + 1);
+    out.push(...inner.masks);
+    unread ||= inner.unread;
+  }
+  return { masks: out, unread };
+}
+
+/** The nodes node masks name, this node left out. */
+async function nodesFor(masks: readonly NodeMask[], named: readonly string[]): Promise<Node[]> {
+  const out = new Map<string, Node>();
+  for (const mask of masks) {
     const machines = hasStar(mask.machine) ? knownMachines(named).filter((machine) => glob(mask.machine).test(machine)) : [mask.machine];
     for (const machine of machines) {
       const names = hasStar(mask.outline) ? (await outlinesOn(machine)).filter((name) => glob(mask.outline).test(name)) : [mask.outline];
@@ -169,6 +179,18 @@ async function nodesFor(masks: readonly Mask[], named: readonly string[], depth 
 
 const query = (call: Link["call"], where: string, extra: Record<string, unknown> = {}) =>
   call<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: LIMIT, ...extra } }).then((r) => r.blocks);
+/**
+ * The original, if it's still there: `null` when its node says it's gone (trashed, or no such block), `undefined` when
+ * the node couldn't be asked (that's offline, not gone: netmail for it stays queued and no try is spent).
+ */
+async function originalOf(origin: Link, id: string): Promise<Block | null | undefined> {
+  try {
+    const block = await origin.call<Block>({ action: "get", blockId: id });
+    return trashed(block) ? null : block;
+  } catch (error) {
+    return /block not found/i.test(error instanceof Error ? error.message : String(error)) ? null : undefined;
+  }
+}
 const quoteOf = (mark: Mark) => {
   const target = mark.resolvedTarget ?? mark.originalTarget;
   return target?.passage?.quote ?? (target?.anchor?.kind === "text-quote" ? target.anchor.exact : undefined);
@@ -238,12 +260,13 @@ async function setOn(blockId: string, change: (text: string) => string): Promise
 interface Ledger { block?: Block; lines: Map<string, string> }
 /**
  * `out <local mark> -> <node>/<mark>` and `in …` per carried mark (netmail is never carried twice), `tries <mark> -> n`
- * for netmail waiting on an original that is gone, and `undeliverable <mark> -> <note>` once it gave up.
+ * for netmail waiting on an original that is gone, `undeliverable <mark> -> <note>` once it gave up, and
+ * `seen <copy> -> <node>/<original>` once its seen-by mark is there.
  */
 function readLedger(block: Block | undefined): Ledger {
   const lines = new Map<string, string>();
   for (const line of block?.text.split("\n").slice(1) ?? []) {
-    const match = line.match(/^- (out|in|tries|undeliverable) (\S+) -> (\S+)$/);
+    const match = line.match(/^- (out|in|tries|undeliverable|seen) (\S+) -> (\S+)$/);
     if (match) lines.set(`${match[1]} ${match[2]}`, match[3]!);
   }
   return { block, lines };
@@ -293,11 +316,19 @@ async function sourcesUnder(sub: Block): Promise<Map<string, Block>> {
   return boards;
 }
 
+/** Whether this node holds a copy of `from` (live or trashed) that the toss's list of copies didn't reach. */
+async function copyHeld(from: string, everyCopy: Map<string, Block>): Promise<boolean> {
+  const where = `from="${from}"`;
+  const found = [...await query(mine, where), ...await query(mine, where, { includeDeleted: "all" })].find((block) => fromOf(block) === from);
+  if (found) everyCopy.set(from, found);
+  return !!found;
+}
+
 /** Every live copy from `node`, for netmail: each once, whichever subscription brought it. */
 const fromNode = (everyCopy: Map<string, Block>, node: Node) => [...everyCopy.values()].filter((copy) => fromOf(copy)!.startsWith(`${node.id}/`) && !trashed(copy));
 
 /** One subscription: echomail in from each node it matches, seen-by out. Answers the nodes it read, for netmail. */
-async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Promise<Link[]> {
+async function tossSubscription(sub: Block, everyCopy: Map<string, Block>, ledger: Ledger): Promise<Link[]> {
   const name = firstLine(sub.text) || values(sub, "echo").join(", ");
   const wanted = wantedBy(sub);
   if (typeof wanted === "string") {
@@ -309,13 +340,16 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
     await setOn(sub.id, (text) => setHeaderProperty(text, "since", now));
     wanted.since = Date.parse(now);
   }
-  const named = wanted.masks.flatMap((mask) => (mask.kind === "node" ? [mask.machine] : []));
+  const flat = await flatten(wanted.masks);
+  const named = flat.masks.map((mask) => mask.machine);
   const boards = await sourcesUnder(sub);
-  const nodes = new Map((await nodesFor(wanted.masks, named)).map((node) => [node.id, node]));
-  // A node with a board stays read while a mask still names it, even when its machine can't list its outlines now.
+  const nodes = new Map((await nodesFor(flat.masks, named)).map((node) => [node.id, node]));
+  // A node with a board stays read while a mask still names it, even when its machine can't list its outlines now;
+  // all of them while a named list can't be read.
   for (const id of boards.keys()) {
     const node = parseNode(id)!;
-    if (!nodes.has(id) && wanted.masks.some((mask) => mask.kind === "list" || (glob(mask.outline).test(node.outline) && glob(mask.machine).test(node.machine)))) nodes.set(id, node);
+    const named_ = flat.masks.some((mask) => glob(mask.outline).test(node.outline) && glob(mask.machine).test(node.machine));
+    if (!nodes.has(id) && (named_ || flat.unread)) nodes.set(id, node);
   }
   const exact = wanted.masks.length === 1 && wanted.masks[0]!.kind === "node" && !hasStar(wanted.masks[0]!.text);
   const read: Link[] = [];
@@ -326,7 +360,7 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
     const say = (line: string) => { if (board || exact) log.push(`- ${line}`); };
     if (!link.reachable) { say(`${node.id} (${name}): unreachable (${link.why}); its copies stay as they are`); if (board) read.push(link); continue; }
     if (link.level === "none") { say(`${node.id} (${name}): refused (${node.id} grants none; its owner runs \`ep0ch mcp access read --ws ${node.outline}\`)`); if (board) read.push(link); continue; }
-    if (await tossSource(sub, link, board, wanted, name, everyCopy)) read.push(link);
+    if (await tossSource(sub, link, board, wanted, name, everyCopy, ledger)) read.push(link);
     else say(`${node.id} (${name}): no area there named ${wanted.areas.join(" or ")}`);
   }
   if (!nodes.size) log.push(`- ${name}: ${wanted.masks.map((mask) => mask.text).join(", ")} matches no node this toss`);
@@ -334,8 +368,9 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>): Prom
 }
 
 /** One node's messages for one subscription. False when it offers none of the areas wanted (and had no board). */
-async function tossSource(sub: Block, link: Link, existing: Block | undefined, wanted: Wanted, name: string, everyCopy: Map<string, Block>): Promise<boolean> {
-  const tagged = await query(link.call, "echo");
+async function tossSource(sub: Block, link: Link, existing: Block | undefined, wanted: Wanted, name: string, everyCopy: Map<string, Block>, ledger: Ledger): Promise<boolean> {
+  // Newest first: past the 1000 a question answers, it's the oldest that a toss doesn't see.
+  const tagged = await query(link.call, "echo", { sort: "updated desc" });
   const offered = areasIn(tagged);
   const matched = [...offered.values()].filter((area) => wanted.areas.some((mask) => glob(mask).test(area.name)));
   if (!matched.length && !existing) return false;
@@ -343,7 +378,7 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
   const messages = new Map<string, { message: Block; area: string }>();
   const add = (message: Block, area: string) => { if (isMessage(message) && !trashed(message) && !messages.has(message.id)) messages.set(message.id, { message, area }); };
   for (const area of matched) {
-    for (const block of area.blocks) for (const message of await query(link.call, areaQuery(block))) add(message, area.name);
+    for (const block of area.blocks) for (const message of await query(link.call, areaQuery(block), { sort: "updated desc" })) add(message, area.name);
     for (const message of tagged) if (postsTo(message, area.name)) add(message, area.name);
   }
   const board = existing ?? await mine<Block>({ action: "create", parentId: sub.id, text: `${link.node.id} [echo-source::${link.node.id}]` });
@@ -357,23 +392,39 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
       if (time(message) >= wanted.since) fresh.push(entry);
       continue;
     }
+    if (prop(copy, "echo-partial") !== undefined) {
+      await copyChildren(link, entry.area, message.id, copy.id, everyCopy, 0);
+      await setOn(copy.id, (text) => setHeaderProperty(text, "echo-partial", undefined));
+    }
     const seen = Number(prop(copy, "from-rev") ?? 0);
     if (message.revision > seen && prop(copy, "upstream-newer") !== String(message.revision)) {
       await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-newer", String(message.revision)));
       newer += 1;
     }
     if (prop(copy, "upstream-gone") !== undefined) await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-gone", undefined));
-    if (canMark(link.level)) await seenBy(link, message, copy, name);
+    if (canMark(link.level)) await seenBy(link, message, copy, name, ledger);
   }
   // Oldest first, `cap` a toss: a broad area's first toss doesn't flood, and what waits is said on the board.
   fresh.sort((a, b) => time(a.message) - time(b.message));
-  const now_ = fresh.slice(0, wanted.cap), waiting = fresh.length - now_.length;
-  for (const { message, area } of now_) {
+  let copied = 0;
+  for (const { message, area } of fresh) {
+    if (copied >= wanted.cap) break;
+    const from = `${link.node.id}/${message.id}`;
+    // Copied with its parent a moment ago, or held beyond the copies this toss could list: asked outright.
+    if (everyCopy.has(from) || await copyHeld(from, everyCopy)) continue;
     const made = await mine<Block>({ action: "create", parentId: board.id, text: await copyText(link, message, area, now) });
-    await copyChildren(link, area, message.id, made.id, everyCopy, 0);
-    everyCopy.set(`${link.node.id}/${message.id}`, made);
-    if (canMark(link.level)) await seenBy(link, message, made, name);
+    try {
+      await copyChildren(link, area, message.id, made.id, everyCopy, 0);
+    } catch (error) {
+      // Stopped partway through the notes under it: the next toss finishes them (`echo-partial`).
+      await setOn(made.id, (text) => setHeaderProperty(text, "echo-partial", "yes")).catch(() => undefined);
+      throw error;
+    }
+    everyCopy.set(from, made);
+    copied += 1;
+    if (canMark(link.level)) await seenBy(link, message, made, name, ledger);
   }
+  const waiting = fresh.filter(({ message }) => !everyCopy.has(`${link.node.id}/${message.id}`)).length;
   await setOn(board.id, (text) => setHeaderProperty(text, "waiting", waiting ? String(waiting) : undefined));
   // An original gone upstream (trashed or deleted there): the copy stays, drift being the point, and says so.
   let gone = 0;
@@ -386,9 +437,9 @@ async function tossSource(sub: Block, link: Link, existing: Block | undefined, w
       gone += 1;
     }
   }
-  counts.copies += now_.length; counts.updated += newer; counts.skipped += skipped; counts.waiting += waiting; counts.gone += gone;
+  counts.copies += copied; counts.updated += newer; counts.skipped += skipped; counts.waiting += waiting; counts.gone += gone;
   log.push(`- ${link.node.id} (${name}, ${link.level}): ${messages.size} in ${matched.map((area) => area.name).join(", ") || "no area now"}; ` +
-    `${now_.length} copied${waiting ? `, ${waiting} waiting` : ""}, ${newer} marked newer, ${gone} gone upstream, ${skipped} trashed here and left so`);
+    `${copied} copied${waiting ? `, ${waiting} waiting` : ""}, ${newer} marked newer, ${gone} gone upstream, ${skipped} trashed here and left so`);
   return true;
 }
 
@@ -401,7 +452,8 @@ async function copyChildren(origin: Link, area: string, fromId: string, toId: st
   const children = await origin.call<Block[]>({ action: "children", parentId: fromId });
   for (const child of children) {
     const from = `${origin.node.id}/${child.id}`;
-    if (everyCopy.has(from)) continue;
+    // A copy there (moved under a note of its own) is never sent on: it's another node's.
+    if (everyCopy.has(from) || isCopy(child)) continue;
     const made = await mine<Block>({ action: "create", parentId: toId, text: await copyText(origin, child, area) });
     everyCopy.set(from, made);
     await copyChildren(origin, area, child.id, made.id, everyCopy, depth + 1);
@@ -409,9 +461,14 @@ async function copyChildren(origin: Link, area: string, fromId: string, toId: st
 }
 
 /** "also in: <this node>": one whole-note mark on the original per node it reached. Its text is never touched. */
-async function seenBy(origin: Link, message: Block, copy: Block, area: string): Promise<void> {
+async function seenBy(origin: Link, message: Block, copy: Block, area: string, ledger: Ledger): Promise<void> {
+  // Left once: the ledger says so, and the original's marks aren't read again every toss.
+  if (ledger.lines.has(`seen ${copy.id}`)) return;
   const threads = await threadsOn(origin.call, message.id);
-  if (threads.some((thread) => thread.properties?.kind?.includes("echo-seen-by") && thread.properties["echo.node"]?.includes(self.id))) return;
+  if (threads.some((thread) => thread.properties?.kind?.includes("echo-seen-by") && thread.properties["echo.node"]?.includes(self.id))) {
+    ledger.lines.set(`seen ${copy.id}`, `${origin.node.id}/${message.id}`);
+    return;
+  }
   await origin.call({
     action: "annotations.batch", requestId: `echonet-seen-${self.id}-${copy.id}`,
     operations: [{ operationId: "seen", type: "block-comment", input: {
@@ -420,6 +477,7 @@ async function seenBy(origin: Link, message: Block, copy: Block, area: string): 
       properties: { kind: "echo-seen-by", "echo.node": self.id, "echo.copy": copy.id, via: `echonet:${self.id}` },
     } }],
   });
+  ledger.lines.set(`seen ${copy.id}`, `${origin.node.id}/${message.id}`);
   counts.seenBy += 1;
 }
 
@@ -434,18 +492,24 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
     return;
   }
   if (!local.length) return;
-  let original = await origin.call<Block>({ action: "get", blockId: originalId }).catch(() => undefined);
-  if (!original || trashed(original)) {
+  let original = await originalOf(origin, originalId);
+  if (original === undefined) {
+    counts.queued += waiting().length;
+    return;
+  }
+  if (original === null) {
     await undeliverable(origin, copy, waiting(), ledger);
     return;
   }
   const remoteThreads = await threadsOn(origin.call, originalId);
+  // A mark left as undeliverable stays so, even if its original comes back.
+  const gaveUp = (mark: Mark) => ledger.lines.has(`undeliverable ${mark.block.id}`);
   for (const thread of local) {
-    if (cameIn(thread)) continue;
+    if (cameIn(thread) || gaveUp(thread)) continue;
     const key = `${self.id}/${thread.block.id}`;
     let there = remoteThreads.find((candidate) => netmailFrom(candidate) === key);
     if (!there) {
-      original = await origin.call<Block>({ action: "get", blockId: originalId });
+      original = (await originalOf(origin, originalId)) ?? original;
       const quote = quoteOf(thread);
       const anchored = quote !== undefined && quote.length > 0 && original.text.includes(quote);
       const body = anchored ? thread.body : `${quote ? `(on words no longer in the note: “${quote}”)${thread.body ? "\n" : ""}` : ""}${thread.body}`;
@@ -465,9 +529,14 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
     } else if (!ledger.lines.has(`out ${thread.block.id}`)) ledger.lines.set(`out ${thread.block.id}`, `${origin.node.id}/${there.block.id}`);
     // Replies written here go out; replies written there come in. One that came in carries netmail-from, so it never
     // goes back out, and one that went out carries it there, so it never comes back.
-    for (const reply of thread.replies.filter((candidate) => !cameIn(candidate))) {
+    for (const reply of thread.replies.filter((candidate) => !cameIn(candidate) && !gaveUp(candidate))) {
       const replyKey = `${self.id}/${reply.block.id}`;
-      if (there.replies.some((candidate) => netmailFrom(candidate) === replyKey)) continue;
+      const sent = there.replies.find((candidate) => netmailFrom(candidate) === replyKey);
+      if (sent) {
+        // Sent by a toss that stopped before it wrote the ledger: written now.
+        if (!ledger.lines.has(`out ${reply.block.id}`)) ledger.lines.set(`out ${reply.block.id}`, `${origin.node.id}/${sent.block.id}`);
+        continue;
+      }
       const receipt = await origin.call<{ annotations: Mark[] }>({
         action: "annotations.reply", requestId: `echonet-out-${replyKey}`,
         input: { annotationId: there.block.id, body: reply.body, source: "agent", properties: { via: `echonet:${self.id}`, "netmail-from": replyKey, "netmail-author": authorOf(reply) } },
@@ -590,7 +659,7 @@ async function toss(): Promise<string> {
   const subs = (await query(mine, "subscribe")).filter((block) => kindOf(block) === "subscription" && !trashed(block));
   log.push("## echomail");
   const read = new Map<string, Link>();
-  for (const sub of subs) for (const link of await tossSubscription(sub, everyCopy)) read.set(link.node.id, link);
+  for (const sub of subs) for (const link of await tossSubscription(sub, everyCopy, ledger)) read.set(link.node.id, link);
   log.push("## netmail");
   for (const link of read.values()) {
     const before = { out: counts.netmailOut, in: counts.netmailIn, queued: counts.queued, undeliverable: counts.undeliverable };
