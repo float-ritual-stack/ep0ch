@@ -669,6 +669,7 @@ installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rul
 Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:type=prior-art]
 ```
 
+The door's settings card (`,` on a rule note, a view, a callout type or a heading style) sets these with pickers, from the component schema.
 A
 rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.

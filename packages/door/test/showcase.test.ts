@@ -343,6 +343,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
     rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
+    // A rule note beside a view: both configurable, , opens either's card.
+    settings: ["Compost bay jobs get a badge", "A rule note is configured, not typed", "Garden chores"],
     selection: ["Lentil soup", "Drag across these lines"],
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
     // This door runs in its own terminal (the test's App), so the section says so; in a session it lists the terminals.
@@ -2586,6 +2588,58 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await text(job.id)).match(/done-at/g)).toHaveLength(1);
     await app.act({ action: "props.edit", tile: "reader2", args: { key: "status", value: "todo" }, as: "test-agent" });
     await has(/^(?![\s\S]*done-at)/);
+  }, 60_000);
+
+  test("settings (PIE-786): , opens a rule note's card; an agent lists its fields and sets one through act, checked by type; the person's enter asks in the power bar, its query built from this outline's own properties", async () => {
+    const id = seeded.notes.settings.id, text = async () => (await board.get(id))!.text;
+    const at = SECTIONS.findIndex(s => s.key === "settings");
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "settings" }, as: "test-agent" })).toEqual({ section: at + 1, key: "settings" });
+    await until(() => screen().includes("Compost bay jobs get a badge") && screen().includes("Garden chores"), "the rule note and the view", 8000);
+    // An agent reads the fields as tool arguments: the rule's, from its component schema, with their types.
+    const listed = await app.act({ action: "settings", tile: "reader", as: "test-agent" }) as { schema: string; fields: { key: string; type: string; value: string | null }[] };
+    expect(listed.schema).toBe("rule");
+    expect(listed.fields[0]).toMatchObject({ key: "rule-name", value: "bay-badges" });
+    expect(listed.fields.map(f => [f.key, f.type])).toEqual(expect.arrayContaining([["rule-match", "query"], ["rule-on", "action"], ["rule-from", "writers"], ["rule-batch", "duration"], ["rule-tone", "enum"]]));
+    const view = await app.act({ action: "settings", tile: "reader2", as: "test-agent" }) as { schema: string; fields: { key: string; value: string | null }[] };
+    expect(view.schema).toBe("view");
+    expect(view.fields.find(f => f.key === "query")?.value).toBe("type=chore area=garden");
+    // The person's , opens the card in the reader they're in.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch(",");
+    await until(() => screen().includes("settings · Rules · bay-badges") && screen().includes("rule-tone"), "the card", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    // Through act, as an agent: a value its type refuses is said; one it takes is an attributed property edit.
+    const before = await text();
+    await expect(app.act({ action: "settings.set", tile: "reader", args: { key: "rule-tone", value: "loud" }, as: "test-agent" })).rejects.toThrow("is one of");
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-tone", value: "good" }, as: "test-agent" });
+    expect(await text()).toBe(before.replace("[rule-tone::accent]", "[rule-tone::good]"));
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-cap", value: "20/day" }, as: "test-agent" });
+    expect(await text()).toContain("[rule-cap::20/day]");
+    await app.act({ action: "settings.clear", tile: "reader", args: { key: "rule-cap" }, as: "test-agent" });
+    expect(await text()).not.toContain("rule-cap");
+    await expect(app.act({ action: "settings.clear", tile: "reader", args: { key: "rule-name" }, as: "test-agent" })).rejects.toThrow("what makes this note");
+    await until(() => screen().includes("good"), "the card shows the new tone", 5000);
+    // The person's ⏎ on rule-match asks in the power bar: the query built from what this outline's notes have. The card
+    // holds the reader's keys once the person is in it (⏎ enters, as the property panel's does).
+    press({ kind: "enter" });
+    ch("j");
+    await until(() => screen().includes("rule-match · query"), "rule-match selected", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    // The bar is the App's, over the showcase: what it lists is read from it.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
+    press({ kind: "enter" });
+    await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "the question, its value now first", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    // Typing builds the query: the last clause offered from this outline's own properties and values.
+    for (const c of "type=bay-job AND status=t") ch(c);
+    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && !(await text()).includes("[rule-match::type=bay-job AND status=todo]"); i++) await Bun.sleep(50);
+    expect(await text()).toContain("[rule-match::type=bay-job AND status=todo]");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
