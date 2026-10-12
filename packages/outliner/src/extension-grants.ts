@@ -12,14 +12,31 @@ import type { MutationProvenance } from "./types";
  * extensions are trusted code.
  *
  * The table is the process's, not one outline's: an outline host serves several outlines in one process, and a
- * grant reaches every outline that host serves (a new connection names the outline, as any client's does).
+ * grant reaches every outline that host serves (a new connection names the outline, as any client's does), as far as
+ * that outline's access level lets it when its owner set one (src/server.ts `crossOutlineAccess`).
  */
 export interface ExtensionGrant {
   readonly extensionId: string;
+  /**
+   * The outline the process runs for (its `EP0CH_WS`). A request to another outline is checked against that outline's
+   * access level when its owner set one (EchoNet, PIE-779: one access rule for MCP, shares, subscriptions and other
+   * outlines' extensions).
+   */
+  readonly outline?: string;
+  /**
+   * A request another machine's host relayed for its extension (PIE-779): not a grant this process issued, but
+   * the same rules, and that outline's access level always holds (an unset one is `none`).
+   */
+  readonly relayed?: true;
   /** The change feed's action for what it writes: `ext.<id>.<action or handler>`. */
   readonly label: string;
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */
   readonly requestedBy?: MutationProvenance;
+  /**
+   * The rule whose trigger ran it (PIE-786): what it writes carries `taskId: trigger:<rule>`, and what it makes
+   * `[via-trigger::<rule>]`, as a triggered action's returned writes do, so nothing it writes sets a rule off.
+   */
+  readonly trigger?: string;
   /**
    * Whether the call may write: an action with `effects: "write"`, a handler with `effects: "write"`. Every other call
    * (a read action, a read or spend handler, a rule's decorate, a bar source) reads only, as its answer may.

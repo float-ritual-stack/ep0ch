@@ -1,0 +1,42 @@
+{
+  "contract": 2,
+  "id": "echonet",
+  "version": 4,
+  "name": "EchoNet",
+  "description": "This outline as a node on a FidoNet-style network of outlines: named views and tagged notes as areas, subscriptions by node mask that copy them in (copies that drift, never a sync), netmail both ways on marks, seen-by marks, a nodelist and a toss log.",
+  "run": ["bun", "echonet.ts"],
+  "deadline": "4m",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "offline": { "type": "array", "items": { "type": "string" }, "description": "Nodes (name@machine) to treat as unreachable this toss: a lid shut on purpose" },
+      "keepLogs": { "type": "integer", "minimum": 1, "maximum": 200, "description": "How many toss logs stay under the nodelist (default 20)" },
+      "cap": { "type": "integer", "minimum": 1, "maximum": 500, "description": "New messages copied per source each toss when a subscription has no [cap::n] (default 25)" },
+      "undeliverableAfter": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Tosses netmail waits for an original that is gone before it becomes an undeliverable note (default 3)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "toss", "label": "Toss mail", "on": "outline", "effects": "write",
+      "description": "Copies new messages from every subscribed area, marks copies whose original is newer or gone, carries netmail both ways, writes the nodelist and a toss log",
+      "schedule": { "every": "30m" }
+    },
+    {
+      "id": "nodelist", "label": "Write the nodelist", "on": "outline", "effects": "write",
+      "description": "Writes the nodelist again without tossing: each known node, reachable or not, its access, areas and subscriptions"
+    },
+    {
+      "id": "take-newer", "label": "Take the newer version", "on": "block", "effects": "write",
+      "description": "On an EchoNet copy: replaces its text with the original's current one (its own edits go; its history keeps them)"
+    },
+    {
+      "id": "compare-newer", "label": "Compare with the newer version", "on": "block", "effects": "write",
+      "description": "On an EchoNet copy: proposes the original's current text beside it, the difference shown, to apply or dismiss"
+    }
+  ],
+  "components": [
+    {"id": "echonet-subscription", "title": "EchoNet subscriptions", "intro": "A note that reads an area from other outlines: `[subscribe::<node mask>]` names the nodes, `[echo::<area>]` the area. Each toss copies the new messages in under one source board per node (copies that drift, never a sync). The tosser writes the source boards, `[waiting::]` and the copies' own properties itself.", "where": "any note with `[subscribe::…]` and `[echo::…]`", "props": [{"key": "subscribe", "where": "note", "type": "node", "meaning": "the nodes it reads: outline@machine, a mask (*@float-2, rexall-*@laptop, *@*), a bare name for any machine, or @<page> for a list; comma-separated", "samples": ["shack@float-2", "*@float-2"]}, {"key": "echo", "where": "note", "type": "text", "meaning": "the area it reads, by name or mask (* matches across dots), comma-separated; case doesn't matter", "samples": ["recon", "ep0ch.*"]}, {"key": "since", "where": "note", "type": "text", "meaning": "what counts as new: all, or a date; left out, the first toss writes now", "samples": ["all", "2026-10-01"]}, {"key": "cap", "where": "note", "type": "int", "meaning": "new copies a toss takes from each node, oldest first", "min": 1, "max": 500, "default": "25"}], "source": {"use": "Recon from the shack [subscribe::shack@float-2] [echo::recon]", "note": {"title": "Recon from the shack", "name": "subscribe", "value": "shack@float-2"}}, "example": {}, "sweep": [], "grids": [], "space": []},
+    {"id": "echonet-area", "title": "EchoNet areas", "intro": "A named view other outlines can subscribe to: `[echo::<name>]` on a view (a note with a `[query::…]`, a board lane included). Its messages are its children, the notes tagged `[echo::<name>]`, and what its query matches. Subscribers bind to the name, so changing the query moves every subscriber with it. On a note without a query, `[echo::]` is a posting, not an area.", "where": "a view (a note with `[query::…]`) with `[echo::…]`", "props": [{"key": "echo", "where": "note", "type": "text", "meaning": "the area's name, dotted for a namespace that grows without coordination (ep0ch.requests); subscribers bind to it", "samples": ["recon", "ep0ch.requests"]}], "source": {"use": "Recon note [type::recon]", "note": {"title": "Recon", "name": "echo", "value": "recon", "requires": ["query"]}}, "example": {}, "sweep": [], "grids": [], "space": []}
+  ]
+}

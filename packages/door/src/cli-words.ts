@@ -5,7 +5,7 @@
 
 /** Every first word main.ts runs as a command. */
 export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "mcp", "new", "export", "where", "session", "peek", "snap", "open",
-  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "revisions", "agent", "ext", "share", "reader", "web"] as const;
+  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "revisions", "agent", "ext", "share", "reader", "web", "echo"] as const;
 const KNOWN = new Set<string>(COMMANDS);
 
 /** Commands whose words are data (a search, an id, an action's arguments): `help` there is a word, not a request. */
@@ -79,7 +79,8 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   }
   if (first !== undefined && !first.startsWith("-")) {
     if (!KNOWN.has(first)) return first.includes("/") ? null : noCommand(first);
-    if (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first))) return { help: first };
+    // EchoNet says its own help (`ep0ch echo help`, the outliner's usage, each command's flags).
+    if (first !== "echo" && (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first)))) return { help: first };
     return null;
   }
   if (args.some(a => HELP.has(a))) return { help: "" };

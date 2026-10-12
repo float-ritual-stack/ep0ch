@@ -22,7 +22,8 @@ The canonical examples ship in [`extensions/`](../../extensions): [moon](../../e
 [jira](../../extensions/jira) (data), [horoscope](../../extensions/horoscope) (inline output),
 [fancy-horror](../../extensions/fancy-horror) (rich component) and [tarot](../../extensions/tarot)
 (a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates), [glyphs](../../extensions/glyphs) (a bar source),
-[done-stamp](../../extensions/done-stamp) (a rule that runs), [shout](../../extensions/shout) (a rule on a
+[done-stamp](../../extensions/done-stamp) (a rule that runs), [intake](../../extensions/intake) (an action a rule
+note runs, whose note asks its own agent), [shout](../../extensions/shout) (a rule on a
 text pattern) and [runbook](../../extensions/runbook) (actions that run a note's command blocks with a secrets group and record each run). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
 is yours to edit.
 
@@ -628,8 +629,20 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 (default 2s): a burst of saves while typing is one trigger.
 
 - Fed by the change feed: creates, edits, moves and restores.
-- **No loops.** A save any extension made never sets a rule off; it only moves what the rule remembers. So
-  `done-stamp`'s own `[done-at::]` write runs nothing, and neither does another extension's.
+- **Who it hears** (`from`, PIE-786): `["user", "agent"]` by default, a person's and agents' saves. A save it doesn't
+  hear only moves what it remembers, so `done-stamp`'s own `[done-at::]` write runs nothing, and neither does another
+  extension's. Name an extension to hear its writes: `"from": ["user", "ext:echonet"]` lets an EchoNet copy arriving
+  set the rule off.
+- **No loops, here or across outlines.** Nothing a trigger wrote sets a rule off: its writes carry `taskId:
+  trigger:<rule>`, and every block it makes gets `[via-trigger::<rule>]` on its first line. A copy of such a block
+  tossed to another outline keeps the property, and there no writer but a person setting it off.
+- **Guards** for an action that starts an agent: `batch` (`"1m"`) gathers a burst of blocks into one call (the first
+  is `target`; `input.trigger.blocks` lists them all, at most 50); `cap` (`"20/day"`) is the most calls a day, kept
+  across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
+  (`"triage=done OR child:via-trigger=intake-prior-art"`).
+- A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
+  agents (`@name` lines; any other extension's write of one is refused): it's asked at once, as `r` would, by whoever
+  set the trigger off. The rule the person wrote is what asked; its guards are the limit.
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
   whose save set it off.
@@ -647,7 +660,17 @@ Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [r
 ```
 
 `rule-match` (a query), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
-`rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw. A
+`rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
+`rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
+installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
+`quiet`, `from`, `batch`, `cap` and `skip` above. A rule note draws, runs, or both:
+
+```text
+Intake prior art [rule-name::intake-prior-art] [rule-match::type=request] [rule-under::((<inbox>))] [rule-on::intake/prior-art] [rule-from::user, ext:echonet] [rule-batch::1m] [rule-cap::20/day] [rule-skip::triage=done OR child:via-trigger=intake-prior-art]
+```
+
+The door's settings card (`,` on a rule note, a view, a callout type or a heading style) sets these with pickers, from the component schema.
+A
 rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
 Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` on a note or any line of one, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
@@ -670,11 +693,13 @@ props' keys`):
 
 - `props[]`: `key`, `where` (`line`, `note` for a property of a note that declares a style or type, `yaml` for a
   figure's), `type` (`enum`, `int`, `number`, `levels`, `name`, `room`, `text`, `list`, `ref`, `template`, `pattern`,
-  `query`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
+  `query`; for the settings card's pickers `action`, `writers`, `duration`, `property`, `node`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
   (values worth drawing for a type with no list), `token` (how it's written when that isn't `[key::value]`), `use`
   (the source to show this property with).
 - `source.use`: the text a variation writes, `{key}` a value and `{yaml}` the YAML properties given; `source.note`
-  (`{ title, name, value, uses? }`): the declaring note a variation writes when it sets a `note` property.
+  (`{ title, name, value, uses?, requires? }`): the declaring note a variation writes when it sets a `note` property.
+  A note carrying `name` (and every key in `requires`) is one of these: the door's settings card (`,`) draws its `note`
+  properties as fields, a section per component a note is (echonet's `echonet-area` requires `query`).
 - `example`, `sweep` (the properties drawn one value at a time), `grids` (`[key, key]` pairs), `space` (the axes of
   every combination).
 
@@ -1066,6 +1091,7 @@ import { outline } from "./outline";
 const home = await outline<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: "almanac" });
 const note = await outline({ action: "create", parentId: home.block!.id, text: "Almanac for 2026-10-09 [type::almanac]" });
 await outline({ action: "get", blockId: "…" }, "another-outline");   // any outline the host serves, by name
+await outline({ action: "get", blockId: "…" }, { outline: "field", machine: "float-box" });   // one on another machine
 ```
 
 One request per connection: a JSON line out (`{ id, outline?, grant, action, … }`), a JSON line back
@@ -1097,6 +1123,26 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
 - Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
+- **Another outline's access level holds.** A request to an outline other than the one the call runs for is checked
+  against that outline's access level (`ep0ch mcp access <level> --ws <name>`), the one rule the MCP gateway and
+  shares follow: `read` reads, `propose` also comments and annotates (never a change to a note), `full` everything,
+  `none` nothing, each refusal saying which level it needs and the command that sets it. On this machine an outline
+  whose owner never set a level stays open to the host's extensions (readwise's board outline, for one); set one to
+  close it. It holds the grant, not the process: the host's socket has no per-client access, so an extension that
+  writes without its grant is an unattributed client like any other (extensions are trusted code).
+- **An outline on another machine** is named with `machine` too (`{ outline, machine }` in `outline.ts`, an ssh config
+  name). This host checks the grant, then sends the request through the ssh forward the clients share
+  (`<outlines>/.remote/<machine>.sock`, started when nobody has) without the grant, carrying `relayed`: which
+  extension, from which node (`<outline>@<machine>`), and whether the call may write. That machine's host writes as
+  `ext:<id>@<node>` and holds the request to its own outline's access level, where a level never set is `none`; it
+  never answers host management or secrets for it. `outlines.list` with only `machine` answers the outlines there
+  that set a level other than `none`, by name and level (`{ outlines: [{ name, level }] }`). Both hosts speak one
+  `PROTOCOL`: a request between two versions is refused naming the machine to update and its command. A machine that can't be reached is refused with why,
+  so an extension can count it offline and try again next run. When that machine's own `ep0ch status` isn't the host
+  to reach (a second host there, an old `ep0ch` on its login PATH), name its outlines folder in
+  `<outlines>/.remote/<machine>.json`: `{ "outlines": "/home/sam/outlines" }`.
+  [echonet](../../extensions/echonet) is the example: outlines as nodes, copying each other's areas across machines
+  and carrying marks back as netmail.
 
 ### Writes to an outside service
 

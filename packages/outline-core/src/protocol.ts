@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 146;
+export const PROTOCOL = 150;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -277,6 +277,11 @@ export interface McpAccessStatus {
   sequence: number;
   /** The principal that made this outline over MCP (PIE-679): it writes with `full`, whatever `level` lets the others. */
   owner?: string;
+  /**
+   * Asked by an extension (PIE-779): what this outline lets it do. `full` on its own outline and on an outline of this
+   * host whose owner never set a level; `level` otherwise, and always for another machine's extension (unset: `none`).
+   */
+  granted?: McpAccessLevel;
 }
 
 /**

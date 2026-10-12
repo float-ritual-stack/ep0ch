@@ -54,7 +54,11 @@ import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenB
 import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { componentsOf, componentsReady } from "../component-schemas";
+import { NODELIST_QUERY, nodesOf } from "../echonet/net";
+import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -118,6 +122,11 @@ export interface SurfaceHost {
    * focus mark and the property panel still follow it, and clicks and `[ ]` count its rows.
    */
   header?(m: Msg, w: number, info: HeaderInfo): string[];
+  /**
+   * A view's own rows after the note's body (EchoNet's FidoNet footer: the tear line, the origin, SEEN-BY): read and
+   * scrolled with the note, never its elements.
+   */
+  footer?(m: Msg, w: number): string[];
   /**
    * Back and forward kept by the view instead of the surface (PIE-453), where a followed link doesn't open in
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
@@ -579,8 +588,11 @@ export class NoteSurface {
   marginMode: MarginMode = "trim";
   /** `a` was pressed with text selected: the passage toolbar has the next key. */
   passageMenu = false;
-  /** The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. */
-  writeNext: { props: Record<string, string> | null; text: string } | null = null;
+  /**
+   * The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. `at`:
+   * the passage it's on when that isn't the selection (passage.act's quote=: EchoNet's reply and quote-reply).
+   */
+  writeNext: { props: Record<string, string> | null; text: string; at?: { from: number; to: number } } | null = null;
   /**
    * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
    * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
@@ -1225,7 +1237,12 @@ export class NoteSurface {
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
-    if (this.panel) {
+    if (this.panel?.card) {
+      const card = this.panel.card, fields = this.settingFields(m, card.schemas);
+      const at = head.length;
+      head.push(...card.render(fields, w, Math.min(fields.length + (card.schemas.length > 1 ? card.schemas.length : 0) + 2, Math.max(4, Math.floor((h - head.length) * 0.6))), m.revision));
+      for (const r of card.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false });
+    } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
       const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
@@ -1440,7 +1457,9 @@ export class NoteSurface {
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const writing = this.composing();
-    const key = `${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
+    // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
+    const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
+    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight - mcols);
@@ -1542,6 +1561,7 @@ export class NoteSurface {
       const k = marks.find(x => x.thread === c.id);
       return k && !this.expanded.has(c.id) ? [{ thread: c.id, row: k.row, rows: cardRows(c, mcols - 2, this.marginMode, t => this.said(t)) }] : [];
     })) : [];
+    if (footRows.length) body.push(...footRows.map(l => pad(inset + l, w) + RESET));
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems, margin: { cols: mcols, cards }, composer });
   }
 
@@ -1805,6 +1825,69 @@ export class NoteSurface {
   openPanel(full = false) {
     if (!this.panel) this.panel = new PropertyPanel();
     this.panel.full = full;
+    this.panel.card = null;
+  }
+
+  // ── the settings card (PIE-786): a configurable note's fields, from its component schema ──────────────
+
+  /** The schema `m` is configured by (a rule note's, a view's, a callout type's…), or null when it's no such note. */
+  settingsSchemaOf(m: Msg): ComponentSchema[] | null {
+    const found = settingsSchemas(componentsOf(this.src), this.rows(m).filter(r => r.scope === "block"));
+    return found.length ? found : null;
+  }
+
+  /** The card's fields for `m`, as the note is now. */
+  settingFields(m: Msg, schema: readonly ComponentSchema[]): SettingField[] {
+    return settingFields(schema, this.rows(m).filter(r => r.scope === "block"));
+  }
+
+  /** Open the settings card on the note in front: the property panel's other face. */
+  openSettings(m: Msg): SettingsCard {
+    const schema = this.settingsSchemaOf(m);
+    if (!schema) throw new ActionRefused("this note isn't configured by a component: a rule note ([rule-name::]), a view ([query::]), a callout type, a heading style or an extension's own has a card · i lists its properties");
+    if (!this.panel) this.panel = new PropertyPanel();
+    this.panel.full = false;
+    const card = new SettingsCard(schema);
+    if (this.panel.card?.id !== card.id) this.panel.card = card;
+    return this.panel.card;
+  }
+
+  /** What a field's picker reads: the outline's properties and values, the extensions' actions and ids. */
+  settingSources(host: SurfaceHost): SettingSources {
+    const listed = () => (extensionList()?.extensions ?? []).filter(e => e.state === "active" || e.state === "failed");
+    return {
+      catalog: (key, prefix) => host.ctx.board.propertyCatalog(key, prefix, 30),
+      actions: () => listed().flatMap(e => e.actions.filter(a => (a.on ?? "block") === "block" && !a.builtIn).map(a => ({
+        value: `${e.id}/${a.id}`, label: `${e.id}/${a.id} · ${a.label}`,
+        ...(a.args?.length ? { detail: `asks ${a.args.map(x => x.name).join(", ")}` } : a.effects ? { detail: a.effects } : {}),
+      }))),
+      extensions: () => listed().map(e => e.id),
+      // EchoNet's nodelist (one note per outline, `type=nodelist`), read with its own parser.
+      nodes: async () => {
+        const { notes } = await host.ctx.board.queryNotes(NODELIST_QUERY, 10).catch(() => ({ notes: [] as Msg[] }));
+        const whole = await Promise.all(notes.map(n => host.ctx.board.get(n.id).catch(() => null)));
+        return [...new Set(whole.flatMap(n => (n ? nodesOf(n.text).map(e => e.node) : [])))];
+      },
+    };
+  }
+
+  /**
+   * Write one field: the note's block token for `key` replaced, appended when it has none, or (null) every one removed;
+   * one `properties.patch` at the revision its tokens were read at, attributed to `actor`.
+   */
+  async writeSetting(m: Msg, key: string, value: string | null, host: SurfaceHost, actor: Actor): Promise<Msg> {
+    const no = agentRefusal(actor, { board: host.ctx.board, blockId: m.id });
+    if (no) throw new ActionRefused(no);
+    const t = await host.ctx.board.propertyTokens(m.id, key);
+    // Written at the revision the card (or the question) was read at: a change made meanwhile is never written over.
+    if (m.revision === undefined || t.revision !== m.revision) throw new EditConflict(m.id, "changed since the settings were read");
+    const own = t.tokens.filter(x => x.scope === "block");
+    const operations = value === null ? own.map(x => ({ op: "remove" as const, ordinal: x.ordinal }))
+      : own.length ? [{ op: "replace" as const, ordinal: own[0]!.ordinal, value }] : [{ op: "append" as const, key, value }];
+    if (!operations.length) return m;
+    const saved = await host.ctx.board.patchProperties(m.id, t.revision, operations, actor);
+    if (this.msg?.id === m.id) { this.refresh({ ...saved, childIds: this.msg.childIds }); this.links = linksOf(this.msg!); }
+    return saved;
   }
 
   closePanel(): boolean {
@@ -1928,6 +2011,17 @@ export class NoteSurface {
       return true;
     }
     if (!m || m.partial) { if (k.kind === "esc" || ch(k) === "i") void this.runKey("props.close", {}, host); host.redraw(); return true; }
+    if (P.card) {
+      const fields = this.settingFields(m, P.card.schemas);
+      const intent = P.card.key(k, fields.length), f = fields[P.card.sel];
+      // The card's commands are the settings.* actions; moving its selection is its own.
+      if (intent === "close") void this.runKey("props.close", {}, host);
+      else if (intent === "tokens") void this.runKey("props", {}, host);
+      else if (f && intent === "pick") void this.runKey("settings.set", { key: f.prop.key }, host);
+      else if (f && intent === "clear") void this.runKey("settings.clear", { key: f.prop.key }, host);
+      host.redraw();
+      return true;
+    }
     const rows = this.rows(m);
     const intent = P.key(k, rows.length);
     const r = rows[P.sel];
@@ -2246,7 +2340,7 @@ export class NoteSurface {
     this.replyOn = null;
     if (!m || this.editing) return;
     // Text selected in the reader is where the passage picker starts: the same text, as a quote.
-    const picked = mine && mode === "select" && this.selection ? this.sourceOf(this.selection) : null;
+    const picked = mine && mode === "select" ? this.writeNext?.at ?? (this.selection ? this.sourceOf(this.selection) : null) : null;
     const read = mode === "select" || m.partial ? await host.ctx.board.get(m.id) : m;
     const fresh = read ? rereadResource(read, m) : read;
     if (still && !still()) return;
@@ -2403,6 +2497,15 @@ export class NoteSurface {
         if (P.field) return completerOf(P.field.input)?.click(y) ?? false;
         const h = this.hitAt(x, y);
         if (!h || !("prop" in h)) return undefined;
+        if (P.card) {
+          // A click selects a field; a click on the selected one opens its picker (as enter does).
+          const m = this.msg, f = m ? this.settingFields(m, P.card.schemas)[h.prop - 1] : undefined;
+          if (!f) return false;
+          if (P.card.sel === h.prop - 1) void this.runKey("settings.set", { key: f.prop.key }, host);
+          else { P.card.sel = h.prop - 1; P.card.note = ""; }
+          host.redraw();
+          return true;
+        }
         const m = this.msg, r = m ? this.rows(m)[h.prop - 1] : undefined;
         if (!r) return false;
         if (this.selection) void this.runKey("select.clear", {}, host);
@@ -2423,10 +2526,14 @@ export class NoteSurface {
       leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
       leaveRefusal: () => { const f = P.field; return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
       unsaved: () => !!P.field && P.field.input.text !== P.field.row.value,
-      hint: () => P.hint(),
-      state: () => (P.field ? "editing a property" : "properties"),
+      hint: () => (P.card ? P.card.hint() : P.hint()),
+      state: () => (P.card ? "settings" : P.field ? "editing a property" : "properties"),
       describe: () => {
         const m = this.msg;
+        if (m && P.card) {
+          return { open: "settings", schemas: P.card.schemas.map(s => s.id), selected: P.card.sel + 1, note: P.card.note || null, editing: null,
+            fields: this.settingFields(m, P.card.schemas).map(f => ({ n: f.n, section: P.card!.schemas[f.section]!.id, key: f.prop.key, type: f.prop.type, value: f.value, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}) })), rows: [] };
+        }
         return m ? {
           open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
           editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.input.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
@@ -2877,6 +2984,8 @@ export class NoteSurface {
     if (c === "z") { void this.runKey("callouts", {}, host); return true; }
     // R: the note as written, without what the rules draw on it (PIE-600), and back.
     if (c === "R" && this.msg && isOutlineNote(this.msg)) { void this.runKey("decor.raw", {}, host); return true; }
+    // ,: a configurable note's settings card (PIE-786), as an app's settings are; elsewhere , isn't the reader's.
+    if (c === "," && this.msg && !this.msg.partial && isOutlineNote(this.msg) && this.settingsSchemaOf(this.msg)) { void this.runKey("settings", {}, host); return true; }
     // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
     // a fold toggles, a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a
     // row or an embed in a new reader. Otherwise ⏎ isn't the reader's.
@@ -6298,7 +6407,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ] ({ } in an EchoNet reader, whose [ ] step messages), click, esc lets go",
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
@@ -6560,10 +6669,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
       body: { type: "string", optional: true, about: "comment: its text, sent at once (left out, the person writes it)" },
+      text: { type: "string", optional: true, about: "comment written by the person: what the composer starts with (a quote-reply's > lines); quote= then names the passage, without a selection" },
       question: { type: "string", optional: true, about: "ask: the question, sent at once (left out, the person writes it after @name)" },
       color: { type: "string", optional: true, about: "a theme tone the extension may use (highlight's colour): default, good, warn, bad, dim, accent" },
     },
-    async run({ action, quote, near, body, question, color }, { surface, host }, actor) {
+    async run({ action, quote, near, body, question, color, text: start }, { surface, host }, actor) {
       const m = surface.requireNote();
       if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to act on a passage of");
       const p = surface.passageFor(actor, quote, near);
@@ -6591,7 +6701,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
         // As the person's C opens it (their session, entered as it opens), straight to writing on the selected words.
-        surface.writeNext = { props: props ?? null, text: agent ? `@${agent.name} ` : "" };
+        surface.writeNext = { props: props ?? null, text: `${agent ? `@${agent.name} ` : ""}${start ?? ""}`, ...(quote !== undefined ? { at: { from: p.note.start, to: p.note.start + p.note.quote.length } } : {}) };
         if (host.startSession) host.startSession("select");
         else await personComments(surface, host, "select");
         host.redraw();
@@ -6879,7 +6989,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props.close": def({
-    summary: "close the property panel (a value being typed must be saved or cancelled first)", keys: "esc, i, q",
+    summary: "close the property panel, or its settings card (a value being typed must be saved or cancelled first)", keys: "esc, i, q; in the settings card esc, q or ,",
     touches: "tile", while: "typing", replay: "safe", way: "the property panel they're in is theirs to close",
     args: {},
     run(_, { surface, host }) {
@@ -6903,6 +7013,109 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       else { setUserSummaryKeys(reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
       const m = surface.msg;
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
+    },
+  }),
+  "settings": def({
+    summary: "a configurable note's settings card (PIE-786): a rule note, a view, a callout type, a heading style or an extension's component, its fields from the component schema, each set with a picker in the power bar. The person's opens the card; an agent gets the fields (key, type, value, default, meaning, choices) to set with settings.set",
+    keys: ",",
+    touches: "nothing", replay: "safe",
+    menu: noteRow("settings", ",", { now: ({ surface }) => (!surface.msg || surface.msg.partial || !surface.settingsSchemaOf(surface.msg) ? { hide: true } : null) }),
+    args: {},
+    async run(_, { surface, host }, actor) {
+      const typing = () => { if (surface.panel?.field) throw new ActionRefused(`a property value (${surface.panel.field.row.key}) is being typed here · enter saves it, esc cancels, then , opens the settings`); };
+      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      typing();
+      const m = await surface.whole();
+      await tokensFor(m.text, surface.src);
+      if (surface.src) await componentsReady(surface.src);
+      typing();
+      // The card holds the reader's keys: an agent reads the fields in its reply and leaves the reader be.
+      const card = actor.kind === "user" ? surface.openSettings(m) : null;
+      const schemas = card?.schemas ?? surface.settingsSchemaOf(m);
+      if (!schemas) surface.openSettings(m);
+      host.redraw();
+      // A note may be more than one thing (a view that is an EchoNet area): a section each, in the card's order.
+      return { id: m.id, revision: m.revision, schema: schemas![0]!.id, schemas: schemas!.map(s => ({ id: s.id, title: s.title })), title: schemas!.map(s => s.title).join(" + "),
+        fields: surface.settingFields(m, schemas!).map(f => ({
+        key: f.prop.key, section: schemas![f.section]!.id, type: f.prop.type, value: f.value, meaning: f.prop.meaning,
+        ...(f.prop.default !== undefined ? { default: f.prop.default } : {}),
+        ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}),
+      })) };
+    },
+  }),
+  "settings.set": def({
+    summary: "set one field of a configurable note's settings card: an ordinary attributed property edit (properties.patch at the revision its tokens were read at), checked against the field's type. The person's without a value asks in the power bar with the field's picker (an enum's values, a query built over the outline's properties and values, a note, an extension's action, the writers, a duration)",
+    keys: ", then enter or e on a field, or a click on the selected field",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      key: { type: "string", about: "the field's key (settings lists them)" },
+      value: { type: "string", optional: true, about: "its new value; left out, the person is asked in the power bar" },
+    },
+    async run({ key, value }, { surface, host }, actor) {
+      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      const m = await surface.whole();
+      await tokensFor(m.text, surface.src);
+      const schema = surface.settingsSchemaOf(m);
+      if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
+      const fields = surface.settingFields(m, schema);
+      const field = fields.find(f => f.prop.key === key.trim().toLowerCase());
+      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}; its fields are ${fields.map(f => f.prop.key).join(", ")}`);
+      const write = async (answer: string) => {
+        const to = settingValue(field, answer);
+        const why = settingProblem(field, to);
+        if (why) throw new ActionRefused(why);
+        if (to === field.value) {
+          // Unchanged only if the note still is as it was read (it may have moved on while the person chose).
+          const now = await host.ctx.board.get(m.id);
+          if (now?.revision !== m.revision) throw new ActionRefused("the note changed elsewhere since its settings were read · not saved; open them again (settings)");
+          return { saved: false, unchanged: true, key: field.prop.key, revision: m.revision };
+        }
+        let saved: Msg;
+        try { saved = await surface.writeSetting(m, field.prop.key, to, host, actor); } catch (e) {
+          throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its settings were read · not saved; open them again (settings)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        const said = `saved · ${field.prop.key}: ${field.value === null ? "unset" : printable(field.value).slice(0, 30)} → ${printable(to).slice(0, 40)}`;
+        if (surface.panel?.card) surface.panel.card.note = said;
+        host.ctx.flash(said);
+        surface.noteAgent(actor, `set ${field.prop.key} to ${to.slice(0, 40)}`);
+        host.redraw();
+        return { saved: true, key: field.prop.key, from: field.value, to, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
+      };
+      if (value !== undefined) return write(value);
+      if (actor.kind !== "user") {
+        const p = field.prop;
+        throw new ActionRefused(`say value=…: ${p.key} is ${p.type}${p.values ? ` (one of ${p.values.map(v => v.value).join(", ")})` : p.samples ? ` (like ${p.samples.join(", ")})` : ""}: ${p.meaning}`);
+      }
+      return askInBar(host.ctx as never, `${schema[field.section]!.title} · ${field.prop.key}`, [settingQuestion(field, surface.settingSources(host))], {}, actor, answers => write(answers[field.prop.key] ?? ""));
+    },
+  }),
+  "settings.clear": def({
+    summary: "clear one field of a configurable note's settings card (its property taken out of the note, so its default holds): one attributed properties.patch",
+    keys: ", then x or delete on a field",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { key: { type: "string", about: "the field's key (settings lists them)" } },
+    async run({ key }, { surface, host }, actor) {
+      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      const m = await surface.whole();
+      await tokensFor(m.text, surface.src);
+      const schema = surface.settingsSchemaOf(m);
+      if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
+      const field = surface.settingFields(m, schema).find(f => f.prop.key === key.trim().toLowerCase());
+      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}`);
+      // A key any of its components declares or requires (a view's query, an area's echo) is what makes it one.
+      const own = schema.find(s => s.source.note?.name === field.prop.key || (s.source.note?.requires ?? []).includes(field.prop.key));
+      if (own) throw new ActionRefused(`${field.prop.key} is what makes this note a ${own.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
+      if (field.value === null) return { cleared: false, key: field.prop.key, unset: true };
+      let saved: Msg;
+      try { saved = await surface.writeSetting(m, field.prop.key, null, host, actor); } catch (e) {
+        throw e instanceof ActionRefused ? e : new ActionRefused(`not cleared: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const said = `cleared · ${field.prop.key}${field.prop.default !== undefined ? ` (now its default, ${field.prop.default})` : ""}`;
+      if (surface.panel?.card) surface.panel.card.note = said;
+      host.ctx.flash(said);
+      surface.noteAgent(actor, `cleared ${field.prop.key}`);
+      host.redraw();
+      return { cleared: true, key: field.prop.key, from: field.value, revision: saved.revision ?? null };
     },
   }),
   "decor.raw": def({

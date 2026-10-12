@@ -68,6 +68,11 @@ export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
 export const DEMO_EXAMPLES = ["notify", "runbook", "structure"] as const;
 /** The outliner's example program (PIE-754): a scheduled action that writes a dated note under a page. Installed with the rules. */
 export const PROGRAM_EXAMPLES = ["almanac"] as const;
+/**
+ * Extensions whose components the settings card draws (PIE-786): EchoNet's subscription and area. Installed with the
+ * rules; its toss is scheduled every 30 minutes, so a scratch showcase left open that long writes its own nodelist.
+ */
+export const CARD_EXAMPLES = ["echonet"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user

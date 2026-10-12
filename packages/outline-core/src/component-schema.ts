@@ -16,7 +16,7 @@ import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 
 /** What a property's value is. */
-export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query"] as const;
+export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "node"] as const;
 export type PropType = (typeof PROP_TYPES)[number];
 
 /**
@@ -61,7 +61,14 @@ export interface PropSchema {
  * The note that declares a style or type: its first line is `title [name::value]`, the variation's `note` properties
  * after it; `uses` is the line property that then names it (`heading`: the heading line says `[heading::mine]`).
  */
-export interface DeclaringNote { title: string; name: string; value: string; uses?: string }
+export interface DeclaringNote {
+  title: string; name: string; value: string; uses?: string;
+  /**
+   * Other properties the note must also have to be one (an EchoNet area is `[echo::]` on a note with a `[query::]`; on
+   * any other note `[echo::]` is a posting): what a settings card asks before it draws this component's fields.
+   */
+  requires?: string[];
+}
 
 export interface ComponentSchema {
   /** A slug: `heading-style`, `callout`, `graph-meter`, an extension's `ext-<id>-<name>`. */
@@ -183,6 +190,14 @@ const RULE: ComponentSchema = {
     { key: "rule-pattern", where: "note", type: "enum", meaning: "a band's or divider's glyph track", values: enumOf({ stack: "shades fading out", waffle: "a checkerboard", uptime: "an uptime strip's bars", dots: "sparse dots", rule: "a ruled line" }) },
     { key: "rule-align", where: "note", type: "enum", meaning: "where a band's words sit", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }) },
     { key: "rule-style", where: "note", type: "enum", meaning: "a band's or divider's heading style by name; pattern and align above go over it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES) },
+    { key: "rule-on", where: "note", type: "action", meaning: "an extension's action it runs on a block that starts matching (<extension>/<action>)", samples: ["intake/prior-art"] },
+    { key: "rule-on-stop", where: "note", type: "action", meaning: "an action it runs on a block that stops matching" },
+    { key: "rule-on-change", where: "note", type: "action", meaning: "an action it runs on a block saved while it matches" },
+    { key: "rule-from", where: "note", type: "writers", meaning: "whose saves set it off: user, agent, ext:<extension> (an EchoNet arrival is ext:echonet)", default: "user, agent", samples: ["user, ext:echonet"] },
+    { key: "rule-quiet", where: "note", type: "duration", meaning: "how long a block must be still before its action runs", default: "2s", samples: ["2s", "1m"] },
+    { key: "rule-batch", where: "note", type: "duration", meaning: "gather a burst into one call with all its blocks, this long after the first", samples: ["1m"] },
+    { key: "rule-cap", where: "note", type: "text", meaning: "the most calls a day; past it, nothing runs until the next day, and the rule says so", samples: ["20/day"] },
+    { key: "rule-skip", where: "note", type: "query", meaning: "blocks this query holds for never set it off", samples: ["triage=done OR child:type=prior-art"] },
   ],
   source: {
     use: "Planning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions\nShip the shelf !!today!!\n\n- buy screws\n- paint it",
@@ -192,6 +207,27 @@ const RULE: ComponentSchema = {
   sweep: ["rule-decorate", "rule-place", "rule-kind", "rule-tone", "rule-pattern", "rule-align", "rule-label"],
   grids: [["rule-decorate", "rule-place"]],
   space: ["rule-decorate", "rule-place", "rule-tone", "rule-kind"],
+};
+
+const VIEW: ComponentSchema = {
+  id: "view",
+  title: "Views",
+  intro: "A saved view: a note whose `[query::]` gathers the blocks it holds for, sorted and limited, listed as its children wherever the note is (a virtual branch). The service answers it; every client lists what it answers. A lane, a hub and a rule's `rule-view` all read one.",
+  where: "a note with `[type::virtual-branch]` and `[query::…]`",
+  props: [
+    { key: "query", where: "note", type: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
+    { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },
+    { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
+    { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
+    { key: "child-depth", where: "note", type: "int", meaning: "how deep each row's own children are listed under it", min: 0, max: 8, default: "0" },
+    { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
+    { key: "summary-properties", where: "note", type: "list", meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
+  ],
+  source: { use: "Planning call [type::meeting] [when::Tuesday]", note: { title: "Meetings", name: "query", value: "type=meeting" } },
+  example: {},
+  sweep: [],
+  grids: [],
+  space: [],
 };
 
 const FIGURE_TITLE: PropSchema = { key: "title", where: "yaml", type: "text", meaning: "the title in the figure's frame", samples: ["Disk"] };
@@ -234,7 +270,7 @@ const SPARK: ComponentSchema = {
 };
 
 /** The components every outline has. */
-export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS].map(s => ({ ...s, origin: "built-in" }));
+export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS].map(s => ({ ...s, origin: "built-in" }));
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────
 
@@ -318,6 +354,7 @@ export function componentSchemaProblem(raw: unknown): string | null {
     const n = src.note as Record<string, unknown>;
     if (!n || typeof n !== "object" || !isStr(n.title, 200) || !isStr(n.name, 64) || !keys.has(n.name) || !isStr(n.value, 64)) return "source/note is { title, name (one of its props), value }";
     if (n.uses !== undefined && (!isStr(n.uses, 64) || !keys.has(n.uses))) return "source/note/uses is one of its props";
+    if (n.requires !== undefined && (!Array.isArray(n.requires) || n.requires.length > 8 || !n.requires.every(k => isStr(k, 64) && KEY.test(k)))) return "source/note/requires is a list of property keys";
   }
   if (!isRecordOfStrings(c.example)) return "example is { key: value }";
   for (const k of Object.keys(c.example)) if (!keys.has(k)) return `example names ${k}, which props doesn't declare`;
@@ -351,6 +388,12 @@ export function checkValue(p: PropSchema, value: string): string | null {
   }
   if (p.type === "levels" && !v.split(",").map(x => x.trim()).filter(Boolean).every(x => /^[1-6]$/.test(x) || x.toLowerCase() === "rule")) return `${p.key} ${JSON.stringify(value)} is levels (1 to 6) or rule, comma-separated`;
   if (p.type === "room" && !/^\s*\d+(?:\s+\d+)?\s*$/.test(v)) return `${p.key} ${JSON.stringify(value)} is columns, or "rows columns"`;
+  if (p.type === "property" && !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a property's name`;
+  // A node (`<outline>@<machine>`) or a mask over them, as EchoNet reads one: `*@float-2`, `rexall-*@laptop`, `@<page>`.
+  if (p.type === "node" && !v.split(",").map(x => x.trim()).every(x => /^@\S+$/.test(x) || /^[a-z0-9*][a-z0-9*-]*(?:@[A-Za-z0-9*][\w.*-]*)?$/i.test(x))) return `${p.key} ${JSON.stringify(value)} is a node (outline@machine) or a mask (*@float-2, @<page>)`;
+  if (p.type === "duration" && !/^[1-9][0-9]{0,4}[smh]$/.test(v)) return `${p.key} ${JSON.stringify(value)} is a duration, like 30s, 5m or 2h`;
+  if (p.type === "action" && !/^[a-z][a-z0-9-]{0,31}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(v)) return `${p.key} ${JSON.stringify(value)} is <extension>/<action>`;
+  if (p.type === "writers" && !v.split(",").map(x => x.trim().toLowerCase()).filter(Boolean).every(x => x === "user" || x === "agent" || /^ext:[a-z][a-z0-9-]{0,31}$/.test(x))) return `${p.key} ${JSON.stringify(value)} is user, agent or ext:<extension>, comma-separated`;
   return null;
 }
 

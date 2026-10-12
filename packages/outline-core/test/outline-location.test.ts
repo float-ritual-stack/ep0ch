@@ -95,7 +95,7 @@ describe("which outline (PIE-530)", () => {
       "/home/sam/outlines/pie.sqlite", "/home/sam/outlines/pie", "/home/sam/outlines/.host/host.sock",
       "/home/sam/outlines/.host/host.lock", "/home/sam/outlines/.clients/pie", "/home/sam/outlines/.deleted",
     ]);
-    expect(layout.remote("box-a")).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", control: "/home/sam/outlines/.remote/box-a.ctl" });
+    expect(layout.remote("box-a")).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", control: "/home/sam/outlines/.remote/box-a.ctl", config: "/home/sam/outlines/.remote/box-a.json" });
     expect(slugifyOutlineName("Évan's Fictional Garden!")).toBe("evan-s-fictional-garden");
   });
 });

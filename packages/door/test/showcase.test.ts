@@ -18,6 +18,7 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
@@ -304,6 +305,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     folds: ["outline", "children", "◂", "▾"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
+    // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node.
+    echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", "last tosses"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
@@ -340,6 +343,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
     rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
+    // A rule note beside a view: both configurable, , opens either's card.
+    settings: ["Compost bay jobs get a badge", "A rule note is configured, not typed", "Plot chat"],
     selection: ["Lentil soup", "Drag across these lines"],
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
     // This door runs in its own terminal (the test's App), so the section says so; in a session it lists the terminals.
@@ -645,11 +650,46 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "library.clear", args: {}, as: "test-agent" });
     // Every component the readers draw has a page (PIE-701): the section lists as many as there are schemas, the figures and the box among them.
     const listed = () => (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.components as string[]);
-    expect(listed()).toHaveLength(BUILTIN_COMPONENT_SCHEMAS.length);
+    // ...and the installed extensions' (EchoNet's subscription and area, for the settings card).
+    expect(listed()).toHaveLength(BUILTIN_COMPONENT_SCHEMAS.length + 2);
+    expect(listed()).toEqual(expect.arrayContaining(["echonet-subscription", "echonet-area"]));
     for (const id of ["graph-stat", "graph-table", "graph-quadrant", "links", "box", "image", "hero-image", "embed", "code-fence"]) expect(listed()).toContain(id);
     expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
     await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
+  }, 20_000);
+
+  test("the echonet section: an agent reads the mini network through act; the person's read marks stay theirs", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "echonet" }, as: "test-agent" })).toMatchObject({ key: "echonet" });
+    const desk = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "echonet")).top; };
+    await until(() => (desk().describe().areas?.length ?? 0) === 2 && desk().describe().areas.every((a: any) => a.messages !== null), "both areas counted", 8000);
+    // Plot chat: the view's two posts and the note posted to it by its tag; Seed swap: the society's board, two more waiting.
+    expect(desk().describe().areas.map((a: any) => [a.tag, a.kind, a.from, a.messages, a.new, a.waiting])).toEqual([["plot.chat", "local", expect.stringMatching(/@/), 3, 3, undefined], ["seed.swap", "sub", "society@box-a", 3, 3, 2]]);
+    expect(await app.act({ action: "echo.area", args: { tag: "SEED.SWAP" }, as: "test-agent" })).toMatchObject({ n: 2, messages: 3, new: 3 });
+    await until(() => desk().describe().list?.messages?.length === 3, "Seed swap's copies listed", 5000);
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.message", args: { n: 2, read: true }, as: "test-agent" })).toMatchObject({ n: 2, of: 3, subject: "Tomato seed, saved last year", read: true });
+    await until(() => screen().includes("a newer version is upstream") && /SEEN-BY: society@box-a \S+@/.test(screen()), "the copy, upstream newer, its SEEN-BY", 8000);
+    expect(screen()).toContain(" * Origin: society@box-a (Seed swap)");
+    expect(screen()).toContain("take it: ext.echonet.take-newer");
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ n: 3, subject: "Swap table on Saturday" });
+    await until(() => screen().includes("gone upstream since 2026-03-04"), "the copy whose original is gone", 8000);
+    // Plot chat starts here: its posts' SEEN-BY names the nodes whose seen-by marks are on them.
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.area", args: { tag: "plot.chat" }, as: "test-agent" });
+    await until(() => desk().describe().list?.area?.tag === "plot.chat" && desk().describe().list?.messages?.length === 3, "Plot chat's posts", 5000);
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "echo.message", args: { n: 1, read: true }, as: "test-agent" })).toMatchObject({ subject: "Hosepipe ban from Monday" });
+    await until(() => /SEEN-BY: \S+@\S+ attic@box-c society@box-a/.test(screen()), "the post's SEEN-BY from its marks", 8000);
+    expect(screen()).toContain("From : ana @ ");
+    // The agent read them: the person hasn't, so the copies stay new for them.
+    const society = (await board.queryNotes(`parent:((${seeded.notes.echoSub.id})) echo-source`)).notes[0]!;
+    expect((await board.queryNotes(`parent:((${society.id})) from unread:me`)).notes).toHaveLength(3);
+    const agentUnread = async () => (await board.queryNotes(`parent:((${society.id})) from unread:test-agent`)).notes.map(m => subject(m));
+    for (let i = 0; i < 100 && (await agentUnread()).length !== 1; i++) await Bun.sleep(25);
+    expect(await agentUnread()).toEqual(["Runner beans to swap"]);
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {
@@ -2550,6 +2590,103 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await text(job.id)).match(/done-at/g)).toHaveLength(1);
     await app.act({ action: "props.edit", tile: "reader2", args: { key: "status", value: "todo" }, as: "test-agent" });
     await has(/^(?![\s\S]*done-at)/);
+  }, 60_000);
+
+  test("settings (PIE-786): , opens a rule note's card; an agent lists its fields and sets one through act, checked by type; the person's enter asks in the power bar, its query built from this outline's own properties", async () => {
+    const id = seeded.notes.settings.id, text = async () => (await board.get(id))!.text;
+    const at = SECTIONS.findIndex(s => s.key === "settings");
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "settings" }, as: "test-agent" })).toEqual({ section: at + 1, key: "settings" });
+    await until(() => screen().includes("Compost bay jobs get a badge") && screen().includes("Plot chat"), "the rule note and the area", 8000);
+    // An agent reads the fields as tool arguments: the rule's, from its component schema, with their types.
+    const listed = await app.act({ action: "settings", tile: "reader", as: "test-agent" }) as { schema: string; fields: { key: string; type: string; value: string | null }[] };
+    expect(listed.schema).toBe("rule");
+    expect(listed.fields[0]).toMatchObject({ key: "rule-name", value: "bay-badges" });
+    expect(listed.fields.map(f => [f.key, f.type])).toEqual(expect.arrayContaining([["rule-match", "query"], ["rule-on", "action"], ["rule-from", "writers"], ["rule-batch", "duration"], ["rule-tone", "enum"]]));
+    // Plot chat is a view and an EchoNet area: two sections, the view's first, each in its own schema's order.
+    const both = await app.act({ action: "settings", tile: "reader2", as: "test-agent" }) as { schemas: { id: string }[]; fields: { key: string; section: string; value: string | null }[] };
+    expect(both.schemas.map(s => s.id)).toEqual(["view", "echonet-area"]);
+    expect(both.fields.map(f => [f.section, f.key])[0]).toEqual(["view", "query"]);
+    expect(both.fields.find(f => f.key === "echo")).toMatchObject({ section: "echonet-area", value: "plot.chat" });
+    // The same value again writes nothing.
+    await expect(app.act({ action: "settings.set", tile: "reader2", args: { key: "echo", value: "plot.chat" }, as: "test-agent" })).resolves.toMatchObject({ unchanged: true });
+    // The person's , opens the card in the reader they're in.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch(",");
+    await until(() => screen().includes("settings · Rules · bay-badges") && screen().includes("rule-tone"), "the card", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    // Through act, as an agent: a value its type refuses is said; one it takes is an attributed property edit.
+    const before = await text();
+    await expect(app.act({ action: "settings.set", tile: "reader", args: { key: "rule-tone", value: "loud" }, as: "test-agent" })).rejects.toThrow("is one of");
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-tone", value: "good" }, as: "test-agent" });
+    expect(await text()).toBe(before.replace("[rule-tone::accent]", "[rule-tone::good]"));
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-cap", value: "20/day" }, as: "test-agent" });
+    expect(await text()).toContain("[rule-cap::20/day]");
+    await app.act({ action: "settings.clear", tile: "reader", args: { key: "rule-cap" }, as: "test-agent" });
+    expect(await text()).not.toContain("rule-cap");
+    await expect(app.act({ action: "settings.clear", tile: "reader", args: { key: "rule-name" }, as: "test-agent" })).rejects.toThrow("what makes this note");
+    await until(() => screen().includes("good"), "the card shows the new tone", 5000);
+    // The person's ⏎ on rule-match asks in the power bar: the query built from what this outline's notes have. The card
+    // holds the reader's keys once the person is in it (⏎ enters, as the property panel's does).
+    press({ kind: "enter" });
+    ch("j");
+    await until(() => screen().includes("rule-match · query"), "rule-match selected", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    // The bar is the App's, over the showcase: what it lists is read from it.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
+    press({ kind: "enter" });
+    await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "the question, its value now first", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    // Typing builds the query: the last clause offered from this outline's own properties and values.
+    for (const c of "type=bay-job AND status=t") ch(c);
+    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    // Changed elsewhere while the person chose: their answer is refused, never written over the change.
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{title}" }, as: "test-agent" });
+    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
+    press({ kind: "enter" });
+    await Bun.sleep(500);
+    expect(await text()).toContain("[rule-match::type=bay-job]");
+    expect(await text()).toContain("[rule-label::{title}]");
+    // Asked again, on the note as it is now: written.
+    if (app.bar && !app.bar.ended()) press({ kind: "esc" });
+    await until(() => !app.bar || app.bar.ended(), "the bar put away", 3000);
+    press({ kind: "enter" });
+    await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "asked again", 5000);
+    for (const c of "type=bay-job AND status=t") ch(c);
+    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause again", 5000);
+    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && !(await text()).includes("[rule-match::type=bay-job AND status=todo]"); i++) await Bun.sleep(50);
+    expect(await text()).toContain("[rule-match::type=bay-job AND status=todo]");
+    // The area's card, by keys: both sections drawn, the echo name picked in the bar and written.
+    const area = seeded.notes.echoArea.id, areaText = async () => (await board.get(area))!.text;
+    for (let i = 0; i < 2 && app.bar && !app.bar.ended(); i++) press({ kind: "esc" });
+    press({ kind: "esc" });
+    await until(() => !screen().includes("settings · Rules"), "the rule's card closed", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    press({ kind: "tab" });
+    await until(() => (S().stages.get(at)?.top.focus ?? "") === "reader2" || screen().includes("2 reader ═"), "the area's reader focused", 3000).catch(() => {});
+    ch(",");
+    await until(() => screen().includes("settings · Views + EchoNet areas") && screen().includes("  EchoNet areas"), "both sections", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    press({ kind: "enter" });
+    for (let i = 0; i < 12 && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
+    expect(screen()).toContain("echo · text");
+    press({ kind: "enter" });
+    await until(() => asked()[0] === "EchoNet areas · echo · echo = plot.chat", "the area's name asked, its own first", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    for (const c of "plot.talk") ch(c);
+    await until(() => asked()[0] === "EchoNet areas · echo · echo = plot.talk", "the name as typed", 5000).catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && !(await areaText()).includes("[echo::plot.talk]"); i++) await Bun.sleep(50);
+    expect(await areaText()).toContain("[echo::plot.talk] [query::type=plot-post]");
+    // Put back for the sections after this one.
+    await app.act({ action: "settings.set", tile: "reader2", args: { key: "echo", value: "plot.chat" }, as: "test-agent" });
+    expect(await areaText()).toContain("[echo::plot.chat]");
+    // The view's query is what the area requires: clearing it is refused, as clearing the area's name would be.
+    await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "query" }, as: "test-agent" })).rejects.toThrow("what makes this note");
+    await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "echo" }, as: "test-agent" })).rejects.toThrow("what makes this note");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {

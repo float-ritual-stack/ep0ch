@@ -56,6 +56,17 @@ describe("a machine's forward", () => {
     expect([...w.files.keys()].filter(f => f.endsWith(".lock"))).toEqual([]);   // the lock is let go
   });
 
+  test("a machine whose file names its outlines folder is forwarded there without asking its ep0ch; a bad file is said", async () => {
+    const w = world();
+    w.files.set("/home/sam/outlines/.remote/box-a.json", JSON.stringify({ outlines: "/home/sam/echo-outlines" }));
+    expect(await ensureForward("box-a", OPTS(w.io))).toMatchObject({ how: "started", remote: { socket: "/home/sam/echo-outlines/.host/host.sock" } });
+    expect(ops(w.calls)).toEqual(["check", "forward"]);
+    expect(w.calls.find(c => c.includes("-L"))).toContain("/home/sam/outlines/.remote/box-a.sock:/home/sam/echo-outlines/.host/host.sock");
+    const bad = world();
+    bad.files.set("/home/sam/outlines/.remote/box-a.json", JSON.stringify({ outlines: "~/echo-outlines" }));
+    await expect(ensureForward("box-a", OPTS(bad.io))).rejects.toThrow('should be { "outlines": "/absolute/folder/on/box-a" }');
+  });
+
   test("a connection that dropped is started again; one up whose host doesn't answer is left up and said", async () => {
     const w = world();
     await ensureForward("box-a", OPTS(w.io));

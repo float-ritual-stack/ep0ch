@@ -36,6 +36,25 @@ export class ReadMarks {
     return marked;
   }
 
+  /**
+   * Marks blocks read by `reader` at the revisions they were shown at (EchoNet's reader): a revision newer than the
+   * block's is its current one, and a mark never goes back (a later read stays). A trashed or unknown id is skipped.
+   */
+  markShown(reader: string, shown: readonly { id: string; revision: number }[]): number {
+    const key = readerKey(reader);
+    const at = this.now();
+    const write = this.database.query(`
+      INSERT INTO read_marks (actor, block_id, revision, read_at)
+      SELECT ?, id, MIN(revision, ?), ? FROM blocks WHERE id = ? AND effective_deleted_root_id IS NULL
+      ON CONFLICT (actor, block_id) DO UPDATE SET revision = MAX(read_marks.revision, excluded.revision), read_at = excluded.read_at
+    `);
+    let marked = 0;
+    this.database.transaction(() => {
+      for (const s of shown) marked += write.run(key, Math.max(0, Math.floor(s.revision)), at, s.id).changes > 0 ? 1 : 0;
+    })();
+    return marked;
+  }
+
   /** A thread's comment and its replies, by its comment's id (or a reply's: its thread). */
   threadOf(annotationId: string): { root: string; ids: string[] } {
     const parent = this.database.query(`SELECT value FROM block_properties WHERE block_id = ? AND key = 'parent-annotation' LIMIT 1`).get(annotationId) as { value: string } | null;

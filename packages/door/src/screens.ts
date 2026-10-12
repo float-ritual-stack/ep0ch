@@ -254,6 +254,8 @@ const ITEMS: MenuItem[] = [
   { key: "+", label: "New note", open: () => null, action: "note.new" },
   // The component library (PIE-618): a page per component, from the schemas; `ep0ch --screen library` opens it too.
   { key: "I", label: "Library", open: () => openScreen("library"), one: "library" },
+  // EchoNet's message areas (PIE-779): every named area and subscription the door reaches, their messages, the nodelist.
+  { key: "A", label: "Areas", open: () => openScreen("echonet"), one: "echonet" },
   // A blank screen (PIE-565): one tile to build from, saved as a screen note with ^W w; its o opens the ones you made.
   { key: "M", label: "Make a screen", open: () => openScreen("blank") },
 ];
@@ -450,6 +452,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
   I: ["library", "components"], "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
+  A: ["echonet", "message areas", "areas"],
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
@@ -531,7 +534,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + M, or n j k r w l f s q b d g x t o c i e m, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + A M, or n j k r w l f s q b d g x t o c i e a m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     args: {
       name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, a registered screen name, or the title of a screen a person made as they typed it (daily test; screen.list)" },
@@ -1540,6 +1543,7 @@ const HELP: Record<string, string> = {
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
   "+": "a new note at the top of the Inbox, opened to be written (ctrl+n on every screen; from a reader, under the note it shows)",
   M: "a blank screen to build from: its rows start it with an outline, a reader, a terminal or a query lane; ^W w saves it as a screen note, its o opens the ones you made",
+  A: "EchoNet's message areas: every area and subscription the door reaches, their messages, the nodelist",
 };
 
 export class Goodbye implements Screen {

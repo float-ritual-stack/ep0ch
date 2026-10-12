@@ -445,6 +445,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["library: one property", () => openScreen("library"), [k("2")]],
     ["library: grids", () => openScreen("library"), [k("3")]],
     ["library: every combination", () => openScreen("library"), [k("4")]],
+    // EchoNet's message areas (PIE-779), on the showcase's mini network: an area's messages, then one read.
+    ["echonet: messages", () => openScreen("echonet"), [{ kind: "enter" }]],
+    ["echonet: a message read", () => openScreen("echonet"), [{ kind: "down" }, { kind: "enter" }, { kind: "enter" }]],
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──
@@ -500,6 +503,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: recipe", reading(SEED.recipe)],
     ["reader: shed", reading(SEED.shed)],
     ["reader: brief", reading(SEED.brief)],
+    // PIE-786: a configurable note's settings card (,), on a rule note and on a view, and a field moved to.
+    ["reader: a rule note's settings card", reading(SEED.settings), [k(",")]],
+    ["reader: a rule note's settings card on its third field", reading(SEED.settings), [k(","), k("j"), k("j")]],
+    ["reader: a view's settings card", reading(SEED.gardenView), [k(",")]],
+    ["reader: a view that is an EchoNet area: a two-section card", reading(SEED.echoArea), [k(",")]],
   ];
 
   const ALL = { screens: [...SCREENS, ...READER], board: [...BOARD, ...RIVER], desk: DESK }[part];

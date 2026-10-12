@@ -20,7 +20,19 @@ export interface BarQuestion {
   /** The words a choice is shown as (`inbox` as "the Inbox"). */
   says?: Record<string, string>;
   value?: string;
+  /**
+   * Answers built from what's typed (a settings card's query builder over the outline's facets, a list of writers): each
+   * row is a whole answer, the typed words with a clause or a name put in.
+   */
+  suggest?: (typed: string) => Promise<readonly BarSuggestion[]> | readonly BarSuggestion[];
+  /** What's typed is an answer too, as typed (a query, a duration). */
+  free?: boolean;
+  /** How a note the search found is described (default "under this note", a quote's place). */
+  found?: string;
 }
+
+/** One answer a question's `suggest` offers: the whole value, and how it's shown. */
+export interface BarSuggestion { value: string; label?: string; detail?: string }
 
 const ASK_SCOPE = "ask";
 /** The action waiting on the person's answers: the next question is the first not answered. */
@@ -54,6 +66,13 @@ const ASK_SOURCE: BarSource = {
     if (!q || !waiting) return [];
     const head = `${waiting.title} · ${q.label ?? q.name}`;
     const typed = query.trim();
+    if (q.suggest) {
+      const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
+      const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];
+      const rows = (found: readonly BarSuggestion[]): BarRow[] => [...typedRow, ...nowRow, ...found.filter(f => f.value !== typed && !(nowRow.length && f.value === q.value))
+        .map(f => ({ key: `answer:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
+      return Promise.resolve(q.suggest(query)).then(rows, () => rows([]));
+    }
     if (q.type === "text" || q.type === "number") {
       const value = typed || q.value;
       return value === undefined ? [] : [{ key: `answer:${value}`, label: value, detail: head, group: head, data: value }];
@@ -62,10 +81,11 @@ const ASK_SOURCE: BarSource = {
     const words = typed.toLowerCase();
     const rows: BarRow[] = choices.filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
       .map(c => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, detail: c === q.value ? "now" : undefined, group: head, data: c }));
+    if (q.free && typed && !choices.includes(typed)) rows.unshift({ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed });
     // A note: any the outline's search finds by the words typed, nearer the note in front first. The rest answer at once.
     if (q.type !== "note" || typed.length < 2) return rows;
     return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [
-      ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: noteLabel(m), detail: "under this note", group: `${head} · notes`, data: m.id })),
+      ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: noteLabel(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id })),
     ]);
   },
   preview(row) {

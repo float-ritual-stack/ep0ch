@@ -3,7 +3,7 @@
 Rules for any agent working in this repository. [CONTRIBUTING.md](CONTRIBUTING.md) has the verification
 steps and the review checklist. The `ep0ch-core` skill ([packages/door/skills/ep0ch-core](packages/door/skills/ep0ch-core/SKILL.md))
 is the short map across the packages, with the real-pane test recipe; `ep0ch-outline` is for working in an
-outline for someone, and `ep0ch` for driving a door. `ep0ch --skill` lists them with the outliner's
+outline for someone, `ep0ch` for driving a door, and `echonet` for carrying notes between outlines. `ep0ch --skill` lists them with the outliner's
 `pi-extension/skills/`.
 
 ## The repository
@@ -166,7 +166,8 @@ and lock are in `.host/`.
 Which machine, first match wins: `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the
 nearest `.ep0ch` when it names the same outline. A machine is an ssh config name; ssh owns its keys and hops. Every client
 reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`, started by the first client that
-needs it (outline-core's `src/machine.ts`, `ensureForward`). `EP0CH_SOCKET` names any host's socket outright, the
+needs it (outline-core's `src/machine.ts`, `ensureForward`); `<outlines>/.remote/<ssh-name>.json`
+(`{ "outlines": "/abs/folder" }`) names that machine's outlines folder when its own `ep0ch status` isn't the host to reach. `EP0CH_SOCKET` names any host's socket outright, the
 low-level escape hatch.
 
 A name nobody has yet is created when a client opens it on this machine (like `herdr --session`), never on another

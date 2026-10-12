@@ -338,6 +338,13 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "echonet", need: "read echomail: the message areas of every outline the door reaches (named views and tagged notes, and each subscription's source boards), a message with its FidoNet footer, the nodelist (EchoNet, PIE-779)",
+    part: "a screen spec of four kinds (echo.areas, the model and the band; echo.messages; echo.reader, a ReaderPane with SurfaceHost.header and .footer on its outline's board; echo.nodelist), every list a blocks.query, new by unread:me, a message read by blocks.markRead; r and q in the shared composer (passage.act); a newer original is taken with the echonet extension's own actions",
+    files: "src/echonet/screen.ts, src/echonet/net.ts, src/surface/note.ts (footer), src/socket.ts (markRead)",
+    aside: "Plot chat starts in this outline: a view named with [echo::plot.chat], and a note elsewhere posted to it by its tag; Seed swap is a subscription to society@box-a, its posts the tosser's copies on the society's board (one says a newer version is upstream, to take with ext.echonet.take-newer or compare with ext.echonet.compare-newer; one says it's gone upstream; two more wait); the nodelist's attic is down. ⏎ ⏎ reads a message and marks it read; ] [ step, r replies, q quote-replies; the menu's A opens it, `ep0ch --screen echonet` too",
+    stage: () => openScreen("echonet", { persist: false }),
+  },
+  {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; $EDITOR on a draft runs in one (a reader's ctrl+e, a draft's ctrl+x ctrl+e); its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not); drag across its text and the door selects and copies it itself (PIE-716), in the drawer too: shift+drag (alt+drag where your terminal keeps shift) when its program has the mouse", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
     aside: "drag across the line in the shell: it's selected and copied when you let go (\"copied from sh\"), as in a reader; a program that has asked for the mouse (Claude Code's fullscreen, vim's mouse=a) keeps plain drags, and shift+drag or alt+drag selects for the door · `act terminal.copy tile=<tile>` copies the person's selection again (never an agent's) · the drawer (next section; src/drawer.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
@@ -603,6 +610,16 @@ export const SECTIONS: Section[] = [
         void ctx.board.children(n.rules.id).then(kids => { const m = kids.find(k => k.text.startsWith("Mend the water butt")); if (m) job.show(m, d); }, () => {});
       });
       return d;
+    },
+  },
+  {
+    key: "settings", need: "set up a configurable note (a rule, a view, a callout type, a heading style, an extension's component) without typing its properties",
+    part: "the settings card (PIE-786, src/surface/settings-card.ts): the property panel's other face, its fields the note's component schema's (outline-core component-schema.ts, components.schemas: a note is configurable when it carries a schema's declaring property), each set with a picker in the power bar (askInBar, src/bar/ask.ts: an enum's values, a query built over this outline's own properties and values from properties.catalog, a note by search, the actions extensions offer, the writers a rule hears, a duration); settings.set and settings.clear write one properties.patch, attributed",
+    files: "src/surface/settings-card.ts, src/surface/note.ts (settings, settings.set, settings.clear), src/surface/props-panel.ts, src/bar/ask.ts, outline-core/src/component-schema.ts",
+    aside: ", on a rule note or a view opens its card; on the right, Plot chat is a view and an EchoNet area, so its card has a section for each · tab or j k to a field, ⏎ (or a click on the selected field) picks in the power bar, x clears it, i lists every property, esc closes · try rule-tone: the badge on the job beside changes colour · rule-match builds a query from what this outline's notes have · an agent: `act settings` lists the fields, `act settings.set key=rule-tone value=good`",
+    stage(n, show) {
+      const r = new ReaderPane(), view = new ReaderPane();
+      return deskOf({ title: "showcase · settings", panes: [r, view], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.settings], [view, n.echoArea]]);
     },
   },
   {

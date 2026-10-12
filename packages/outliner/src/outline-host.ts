@@ -3,15 +3,19 @@ import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { DOT_EP0CH, formatDotEp0ch, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { grantOf } from "./extension-grants";
+import { forwardFor } from "./machine-forward";
+import { canonicalLocalMachineName } from "./machine-name";
+import { scrubCredentials } from "./resource-extensions";
 import { OutlinerServer } from "./server";
-import { OutlinerStore, readOutlineAbout } from "./store";
+import { MCP_ACCESS_METADATA_KEY, OutlinerStore, readOutlineAbout } from "./store";
 import {
   type HostedArchivedOutline,
   type HostedOutlineArchival,
@@ -75,6 +79,44 @@ export interface OutlineHostOptions {
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
 const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS]);
+/** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
+const RELAY_WAIT_MS = 60_000;
+const RELAY_MAX_ANSWER = 64 * 2 ** 20;
+/** How long a machine's protocol, once asked, is taken as known. */
+const RELAY_PROTOCOL_TTL_MS = 60_000;
+
+/**
+ * One request to another host's socket and its answer line. Gives up when `caller` (the extension's connection) goes,
+ * after RELAY_WAIT_MS, or when the answer runs past RELAY_MAX_ANSWER.
+ */
+function exchange(remoteSocket: string, request: Record<string, unknown>, caller: Socket, what: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const remote = connect(remoteSocket);
+    let buffer = "";
+    const done = (error?: Error, line?: string) => {
+      clearTimeout(timer);
+      caller.off("close", gone);
+      remote.destroy();
+      if (error) reject(error);
+      else resolve(line!);
+    };
+    // The extension gave up, or the other host is stuck: nothing is left waiting.
+    const gone = () => done(new Error("the extension went before the answer came"));
+    const timer = setTimeout(() => done(new Error(`no answer from ${what} in ${RELAY_WAIT_MS / 1000} s`)), RELAY_WAIT_MS);
+    caller.once("close", gone);
+    remote.setEncoding("utf8");
+    remote.once("connect", () => remote.write(`${JSON.stringify(request)}\n`));
+    remote.on("data", (chunk: string) => {
+      buffer += chunk;
+      const end = buffer.indexOf("\n");
+      if (buffer.length > RELAY_MAX_ANSWER) done(new Error(`${what} answered more than ${RELAY_MAX_ANSWER / 2 ** 20} MB`));
+      else if (end >= 0) done(undefined, buffer.slice(0, end));
+    });
+    remote.once("error", (error) => done(error));
+    remote.once("close", () => done(new Error(`${what} closed the connection without an answer`)));
+  });
+}
+
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
 
@@ -147,6 +189,8 @@ export class OutlineHost {
   private readonly layout: ReturnType<typeof outlineLayout>;
   private webSessions: WebSessions | undefined;
   private listener: Server | null = null;
+  /** Each other machine's protocol, as its host last said (`relayProtocol`). */
+  private readonly relayProtocols = new Map<string, { protocol: number; at: number }>();
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
   /** Outlines whose files are being moved away or written; they must not open meanwhile. */
@@ -277,6 +321,33 @@ export class OutlineHost {
       const about = this.aboutOf(name, file);
       return [{ name, ...(about ? { about } : {}) }];
     });
+  }
+
+  /**
+   * The outlines here another machine's extensions may reach (PIE-779): each whose owner set an access level other
+   * than `none` (`ep0ch mcp access`), by name and level. An outline never set is `none` across machines, so a mask
+   * such as `*@float-2` finds only the outlines that opted in. Reads only.
+   */
+  private listForRelay(): { outlines: Array<{ name: string; level: string }> } {
+    return {
+      outlines: this.names().flatMap(name => {
+        const level = this.accessOf(name);
+        return level && level !== "none" ? [{ name, level }] : [];
+      }),
+    };
+  }
+
+  /** The access level an outline's owner set (`ep0ch mcp access`), from the open store, else its file read-only. */
+  private accessOf(name: string): string | undefined {
+    const open = this.opened.get(name);
+    if (open) return open.store.mcpAccessConfigured() ? open.store.mcpAccessStatus().level : undefined;
+    let database: Database | undefined;
+    try {
+      database = new Database(this.layout.database(name), { readonly: true });
+      const row = database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
+      return row?.value.trim().toLowerCase();
+    } catch { return undefined; }
+    finally { database?.close(); }
   }
 
   /** Every outline in the folder, open or not. Reads only; never creates anything. */
@@ -644,6 +715,57 @@ export class OutlineHost {
     socket.end(`${JSON.stringify(response)}\n`);
   }
 
+  /**
+   * An extension's request for an outline on another machine (PIE-779): `{ outline, machine, grant, … }`, the call
+   * it makes for an outline here with `machine` added. The grant is checked here (it is this host's), then the request
+   * goes to that machine's host through the shared ssh forward (`<outlines>/.remote/<machine>.sock`, started when
+   * nobody has; outline-core's `ensureForward`) without the grant, carrying `relayed`: which extension, for which node
+   * (`outline@machine`), and whether its call writes. That host makes it the extension's there (`ext:<id>@<node>`) and
+   * checks it against its own outline's access level, as for any other outline's extension. One request, one answer.
+   * A machine that can't be reached answers with why (the forward's refusal), so the extension counts it offline.
+   */
+  private async relay(socket: Socket, request: Record<string, unknown>): Promise<void> {
+    const grant = grantOf(request.grant);
+    if (!grant) throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
+    const { machine, outline } = request;
+    if (!isMachineName(machine)) throw new Error(`machine must be an ssh config name; got ${JSON.stringify(machine)}`);
+    if (request.action !== "outlines.list" && !isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
+    const { grant: _grant, machine: _machine, ...unscrubbed } = request;
+    // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
+    const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
+    const forward = await forwardFor(machine, this.outlinesFolder);
+    // Starting the forward can take a while: an extension that gave up meanwhile sends nothing.
+    if (socket.destroyed) return;
+    const relayed = {
+      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
+      // A trigger's call keeps its mark there, so what it writes sets no rule off on that machine either (PIE-786).
+      ...(grant.trigger ? { trigger: grant.trigger } : {}),
+    };
+    // An older host there would take `relayed` for nothing and answer as to any client: its protocol is asked first.
+    await this.relayProtocol(machine, forward.socket, socket);
+    if (socket.destroyed) return;
+    const answer = await exchange(forward.socket, { ...rest, relayed }, socket, `${String(outline ?? "the host")}@${machine}`);
+    if (!socket.destroyed) socket.end(`${answer}\n`);
+  }
+
+  /**
+   * The protocol another machine's host speaks, asked (`ping`) before the first request relayed to it and again after
+   * a minute: a host on another version is refused before anything is sent, naming the machine to update.
+   */
+  private async relayProtocol(machine: string, remoteSocket: string, socket: Socket): Promise<void> {
+    const known = this.relayProtocols.get(machine);
+    let theirs = known && Date.now() - known.at < RELAY_PROTOCOL_TTL_MS ? known.protocol : undefined;
+    if (theirs === undefined) {
+      const answer = JSON.parse(await exchange(remoteSocket, { id: "relay-protocol", action: "ping" }, socket, `${machine}'s host`)) as { ok?: boolean; result?: { protocolVersion?: unknown } };
+      theirs = typeof answer.result?.protocolVersion === "number" ? answer.result.protocolVersion : -1;
+      this.relayProtocols.set(machine, { protocol: theirs, at: Date.now() });
+    }
+    if (theirs === PROTOCOL) return;
+    const older = theirs < PROTOCOL ? machine : canonicalLocalMachineName();
+    throw new Error(`protocol mismatch: ${machine} speaks protocol ${theirs < 0 ? "an unknown one" : theirs} and ${canonicalLocalMachineName()} ${PROTOCOL}; ` +
+      `update ${older} (\`ssh ${older} ep0ch install --apply\`)`);
+  }
+
   private async route(socket: Socket, line: string, buffered: string): Promise<void> {
     let request: Record<string, unknown> | undefined;
     try {
@@ -656,6 +778,24 @@ export class OutlineHost {
     const fail = (error: unknown) => this.reply(socket, {
       id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
     });
+    // Another machine's host speaks this one's protocol, or nothing it asks is answered (the nodes' versions differ).
+    if (request && request.relayed !== undefined) {
+      const theirs = (request.relayed as { protocol?: unknown } | null)?.protocol;
+      if (theirs !== PROTOCOL) {
+        const node = String((request.relayed as { node?: unknown } | null)?.node ?? "the other node");
+        const older = typeof theirs === "number" && theirs > PROTOCOL ? canonicalLocalMachineName() : node.split("@").at(-1);
+        fail(new Error(`protocol mismatch: ${canonicalLocalMachineName()} speaks protocol ${PROTOCOL} and ${node} ${typeof theirs === "number" ? theirs : "an older one"}; ` +
+          `update ${older} (\`ssh ${older} ep0ch install --apply\`)`));
+        return;
+      }
+    }
+    if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
+      // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
+      if (request.action === "outlines.list" && request.machine !== undefined && request.grant !== undefined) await this.relay(socket, request).catch(fail);
+      else if (request.action === "outlines.list" && request.relayed !== undefined) this.reply(socket, { id, ok: true, result: this.listForRelay(), sequence: 0 });
+      else fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
+      return;
+    }
     if (request && HOST_ACTIONS.has(String(request.action))) {
       if (this.options.readOnly && request.action !== "outlines.list") {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
@@ -666,6 +806,10 @@ export class OutlineHost {
       } catch (error) {
         fail(error);
       }
+      return;
+    }
+    if (request && request.machine !== undefined && request.grant !== undefined) {
+      await this.relay(socket, request).catch(fail);
       return;
     }
     const named = request?.outline;

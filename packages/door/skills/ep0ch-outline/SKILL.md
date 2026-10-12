@@ -527,6 +527,10 @@ Committee headings [rule-name::committee-bands] [rule-under::((<id>))] [rule-kin
 Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees]
 ```
 
+A rule note can also run an installed extension's action (`[rule-on::<extension>/<action>]`), with guards for one that
+starts an agent: `[rule-from::user, ext:echonet]` (whose saves set it off), `[rule-batch::1m]`, `[rule-cap::20/day]`,
+`[rule-skip::triage=done]`. Nothing a trigger writes sets a rule off again.
+
 Scope it with `rule-under` unless they want it everywhere. The examples to copy for code: `meeting-card`
 (decorate), `done-stamp` (on), `shout` (a text pattern). `R` in the door shows a note as written; `peek` lists a
 reader's `decorations`. The contract: packages/outliner `docs/extensions/README.md#rules-when-a-block-matches`.
