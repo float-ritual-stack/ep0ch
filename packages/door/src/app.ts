@@ -3,7 +3,7 @@ import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
-import type { Placement } from "./kitty";
+import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
@@ -1266,13 +1266,14 @@ export class App implements Ctx {
       const d = this.drawer.render(cols, rows, s.title);
       lines = overlay(lines, d);
       // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
-      placements = [...placements.filter(p => p.row + p.rows <= d.rect.row), ...(this.graphics ? d.placements : [])];
+      // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
+      placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
     } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
       const b = this.bar.draw(cols, rows - 1), r = b.rect;
       lines = overBar(lines, b);
-      placements = placements.filter(p => p.row >= r.row + r.rows || p.row + p.rows <= r.row || p.col >= r.col + r.cols || p.col + p.cols <= r.col);
+      placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     lines.push(this.statusBar(s, cols));
