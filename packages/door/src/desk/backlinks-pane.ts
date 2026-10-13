@@ -442,7 +442,7 @@ export class BacklinksPane implements Pane {
         if (!kinds.length) { said = "nothing to pick: no link has a kind (this service sends no facets)"; return; }
         o.kind = nextBacklinkKindFilter(o.kind, kinds);
         said = o.kind ? `links: only ${kinds.find(k => k.kind === o.kind)?.label ?? o.kind}` : "links: every kind";
-      } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); said = o.stage === "all" ? "links: every stage" : `links: only ${o.stage}`; }
+      } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage, this.across({ ...o, stage: "all" }).stages); said = o.stage === "all" ? "links: every stage" : `links: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
       else if (c === "filter") { this.draft ??= new LineInput(o.filter, false, { complete: false }); said = ""; }   // plain words over rows already listed

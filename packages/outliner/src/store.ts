@@ -25,7 +25,7 @@ import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } fr
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
 import { questionFacets, questionGroups, questionHint, questionKeys } from "./question-answer";
-import { linkTargetFacets } from "./backlink-facets";
+import { facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
@@ -3292,7 +3292,21 @@ export class OutlinerStore {
       addressTargets,
       workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
       ticketPrefixes: this.workIdAllocatorStatusFromCurrentRead(),
+      facetRules: this.facetRules(),
     };
+  }
+
+  private facetRulesCache: { key: string; rules: BacklinkFacetRules } | null = null;
+  /**
+   * The links' Kind and Stage rules with this outline's own status families (PIE-819: `answered, fixed
+   * [status-family::done]` notes), read again only when the outline changed.
+   */
+  facetRules(): BacklinkFacetRules {
+    const key = this.graphKey();
+    if (this.facetRulesCache?.key === key) return this.facetRulesCache.rules;
+    const rules = facetRulesFromBlocks(this.loadGraph().byId.values()).rules;
+    this.facetRulesCache = { key, rules };
+    return rules;
   }
 
   resolvePageAddress(address: string): PageAddressResolution {
@@ -3894,7 +3908,7 @@ export class OutlinerStore {
       for (const id of new Set(ids as string[])) {
         const block = lookup(id);
         if (!block || block.effectiveDeletedRootId) { missing.push(id); continue; }
-        facets[id] = linkTargetFacets(block, lookup);
+        facets[id] = linkTargetFacets(block, lookup, this.facetRules());
       }
       return { facets, missing };
     })();

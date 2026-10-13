@@ -19,8 +19,8 @@ import {
   RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink, type AuthoredTargetFacets,
 } from "./authored";
 import {
-  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, isOpenBacklinkStage,
-  type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
+  backlinkGroupHidden, backlinkRows, backlinkRowSuffix, backlinkStageSummary, orderStageValues, stageMatches, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, isOpenBacklinkStage,
+  type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import { subject, type Msg } from "./board";
 import { ago, wrap } from "./text";
@@ -165,21 +165,19 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
  * unregistered, missing, in the Trash. Such a row stays while nothing narrows by kind or stage, and drops out
  * when something does; sorted by date it goes last.
  */
-export function rowFacets(r: LinkRow): { kind: string; kindLabel: string; bucket?: string; createdAt: string; updatedAt: string; title: string } | null {
+export function rowFacets(r: LinkRow): { kind: string; kindLabel: string; bucket?: string; stage?: { value: string; bucket?: BacklinkStageBucket }; createdAt: string; updatedAt: string; title: string } | null {
   if (r.kind === "child" || r.kind === "match") {
     const f = r.child.facets;
-    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
+    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), ...(f.stage ? { stage: f.stage as { value: string; bucket?: BacklinkStageBucket } } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
   }
   if (r.kind === "backlink") {
     const f = r.source.facets;
-    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: r.source.createdAt, updatedAt: r.source.updatedAt, title: r.source.title } : null;
+    return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), ...(f.stage ? { stage: f.stage as { value: string; bucket?: BacklinkStageBucket } } : {}), createdAt: r.source.createdAt, updatedAt: r.source.updatedAt, title: r.source.title } : null;
   }
   const f: AuthoredTargetFacets | undefined = r.kind === "outlink" ? (r.link.resolution.kind === "ready" ? r.link.resolution.facets : undefined) : r.kind === "resource" ? r.link.facets : undefined;
-  return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
+  return f ? { kind: f.kind, kindLabel: f.kindLabel, ...(f.stage?.bucket ? { bucket: f.stage.bucket } : {}), ...(f.stage ? { stage: f.stage as { value: string; bucket?: BacklinkStageBucket } } : {}), createdAt: f.createdAt, updatedAt: f.updatedAt, title: linkWords(r).text } : null;
 }
 
-const stageMatches = (bucket: string | undefined, stage: BacklinkStageFilter) =>
-  stage === "all" || (stage === "open" ? isOpenBacklinkStage(bucket as never) : bucket === stage);
 
 /** An Outlink's or Resource's rows after the text, kind and stage filters and the sort the Backlinks group answers to; `total` is how many there were. */
 function authoredRows(entries: readonly (AuthoredOutlink | AuthoredResourceLink)[], group: "outlinks" | "resources", key: string, depth: number, o: Readonly<BacklinkViewOptions>, filter: ReturnType<typeof prepareSearchQuery>, sort: boolean): { rows: LinkRow[]; total: number } {
@@ -194,9 +192,9 @@ function narrowRows(all: readonly LinkRow[], o: Readonly<BacklinkViewOptions>, f
   const rows: LinkRow[] = [];
   for (const row of all) {
     const w = linkWords(row), f = rowFacets(row);
-    if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.bucket ? [f.bucket] : [])])) continue;
+    if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.stage ? [f.stage.value] : [])])) continue;
     if (o.kind !== null && f?.kind !== o.kind) continue;
-    if (o.stage !== "all" && !(f && stageMatches(f.bucket, o.stage))) continue;
+    if (o.stage !== "all" && !(f && stageMatches(f.stage, o.stage))) continue;
     rows.push(row);
   }
   const dir = o.sortDirection === "asc" ? 1 : -1, field = o.sortField;
@@ -224,11 +222,19 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
   const by: BacklinkAcross["by"] = {};
   for (const g of ["outlinks", "resources", "backlinks"] as const) if (shows(g)) by[g] = null;
   const kinds = new Map<string, string>();
-  const note = (f: { kind: string; kindLabel: string } | undefined) => { if (f && !kinds.has(f.kind)) kinds.set(f.kind, f.kindLabel); };
+  // The stage values the rows actually have (PIE-819: what the Stage filter offers), as written.
+  const stages = new Map<string, { value: string; bucket?: BacklinkStageBucket; count: number }>();
+  const stageOf = (st: { value: string; bucket?: BacklinkStageBucket } | undefined, n = 1) => {
+    if (!st) return;
+    const key = st.value.trim().toLowerCase(), had = stages.get(key);
+    if (had) had.count += n; else stages.set(key, { value: st.value.trim(), ...(st.bucket ? { bucket: st.bucket } : {}), count: n });
+  };
+  const note = (f: { kind: string; kindLabel: string; stage?: { value: string; bucket?: BacklinkStageBucket } } | undefined) => { if (f && !kinds.has(f.kind)) kinds.set(f.kind, f.kindLabel); stageOf(f?.stage); };
   if (data.backlinks.kind === "ready" && shows("backlinks")) {
     const bv = backlinkView(data.backlinks.value, o), all = backlinkView(data.backlinks.value, { ...o, kind: null, stage: "all", filter: "" });
     by.backlinks = { matching: bv.matching.length, total: bv.total, filtered: bv.filtered };
     for (const k of all.kinds) kinds.set(k.kind, k.label);
+    for (const st of all.stages) stageOf(st, st.count);
   }
   if (data.links.kind === "ready" && data.links.value.kind === "ready") {
     for (const group of ["outlinks", "resources"] as const) {
@@ -249,7 +255,7 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
     for (const c of d.value) note(c.facets);
   }
   const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce<number>((n, x) => n + (x ? f(x) : 0), 0);
-  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })) };
+  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })), stages: orderStageValues(stages.values()) };
 }
 
 /** The block a row stands for: a resolved outlink's target, a backlink's source (a ticket's block is `linkOpens`'). */
@@ -276,7 +282,11 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       const g = LINK_GROUPS.find(x => x.group === r.group)!;
       return { mark: r.open ? "▾" : "▸", text: `${g.glyph} ${r.group}${r.count === null ? "" : ` (${r.count})`}`, context: r.note };
     }
-    case "kind": return { mark: r.expanded ? "−" : "+", text: `${r.group.label} ${r.group.sources.length}`, context: backlinkStageSummary(r.group).trim() };
+    case "kind": {
+      // Folded, it lists only its open rows: how many more it holds, said (PIE-819), so none seem missing.
+      const more = backlinkGroupHidden(r.group, r.expanded);
+      return { mark: r.expanded ? "−" : "+", text: `${r.group.label} ${r.group.sources.length}`, context: [backlinkStageSummary(r.group).trim(), more ? `· ${more} more` : ""].filter(Boolean).join(" ") };
+    }
     case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : nest === null ? "→" : linkBlock(r) ? (nest ? "▾" : "▸") : "·", ...w }; }
     case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
     case "backlink": return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
@@ -303,7 +313,21 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   const shown = o.tag ? o.tag(text) : text;
   if (o.selected) return lit(o.focused ?? true, "idleRow") + pad(head + shown + tail, o.cols) + RESET;
   const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
-  return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${tail}`, o.cols) + RESET;
+  // A group's stage values in their family's colour (PIE-819), when the whole of them fits as drawn.
+  const inks = r.kind === "kind" && tail === " " + words.context ? familyInks(r.group, words.context) : null;
+  return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${inks ? " " + inks : tail}`, o.cols) + RESET;
+}
+
+/** Each family's ink for its values on a group's header: waiting yellow, draft grey, active cyan, done green; unplaced dim. */
+const FAMILY_INK: Record<BacklinkStageBucket, number> = { waiting: C.yellow, draft: C.grey, active: C.lcyan, done: C.green };
+/** `context` (the header's words, "(1 open · 2 answered) · 2 more") with each value's count and name in its family's ink. */
+function familyInks(group: BacklinkViewGroup, context: string): string {
+  let out = context;
+  for (const v of group.stageValues) {
+    const words = `${v.count} ${v.value}`;
+    out = out.replace(new RegExp(`(^|[( ])${words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[ )·]|$)`), (_m, pre: string) => `${pre}${fg(v.bucket ? FAMILY_INK[v.bucket] : C.dark)}${words}${fg(C.dark)}`);
+  }
+  return out;
 }
 
 /** A row for agents and `peek`: its kind, its words, and what it stands for. */

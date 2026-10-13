@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_BACKLINK_FACET_RULES,
+  facetRulesFromBlocks,
   humanizeBacklinkKind,
 } from "../src/backlink-facets";
 import { resolveBacklinkRelation } from "../src/backlinks";
@@ -251,5 +252,35 @@ describe("backlink facet protocol", () => {
     ];
     for (const field of legacyFields) expect(collection.sources[0]).toHaveProperty(field);
     expect(collection.sources[0]).toMatchObject({ blockId: source.id, title: "Letter about [[Seed Swap]]", occurrenceCount: 1 });
+  });
+});
+
+describe("the outline's own status families (PIE-819)", () => {
+  test("a value the defaults don't place keeps its words and no family; a rule note places it, and a later note wins", () => {
+    const workspace = store();
+    const target = workspace.create("Hall booking [page::Hall Booking]");
+    const asked = workspace.create("Who has the hall key? [[Hall Booking]] [type::question] [status::answered]");
+    const parked = workspace.create("Do we need the urn? [[Hall Booking]] [type::question] [status::parked]");
+    const before = workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 });
+    expect(facetsOf(before, asked)?.stage).toEqual({ property: "status", value: "answered" });
+    // The outline says answered (and fixed) are done, parked is waiting.
+    workspace.create("answered, fixed [status-family::done]");
+    workspace.create("parked [status-family::waiting]");
+    const after = workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 });
+    expect(facetsOf(after, asked)?.stage).toEqual({ property: "status", value: "answered", bucket: "done" });
+    expect(facetsOf(after, parked)?.stage).toEqual({ property: "status", value: "parked", bucket: "waiting" });
+    // A later note moves a value again; the census's words (open, decided, never) are families too.
+    workspace.create("answered [status-family::open]");
+    expect(facetsOf(workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 }), asked)?.stage?.bucket).toBe("active");
+  });
+
+  test("facetRulesFromBlocks: values move from the defaults; an unknown family is said and skipped", () => {
+    const at = (id: string, text: string, family: string): Block => ({ id, text, parentId: null, childIds: [], createdAt: `2026-10-0${id}T00:00:00.000Z`, updatedAt: "", author: "user", properties: [{ key: "status-family", value: family }] } as unknown as Block);
+    const { rules, problems } = facetRulesFromBlocks([at("1", "Answered, open [status-family::done]", "done"), at("2", "told [status-family::someday]", "someday")]);
+    expect(rules.stageBuckets.done).toContain("answered");
+    expect(rules.stageBuckets.done).toContain("open");
+    expect(rules.stageBuckets.active).not.toContain("open");
+    expect(problems).toEqual([expect.stringContaining("status-family someday isn't one of")]);
+    expect(facetRulesFromBlocks([]).rules).toBe(DEFAULT_BACKLINK_FACET_RULES);
   });
 });
