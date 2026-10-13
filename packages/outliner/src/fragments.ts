@@ -54,7 +54,8 @@ export interface FragmentCompletionQuery {
 
 /**
  * What a fragment search offers: `heading`, headings (anchored or not) and the other anchors; `id`, anchors only;
- * `passage` (PIE-762), everything a reference can point into: the anchors, then headings, paragraphs and list items
+ * `passage` (PIE-762), everything a reference can point into: the anchors, then headings, paragraphs, list items,
+ * quotes and callouts (PIE-592)
  * that have none yet, each with the anchor it would get.
  */
 export type FragmentMode = "heading" | "id" | "passage";
@@ -104,7 +105,9 @@ export function isFragmentId(value: string): boolean {
  * items, its code lines and its anchors. The last few texts are kept, so asking about many fragments of
  * one note (an outline of slices, a reader's embeds) parses it once. Callers get copies.
  */
-interface ParsedNote { listItems: MarkdownListItem[]; codeLines: Set<number>; anchors?: FragmentAnchor[] }
+interface ParsedNote { listItems: MarkdownListItem[]; codeLines: Set<number>; quotes: Quote[]; anchors?: FragmentAnchor[] }
+/** A blockquote outside any list item, its first and last lines: a callout when its first line is `> [!type] title`. */
+interface Quote { startLine: number; endLine: number }
 const PARSED_NOTES = 32;
 const parsedNotes = new Map<string, ParsedNote>();
 function parsedNote(text: string): ParsedNote {
@@ -112,18 +115,22 @@ function parsedNote(text: string): ParsedNote {
   if (hit) { parsedNotes.delete(text); parsedNotes.set(text, hit); return hit; }
   const listItems: MarkdownListItem[] = [];
   const codeLines = new Set<number>();
-  const visit = (nodes: readonly MarkdownSourceToken[], depth: number, parentStart?: number): void => {
+  const quotes: Quote[] = [];
+  const visit = (nodes: readonly MarkdownSourceToken[], depth: number, parentStart?: number, inQuote = false): void => {
     for (const node of nodes) {
       if (node.token.type === "code") {
         for (let line = node.span.startLine; line <= node.span.endLine; line++) codeLines.add(line);
+      } else if (node.token.type === "blockquote") {
+        if (!inQuote && parentStart === undefined) quotes.push({ startLine: node.span.startLine, endLine: node.span.endLine });
+        visit(node.children, depth, parentStart, true);
       } else if (node.token.type === "list_item") {
         listItems.push({ span: node.span, depth, ...(parentStart === undefined ? {} : { parentStart }) });
-        visit(node.children, depth + 1, node.span.start);
-      } else visit(node.children, depth, parentStart);
+        visit(node.children, depth + 1, node.span.start, inQuote);
+      } else visit(node.children, depth, parentStart, inQuote);
     }
   };
   visit(markdownSourceTokens(text), 0);
-  const note = { listItems, codeLines };
+  const note = { listItems, codeLines, quotes };
   parsedNotes.set(text, note);
   if (parsedNotes.size > PARSED_NOTES) parsedNotes.delete(parsedNotes.keys().next().value!);
   return note;
@@ -168,6 +175,21 @@ function componentLabel(lines: readonly string[], c: { start: number; end: numbe
   return `::${c.name}`;
 }
 
+const CALLOUT_HEAD = /^\s*>\s*\[!([^\]\s]+)\][+-]?\s*(.*)$/;
+
+/**
+ * A quote's kind and name for a fragment list (PIE-592): a callout by its title (else its type), a quote by its words,
+ * the `>` marks and anchors left out.
+ */
+function quoteFragment(lines: readonly string[], q: Quote): { kind: "quote" | "callout"; label: string } {
+  const head = contentBeforeAnchor(lines[q.startLine]!, fragmentAnchorMatch(lines[q.startLine]!)).match(CALLOUT_HEAD);
+  if (head) return { kind: "callout", label: head[2]!.trim() || head[1]! };
+  const words = lines.slice(q.startLine, q.endLine + 1)
+    .map(line => contentBeforeAnchor(line, fragmentAnchorMatch(line)).replace(/^\s*(?:>\s?)+/, "").trim())
+    .filter(Boolean).join(" ");
+  return { kind: "quote", label: words || `Line ${q.startLine + 1}` };
+}
+
 function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
   const lines = text.split(/\r?\n/);
   const components: { map?: Map<number, { start: number; end: number; name: string }> } = {};
@@ -185,11 +207,16 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
     const item = items.get(lineIndex);
     // An anchor alone on the line after a component's `::` is the component's (PIE-580).
     const component = !content && componentsByEnd(lines, components).get(lineIndex - 1);
+    // One at the end of a quote's last line is the whole quote's or callout's (PIE-592).
+    const quote = !component ? note.quotes.find(q => q.endLine === lineIndex) : undefined;
+    const quoted = quote ? quoteFragment(lines, quote) : null;
     anchors.push({
       id: match[1]!,
-      kind: component ? "component" : item ? "list-item" : heading ? "heading" : "paragraph",
+      kind: component ? "component" : quoted ? quoted.kind : item ? "list-item" : heading ? "heading" : "paragraph",
       label: component
         ? componentLabel(lines, component)
+        : quoted
+        ? quoted.label
         : item
         ? content.slice(item.span.start - offsets[lineIndex]!).replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "")
         : heading?.[2]?.trim() || paragraphLabel(lines, lineIndex, content),
@@ -218,7 +245,11 @@ export function resolveFragmentSlice(
   const anchor = resolution.anchor;
   let startLine = anchor.lineIndex;
   let endLine = anchor.lineIndex;
-  if (anchor.kind === "component") {
+  if (anchor.kind === "quote" || anchor.kind === "callout") {
+    // The whole quote or callout, every `>` line of it.
+    const q = parsedNote(text).quotes.find(q => q.endLine === anchor.lineIndex)!;
+    startLine = q.startLine; endLine = q.endLine;
+  } else if (anchor.kind === "component") {
     // The whole block, from its `::name` line to its `::`; the anchor's own line stays out of the slice.
     const block = componentsByEnd(lines, {}).get(anchor.lineIndex - 1)!;
     startLine = block.start; endLine = block.end;
@@ -321,7 +352,7 @@ export function fragmentCandidates(
 }
 
 /**
- * The paragraphs and list items of `text` with no anchor yet, each on the line its anchor would go on: a list item's
+ * The paragraphs, list items, quotes and callouts of `text` with no anchor yet, each on the line its anchor would go on: a list item's
  * first line, a paragraph's last. Left out: code, component blocks, property-only lines, and a paragraph that runs into
  * the note's first line (the title: link the note itself).
  */
@@ -338,9 +369,17 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   for (const [l, owner] of ownerOf) if (fragmentAnchorMatch(lines[l] ?? "")) itemAnchored.add(owner);
   const component = new Set<number>();
   for (const c of componentBlocks(lines)) for (let l = c.start; l <= c.end + 1; l++) component.add(l);
-  const skip = (i: number) => note.codeLines.has(i) || component.has(i);
-  const heading = (line: string) => HEADING_PATTERN.test(contentBeforeAnchor(line, fragmentAnchorMatch(line)));
+  // A quote or callout is one passage (PIE-592), offered on its last line, where its anchor goes; its lines are its own.
+  const quoted = new Set<number>();
   const out: FragmentCandidate[] = [];
+  for (const q of note.quotes) {
+    for (let l = q.startLine; l <= q.endLine; l++) quoted.add(l);
+    // Anchored already on its last line (its own anchor); one on an earlier line is that line's, not the quote's.
+    if (fragmentAnchorMatch(lines[q.endLine] ?? "")) continue;
+    out.push({ ...quoteFragment(lines, q), lineIndex: q.endLine });
+  }
+  const skip = (i: number) => note.codeLines.has(i) || component.has(i) || quoted.has(i);
+  const heading = (line: string) => HEADING_PATTERN.test(contentBeforeAnchor(line, fragmentAnchorMatch(line)));
   for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex]!;
     if (skip(lineIndex) || !line.trim() || fragmentAnchorMatch(line) || heading(line)) continue;

@@ -1151,6 +1151,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.openIntoContainer(to.into, m, !!opts.fresh, by, at);
       return true;
     }
+    // A link followed from an open edit or comment (PIE-592: the editor's ctrl+l, a click in its preview): the edit
+    // stays where it is (PIE-812) and the note opens beside it, unless this reader's opens land somewhere already.
+    if (from instanceof ReaderPane && (from.editing || from.holdsKeys) && !to && !this.extTarget(at) && !this.inFlow(at)) return this.besideEdit(at, m, by, !!opts.fresh);
     if (opts.fresh) {
       // From a list (the links tile): beside its home, and the list keeps the keys.
       const home = this.homeId(at);
@@ -1441,7 +1444,31 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!p || !k?.accepts?.notes || !k.take) { this.ctx.flash(`${name} can't show a note · alt+l links this tile somewhere else`); return false; }
     if (preview && p instanceof ReaderPane && p.follows && !p.holding && !p.editing) { p.show(m, this); return true; }
     const why = k.take(p, m, this, by);
+    // A reader holding an edit or a comment keeps it (PIE-812): what was opened into it opens beside it (PIE-592).
+    if (why && p instanceof ReaderPane && this.idOf(p) !== undefined && this.besideEdit(this.idOf(p)!, m, by)) return true;
     if (why) { this.ctx.flash(`${name} ${why} · the note opened as the current one instead`); return false; }
+    return true;
+  }
+
+  /** The detail `besideEdit` opened beside each reader holding an edit, by that reader's tile: the next open reuses it. */
+  private besides = new Map<number, number>();
+  /**
+   * Note `m`, opened from or into reader `at` while it holds an edit or a comment (PIE-592): in the detail opened beside it
+   * for the last such open, when that's still here and free, else in a new one to its right. The keys stay where they
+   * are (in the edit, or the list it was opened from); `fresh` always opens a new one.
+   */
+  private besideEdit(at: number, m: Msg, by: Actor, fresh = false): boolean {
+    const was = fresh ? undefined : this.besides.get(at), there = was !== undefined ? this.panes.get(was) : undefined;
+    if (there instanceof ReaderPane && !there.editing && !there.holdsKeys && !(by.kind === "agent" && this.limitedFor(there))) {
+      there.surface.track(() => there.hold(m, this));
+      if (this.collapsed.has(was!)) { const r = this.ask({ op: "collapse", tile: was!, on: false }); if (r.ok) this.commit(r); }
+      this.ctx.flash(`${this.nameOf(at)} keeps its edit · opened in ${this.nameOf(was!)} beside it`);
+      return true;
+    }
+    const id = this.nextId;
+    if (!this.openReader(m, { kind: "split", target: at, dir: "right" }, by, undefined, true)) return false;
+    this.besides.set(at, id);
+    this.ctx.flash(`${this.nameOf(at)} keeps its edit · opened in ${this.nameOf(id)} beside it`);
     return true;
   }
   /** Tile `from`'s link across an edge takes `m` (an open, or a selection a preview follows): false when there is none or it can't. */
@@ -5346,17 +5373,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { x, y } = k.action === "down" ? near : this.pressedAt(o, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
-    if (k.action === "up") { if (this.editPressed !== pane) return false; this.editPressed = null; pane.release(x, y, this); return true; }
+    // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as ctrl+l does: in the detail the last one
+    // opened in, not a new one each time (besideEdit).
+    if (k.action === "up") {
+      if (this.editPressed !== pane) return false;
+      const mod = this.editFresh;
+      this.editPressed = null; this.editFresh = false;
+      pane.release(x, y, this, mod ? (m, how) => this.setCurrent(m, { ...how, from: pane, reveal: true }) : undefined);
+      return true;
+    }
     // A drag in an open edit selects in its draft (the press placed the cursor).
     if (k.action === "drag") { if (this.editPressed !== pane) return false; pane.drag(x, y, this); return true; }
     // Only where the reader is on top: a float or a dock drawn over its popup keeps the click.
     if (!(this.topTileAt(k.x, k.y) === at![0] && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1)) return false;
     this.editPressed = pane;
+    this.editFresh = !!((k.mods ?? 0) & 24);
     pane.press(x, y, this, !!((k.mods ?? 0) & 4));
     return true;
   }
   /** The reader whose edit the button went down in, until it comes up. */
   private editPressed: ReaderPane | null = null;
+  /** That press was an alt- or ctrl-click. */
+  private editFresh = false;
 
   /** How the hint row and a flash name a reader the person is in: by its number on screen (a view may name it its way). */
   /** A reader as the hint row says it: a detail by its label (detail 1), else its number, or its name where tiles aren't numbered. */

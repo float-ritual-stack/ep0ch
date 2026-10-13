@@ -38,6 +38,9 @@ describe("the pure half, as the outliner has it", () => {
     // A closing delimiter already after the cursor is part of what's replaced.
     expect(completionTargetAtCursor("x [[see]] y", 7)).toEqual({ kind: "page", start: 2, end: 9, query: "see" });
     expect(completionTargetAtCursor("[[closed]] after", 16)).toBeNull();
+    // A [[ quoted in a code span earlier on the line is text: typing after it opens nothing (PIE-592).
+    expect(completionTargetAtCursor("type `[[` for a page, then more", 31)).toBeNull();
+    expect(completionTargetAtCursor("type `[[` then [[Sh", 19)).toEqual({ kind: "page", start: 15, end: 19, query: "Sh" });
   });
 
   test("a Work ID inserts [[WORK-ID|title]], a page [[address]]; a title with link delimiters drops the label", () => {
@@ -327,10 +330,11 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     d.near = "note-7";
     const c = completerFor(d, board, () => {})!;
     for (const ch of "[[party") completionKey(d, char(ch), c);
-    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the pages");
+    // The three pages, then the offer of a page named "party" (PIE-592).
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 4, "the pages");
     completionKey(d, K("down"), c);                                       // party-lights
     await until(() => c.state?.jev === "ranked", "Jev's order");
-    expect(c.state!.items.map(i => i.blockId)).toEqual(["p3", "p1", "p2"]);
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p3", "p1", "p2", "party"]);
     expect(c.state!.items[c.state!.index]!.blockId).toBe("p2");
     expect(asked.every(a => a.near === "note-7")).toBe(true);
     expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party"]);
@@ -470,6 +474,46 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("tab"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe("sow from [[seeds]]");
+  });
+
+  test("[[ a name no page has is offered new (PIE-592): choosing it makes the page where new notes go and links it, nothing lost from the draft", async () => {
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("leaves go in [[Leaf mould");
+    await until(() => !!e.pop() && !e.pop()!.loading && e.pop()!.items.some(i => i.newPage), "the new page offered");
+    const p = e.pop()!, i = p.items.findIndex(x => x.newPage === "Leaf mould");
+    expect(p.items[i]).toMatchObject({ label: "new page · Leaf mould", insertion: "[[Leaf mould]]" });
+    expect((await board.resolvePage("Leaf mould")).status).toBe("missing");     // offered, not made
+    // Alone on the list it's taken only on purpose: ↓ to it, then ⏎.
+    do e.press(K("down")); while (e.pop()!.index < i);
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the insertion");
+    expect(e.d.lines.at(-1)).toBe("leaves go in [[Leaf mould]]");
+    const made = await board.resolvePage("Leaf mould");
+    expect(made.status).toBe("resolved");
+    expect(made.block!.text).toBe("Leaf mould [page::Leaf mould]");
+    expect(e.d.note).toContain("made page Leaf mould");
+    // A page that has the name isn't offered again; neither is the outline's Work ID prefix.
+    e.press(K("enter")); e.type("[[Leaf mould");
+    await until(() => !!e.pop() && !e.pop()!.loading, "the lookup");
+    expect(e.pop()!.items.some(x => x.newPage)).toBe(false);
+  });
+
+  test("embedding a part without visiting it (PIE-592): !((words lists the top note's headings, quotes and callouts; choosing one anchors it there and embeds the whole callout", async () => {
+    const id = await create("Potting bench rules\nKeep it tidy.\n\n> Sweep the bench\n> before you leave.\n\n> [!warning] Glass\n> The cold frame lid is glass.\n> Lift it with two hands.\n\n## Tools");
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("!((Potting bench rul");
+    await until(() => !!e.pop() && !e.pop()!.loading && e.pop()!.items.some(i => i.blockId === id && i.fragmentId), "the bench's parts");
+    const rows = e.pop()!.items.filter(i => i.blockId === id).map(i => i.label.trim());
+    expect(rows).toEqual(["Potting bench rules", "> Sweep the bench before you leave. · adds ^sweep-the-bench", "[!] Glass · adds ^glass", "# Tools · adds ^tools"]);
+    const i = e.pop()!.items.findIndex(x => x.fragmentId === "glass");
+    while (e.pop()!.index < i) e.press(K("down"));
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the insertion");
+    expect(e.d.lines.at(-1)).toBe(`!((${id}^glass))`);
+    expect((await board.get(id))!.text).toContain("> Lift it with two hands. ^glass");
+    expect((await board.readFragment(id, "glass")).status).toBe("resolved");
+    // The embed carries the whole callout, as the reader draws it.
+    expect(JSON.stringify(await board.readTransclusions([{ blockId: id, fragmentId: "glass" }]))).toContain("> [!warning] Glass\\n> The cold frame lid is glass.\\n> Lift it with two hands.");
   });
 
   test("(( is the one search: punctuation, word order and a typo don't hide a note, and the draft's note is near", async () => {
@@ -626,9 +670,10 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("[[zzzz-nothing");
     const p = await e.settled();
-    expect(p.items).toEqual([]);
-    expect(p.message).toContain("no matching named addresses");
-    expect(e.screen()).toContain("no matching named addresses");
+    // Only the offer of a new page (PIE-592), which Enter never takes unless the person went to it.
+    expect(p.items.map(i => i.kind)).toEqual(["new page"]);
+    expect(p.message).toContain("no page is named zzzz-nothing yet");
+    expect(e.screen()).toContain("no page is named zzzz-nothing yet");
     e.press(K("enter"));                                                  // splits the line, as always
     expect(e.d.lines.at(-2)).toBe("[[zzzz-nothing");
     expect(e.d.lines.at(-1)).toBe("");

@@ -1617,12 +1617,15 @@ The board's new-card composer is the same control too.
 | `Alt+Enter` | a plain new line, no list continuation |
 | `Tab`, `Shift+Tab` | indent or outdent the line (or every line a selection touches, nesting kept): an item goes under the item above it, lined up with its text, and back out to its parent's level. Inside a draft `Tab` never moves focus; `Esc` (or `Ctrl+S`) is how you leave |
 | `↑ ↓`, `PgUp PgDn` | move by the rows drawn: a wrapped line is several rows, the column kept |
-| `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer |
+| `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer; a click on a link in it opens it beside the edit, as `Ctrl+L` does |
+| `Ctrl+L`, or an alt- or ctrl-click on a link | open the link the cursor is on (a `[[page]]`, a `((reference))` or embed, a `[text](url)`) beside the draft (`edit.follow`, PIE-592): a detail opens to its right, the draft stays open as it is and the keys stay in it. The next link opened from the same draft lands in that detail. The hint row says `ctrl+l open link` while the cursor is on one. In an edit or a comment; a new card has no reader beside it to open one in |
 | the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) and copies it when the button comes up (copy on select, as in a reader); a double click selects the word, a triple click the line, a shift+click from the cursor |
 | `Shift+←→↑↓`, `Shift+Home`, `Shift+End` | select from the cursor as it moves |
 | `Cmd+C`, `Alt+C`, or a click on `[copy]` | copy the selection to your clipboard (OSC 52), said `copied N chars`. `Cmd+C` reaches the door only through the Kitty keyboard protocol; `Alt+C` works in any terminal, tmux too |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
+| `Ctrl+V`, or a paste of nothing but a picture | **a picture** (`draft.image`, PIE-592): on an image file's path (a file dropped on the terminal pastes its path, as text; the hint row says `ctrl+v makes that path a picture`) that file, else the clipboard's (read on the door's machine: `pngpaste` or `osascript` on macOS, `wl-paste` or `xclip` on Linux), is copied into the outline's folder (`media/<day>-<hash>.<ext>`) and `[img::<path>]` goes in on its own line, one undo step. Pictures go into an outline on this machine; over ssh there's no clipboard picture to read: drop the file and `Ctrl+V`, or `act draft.image path=<file>` |
+| `@` at the start of a line | the agents the outline's extensions serve (`@tidy`, `@margin`), each with what it does and when it runs (PIE-592): choosing one writes `@name `; the request runs once the line has been quiet a moment, `r` on it asks again |
 | `[` and a key's first letters (`[head`), `[key::`, or a line of a `::graph-*` block's YAML | property completion (PIE-618), from the component schemas (below): the keys with where they go and what they mean, `Enter` writes `[heading-pattern::` and its values open at once, each with its meaning and a one-row preview of what it draws (a style's glyph track); `[heading::` lists the built-in styles and the outline's own. A `[` that starts no key a schema knows (a Markdown link's text) opens nothing |
 | `Ctrl+Z` | undo the newest change (PIE-621): typing a word at a time (a word and the space after it, or up to a pause), a paste in one step however big, an insert, `$EDITOR`'s text, a reload, an edit an agent patched in (below). Back to where the draft started, and past a save: open the note again unchanged and `Ctrl+Z` goes on back. A paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes` |
 | `Ctrl+Y`, `Ctrl+Shift+Z` | redo what `Ctrl+Z` took back; any new change drops it. `Ctrl+Shift+Z` needs the Kitty keyboard protocol, `Ctrl+Y` works everywhere |
@@ -1668,6 +1671,8 @@ The board's new-card composer is the same control too.
   tile, or the keys coming back by any way, puts you straight back in it at the same place: no `e`. Leaving it
   is yours: `Ctrl+S` saves (a refused save keeps the text, and says why), `Esc` closes (twice when typed in: put
   aside as unsent, `e` brings it back), and opening another note in that tile goes by the draft session's rules.
+  A note opened into a reader that holds an edit or a comment (the links tile's `⏎`, a link followed in it, PIE-592)
+  opens in a detail beside it instead, and the next one in the same detail: the edit is never in the way of reading.
   An edit an agent opened that you're in is left by a click away as before (`session.leave`: an unchanged one
   closes, a changed one saves). A board's new card is kept as unsent by a click outside its composer
   (`composer.leave`). An agent never saves, closes or moves your draft.
@@ -1690,7 +1695,11 @@ The board's new-card composer is the same control too.
   `[file::path]`. Choosing checks the target still answers first (a fragment with `fragments.read`). A
   heading without an anchor is offered with the anchor it would get: in the note being edited it's added
   in the draft; in another note the service adds it when chosen (`fragments.ensure`, recorded as yours or
-  the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  the agent's, and refused if that note changed since it was offered). `[[` and a name no page has yet ends the list
+  with `new page · <name>` (PIE-592): choosing it makes the page where new notes go (`pages.follow`, as yours or the
+  agent's), links it, and says so; `Ctrl+L` then opens it beside the draft. Alone on the list it's taken only on purpose
+  (`↓` to it, or a click), so `Enter` after `[[a name` still ends the line. A name in the outline's Work ID prefix isn't
+  offered (Work IDs are the workboard's to give). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents.
 - **Agents edit above while you type** (the outliner's PIE-501, `draft.patch`). An open draft is held on

@@ -12,6 +12,8 @@ Morning plan
 @tidy                              ← tidies the two lines above, as ext:tidy
 ```
 
+- In the door, `@` at the start of a line offers the agents the outline's extensions serve, `@tidy` among them,
+  with what each does: choosing one writes `@tidy ` and you go on typing (PIE-592).
 - `@tidy all` tidies everything above the line (never the title).
 - The edit is an ordinary attributed edit (`author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in
   the change feed) applied through `draft.patch` with the `edit` policy. If you are typing in that

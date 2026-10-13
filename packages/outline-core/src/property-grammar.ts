@@ -11,7 +11,7 @@
 // balanced inside it (`[related::[[PC-967]], ((id|plan step 6))]`), and a list of values splits at commas outside links
 // (`splitPropertyValue`).
 
-import { blockReferenceOccurrences } from "./link-syntax";
+import { blockReferenceOccurrences, pageLinkRanges } from "./link-syntax";
 import { codeHides, codeSpanRanges } from "./code-ranges";
 
 /** A property key: a letter, then letters, digits, `_`, `.` or `-` (`plot.row`, `bed_2`; not `2nd-pass`). */
@@ -184,7 +184,8 @@ export function splitPropertyValue(value: string): string[] {
 /** A value that is one link written whole: `[[page]]`, `[[page|label]]`, `((id))`, `((id|label))`, `!((id))`. */
 export function isLinkValue(value: string): boolean {
   const text = value.trim();
-  return /^\[\[[^\]\r\n]+\]\]$/.test(text) || (/^!?\(\(/.test(text) && blockReferenceOccurrences(text.replace(/^!/, ""), []).some(r => r.start === 0 && r.end === text.replace(/^!/, "").length));
+  const [page] = text.startsWith("[[") ? pageLinkRanges(text) : [];
+  return (!!page && page.start === 0 && page.end === text.length && text.length > 4) || (/^!?\(\(/.test(text) && blockReferenceOccurrences(text.replace(/^!/, ""), []).some(r => r.start === 0 && r.end === text.replace(/^!/, "").length));
 }
 
 /**

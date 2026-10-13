@@ -216,3 +216,47 @@ describe("component anchors (PIE-580)", () => {
     expect(fragmentAnchors("::links ((00000000-0000-4000-8000-000000000000))\n^l").map(a => a.kind)).toEqual(["paragraph"]);
   });
 });
+
+describe("quotes and callouts (PIE-592): one passage each, embedded whole", () => {
+  const note = [
+    "Bike shed",
+    "The shed by the gate.",
+    "",
+    "> The latch sticks in the rain.",
+    "> Lift it before you pull.",
+    "",
+    "> [!note] Keys",
+    "> One key is under the pot.",
+    ">",
+    "> The other is with Mo.",
+    "",
+    "## Paint",
+    "Green, two coats.",
+  ].join("\n");
+  test("offered as a quote and a callout (by its title), never line by line; choosing one anchors its last line and the slice is all of it", () => {
+    const offered = fragmentCandidates(note, "", "passage").map(c => [c.kind, c.label, c.lineIndex]);
+    expect(offered).toContainEqual(["quote", "The latch sticks in the rain. Lift it before you pull.", 4]);
+    expect(offered).toContainEqual(["callout", "Keys", 9]);
+    expect(offered.filter(([, , line]) => (line as number) >= 3 && (line as number) <= 9)).toHaveLength(2);
+    const quote = ensureFragmentAnchor(note, 4), callout = ensureFragmentAnchor(quote.text, 9);
+    expect([quote.fragmentId, callout.fragmentId]).toEqual(["the-latch-sticks", "keys"]);
+    expect(callout.text.split("\n")[9]).toBe("> The other is with Mo. ^keys");
+    expect(fragmentAnchors(callout.text).map(a => [a.id, a.kind, a.label])).toEqual([
+      ["the-latch-sticks", "quote", "The latch sticks in the rain. Lift it before you pull."],
+      ["keys", "callout", "Keys"],
+    ]);
+    const slice = resolveFragmentSlice(callout.text, "keys");
+    expect(slice.status === "resolved" && slice.slice.text).toBe("> [!note] Keys\n> One key is under the pot.\n>\n> The other is with Mo.");
+    const whole = resolveFragmentSlice(callout.text, "the-latch-sticks");
+    expect(whole.status === "resolved" && whole.slice.text).toBe("> The latch sticks in the rain.\n> Lift it before you pull.");
+  });
+  test("a quote ending in a list item is still the whole quote's; an anchor mid-quote leaves the whole quote offered", () => {
+    const listed = "Note\n\n> Intro\n> - Last item";
+    const at = ensureFragmentAnchor(listed, 3);
+    expect(fragmentAnchors(at.text).map(a => a.kind)).toEqual(["quote"]);
+    const r = resolveFragmentSlice(at.text, at.fragmentId);
+    expect(r.status === "resolved" && r.slice.text).toBe("> Intro\n> - Last item");
+    const mid = "Note\n\n> First paragraph ^first\n>\n> Second paragraph";
+    expect(fragmentCandidates(mid, "", "passage").map(c => [c.kind, c.lineIndex])).toContainEqual(["quote", 4]);
+  });
+});

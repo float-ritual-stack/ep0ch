@@ -124,7 +124,7 @@ export function referenceTarget(ref: string): OutlinerLinkTarget {
     const { blockId, fragmentId } = references[0]!;
     return { kind: "block", value: blockId, ...(fragmentId ? { fragmentId } : {}) };
   }
-  const pages = pageAddressReferences(text);
+  const pages = pageAddressReferences(text).filter((page) => !page.nested);
   if (pages.length === 1 && pages[0]!.start === 0 && pages[0]!.end === text.length) {
     const address = pages[0]!.displayAddress;
     return parseWorkId(address) ? { kind: "work", value: parseWorkId(address)!.workId } : { kind: "page", value: address };
