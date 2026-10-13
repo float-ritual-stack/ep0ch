@@ -146,15 +146,19 @@ function typedClauses(expression: QueryExpression | undefined, now: number): { k
  * The question with each date or number comparison loosened to "has the key" (`type=plot-date due <= +3d` becomes
  * `type=plot-date due`): the notes it holds for are the ones a warning is about, never every note with the key.
  */
-export function loosenTyped(expression: QueryExpression, now = Date.now()): QueryExpression {
+export function loosenTyped(expression: QueryExpression, now = Date.now(), negated = false): QueryExpression {
   const wall = wallClock(now);
   switch (expression.kind) {
     case "compare":
-    case "property":
-      return typedClauses(expression, wall).length ? { kind: "property", key: expression.key } : expression;
-    case "not": return { kind: "not", operand: loosenTyped(expression.operand, now) };
+    case "property": {
+      if (!typedClauses(expression, wall).length) return expression;
+      // Under NOT it loosens to NOT key, so the NOT around it still reads "has the key".
+      const has: QueryExpression = { kind: "property", key: expression.key };
+      return negated ? { kind: "not", operand: has } : has;
+    }
+    case "not": return { kind: "not", operand: loosenTyped(expression.operand, now, !negated) };
     case "and":
-    case "or": return { kind: expression.kind, operands: expression.operands.map(operand => loosenTyped(operand, now)) };
+    case "or": return { kind: expression.kind, operands: expression.operands.map(operand => loosenTyped(operand, now, negated)) };
     default: return expression;
   }
 }

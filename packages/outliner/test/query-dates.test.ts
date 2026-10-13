@@ -74,6 +74,9 @@ describe("dates and numbers on any property", () => {
     // Only about the notes the question asks of: another kind of note's `due::Wed` is no concern of a follow-up query.
     await client.request<Block>({ action: "create", text: "Bin day [type::chore] [due::Wed]" });
     expect((await query("type=follow-up due <= +30d")).hint).not.toContain("Wed");
+    // Asked under NOT, the unreadable value is still said; a text filter narrows what's said to its notes.
+    expect((await query("type=follow-up NOT due <= today")).hint).toContain("“someday”");
+    expect((await query("type=follow-up due <= +30d", { text: "kiln" })).hint ?? "").not.toContain("someday");
   });
 
   test("waiting until a day surfaces itself on that day", async () => {

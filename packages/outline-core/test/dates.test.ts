@@ -25,6 +25,10 @@ describe("dates as people write them", () => {
     expect([new Date(w.from).toISOString(), new Date(w.to).toISOString()]).toEqual(["2026-10-20T00:00:00.000Z", "2026-10-24T23:59:59.999Z"]);
     expect(readDate("Oct 20..24", NOW)).toEqual(w);
     expect(readDate("2026-10-24..2026-10-20", NOW)).toBeNull();
+    // An end without a year is nearest the start: a window next October stays next October.
+    expect(new Date(readDate("2027-10-20..Oct 24", NOW)!.to).toISOString().slice(0, 10)).toBe("2027-10-24");
+    // Milliseconds count.
+    expect(valueHolds("2026-10-20T09:30:00.900", ">", readBound("2026-10-20T09:30:00.100", NOW), NOW)).toBe(true);
   });
 
   test("impossible dates read as none, and only date-shaped text asks to be fixed", () => {

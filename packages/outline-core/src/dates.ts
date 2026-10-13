@@ -37,7 +37,7 @@ const MONTH_WORD = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june
 const WEEKDAY = "(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(?:day|nesday|rsday|urday)?\\.?,?\\s+";
 const ORDINAL = "(?:st|nd|rd|th)?";
 // A time after a date: `T09:30`, ` 4:23 PM`, `09:30:15Z`, `16:00+02:00`.
-const TIME = "(?:[T\\s]+(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,3})?)?\\s*(am|pm)?\\s*(z|[+-]\\d{2}:?\\d{2})?)?";
+const TIME = "(?:[T\\s]+(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?\\s*(am|pm)?\\s*(z|[+-]\\d{2}:?\\d{2})?)?";
 
 const ISO = new RegExp(`^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})${TIME}$`, "i");
 const SLASHED = new RegExp(`^(\\d{1,2})/(\\d{1,2})(?:/(\\d{2}|\\d{4}))?${TIME}$`, "i");
@@ -70,7 +70,7 @@ function nearestYear(month: number, day: number, now: number): number | null {
 
 /** A date's day plus its time, if one was written. Null for an impossible clock or zone. */
 function withTime(start: number, m: readonly (string | undefined)[], at: number): When | null {
-  const [hour, minute, second, meridiem, zone] = m.slice(at, at + 5);
+  const [hour, minute, second, fraction, meridiem, zone] = m.slice(at, at + 6);
   if (hour === undefined) return { from: start, to: start + DAY_MS - 1 };
   let h = Number(hour);
   const min = Number(minute), sec = Number(second ?? 0);
@@ -79,7 +79,7 @@ function withTime(start: number, m: readonly (string | undefined)[], at: number)
     h = (h % 12) + (meridiem.toLowerCase() === "pm" ? 12 : 0);
   }
   if (h > 23 || min > 59 || sec > 59) return null;
-  let moment = start + ((h * 60 + min) * 60 + sec) * 1000;
+  let moment = start + ((h * 60 + min) * 60 + sec) * 1000 + (fraction ? Number(fraction.padEnd(3, "0")) : 0);
   if (zone) {
     const z = /^([+-])(\d{2}):?(\d{2})$/.exec(zone);
     if (z && (Number(z[2]) > 23 || Number(z[3]) > 59)) return null;
@@ -132,7 +132,7 @@ export function readDate(text: string, now = wallClock(Date.now())): When | null
   // `Oct 20..24`: a bare day ends the span in the first date's month.
   const last = /^\d{1,2}$/.test(rest)
     ? (() => { const d = new Date(first.from); const s = dayStart(d.getUTCFullYear(), d.getUTCMonth() + 1, Number(rest)); return s === null ? null : { from: s, to: s + DAY_MS - 1 }; })()
-    : readOne(rest, now);
+    : readOne(rest, first.from);  // an end without a year is nearest the start, not today
   return last && last.to >= first.from ? { from: first.from, to: last.to } : null;
 }
 

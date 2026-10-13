@@ -128,10 +128,12 @@ export const DAY = 86_400_000;
 export function dayOf(v: unknown): number | null {
   if (v instanceof Date) return Math.floor(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()) / DAY);
   const text = String(v ?? "").trim();
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
-  if (m) return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY);
+  // The shared reader first, so a zoned time falls on the same day here as in a query; a date with words after it
+  // (`2026-10-20 standup`) is still its day.
   const when = text ? readDate(text) : null;
-  return when ? Math.floor(when.from / DAY) : null;
+  if (when) return Math.floor(when.from / DAY);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  return m ? Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY) : null;
 }
 export const isoOf = (day: number) => new Date(day * DAY).toISOString().slice(0, 10);
 /** The day a moment (epoch ms) falls on, as the person's clock says. */

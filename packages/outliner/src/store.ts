@@ -3731,6 +3731,7 @@ export class OutlinerStore {
   private loosenedValuesOf(graph: LoadedGraph, query: NormalizedBlockSearchQuery, key: string, scope: PropertyQueryScope): { id: string; value: string }[] {
     const relations = this.queryRelations(graph);
     const loose = query.predicate ? compileQueryExpression(loosenTyped(query.predicate), Date.now(), relations) : null;
+    const terms = query.text ? searchTextTerms(query.text) : [];
     const out: { id: string; value: string }[] = [];
     for (const [id, records] of graph.propertyRecordsByBlock) {
       const block = graph.byId.get(id);
@@ -3739,6 +3740,7 @@ export class OutlinerStore {
       if (!values.length) continue;
       if (query.filters?.length && !matchesFilters(records, query.filters, scope)) continue;
       if (query.subtreeRootId && !relations.within(id, query.subtreeRootId)) continue;
+      if (terms.length && !terms.every(term => block.text.toLowerCase().includes(term))) continue;
       const children = () => (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId).map(child => child.properties);
       if (loose && !loose({ ...block, childProperties: children }, records, scope)) continue;
       for (const record of values) out.push({ id, value: record.value });
