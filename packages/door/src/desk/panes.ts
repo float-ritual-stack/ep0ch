@@ -60,7 +60,9 @@ export interface DeskApi {
    * on any desk (PIE-727: a desk holding only a group took seven presses, each refused on the status bar).
    */
   leave?(): void;
-  /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
+  /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
+  revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
+  /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */
   routes?(pane: Pane): boolean;
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
   tileShowing?(name: string): Msg | null;
@@ -372,9 +374,14 @@ export class ReaderPane implements Pane {
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
       redraw: () => desk.redraw(),
       ...(desk.keepLayout ? { navChanged: () => desk.keepLayout!() } : {}),
-      // A held reader follows its own links in place; a new reader (alt+⏎) leaves it on its note.
-      navigate: (m, how) => { if (this.holding && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
+      // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
+      // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
+      navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
       summaryKeys: m => desk.summaryKeys?.(m),
+      // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
+      ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
+      // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
+      ...(desk.showFrom ? { preview: (m: Msg) => desk.showFrom!(this, m) } : {}),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
@@ -522,9 +529,9 @@ export class ReaderPane implements Pane {
   ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
   press(x: number, y: number, desk: DeskApi, shift = false) { this.surface.press(x, y, this.host(desk), shift); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
-  release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
+  release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {
     const h = this.host(desk);
-    return this.surface.release(x, y, open ? { ...h, navigate: open, freshClick: true } : h);
+    return this.surface.release(x, y, { ...h, ...(open ? { navigate: open, freshClick: true } : {}), ...(focusing ? { focusing } : {}) });
   }
 }
 
@@ -739,6 +746,17 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>
 
 
 export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
+  "reader.reveal": def({
+    summary: "show a reader's note in the outline (tile=<a reader>, default the focused one): the outline's cursor moves to its row, unfolding what's over it, and its dock slides open if it's shut, as the outliner's Tree's r does. Nothing else moves: the current note, the reader, its mode and the keys stay. A held reader's own navigation never moves the outline (PIE-794); this finds where it is. The person's: the outline's cursor is theirs",
+    keys: "alt+r in a reader, a click on its crumbs (the path above the title)",
+    touches: "tile", replay: "safe", person: "the outline's cursor is the person's; an agent reads where a note sits with outline_read or peek",
+    menu: { label: "show in the outline", group: "Reader", key: "alt+r", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to find in the outline" } : null) },
+    args: {},
+    run(_, { pane, desk }) {
+      if (!desk.revealInOutline) throw new ActionRefused("this screen has no outline to show it in");
+      return desk.revealInOutline(pane);
+    },
+  }),
   "reader.mode": def({
     summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
     keys: "p (follows and held), a click on the mode chip on the frame (follows, held, pinned)",

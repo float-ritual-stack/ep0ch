@@ -526,9 +526,9 @@ export class WelcomePreview extends PreviewPane {
     return false;
   }
 
-  override release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
+  override release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {
     if (y === 0 && this.readFrom !== null && x >= this.readFrom) { this.promote(desk); return true; }
-    return super.release(x, y, desk, open);
+    return super.release(x, y, desk, open, focusing);
   }
 }
 
@@ -646,7 +646,7 @@ export function welcomeSpec(): ScreenSpec {
           {
             t: "split", dir: "col", weights: [0.7, 0.3], kids: [
               { t: "leaf", kind: "welcome.detail", name: "detail", source: "tile:welcome", link: "preview" },
-              { t: "tabs", tabs: [{ t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:detail", groups: "open" }], active: 0, policy: { min: 7, max: 12 } },
+              { t: "tabs", tabs: [{ t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:detail", groups: "open", subject: "follows" }], active: 0, policy: { min: 7, max: 12 } },
             ],
           },
           // Its own links open in it: its link is itself.

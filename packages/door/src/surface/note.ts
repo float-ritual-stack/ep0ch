@@ -110,6 +110,15 @@ export interface SurfaceHost {
    * click opens a new detail): a list's row opens at once rather than being selected (an inline `::links`, PIE-693).
    */
   freshClick?: boolean;
+  /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
+  revealInOutline?(): void;
+  /** The click being handled gave this reader the keys: a list's row is only selected by it (PIE-794), as in a links tile. */
+  focusing?: boolean;
+  /**
+   * The person's selection in a list drawn in the note (an inline `::links` row) moved to `m`: the host shows it where
+   * this reader's selection goes (a preview following it, its preview link), without moving anything else (PIE-794).
+   */
+  preview?(m: Msg): void;
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
   summaryKeys?(m: Msg): readonly string[] | null | undefined;
   /**
@@ -275,6 +284,8 @@ interface HeaderBlock {
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
   /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
   title: { row: number; text: string; ink: string; big: boolean } | null;
+  /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
+  crumbsRow?: number;
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -310,7 +321,7 @@ const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -1076,7 +1087,7 @@ export class NoteSurface {
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = ink + pad(title, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big } };
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
 
   /**
@@ -1219,7 +1230,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1340,6 +1351,8 @@ export class NoteSurface {
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
+    // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
+    if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + bx}`) ?? "");
     for (const r of doc.links) {
@@ -2583,6 +2596,17 @@ export class NoteSurface {
     return i < 0 ? null : { e: this.elems[i]!, n: i + 1 };
   }
 
+  /**
+   * The current element is a row of an inline ::links: the host shows its note where this reader's selection goes (a
+   * preview following the reader, its preview link: PIE-794), as a links tile's selection does. Read only.
+   */
+  previewRow(host: SurfaceHost) {
+    const lb = this.elems.find(e => e.key === this.cur)?.link?.linksBlock;
+    const id = lb?.row ? this.linkBlocksDrawn.find(b => b.key === lb.key)?.rows.find(r => r.key === lb.row)?.id : null;
+    if (!lb || !id || !host.preview) return;
+    void host.ctx.board.get(id).then(m => { if (m && this.linkBlockUI.get(lb.key)?.sel === lb.row) host.preview!(m); }, () => {});
+  }
+
   /** The person's selection in component `b` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
   selectLinkRow(b: LinkBlockInfo, row: string) {
     this.linkBlockUI.set(b.key, { ...this.linkBlockUI.get(b.key), sel: row });
@@ -2921,7 +2945,7 @@ export class NoteSurface {
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || ("follow" in h && h.follow)) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -4053,6 +4077,8 @@ export class NoteSurface {
       return true;
     }
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
+    // The crumbs: the note in the outline (reader.reveal: the outline's cursor moves there, nothing else, PIE-794).
+    if (h && "crumbs" in h) { host.revealInOutline?.(); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
     if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
@@ -4082,13 +4108,13 @@ export class NoteSurface {
     if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
     // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
     if (h.link.role === "image" && h.link.image) { this.pressImage(h.link.image, host); return true; }
-    // A row of an inline ::links that previews, or that the person is in (PIE-693), as a list's row: a click selects it
-    // (the [ ] position, its preview following), a second click on it soon after opens it (⏎), an alt-, ctrl- or
-    // middle-click opens it fresh (alt+⏎). A ::links with no preview opens a row on a click, as any link.
-    const lbk = h.link.linksBlock, lbi = lbk ? this.linkBlocksDrawn.find(b => b.key === lbk.key) : undefined;
-    if (e && lbk?.row && lbi && (lbi.previews || lbi.entered)) {
-      const i = this.elems.indexOf(e), g = this.linkPresses.press(i);
-      void this.runKey(g === "open" || host.freshClick ? "element.open" : "element.select", { n: i + 1 }, host);
+    // A row of an inline ::links (PIE-693), as a links tile's row (PIE-794, one list model): a click selects it (the [ ]
+    // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
+    // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
+    const lbk = h.link.linksBlock;
+    if (e && lbk?.row) {
+      const i = this.elems.indexOf(e), g = this.linkPresses.press(i, { focusing: !!host.focusing });
+      void this.runKey(g === "open" || (g === "select" && host.freshClick) ? "element.open" : "element.select", { n: i + 1 }, host);
       host.redraw();
       return true;
     }
@@ -6473,11 +6499,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
+        surface.previewRow(host);
         host.redraw();
         return surface.describeElements().find(e => e.current) ?? null;
       }
       await surface.whole();
       surface.selectElement(surface.element(n!));
+      surface.previewRow(host);
       host.redraw();
       return surface.describeElements()[n! - 1];
     },
@@ -7403,24 +7431,24 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const r = b.rows[i];
       if (!r) throw new ActionRefused(id !== undefined ? `${b.title} has no row for ${id}` : `${b.title} has rows 1 to ${b.rows.length}`);
       const person = actor.kind !== "agent";
-      if (person) { surface.selectLinkRow(b, r.key); host.redraw(); }
+      if (person) { surface.selectLinkRow(b, r.key); surface.previewRow(host); host.redraw(); }
       return { block: b.n, title: b.title, row: i + 1, text: r.text, ...(r.id ? { id: r.id } : {}), moved: person };
     },
   }),
   "links.open": def({
-    summary: "open a row of an inline ::links component for real (PIE-693): n= its number, id= its block, default the selected one; block= as links.pick. where=origin (default) opens it where the reader's opens land, as ⏎ on it does; where=new in a new detail, as alt+⏎. The same open as element.open on the row: an agent's is refused in the reader the person has, and never moves their keys",
-    keys: "⏎ on a row or in the list, a double click (origin) · alt+⏎, an alt-, ctrl- or middle-click (new)",
+    summary: "open a row of an inline ::links component for real (PIE-693, PIE-794): n= its number, id= its block, default the selected one; block= as links.pick. where=home (default) replaces the note where the reader's opens land, as ⏎ on it does: its link (alt+l), else the reader itself, its home (a held reader only itself, one following the current note moves the current note), kept in its history; where=new in a new detail beside it, as alt+⏎. The same open as element.open on the row: an agent's is refused in the reader the person has, and never moves their keys",
+    keys: "⏎ on a row or in the list, a double click (home) · alt+⏎, an alt-, ctrl- or middle-click (new); the click that gives the reader the keys only selects",
     touches: "tile", replay: "ask", way: "opening a row there would move what they're reading · an agent opens the row's note with open id= (links.blocks gives it), naming no tile",
     args: {
       block: { type: "string", optional: true, about: "which ::links component: its number (links.blocks), or its title" },
       n: { type: "number", optional: true, about: "the row, from 1; default the selected one" },
       id: { type: "string", optional: true, about: "the block the row stands for, or its first characters" },
-      where: { type: "string", optional: true, about: "origin (default): where the reader's opens land; new: a new detail" },
+      where: { type: "string", optional: true, about: "home (default): where the reader's opens land; new: a new detail beside it" },
     },
     async run({ block, n, id, where }, on, actor): Promise<unknown> {
       const { surface } = on;
       surface.requireNote();
-      if (where !== undefined && where !== "origin" && where !== "new") throw new ActionRefused(`where is origin or new, not ${where}`);
+      if (where !== undefined && where !== "home" && where !== "new") throw new ActionRefused(`where is home or new, not ${where}`);
       if (n !== undefined && id !== undefined) throw new ActionRefused("say n= or id=, not both");
       const b = surface.linkBlockNamed(block);
       const r = id !== undefined ? b.rows.find(x => !!x.id && x.id.startsWith(id)) : n !== undefined ? b.rows[n - 1] : b.rows.find(x => x.key === b.sel);

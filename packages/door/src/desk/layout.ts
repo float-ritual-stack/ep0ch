@@ -49,15 +49,17 @@ export interface Policy {
   locked?: boolean;
   /**
    * Where opens from its tiles land when a tile has no link of its own: a tile's name, or a container's key (the
-   * board's readers row, PIE-515): a tile opened into it holds the note (see `keep`).
+   * board's readers row, PIE-515): a tile opened into it holds the note. An open lands in the one last opened (or
+   * given the keys) there; a fresh one (alt+⏎), or one when that holds an edit, opens another (see `readable`).
    */
   opensInto?: string;
   /**
-   * A container opens land in (an `opensInto` naming its key): how many tiles opened into it it keeps. An open lands
-   * in the one last opened (or given the keys) there; a fresh one (alt+⏎), or one when that holds an edit, opens
-   * another; past `keep`, the oldest free one gives way.
+   * Growth by room (PIE-794): the width in cells a reader opened beside others still gets. A new one opens beside while
+   * it does; past it, the earliest readers in its row (never the first) fold to spines. In a flow (the river) it is a
+   * full column's width, the rest squeezed to peeks and spines. 0: nothing folds. Left out, `READABLE` (a flow: about
+   * four tenths of its width).
    */
-  keep?: number;
+  readable?: number;
   /**
    * Closing a tile in it shuts the dock it's in instead (pinned, it goes back into a dock first): the board's
    * outline and backlinks, whose lists stay theirs.
@@ -86,7 +88,9 @@ export interface Policy {
 export type HostMode = "beside" | "over" | "none";
 /** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
 export type OpenRule = "current" | "next" | "beside";
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "keep", "shuts", "agents"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "readable", "shuts", "agents"] as const;
+/** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
+export const READABLE = 48;
 
 export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[]; policy?: Policy;
@@ -815,6 +819,8 @@ export interface Effective {
   agents: AgentLevel;
   /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
   opens: OpenRule;
+  /** Growth by room (PIE-794): the width a reader opened beside others still gets before earlier ones fold. */
+  readable: number;
   /** Which layer said each: "screen", a container's id, or "kind". */
   by: Partial<Record<keyof Policy, string>>;
 }
@@ -823,7 +829,7 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", by: {} };
+  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", readable: READABLE, by: {} };
   for (const { by, policy: p, flow } of layers) {
     // A flow's own rule, when it says none: its tiles open into the next column.
     if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
@@ -834,6 +840,7 @@ export function effective(layers: { by: string; policy?: Policy; flow?: boolean 
     if (p.accepts) { out.accepts = p.accepts; out.by.accepts = by; }
     if (p.opensInto) { out.opensInto = p.opensInto; out.by.opensInto = by; }
     if (p.agents) { out.agents = p.agents; out.by.agents = by; }
+    if (p.readable !== undefined) { out.readable = p.readable; out.by.readable = by; }
   }
   return out;
 }
@@ -950,8 +957,7 @@ export function policyOf(x: unknown): Policy {
   if (!x || typeof x !== "object") return out;
   const o = x as Record<string, unknown>;
   for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
-  if (typeof o.keep === "number" && Number.isInteger(o.keep) && o.keep >= 1 && o.keep <= 20) out.keep = o.keep;
-  for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
+  for (const k of ["min", "max", "fixed", "readable"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;

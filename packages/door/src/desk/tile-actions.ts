@@ -60,10 +60,10 @@ const loadLayout = {
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
-function policyChange({ clear, accepts, opensInto, opens, host, agents, min, max, fixed, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+function policyChange({ clear, accepts, opensInto, opens, host, agents, min, max, fixed, readable, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
   const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
   for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
-  for (const [k, v] of Object.entries({ min, max, fixed })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
+  for (const [k, v] of Object.entries({ min, max, fixed, readable })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
   if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
   if (opens !== undefined) { if (opens !== "current" && opens !== "next" && opens !== "beside") throw new ActionRefused(`layout.policy: opens is current, next or beside, not ${opens}`); set.opens = opens; }
@@ -82,6 +82,7 @@ const POLICY_ARGS = {
   min: { type: "number", optional: true, about: "its least size in cells (-1 clears)" },
   max: { type: "number", optional: true, about: "its most size in cells (-1 clears)" },
   fixed: { type: "number", optional: true, about: "its size in cells, kept (-1 clears)" },
+  readable: { type: "number", optional: true, about: "growth by room (PIE-794): the width in cells a reader opened beside others still gets; past it the earliest ones in its row (never the first) fold to spines; a flow's full column width. 0 never folds, -1 clears (the default, 48)" },
   collapsible: { type: "boolean", optional: true, about: "a dock can slide shut" },
   overlay: { type: "boolean", optional: true, about: "a dock slides over (true) or takes its room while open (false)" },
   stays: { type: "boolean", optional: true, about: "an open dock stays open when the keys leave it" },
@@ -344,7 +345,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "layout.policy": def({
-    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
+    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), readable=<cells> (growth by room: past it, earlier readers in a row fold to spines as new ones open), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
     keys: "^W P (⏎ or a click on a row changes it; alt+k locks the screen)",
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => { if (!r || !("node" in r) || !("policy" in r) || "layers" in r) return null; const { set, gone } = policyChange(a); return `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`; },

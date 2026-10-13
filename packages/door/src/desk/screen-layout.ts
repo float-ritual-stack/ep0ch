@@ -118,8 +118,8 @@ export interface TileFacts {
   follower?: boolean;
   /** The role its kind gives a new link from it (the links tile: `target`, a selection previews and only ⏎ opens); absent, `preview`. */
   linkRole?: LinkRole;
-  /** The tile its opens land in when no link or container says (the links tile's origin reader): a name. */
-  origin?: string;
+  /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */
+  home?: string;
   /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */
   placeholder?: boolean;
   /** It holds work (a draft): in a flow, its column resists compression. */
@@ -185,6 +185,8 @@ export type Op<I = number> =
   | { op: "pin"; tile: I; on?: boolean; edge?: Dir; container?: string }
   | { op: "slide"; tile: I; open?: boolean; container?: string }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
+  /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
+  | { op: "room"; tile: I }
   | { op: "resize"; split?: string; path?: string; border: number; share: number }
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
@@ -379,9 +381,10 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
 }
 
 /**
- * Where tile `id`'s opens land: its own link (when that tile is here), else the opens-into of the nearest container
- * that names a tile here (not itself), else the open rule: the next column of its flow (`next`), or none (the
- * current note).
+ * Where tile `id`'s opens land (PIE-794: every open from a tile asks this, and only this): its own link (when that tile
+ * is here), else the opens-into of the nearest container that names a tile here (not itself), else its home (a list's
+ * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
+ * replaces its own; anything else moves the current note).
  */
 export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { into: string } | { next: true } | null {
   const own = s.links.get(id);
@@ -391,9 +394,9 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" |
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
-  // A list about a tile's note (the links tile) opens in the tile it lists the links of, when no link or container says otherwise (PIE-646).
-  const origin = facts?.origin !== undefined ? named(s, facts.origin) : undefined;
-  if (origin !== undefined && origin !== id) return { to: origin };
+  // A list (the links tile) opens in its home, the reader it belongs to, when no link or container says otherwise (PIE-794).
+  const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
+  if (home !== undefined && home !== id) return { to: home };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }
@@ -645,6 +648,7 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "slide": return this.slide(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on, op.dir);
+      case "room": return this.room(op.tile);
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
@@ -698,6 +702,7 @@ class Step<I> {
         return each(under(nd?.t === "dock" ? nd : dockOf(this.d.tree, op.tile)), "sliding its dock", undefined);
       }
       case "collapse": return no(op.tile, "folding it");
+      case "room": return;   // it folds only tiles an agent may fold (room checks each)
       case "grow": return no(op.tile, "resizing it", "off");
       case "resize": { const n = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path ?? ""); return isLine(n as LNode<I>) ? each([...under((n as Line<I>).kids[op.border]), ...under((n as Line<I>).kids[op.border + 1])], "resizing it", "off") : undefined; }
       case "shares": return each(under(nodeById(this.d.tree, op.split)), "resizing it", "off");
@@ -1243,6 +1248,37 @@ class Step<I> {
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
+  }
+
+  /**
+   * Growth by room (PIE-794): tile `id` was just opened beside others. While it would be narrower than its `readable`
+   * cells in the screen's area, the leftmost other tile in its row that reads notes folds to a spine: never the row's
+   * first, never a preview (it follows another tile), never one holding an edit, a comment or a draft, never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
+   * One policy for every screen: the desk's splits, the board's readers row; a flow squeezes its own columns by it.
+   * The answer names what folded.
+   */
+  private room(id: I) {
+    this.present(id);
+    this.d.changed = false;
+    const folded: string[] = [];
+    this.d.answer = { folded };
+    const p = parentOf(this.d.tree, id), want = this.policyAt(id).readable;
+    if (!p || p.parent.t !== "split" || p.parent.dir !== "row" || want <= 0) return;
+    const width = () => rects({ ...this.d, zoom: null }, this.ctx.area).get(id)?.cols ?? 0;
+    // The row's tiles that read notes, left to right (a tab set by the tab it shows).
+    const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
+    // Readers opened before it, wherever they are in the row (a new one opens right beside the one it came from), but a
+    // preview, which follows another tile: it isn't one of the readers that grew.
+    const may = (t: I) => t !== id && t !== readers[0] && !this.facts(t).follower && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
+      && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
+    const by = byOf(this.ctx.actor);
+    while (width() < want) {
+      const t = readers.find(may);
+      if (t === undefined) break;
+      for (const f of this.foldSet(t)) this.d.collapsed.set(f, { ...by });
+      folded.push(this.name(t));
+      this.d.changed = true;
+    }
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {

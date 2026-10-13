@@ -177,25 +177,21 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key(char("e"));
     await until(() => !!d1.draft, "the person's draft");
     await Bun.sleep(20);
-    // The agent's open drops detail 1 (not the person's), and the person's keys stay in their edit.
+    // The agent's open adds a detail and drops none (PIE-794: growth by room folds, never closes); the person's keys
+    // stay in their edit, and their detail is never the one folded.
     expect(await act("open", { id: cards.gate.id })).toMatchObject({ id: cards.gate.id });
     expect(B().details).toContain(d1);
-    expect(B().details).not.toContain(d0);
+    expect(B().details).toContain(d0);
     expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
-    expect(B().details.find((d: ReaderPane) => d !== d1).msg.id).toBe(cards.gate.id);
+    expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
+    expect((b as any).collapsed.has((b as any).idOf(d1))).toBe(false);
     const text = d1.draft!.text;
     key(char("t")); key(char("o"));                                           // board keys (outline, pop out) if they leaked
     expect([d1.draft!.text.length, d1.draft!.text.includes("to")]).toEqual([text.length + 2, true]);
     expect([B().treeOpen, B().floats.length]).toEqual([false, 0]);
-    // Both details held (an agent's edit in the other): the agent's open is refused, the person untouched.
-    await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d1)));
-    await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/holds? (edits|an edit), (a )?comments?,? or properties/);
-    expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
-    key(char("!"));
-    expect([d1.draft!.text.length, d1.draft!.text.includes("to!")]).toEqual([text.length + 3, true]);
-    for (const d of B().details) await mine("edit.close", { discard: true }, nm(d));
+    for (const d of B().details) if (d.draft) await mine("edit.close", { discard: true }, nm(d));
 
-    // The person only in the property panel of detail 1: it isn't the detail dropped either.
+    // The person only in the property panel of detail 1: it isn't the detail folded either.
     await fresh();
     key({ kind: "enter" });
     const p0 = B().details[0] as ReaderPane;
@@ -208,7 +204,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(p0.surface.panel).not.toBeNull();
     await act("open", { id: cards.gate.id });
     expect(B().details).toContain(p0);
-    expect(B().details).not.toContain(p1);
+    expect(B().details).toContain(p1);
+    expect((b as any).collapsed.has((b as any).idOf(p0))).toBe(false);
     expect(p0.surface.panel).not.toBeNull();
     expect(BV.where(b)).toBe(`detail${B().details.indexOf(p0)}`);
     expect(b.isIn(p0)).toBe(true);
@@ -395,14 +392,9 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().details).toContain(d0);
     expect(d0.draft).not.toBeNull();
     expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
-    // Both details editing: putting it back is refused, and says why.
-    await mine("open", { id: cards.shed.id }, "float");
-    await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d0)));
-    BV.at(b, "float0");
-    key(char("o"));
-    expect(B().floats.length).toBe(1);
-    expect(message()).toContain("not put back: the other tiles in readers hold edits or comments");
-    for (const d of B().details) await mine("edit.close", { discard: true }, nm(d));
+    // The row makes room by folding, never closing (PIE-794): every detail is still there.
+    expect(B().details.length).toBe(3);
+    for (const d of B().details) if (d.draft) await mine("edit.close", { discard: true }, nm(d));
   });
 
   test("an agent's card.move leaves the person's lane, selection and preview alone", async () => {

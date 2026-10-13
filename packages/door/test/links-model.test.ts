@@ -210,7 +210,12 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
   test("an agent's links reads them: the person's keys, their list's note and its selection stay as they were", async () => {
     D().focus = D().idNamed("reader");
     desk.setCurrent(n.notes);
-    await until(() => reader().msg?.id === n.notes.id && list().target?.id === n.notes.id && !!list().data, "another note in the reader, its links listed");
+    await until(() => reader().msg?.id === n.notes.id, "another note in the reader");
+    // The list keeps its subject as the reader moves on (PIE-794): b aims it.
+    expect(list().target?.id).not.toBe(n.notes.id);
+    key({ kind: "char", ch: "b" });
+    await until(() => list().target?.id === n.notes.id && !!list().data, "b: its links listed");
+    D().focus = D().idNamed("reader");
     await Bun.sleep(200);
     const was = { target: list().target?.id, sel: list().sel };
     const r: any = await app.act({ action: "links", tile: "reader", as: "walker-3" });
@@ -238,18 +243,25 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
 
   test("::resources and ::backlinks in a note draw the same rows inline; a row is a link the reader opens", async () => {
     desk.setCurrent(n.inline);
-    await until(() => lines().join("\n").includes("rota.md") && lines().join("\n").includes("Compost notes"), "the inline rows");
+    await until(() => lines().join("\n").includes("♦ rota.md") && lines().join("\n").includes("← Compost notes"), "the inline rows");
     const drawn = lines().join("\n");
     expect(drawn).toContain("[ RESOURCES ]");
     expect(drawn).toContain("[ BACKLINKS ]");
     expect(drawn).toMatch(/♦ rota\.md · (Filesystem|not registered)/);
     expect(drawn).toMatch(/← Compost notes —/);
-    // A click on the backlink row opens its note in this reader (where its links go).
+    // A click on the backlink row selects it (PIE-794: as a links tile's row); a double click opens its note in this
+    // reader, its home, which follows the current note: the current note moves.
     const ls = lines(), y = ls.findIndex(l => l.includes("← Compost notes")), x = ls[y]!.indexOf("Compost notes") + 2;
     D().focus = D().idNamed("reader");
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
+    await Bun.sleep(100);
+    expect(desk.current?.id).toBe(n.inline.id);
+    expect(reader().surface.inView()?.link?.linksBlock?.row).toBeDefined();
+    key({ kind: "mouse", action: "down", button: 0, x, y });
+    key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => desk.current?.id === n.notes.id, "the backlink's note opened from the inline row");
+    expect(reader().followMode).toBe("follows");
   }, 60_000);
 
   test("::links with a query (PIE-693) by keys and mouse: [ ] onto a row previews it, the note keeps the keys; ⏎ on ⏎ in goes in: j k, / filter, esc out; a click selects, a double click opens", async () => {

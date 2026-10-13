@@ -646,3 +646,53 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
     extra = {};
   });
 });
+
+describe("growth by room: readers opened beside fold the earlier ones, never the first (PIE-794)", () => {
+  /** tree | reader | detail, then more details opened right of the last, each followed by `room` as the desk does. */
+  const grow = (s: LayoutState, id: number, after: number, actor: Actor = PERSON, person: Partial<Person> = {}) => {
+    NAMES.set(id, `detail${id}`);
+    const o = ok(s, { op: "open", tile: id, kind: "reader", name: `detail${id}`, loose: true, at: { kind: "split", target: after, dir: "right" }, keys: false }, actor, person).state;
+    return ok(o, { op: "room", tile: id }, actor, person);
+  };
+  const folded = (s: LayoutState) => names(s, [...s.collapsed.keys()]);
+
+  test("while a new one gets its readable width nothing folds; past it the earliest reader after the first does, then the next", () => {
+    extra = {};
+    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
+    const a = grow(s0, 5, 2);
+    expect(folded(a.state)).toEqual([]);
+    expect(a.answer.folded).toEqual([]);
+    const b = grow(a.state, 6, 5);
+    expect(folded(b.state)).toEqual(["detail5"]);
+    const c = grow(b.state, 7, 6);
+    expect(folded(c.state)).toEqual(["detail5", "detail6"]);
+    // Never the first reader (nor the tree, which reads no notes).
+    expect(c.state.collapsed.has(2)).toBe(false);
+    expect(c.state.collapsed.has(1)).toBe(false);
+    for (const id of [5, 6, 7]) NAMES.delete(id);
+  });
+
+  test("each opened beside the same reader (a row's alt+clicks): the ones opened before fold, wherever they sit", () => {
+    extra = {};
+    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
+    const b = grow(grow(s0, 5, 2).state, 6, 2);
+    expect(treeNames(b.state)).toEqual(["tree", "reader", "detail6", "detail5"]);
+    expect(folded(b.state)).toEqual(["detail5"]);
+    expect(b.answer.folded).toEqual(["detail5"]);
+    for (const id of [5, 6]) NAMES.delete(id);
+  });
+
+  test("readable=0 never folds; an agent's never folds the tile the person has or types in", () => {
+    extra = {};
+    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
+    const never = ok(s0, { op: "policy", set: { readable: 0 }, clear: [] }).state;
+    const n = grow(grow(never, 5, 2).state, 6, 5);
+    expect(folded(n.state)).toEqual([]);
+    const a = grow(s0, 5, 2);
+    const b = grow(a.state, 6, 5, AGENT, { focus: 5 });
+    expect(folded(b.state)).toEqual([]);
+    const c = grow(a.state, 6, 5, PERSON, { focus: 2, typingIn: 5 });
+    expect(folded(c.state)).toEqual([]);
+    for (const id of [5, 6]) NAMES.delete(id);
+  });
+});
