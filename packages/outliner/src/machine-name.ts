@@ -71,12 +71,16 @@ export function isLocalMachine(machine: string, env: NodeJS.ProcessEnv = process
 /** The short host name (`evans-MacBook-Pro` of `evans-MacBook-Pro.local`), as a machine name: the default to offer. */
 export const suggestedMachineName = (raw = hostname()) => hostMachineName(raw.split(".")[0] || raw);
 
-/** Writes this machine's name (`<outlines>/.host/machine-name`), the names it had before kept under it; answers the file. */
+/**
+ * Writes this machine's name (`<outlines>/.host/machine-name`), the names it had before kept under it (its host name's
+ * among them, so renaming the host later changes nothing); answers the file.
+ */
 export function writeMachineName(name: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!isMachineName(name)) throw new Error(`"${name}" isn't a machine name: an ssh config name (${MACHINE_NAME_PATTERN.source})`);
   const folder = resolveOutlinesFolder(env);
   const file = outlineLayout(folder).machineName;
-  const before = namesInFile(folder).filter((old) => old !== name);
+  // The host name's form is kept with the names it had: marks made under it stay this machine's after the host is renamed.
+  const before = [...new Set([...namesInFile(folder), hostMachineName()])].filter((old) => old !== name);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.tmp`;
   writeFileSync(temporary, [name, ...before].map((line) => `${line}\n`).join(""));

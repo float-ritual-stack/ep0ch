@@ -320,16 +320,16 @@ describe("this machine's name (EchoNet and ep0ch:// links)", () => {
       const env = { EP0CH_OUTLINES: outlines };
       expect(configuredMachineName(env)).toBeUndefined();
       writeMachineName("box-a", env);
-      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-a\n");
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe(`box-a\n${hostMachineName()}\n`);
       expect(configuredMachineName(env)).toBe("box-a");
       expect(configuredMachineName({ ...env, EP0CH_MACHINE_NAME: "box-c" })).toBe("box-c");
       expect(() => writeMachineName("-o ProxyCommand", env)).toThrow("isn't a machine name");
       // Renamed, the name it had is still this machine's: old links and marks say it.
       writeMachineName("box-c", env);
-      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-c\nbox-a\n");
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe(`box-c\nbox-a\n${hostMachineName()}\n`);
       expect(localMachineAliases(undefined, env)).toEqual(["box-a", hostMachineName()]);
       writeMachineName("box-a", env);
-      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-a\nbox-c\n");
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe(`box-a\nbox-c\n${hostMachineName()}\n`);
       expect([isLocalMachine("box-a", env), isLocalMachine(hostMachineName(), env), isLocalMachine("box-b", env)]).toEqual([true, true, false]);
     } finally { rmSync(outlines, { recursive: true, force: true }); }
   });
