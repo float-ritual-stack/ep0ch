@@ -61,6 +61,32 @@ export interface Block {
 }
 
 /**
+ * A page name a restore had to change (PIE-312): while the note was in Trash another note took `[page::from]`, so the
+ * restored note's declaration now reads `[page::to]`, the next free `from-2`, `from-3`…
+ */
+export interface PageRename {
+  blockId: string;
+  from: string;
+  to: string;
+}
+
+/** `trash.restore`'s reply: the restored root, and the page names in its subtree that were taken meanwhile. */
+export interface RestoredBlock extends Block {
+  renamedPages?: PageRename[];
+}
+
+/** What a restore says in every client: the page names it had to change ("" when none). */
+export function renamedPagesNote(renamed: readonly PageRename[] | undefined): string {
+  return (renamed ?? []).map((rename) => `[[${rename.from}]] is another note's page now, so it is [[${rename.to}]]`).join("; ");
+}
+
+/** "Restored from Trash", and each page name the restore had to change. */
+export function restoredStatus(restored: Pick<RestoredBlock, "renamedPages"> | undefined): string {
+  const note = renamedPagesNote(restored?.renamedPages);
+  return note ? `Restored from Trash; ${note}` : "Restored from Trash";
+}
+
+/**
  * One revision of a block's text (PIE-621, `block.revisions`): its number, when it was saved and by whom (when the
  * service recorded the edit), its size in characters and lines, and its first line.
  */

@@ -349,9 +349,8 @@ export class ExtensionPages {
   }
 
   /**
-   * Creates a block; a `[page::x]` in it that another block holds (one in Trash too) becomes `x-2`, `x-3`…, so what the
-   * service writes always lands (a person's own page named `extensions`, a demo board written again after its first
-   * went to Trash).
+   * Creates a block; a `[page::x]` in it that another live block holds becomes `x-2`, `x-3`…, so what the
+   * service writes always lands (a person's own page named `extensions`). One in Trash gives its name up.
    */
   private createAddressed(text: string, parentId: string | null, author: "system" | "agent", provenance?: { actorId: string }): Block {
     for (let n = 1; ; n++) {

@@ -1,3 +1,4 @@
+import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import type { FragmentCandidateCollection } from "./fragment-search";
 import {StdinBuffer, getOsc8LinkAtColumn} from "@earendil-works/pi-tui";
 import {isTreeMouseSequence, parseTreePlainClick, parseTreeWheelEvent} from "./tree-mouse";
@@ -438,7 +439,7 @@ const effects: DetailEffects = {
     });
   },
   async restoreBlock(blockId) {
-    return client.request<Block>(detailRestoreRequest(blockId));
+    return client.request<RestoredBlock>(detailRestoreRequest(blockId));
   },
   async resolveReference(target) {
     return resolveOutlinerLinkTarget(client, target);

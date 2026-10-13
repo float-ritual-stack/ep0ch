@@ -61,6 +61,18 @@ are its record. The outliner's entries from then are kept below, under
   indented code, is no longer turned into a link, and `((id^fragment|label))` links to its note instead of a page of
   that name.
 
+### A note in Trash no longer keeps its page name (PIE-312)
+
+- **Fixed:** trashing a note named `[page::2031-04-02]` and writing a new one with the same name was refused ("is
+  already the page of … (in Trash)"), and `[[2031-04-02]]` kept pointing at the note in Trash. Now the live note takes
+  the name and the links follow it.
+- **Changed:** restoring a note whose page name was taken meanwhile still restores it, as `[page::2031-04-02-2]` (the
+  next free name), and Tree, Detail and the board's `u` say which name changed. `trash.restore`'s reply names each
+  rename (`renamedPages`).
+- **Added:** Tree's restore (`r`) and purge (`p`) are in its action menu on a Trash root, so a click runs them;
+  `outliner purge --id <id> --confirm <work id or first 8>` purges from a shell.
+- **Run:** PROTOCOL bump; restart the host and the clients together (`ep0ch install --apply`).
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers
@@ -362,7 +374,6 @@ are its record. The outliner's entries from then are kept below, under
   figure over a `view:` says to write `query:` instead (the service groups queries). `PROTOCOL` 129: update the outline
   host and every client together (`ep0ch install --apply`).
 
-
 ### Read with a pen: highlights, margin notes and passage actions (PIE-751, PIE-753)
 
 - **New:** select words in a reader and act on them. A toolbar appears on the selection's line: Comment, Ask, Explain
@@ -445,7 +456,6 @@ are its record. The outliner's entries from then are kept below, under
   follows the current note again (it used to stay put); a held reader is saved with its note and comes back held.
   A pinned reader that is opened into another note than its page is held on it, not pinned.
 - **Run:** nothing: no protocol or schema change; saved layouts of the old form load as they are.
-
 
 ### Your look, part two: surfaces, frames, edges and the header, tuned live (PIE-675)
 

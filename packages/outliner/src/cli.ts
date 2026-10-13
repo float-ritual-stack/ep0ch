@@ -77,6 +77,8 @@ Writing
   update --id <id> --text <text> --expected <revision>
   move --id <id> --parent <id|root> [--position <n>]
   delete --id <id> [--expected <revision>] [--if-empty] | restore --id <id>
+  purge --id <id> --confirm <work id or the id's first 8>
+                                       delete a Trash root and what is under it for good
   comment --id <id> --expected <revision> --text <text> | --stdin [--quote <text> …]
   agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
   work …, note …                       roadmap items and notes ("outliner work" lists them)
@@ -1037,6 +1039,12 @@ switch (command) {
     request = command === "delete"
       ? { action: "delete", blockId: values.id, ...(values.expected !== undefined ? { expectedRevision: parseRevision(values.expected) } : {}), ...(values["if-empty"] ? { ifEmpty: true } : {}), mutation: writerMutation(values) }
       : { action: "trash.restore", blockId: values.id, mutation: writerMutation(values) };
+    break;
+  }
+  case "purge": {
+    const { values } = parseArgs({ args: rest, options: { id: { type: "string" }, confirm: { type: "string" } }, strict: true });
+    if (!values.id || !values.confirm) throw new Error("purge requires --id <Trash root> and --confirm <its work id or the id's first 8 characters>");
+    request = { action: "trash.purge", blockId: values.id, confirmation: values.confirm };
     break;
   }
   case "select": {

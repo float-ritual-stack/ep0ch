@@ -1,3 +1,4 @@
+import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
@@ -686,7 +687,7 @@ export interface DetailEffects {
   reconcileAnnotations(input: AnnotationReconcileInput): Promise<AnnotationReconcileReceipt>;
   getAttention(): Promise<AttentionClientState>;
   acknowledgeAttention(markId?: string): Promise<AttentionClientState>;
-  restoreBlock(blockId: string): Promise<Block>;
+  restoreBlock(blockId: string): Promise<RestoredBlock>;
   resolveReference(target: OutlinerLinkTarget): Promise<ResolvedOutlinerLinkTarget>;
   followResourceOccurrence(target: OutlinerLinkTarget): Promise<FollowResourceOccurrenceReceipt>;
   queryBlocks(query: BlockSearchQuery): Promise<VisibleBlockCollection>;
@@ -3368,9 +3369,9 @@ export function createDetailController(
         break;
       case "trash.restore":
         if (state.context.selected?.deletedAt) {
-          await effects.restoreBlock(state.context.selected.id);
+          const restored = await effects.restoreBlock(state.context.selected.id);
           await loadCurrentTarget(true);
-          state.status = "Restored from Trash";
+          state.status = restoredStatus(restored);
         }
         break;
       case "navigation.link": {
