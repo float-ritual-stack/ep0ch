@@ -267,7 +267,10 @@ const accessRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level
   : `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it, as of ${served.asOf})` : ""}; its owner runs \`ep0ch mcp access read --ws ${board.address.outline}\` on ${board.address.machine} to let MCP clients read it${served.source === "mirror" ? ", and the mirror follows with that change" : ""}.`;
 
 /** The status with the level this caller has: the principal that made a scratch outline writes with `full` (levelFor). */
-const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where?: BoardAddress): McpAccessStatus => ({ ...status, level: levelFor(status, caller, undefined, where) });
+const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where: BoardAddress): McpAccessStatus => {
+  const level = levelFor(status, caller, undefined, where);
+  return { ...status, level, canRead: status.canRead && level !== "none" };
+};
 
 async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
   const status = await target.board.mcpAccessStatus();

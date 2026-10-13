@@ -157,7 +157,7 @@ export const sessionIdOf = (caller: McpCaller): string => composeSessionId({ sub
  * What an outline's access setting means for this caller (PIE-679): the principal that made a scratch outline writes to it with
  * `full`, whatever the setting lets the others (`read`). A setting of `none` is a person's denial and holds for everyone.
  */
-export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string, where?: BoardAddress): McpAccessLevel => {
+export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine: string | undefined, where: BoardAddress | undefined): McpAccessLevel => {
   const level = caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
   // A connection capped lower (a named path's `propose`) gets no more than its cap in this outline, whatever it allows.
   const cap = caller?.cap?.(where);

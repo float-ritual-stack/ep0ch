@@ -207,6 +207,16 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       const shedNow = (await tool("outline_read", { uri: shed }, "gpty")).json;
       expect((await tool("outline_set_property", { uri: shed, key: "keeper", value: "gpty", revision: shedNow.revision }, "gpty")).json.outcome).toBe("applied");
     } finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
+    // A path open wide but shut for one outline: no write there, and no read either (reads check the cap too).
+    process.env.EP0CH_MCP_PATH_ACCESS = "gpty=full,gpty@pond-notes=none";
+    try {
+      const frogs = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+      expect((await tool("outline_read", { uri: frogs }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_threads", { uri: frogs }, "gpty")).isError).toBe(true);
+      expect((await tool("reader_view", { outline: "pond-notes" }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_comment", { uri: frogs, whole: true, body: "sneaking in" }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_read", { uri: frogs })).isError).toBe(false);               // /mcp as before
+    } finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
     // /mcp: as before, the full outline's writes apply.
     expect((await tool("list_outlines", {})).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "full", writes: "applied" });
   });
@@ -695,10 +705,10 @@ describe("principal and persona (PIE-679)", () => {
 
   test("the principal that made an outline writes with full whatever the setting; a person's none holds for all", () => {
     const status = { level: "read" as const, owner: "claude-code@float-2" };
-    expect(levelFor(status, stdio("claude-code"), "float-2")).toBe("full");
-    expect(levelFor(status, stdio("claude-code"), "laptop")).toBe("read");
-    expect(levelFor(status, gateway, "float-2")).toBe("read");
-    expect(levelFor({ ...status, level: "none" }, stdio("claude-code"), "float-2")).toBe("none");
-    expect(levelFor({ level: "read" }, stdio("claude-code"), "float-2")).toBe("read");
+    expect(levelFor(status, stdio("claude-code"), "float-2", undefined)).toBe("full");
+    expect(levelFor(status, stdio("claude-code"), "laptop", undefined)).toBe("read");
+    expect(levelFor(status, gateway, "float-2", undefined)).toBe("read");
+    expect(levelFor({ ...status, level: "none" }, stdio("claude-code"), "float-2", undefined)).toBe("none");
+    expect(levelFor({ level: "read" }, stdio("claude-code"), "float-2", undefined)).toBe("read");
   });
 });
