@@ -683,12 +683,13 @@ test("ep0ch echo: subscribe writes a subscription, toss runs the tosser, areas r
   expect(made.code).toBe(0);
   expect(made.out).toContain(`recon from shack@${machine} [subscribe::shack@${machine}] [echo::recon] [since::all] [cap::10]`);
   expect((await echo("toss", "--ws", "shack")).code).toBe(0);
-  // A toss that takes longer than a plain request (here, waiting four seconds on a toss already running) is waited for:
-  // its own answer, never a timeout for a toss that worked.
+  // A toss that takes longer than a plain request (here, waiting on a toss already running for six seconds, well past
+  // the client's three) is waited for: its own answer, never a timeout for a toss that worked.
   const lock = join(outlines, "cafe", "echonet", "toss.lock");
   mkdirSync(join(outlines, "cafe", "echonet"), { recursive: true });
   writeFileSync(lock, "another toss\n");
-  setTimeout(() => rmSync(lock, { force: true }), 4_000);
+  const release = setTimeout(() => rmSync(lock, { force: true }), 6_000);
+  cleanups.push(() => clearTimeout(release));
   const tossed = await echo("toss", "--ws", "cafe");
   expect([tossed.code, tossed.out.trim(), tossed.err]).toEqual([0, expect.stringContaining("copies 1"), ""]);
   expect((await where("cafe", "from")).map((block) => block.text.split(" [")[0])).toEqual(["Recon: the boiler's pressure log"]);
