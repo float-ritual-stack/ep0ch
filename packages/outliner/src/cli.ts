@@ -230,7 +230,8 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
  * OUTLINER_PUBLISH_URL) is the full URL the tailnet listener is opened at (`https://host.ts.net/pub`): the publisher
  * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767). With a sign-in origin
  * (`--signin-url`, EP0CH_WEB_URL) that origin and the base path are the URL told instead: where the owner opens it.
- * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin:
+ * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin
+ * (or several, comma-separated: each host answered as itself, links written with the first):
  * the same web client, every route behind a Clerk sign-in (EP0CH_WEB_CLIENT_ID, EP0CH_WEB_ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS).
  * `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves the door in the browser (publish-door.ts) on the tailnet listener
  * and, for a live web session, the signed-in one: this outline's door session, at `<base>/door`.
@@ -268,14 +269,16 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     const signinPort = values["signin-port"] === undefined ? undefined : Number(values["signin-port"]);
     if (signinPort !== undefined && (!Number.isInteger(signinPort) || signinPort < 0 || signinPort > 65535)) throw new Error("--signin-port must be a port number");
     if (signinPort !== undefined && signinPort !== 0 && (signinPort === port || signinPort === publicPort)) throw new Error("--signin-port must differ from --port and --public-port");
+    // One public origin, or several comma-separated (PIE-813: https://my.ep0ch.sh,https://my.floatbbs.net); links use the first.
     const signinUrl = values["signin-url"] ?? process.env.EP0CH_WEB_URL;
+    const firstSigninUrl = signinUrl?.split(",").map(origin => origin.trim()).find(Boolean);
     if (signinPort !== undefined && !signinUrl) throw new Error("--signin-port needs --signin-url (or EP0CH_WEB_URL): the public origin it is opened at, e.g. --signin-url https://my.ep0ch.sh");
     const publicUrl = values["public-url"] ?? process.env.OUTLINER_PUBLIC_URL;
     const { checkPublicBind, normalizeBasePath, publisherUrl } = await import("./publish");
     // Where the owner opens the web client: the signed-in origin when there is one (EP0CH_WEB_URL, the address used on every
     // device, PIE-793), else the tailnet listener's (--url, OUTLINER_PUBLISH_URL). The service builds notes' web links from it.
-    const rawPublishUrl = signinUrl
-      ? `${URL.canParse(signinUrl) ? new URL(signinUrl).origin : signinUrl}${normalizeBasePath(values["base-path"])}`
+    const rawPublishUrl = firstSigninUrl
+      ? `${URL.canParse(firstSigninUrl) ? new URL(firstSigninUrl).origin : firstSigninUrl}${normalizeBasePath(values["base-path"])}`
       : values.url ?? process.env.OUTLINER_PUBLISH_URL;
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, signinUrl ? (values["signin-url"] ? "--signin-url" : "EP0CH_WEB_URL") : values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");

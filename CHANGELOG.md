@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The web client and the MCP gateway answer on a second domain (PIE-813)
+
+- **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers
+  each one as itself: its own sign-in redirect and cookie, and writes only from its own pages. The gateway gives each
+  host its own OAuth resource, discovery and tokens. Any other host name is refused. Links still use the first one.
+- **Run:** see the PR for the env lines; add `https://my.floatbbs.net/signin/callback` to the Clerk app ep0ch-web.
+
 ### An open edit stays open when you go elsewhere (PIE-812)
 
 - **Changed:** clicking another tile, `^W` then a window key, the hyper layer's moves or `ctrl+n` no longer save and

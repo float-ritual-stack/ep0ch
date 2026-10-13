@@ -632,7 +632,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 
 | Env | Meaning |
 |---|---|
-| `EP0CH_MCP_RESOURCE` | this endpoint's public URL, as clients name it and tokens carry it in `aud` (`https://mcp.ep0ch.sh/mcp`); required, https |
+| `EP0CH_MCP_RESOURCE` | this endpoint's public URL, as clients name it and tokens carry it in `aud` (`https://mcp.ep0ch.sh/mcp`); required, https. Several, comma-separated, on other hosts with the same path (`https://mcp.ep0ch.sh/mcp,https://mcp.floatbbs.net/mcp`, PIE-813): a request is served as the resource its Host names (its discovery, its challenge, only tokens for it), and any other Host is refused (421), but `/healthz` |
 | `CLERK_PUBLISHABLE_KEY` | names the issuer (Clerk's Frontend API); from `~/.config/secrets/clerk.env` through `with-secrets clerk -- …`. `EP0CH_MCP_ISSUER` names it outright instead |
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode. The one list of who may sign in: the signed-in web client (`my.ep0ch.sh`, the outliner's README) reads it too, so both units load it from one file (`~/.config/ep0ch/signin.env`) |
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |

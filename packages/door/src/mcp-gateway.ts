@@ -108,20 +108,31 @@ export { issuerFromPublishableKey };
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 
-/** The gateway's settings from its environment, or what's missing, said with what to set. */
-export function gatewayConfig(env: Record<string, string | undefined>): { issuer: string; resource: URL; allowedSubjects: string[]; allowedClients: string[] } | { error: string } {
-  const resourceText = env.EP0CH_MCP_RESOURCE?.trim();
-  if (!resourceText) return { error: "EP0CH_MCP_RESOURCE is unset: set it to this endpoint's public URL, e.g. EP0CH_MCP_RESOURCE=https://mcp.ep0ch.sh/mcp" };
-  let resource: URL;
-  try { resource = new URL(resourceText); } catch { return { error: `EP0CH_MCP_RESOURCE=${resourceText} isn't a URL` }; }
-  if (resource.protocol !== "https:" && !loopback(resource)) return { error: `EP0CH_MCP_RESOURCE must be https (got ${resourceText})` };
-  if (resource.search || resource.hash) return { error: "EP0CH_MCP_RESOURCE takes no query or fragment" };
+/**
+ * The gateway's settings from its environment, or what's missing, said with what to set. EP0CH_MCP_RESOURCE is one
+ * public URL, or several comma-separated on other hosts (PIE-813: `https://mcp.ep0ch.sh/mcp,https://mcp.floatbbs.net/mcp`),
+ * all with the same path: each host is its own OAuth resource, and `resource` is the first.
+ */
+export function gatewayConfig(env: Record<string, string | undefined>): { issuer: string; resource: URL; resources: URL[]; allowedSubjects: string[]; allowedClients: string[] } | { error: string } {
+  const resourceTexts = listOf(env.EP0CH_MCP_RESOURCE);
+  if (!resourceTexts.length) return { error: "EP0CH_MCP_RESOURCE is unset: set it to this endpoint's public URL, e.g. EP0CH_MCP_RESOURCE=https://mcp.ep0ch.sh/mcp (several, comma-separated, for more than one host)" };
+  const resources: URL[] = [];
+  for (const resourceText of resourceTexts) {
+    let resource: URL;
+    try { resource = new URL(resourceText); } catch { return { error: `EP0CH_MCP_RESOURCE: ${resourceText} isn't a URL` }; }
+    if (resource.protocol !== "https:" && !loopback(resource)) return { error: `EP0CH_MCP_RESOURCE must be https (got ${resourceText})` };
+    if (resource.search || resource.hash) return { error: "EP0CH_MCP_RESOURCE takes no query or fragment" };
+    if (resources.length && resource.pathname !== resources[0]!.pathname) return { error: `EP0CH_MCP_RESOURCE: every URL has the same path (${resources[0]!.pathname}; got ${resourceText})` };
+    if (resources.some(r => r.host === resource.host)) return { error: `EP0CH_MCP_RESOURCE names ${resource.host} twice` };
+    resources.push(resource);
+  }
+  const resource = resources[0]!;
   const issuerText = env.EP0CH_MCP_ISSUER?.trim() || (env.CLERK_PUBLISHABLE_KEY ? issuerFromPublishableKey(env.CLERK_PUBLISHABLE_KEY) : undefined);
   if (!issuerText) return { error: "no issuer: run under `with-secrets clerk -- …` (CLERK_PUBLISHABLE_KEY), or set EP0CH_MCP_ISSUER to Clerk's Frontend API URL" };
   let issuer: URL;
   try { issuer = new URL(issuerText); } catch { return { error: `the issuer ${issuerText} isn't a URL` }; }
   if (issuer.protocol !== "https:" && !loopback(issuer)) return { error: `the issuer must be https (got ${issuerText})` };
-  return { issuer: trimSlash(issuer.href), resource, allowedSubjects: allowedSubjects(env), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
+  return { issuer: trimSlash(issuer.href), resource, resources, allowedSubjects: allowedSubjects(env), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
 }
 
 /**
@@ -321,8 +332,13 @@ export function startGateway(opts: {
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store", ...headers } });
   const quoted = (s: string) => `"${s.replace(/["\\]/g, "")}"`;
-  const metadataFor = (path: string) => ({
-    resource: `${config.resource.origin}${path}`,
+  /**
+   * Which of the gateway's public origins a request came in on (PIE-813), by its Host (the proxy keeps the name it was
+   * asked for): its resource, metadata and challenge are that origin's. A host not on the list gets nothing.
+   */
+  const origins = new Map(config.resources.map(r => [r.host.toLowerCase(), r.origin]));
+  const metadataFor = (origin: string, path: string) => ({
+    resource: `${origin}${path}`,
     authorization_servers: [config.issuer],
     bearer_methods_supported: ["header"],
     scopes_supported: ["profile", "offline_access"],
@@ -348,21 +364,24 @@ export function startGateway(opts: {
     async fetch(req) {
       const url = new URL(req.url);
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+      if (url.pathname === "/healthz" && req.method === "GET") return json(200, { ok: true });
+      const origin = origins.get((req.headers.get("host") ?? "").toLowerCase());
+      if (!origin) return json(421, { error: "misdirected", error_description: `this gateway answers ${[...origins.keys()].join(", ")}` });
       // Each MCP path's resource metadata at its own well-known URL (RFC 9728), the bare one the gateway's own.
       const wellKnown = "/.well-known/oauth-protected-resource";
       const described = url.pathname === wellKnown ? { path: mcpPath } : url.pathname.startsWith(`${wellKnown}/`) ? routeOf(url.pathname.slice(wellKnown.length)) : null;
       if (described) {
-        return req.method === "GET" ? json(200, metadataFor(described.path)) : json(405, { error: "method not allowed" }, { Allow: "GET" });
+        return req.method === "GET" ? json(200, metadataFor(origin, described.path)) : json(405, { error: "method not allowed" }, { Allow: "GET" });
       }
-      if (url.pathname === "/healthz" && req.method === "GET") return json(200, { ok: true });
       const route = routeOf(url.pathname);
       if (!route) return json(404, { error: "not found" });
 
       // Every request to the endpoint, whatever its method, shows its token first, for this path's resource.
-      const verdict = await verifyBearer(req.headers.get("authorization"), { ...policy, resource: `${config.resource.origin}${route.path}` }, log);
+      // A token is for one host's resource: one issued for another host's isn't taken here.
+      const verdict = await verifyBearer(req.headers.get("authorization"), { ...policy, resource: `${origin}${route.path}` }, log);
       if (!verdict.ok) {
         if (verdict.status === 401) {
-          const challenge = [`Bearer resource_metadata=${quoted(`${config.resource.origin}${metadataPathOf(route.path)}`)}`, ...(verdict.error ? [`error=${quoted(verdict.error)}`, `error_description=${quoted(verdict.description)}`] : [])].join(", ");
+          const challenge = [`Bearer resource_metadata=${quoted(`${origin}${metadataPathOf(route.path)}`)}`, ...(verdict.error ? [`error=${quoted(verdict.error)}`, `error_description=${quoted(verdict.description)}`] : [])].join(", ");
           return json(401, { error: verdict.error ?? "unauthorized", error_description: verdict.description }, { "WWW-Authenticate": challenge });
         }
         return json(verdict.status, { error: verdict.status === 403 ? "forbidden" : "unavailable", error_description: verdict.description });
@@ -467,7 +486,7 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }
-  err(`ep0ch mcp gateway on ${gateway.url}: resource ${config.resource.href}, issuer ${config.issuer}, outlines on ${outlines.machine}${parsed.ws ? ` (default ${parsed.ws})` : ""}` +
+  err(`ep0ch mcp gateway on ${gateway.url}: resource ${config.resources.map(r => r.href).join(", ")}, issuer ${config.issuer}, outlines on ${outlines.machine}${parsed.ws ? ` (default ${parsed.ws})` : ""}` +
     (mirrors.length ? `, mirrors ${mirrors.map(m => `${m.outline}@${m.machine} (${m.follow}${m.exists() ? "" : ", no copy yet"})`).join(", ")}${live ? ", live through the ssh forward when the machine answers" : ", live route off (EP0CH_MCP_LIVE=0)"}` : "") +
     (config.allowedSubjects.length ? `, ${config.allowedSubjects.length} allowed subject(s)` : " [CAPTURE MODE: every token is refused and its subject logged; set EP0CH_MCP_ALLOWED_SUBJECTS]"));
   io.ready?.(gateway);

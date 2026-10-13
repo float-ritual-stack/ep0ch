@@ -28,6 +28,11 @@ const CALLBACK = "/signin/callback";
 export interface SignInSettings {
   /** This listener's public origin (`https://my.ep0ch.sh`): the Host it answers, the Origin writes carry, the redirect. */
   origin: string;
+  /**
+   * Every public origin it answers (PIE-813), `origin` first: a request is served as the origin its Host names (its
+   * OAuth redirect, its cookies, the Origin its writes carry), and a host not here is refused.
+   */
+  origins?: readonly string[];
   /** Clerk's Frontend API URL, its OIDC issuer. */
   issuer: string;
   /** The OAuth application's client id (a public client: PKCE, no secret). */
@@ -40,12 +45,21 @@ export interface SignInSettings {
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 
+/** The origins in `--signin-url` / EP0CH_WEB_URL: one, or several comma-separated (PIE-813). */
+export const signInOrigins = (value: string) => value.split(",").map((origin) => origin.trim()).filter(Boolean);
+
 /** The settings from the environment and the flags, or what's missing, said with what to set. */
-export function signInSettings(env: Record<string, string | undefined>, origin: string, home: string): SignInSettings | { error: string } {
-  let url: URL;
-  try { url = new URL(origin); } catch { return { error: `--signin-url ${origin} isn't a URL (e.g. --signin-url https://my.ep0ch.sh)` }; }
-  if (url.protocol !== "https:" && !loopback(url)) return { error: `--signin-url must be https (got ${origin})` };
-  if (url.pathname !== "/" || url.search || url.hash) return { error: `--signin-url is an origin, with no path (e.g. https://my.ep0ch.sh; got ${origin})` };
+export function signInSettings(env: Record<string, string | undefined>, originList: string, home: string): SignInSettings | { error: string } {
+  const origins: string[] = [];
+  for (const origin of signInOrigins(originList)) {
+    let url: URL;
+    try { url = new URL(origin); } catch { return { error: `--signin-url ${origin} isn't a URL (e.g. --signin-url https://my.ep0ch.sh, or several comma-separated)` }; }
+    if (url.protocol !== "https:" && !loopback(url)) return { error: `--signin-url must be https (got ${origin})` };
+    if (url.pathname !== "/" || url.search || url.hash) return { error: `--signin-url is an origin, with no path (e.g. https://my.ep0ch.sh; got ${origin})` };
+    if (origins.some((known) => new URL(known).host === url.host)) return { error: `--signin-url names ${url.host} twice` };
+    origins.push(url.origin);
+  }
+  if (!origins.length) return { error: "--signin-url (or EP0CH_WEB_URL) names no origin (e.g. https://my.ep0ch.sh)" };
   const issuerText = env.EP0CH_WEB_ISSUER?.trim() || (env.CLERK_PUBLISHABLE_KEY ? issuerFromPublishableKey(env.CLERK_PUBLISHABLE_KEY) : undefined);
   if (!issuerText) return { error: "no issuer: set EP0CH_WEB_ISSUER to Clerk's Frontend API URL (the MCP gateway's issuer), or run under `with-secrets clerk -- …` (CLERK_PUBLISHABLE_KEY)" };
   let issuer: URL;
@@ -53,7 +67,7 @@ export function signInSettings(env: Record<string, string | undefined>, origin: 
   if (issuer.protocol !== "https:" && !loopback(issuer)) return { error: `the issuer must be https (got ${issuerText})` };
   const clientId = env.EP0CH_WEB_CLIENT_ID?.trim();
   if (!clientId) return { error: "EP0CH_WEB_CLIENT_ID is unset: the Clerk OAuth application's client id for the web client (Clerk → OAuth applications → ep0ch-web)" };
-  return { origin: url.origin, issuer: issuer.href.replace(/\/+$/, ""), clientId, allowedSubjects: allowedSubjects(env), home };
+  return { origin: origins[0]!, origins, issuer: issuer.href.replace(/\/+$/, ""), clientId, allowedSubjects: allowedSubjects(env), home };
 }
 
 interface Discovery { authorization_endpoint: string; token_endpoint: string; jwks_uri: string }
@@ -124,8 +138,8 @@ export class SignInGate {
   private readonly fetch: typeof fetch;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
-  private readonly host: string;
-  private readonly secure: boolean;
+  /** Each origin it answers, by its host. */
+  private readonly origins: Map<string, string>;
 
   constructor(private readonly options: SignInGateOptions) {
     this.settings = options.settings;
@@ -133,31 +147,31 @@ export class SignInGate {
     this.fetch = options.fetch ?? fetch;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
-    const origin = new URL(this.settings.origin);
-    this.host = origin.host.toLowerCase();
-    this.secure = origin.protocol === "https:";
+    this.origins = new Map((this.settings.origins ?? [this.settings.origin]).map((origin) => [new URL(origin).host.toLowerCase(), origin]));
   }
 
-  private cookie(name: string, value: string, maxAgeSeconds: number): string {
+  /** A cookie for `origin` (each origin has its own: a session made on one isn't the other's). */
+  private cookie(origin: string, name: string, value: string, maxAgeSeconds: number): string {
     // `__Host-`: Secure, Path=/, no Domain. A loopback origin under test is http, where browsers drop Secure cookies.
-    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${this.secure ? "; Secure" : ""}`;
+    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${origin.startsWith("https:") ? "; Secure" : ""}`;
   }
 
   async handle(request: Request): Promise<Response> {
-    // Only this origin's name: a page that rebinds its own name to this listener gets nothing.
-    if ((request.headers.get("host") ?? "").toLowerCase() !== this.host) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
+    // Only its own origins' names: a page that rebinds its own name to this listener gets nothing.
+    const origin = this.origins.get((request.headers.get("host") ?? "").toLowerCase());
+    if (!origin) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
     const url = new URL(request.url);
     const path = url.pathname;
     const reading = request.method === "GET" || request.method === "HEAD";
-    // A write comes from a page of this origin (CSRF), signed in or not.
-    if (!reading && request.headers.get("origin") !== this.settings.origin) {
+    // A write comes from a page of the origin it was sent to (CSRF), signed in or not.
+    if (!reading && request.headers.get("origin") !== origin) {
       return withGateHeaders(new Response("A change comes from this site's own pages\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } }));
     }
     try {
       if (path === "/robots.txt") return withGateHeaders(new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } }));
       if (path === "/signin" && reading) return this.signInPage(url.searchParams.get("next"));
-      if (path === "/signin/start" && reading) return await this.start(url.searchParams.get("next"));
-      if (path === CALLBACK && reading) return await this.callback(request, url);
+      if (path === "/signin/start" && reading) return await this.start(origin, url.searchParams.get("next"));
+      if (path === CALLBACK && reading) return await this.callback(origin, request, url);
       const token = cookiesOf(request).get(SESSION_COOKIE);
       const resolved = token ? (await this.options.request<{ found: { session: WebSession; renewed: boolean } | null }>({ action: "web.sessions.resolve", token })).found : null;
       // Taken off the list, a person's sessions open nothing from the next request (a restart reads the list again).
@@ -165,15 +179,15 @@ export class SignInGate {
       if (path === "/signout") {
         if (request.method !== "POST") return withGateHeaders(new Response("Sign out with POST (the Sign out button)\n", { status: 405, headers: { allow: "POST" } }));
         if (found) await this.options.request({ action: "web.sessions.revoke", sessionId: found.session.id });
-        return redirect("/signin", [this.cookie(SESSION_COOKIE, "", 0)]);
+        return redirect("/signin", [this.cookie(origin, SESSION_COOKIE, "", 0)]);
       }
       if (!found) {
         const wantsPage = reading && (request.headers.get("accept") ?? "").includes("text/html");
-        const cleared = token ? [this.cookie(SESSION_COOKIE, "", 0)] : [];
+        const cleared = token ? [this.cookie(origin, SESSION_COOKIE, "", 0)] : [];
         if (wantsPage) return withGateHeaders(this.signInPage(`${path}${url.search}`, 401), cleared);
-        return withGateHeaders(new Response(`${JSON.stringify({ ok: false, error: "sign in first", signin: `${this.settings.origin}/signin` })}\n`, { status: 401, headers: { "content-type": "application/json; charset=utf-8" } }), cleared);
+        return withGateHeaders(new Response(`${JSON.stringify({ ok: false, error: "sign in first", signin: `${origin}/signin` })}\n`, { status: 401, headers: { "content-type": "application/json; charset=utf-8" } }), cleared);
       }
-      const renewed = found.renewed && token ? [this.cookie(SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))] : [];
+      const renewed = found.renewed && token ? [this.cookie(origin, SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))] : [];
       // The old easy links (my.ep0ch.sh/p/<slug> went to the tailnet's /pub/p/<slug>) and the bare origin.
       const root = this.settings.home.replace(/\/+$/, "");
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
@@ -214,22 +228,22 @@ export class SignInGate {
   }
 
   /** Off to Clerk: a fresh state, verifier and nonce, kept in this browser by a short cookie. */
-  private async start(next: string | null): Promise<Response> {
+  private async start(origin: string, next: string | null): Promise<Response> {
     const { authorization_endpoint } = await this.discover();
     const pending: Pending = { state: random(), verifier: random(), nonce: random(), next: safeNext(next, this.settings.home), at: this.now() };
     const { state, verifier, nonce } = pending;
     const target = new URL(authorization_endpoint);
     target.search = new URLSearchParams({
-      response_type: "code", client_id: this.settings.clientId, redirect_uri: `${this.settings.origin}${CALLBACK}`,
+      response_type: "code", client_id: this.settings.clientId, redirect_uri: `${origin}${CALLBACK}`,
       scope: "openid profile email", state, nonce,
       code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
     }).toString();
-    return redirect(target.href, [this.cookie(PENDING_COOKIE, Buffer.from(JSON.stringify(pending)).toString("base64url"), PENDING_MS / 1000)]);
+    return redirect(target.href, [this.cookie(origin, PENDING_COOKIE, Buffer.from(JSON.stringify(pending)).toString("base64url"), PENDING_MS / 1000)]);
   }
 
   /** Back from Clerk: the code exchanged (with the verifier), the ID token checked, the person checked, a session made. */
-  private async callback(request: Request, url: URL): Promise<Response> {
-    const clear = this.cookie(PENDING_COOKIE, "", 0);
+  private async callback(origin: string, request: Request, url: URL): Promise<Response> {
+    const clear = this.cookie(origin, PENDING_COOKIE, "", 0);
     const refused = (status: number, said: string) => withGateHeaders(plainPage("Not signed in", `<h1>Not signed in</h1>\n<p>${escapeHtml(said)}</p>\n<p><a href="/signin">Try again</a></p>\n`, status), [clear]);
     const state = url.searchParams.get("state") ?? "";
     const pending = readPending(cookiesOf(request).get(PENDING_COOKIE));
@@ -247,7 +261,7 @@ export class SignInGate {
     const answered = await this.fetch(token_endpoint, {
       method: "POST", signal: AbortSignal.timeout(15_000),
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: `${this.settings.origin}${CALLBACK}`, client_id: this.settings.clientId, code_verifier: pending.verifier }),
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: `${origin}${CALLBACK}`, client_id: this.settings.clientId, code_verifier: pending.verifier }),
     });
     if (!answered.ok) {
       this.log(`web sign-in: the token endpoint answered ${answered.status}`);
@@ -284,6 +298,6 @@ export class SignInGate {
       action: "web.sessions.start", subject, ...(name ? { name } : {}), device: request.headers.get("user-agent") ?? "",
     });
     this.log(`web sign-in: ${name ?? subject} signed in (session ${session.id})`);
-    return redirect(pending.next, [clear, this.cookie(SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))]);
+    return redirect(pending.next, [clear, this.cookie(origin, SESSION_COOKIE, token, Math.floor(WEB_SESSION_TTL_MS / 1000))]);
   }
 }
