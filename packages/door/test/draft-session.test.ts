@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unsentEntries } from "../src/unsent";
-import { keepUnsent, blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
+import { keepUnsent, blockTarget, propertyChange, propertyListOf, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -51,6 +51,20 @@ const ESC: Key = { kind: "esc" };
 
 /** The reader's `■ unsent` lines for note `id` (src/unsent.ts), as text. */
 const unsentOn = (id: string, revision?: number, text = "") => unsentEntries(id, revision, revision === undefined ? {} : { text }, () => "earlier").map(e => e.text);
+
+
+test("propertyChange (PIE-802): each key's values as a multiset, in plain words", () => {
+  const L = (...kv: [string, string][]) => kv.map(([key, value]) => ({ key, value }));
+  // Three tags added beside two: added, nothing removed.
+  expect(propertyChange(L(["tag", "boop"], ["tag", "beep"]), L(["tag", "boop"], ["tag", "beep"], ["tag", "bim"], ["tag", "bap"], ["tag", "pow"]))).toBe("+#bim +#bap +#pow");
+  // One of several removed; the order they're written in isn't a change.
+  expect(propertyChange(L(["tag", "a"], ["tag", "b"], ["tag", "c"]), L(["tag", "c"], ["tag", "a"]))).toBe("-#b");
+  expect(propertyChange(L(["tag", "a"], ["tag", "b"]), L(["tag", "b"], ["tag", "a"]))).toBe("");
+  // A one-value key changed, added and dropped.
+  expect(propertyChange(L(["stage", "queued"]), L(["stage", "doing"]))).toBe("stage: queued → doing");
+  expect(propertyChange(L(), L(["due", "friday"]))).toBe("+due: friday");
+  expect(propertyChange(L(["due", "friday"], ["tag", "x"]), L(["tag", "x"]))).toBe("-due: friday");
+});
 
 describe("the lifecycle, on a fake target", () => {
   test("esc on nothing typed asks to close; esc, esc on typed text asks to discard, which puts it aside with a copy", () => {
@@ -392,7 +406,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     const id = await create("Prune the apple\nin winter");
     const m = (await board.get(id))!;
     const saved: string[] = [];
-    const s = DraftSession.open(blockTarget(m, { board, saved: x => saved.push(x.text) }), { text: m.text, base: m.revision, props: m.props }, { board });
+    const s = DraftSession.open(blockTarget(m, { board, saved: x => saved.push(x.text) }), { text: m.text, base: m.revision, props: propertyListOf(m) }, { board });
     expect(s.held).toBe(true);
     keys(s, [" tree"]);
     expect(await s.submit(USER)).toMatchObject({ ok: true, result: USER });
@@ -400,7 +414,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect([s.ended, s.held, saved]).toEqual(["written", false, ["Prune the apple tree\nin winter"]]);
 
     const n = (await board.get(id))!;
-    const t = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: n.props }, { board });
+    const t = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: propertyListOf(n) }, { board });
     keys(t, ["s"]);
     await other.update(id, "Prune the apple tree\nin late winter", n.revision!, OTHER);
     const r = await t.submit(USER);
@@ -416,27 +430,41 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
   test("a block: a save that changes properties is shown first and needs a second; a click away never confirms it", async () => {
     const id = await create("Sow the peas [stage::queued]\nby the fence");
     const m = (await board.get(id))!;
-    const s = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: m.props }, { board });
+    const s = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: propertyListOf(m) }, { board });
     s.replace("Sow the peas [stage::doing]\nby the fence", USER);
     const left = await s.leave();
-    expect(left).toMatchObject({ left: "kept", why: expect.stringContaining("it changes properties (-stage=queued +stage=doing)") });
-    const again = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: m.props }, { board });
+    expect(left).toMatchObject({ left: "kept", why: expect.stringContaining("it changes properties (stage: queued → doing)") });
+    const again = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: propertyListOf(m) }, { board });
     expect(again.draft.text).toBe("Sow the peas [stage::doing]\nby the fence");               // brought back
     expect(await again.submit(USER)).toMatchObject({ ok: false, again: true });
     expect(await again.submit(USER)).toMatchObject({ ok: true });
     expect((await board.get(id))!.props.stage).toBe("doing");
   }, 30_000);
 
+  test("a block (PIE-802): tags added beside others read as added, never one removed; a save that only reorders tags needs no second save", async () => {
+    const id = await create("Bean poles #boop #beep\nby the shed");
+    const m = (await board.get(id))!;
+    const s = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: propertyListOf(m) }, { board });
+    s.replace("Bean poles #boop #beep #bim #bap #pow\nby the shed", USER);
+    expect(await s.submit(USER)).toMatchObject({ ok: false, again: true });
+    expect(s.draft.note).toBe("this save changes properties: +#bim +#bap +#pow · ctrl+s again saves");
+    expect(await s.submit(USER)).toMatchObject({ ok: true });
+    const n = (await board.get(id))!;
+    const t = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: propertyListOf(n) }, { board });
+    t.replace("Bean poles #pow #bap #bim #beep #boop\nby the shed", USER);
+    expect(await t.submit(USER)).toMatchObject({ ok: true });
+  }, 30_000);
+
   test("a block: an edit put aside on an older revision is said with its copy, not e, and goes once a newer edit is saved", async () => {
     const id = await create("Lift the dahlias");
     const m = (await board.get(id))!;
-    const a = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: m.props }, { board });
+    const a = DraftSession.open(blockTarget(m, { board }), { text: m.text, base: m.revision, props: propertyListOf(m) }, { board });
     keys(a, [" before frost"]); a.close(true);                      // put aside on this revision
     await board.update(id, "Lift the dahlias and dry them", m.revision!, USER);   // the note moves on elsewhere
     const n = (await board.get(id))!;
     expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ .*(isn't|aren't) in the note$|^■ .*changed differently since$|^■ your edit .* differs from the note/)]);
     expect(unsentOn(id, n.revision)[0]).not.toContain("e brings it back");
-    const b = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: n.props }, { board });
+    const b = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: propertyListOf(n) }, { board });
     expect(b.draft.text).toBe("Lift the dahlias and dry them");     // not laid over the newer note
     keys(b, ["!"]);
     expect(await b.submit(USER)).toMatchObject({ ok: true });

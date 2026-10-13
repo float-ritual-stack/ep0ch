@@ -327,14 +327,14 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("edit.text", { text }, peasR);
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: false });   // the property warning first
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: true });
-    expect(screen()).toContain("properties changed: +stage=doing");
+    expect(screen()).toContain("properties changed: +stage: doing");
     expect(screen()).toContain(`an agent (${AS}) saved this note`);
     expect(focused()).not.toBe(p);
     key(char("j"));                                              // elsewhere, and not long after: still there
-    expect(screen()).toContain("properties changed: +stage=doing");
+    expect(screen()).toContain("properties changed: +stage: doing");
     (p as unknown as { shown: { at: number } }).shown.at -= BANNER_MS;
     key(char("k"));
-    expect(screen()).not.toContain("properties changed: +stage=doing");
+    expect(screen()).not.toContain("properties changed: +stage: doing");
     expect(screen()).not.toContain(`an agent (${AS}) saved this note`);
     await act("tile.hold", { on: false }, peasR);
   });

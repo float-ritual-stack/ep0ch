@@ -1,6 +1,7 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
+import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
 import { pageTitleLine } from "@ep0ch/outline-core/page-title";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -84,7 +85,7 @@ export class Draft {
   lastWriter: Actor | null = null;
 
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
-  baseProps: Record<string, string>;
+  baseProps: PropertyList;
 
   /** The earlier revision whose text `revision.restore` last put in (PIE-621): the next one goes further back from it. */
   revisionShown: number | null = null;
@@ -109,7 +110,7 @@ export class Draft {
   /** Where agents' patches just landed, lit until `until`. */
   flashes: PatchFlash[] = [];
 
-  constructor(readonly blockId: string, public base: number, text: string, props: Record<string, string> = {}) {
+  constructor(readonly blockId: string, public base: number, text: string, props: PropertyList = []) {
     this.baseProps = props;
     this.original = text;
     this.seen = text;
@@ -258,7 +259,7 @@ export class Draft {
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
   rebase(m: Msg) {
     this.record(USER, "a change");
-    this.baseProps = m.props;
+    this.baseProps = propertyListOf(m);
     this.base = m.revision ?? this.base;
     this.original = m.text;
     this.lines = m.text.split("\n");

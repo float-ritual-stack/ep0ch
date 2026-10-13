@@ -220,14 +220,14 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
       // A service with properties.preview (PIE-401) lets the door warn before writing anything.
       await until(() => pane.draft?.propertyWarned !== null, "the warning");
       expect(pane.editing).toBe(true);
-      expect(pane.draft!.note).toBe("this save changes properties: -stage=queued · ctrl+s again saves");
+      expect(pane.draft!.note).toBe("this save changes properties: -stage: queued · ctrl+s again saves");
       expect((await current(b.id)).revision).toBe(b.revision);
       pane.key(ctrl("s"), d);                                // same text again: go ahead
     }
     await until(() => !pane.editing, "the save");
     expect((await current(b.id)).properties).toEqual([]);
-    expect(flashes.at(-1)).toBe(`saved · revision ${b.revision + 1} · properties changed: -stage=queued`);
-    expect(pane.render(80, 20).lines.some(l => l.includes("properties changed: -stage=queued"))).toBe(true);
+    expect(flashes.at(-1)).toBe(`saved · revision ${b.revision + 1} · properties changed: -stage: queued`);
+    expect(pane.render(80, 20).lines.some(l => l.includes("properties changed: -stage: queued"))).toBe(true);
   });
 
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {

@@ -134,11 +134,11 @@ describe("the surface without a service", () => {
   });
 
   test("a save holds the draft still while the service previews its properties, and warns only for the text it read", async () => {
-    let answer: (p: Record<string, string>) => void = () => {};
+    let answer: (p: { key: string; value: string }[]) => void = () => {};
     const updates: string[] = [];
     const h = host();
     Object.assign(h.ctx.board, {
-      previewProperties: () => new Promise<Record<string, string>>(r => { answer = r; }),
+      previewPropertyList: () => new Promise<{ key: string; value: string }[]>(r => { answer = r; }),
       update: async (id: string, text: string) => { updates.push(text); return note(text, { id, revision: 4 }); },
     });
     const s = new NoteSurface();
@@ -159,16 +159,16 @@ describe("the surface without a service", () => {
     await expect(act("edit.reload")).rejects.toThrow("this draft is the person's");
     await expect(act("edit.save")).rejects.toThrow("the person is in this edit");
     expect(s.draft?.text).toBe(previewed);
-    answer({});
+    answer([]);
     await saving;
     expect([s.draft?.propertyWarned, s.draft?.busy, updates]).toEqual([previewed, false, []]);
-    expect(s.draft?.note).toContain("-stage=queued");
+    expect(s.draft?.note).toContain("-stage: queued");
 
     // Had the text moved on under the preview anyway, the save is off and no warning is kept for it.
     s.draft!.propertyWarned = null;
     const again = s.save(h);
     s.draft!.replace("Plan the allotment [stage::queued] later\nBeans.");
-    answer({});
+    answer([]);
     await again;
     expect([s.draft?.propertyWarned, updates]).toEqual([null, []]);
   });
@@ -371,7 +371,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await act("edit.text", { text }, reader);
     const first: any = await act("edit.save", {}, reader);
     expect(first).toMatchObject({ saved: false, next: "edit.save again saves it" });
-    expect(first.warning).toContain("-stage=queued");
+    expect(first.warning).toContain("-stage: queued");
     expect((await current(cards.peas.id)).text).not.toBe(text);
     expect(await act("edit.save", {}, reader)).toMatchObject({ saved: true });
     const now = await current(cards.peas.id);
