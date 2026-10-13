@@ -38,9 +38,13 @@ line.
    machine and checked, so it raises no stale alert. `ep0ch backup status` and doctor say `relayed via <hub>` with the
    repository's failure; when the hub couldn't upload it either, the next run tries the repository again. With the
    repository reachable again, the next change goes straight to it and the mark clears. No hub named: a repository failure
-   fails the outline as before.
+   fails the outline as before. While the backups go the long way round, the door's status bar shows a quiet `↪ backup`
+   ("repository unreachable (work VPN?): sent through <hub>") and doctor's verdict says the same: status, not a problem.
 4. **Drill**, monthly: every outline's newest snapshot restored into a temp folder and checked (`integrity_check`,
-   its blocks counted). `ep0ch backup drill` runs it now.
+   its blocks counted). `ep0ch backup drill` runs it now. When the repository doesn't answer (the VPN), the drill runs
+   on the hub instead (`ep0ch backup drill --machine <this> --json` over ssh: the hub restores this machine's snapshots
+   from its repository); with the hub out of reach too, it waits, said in doctor ("restore drill waits for the
+   repository"), and the last drill stands.
 5. **Watch.** Changes waiting more than 2 hours for a snapshot (here, or on a mirrored machine that answers over ssh),
    a mirror that couldn't take a newer snapshot, a failed drill: each is an incident in
    `~/.local/state/ep0ch-door/backup/alert.json`. The door's status bar marks it (`✗ backup`; `? backup` when the check
