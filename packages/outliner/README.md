@@ -1168,7 +1168,7 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 
 | Env | Meaning |
 |---|---|
-| `EP0CH_WEB_URL` | the public origin, as `--signin-url` (`https://my.ep0ch.sh`); https |
+| `EP0CH_WEB_URL` | the public origin, as `--signin-url` (`https://my.ep0ch.sh`), or several comma-separated (`https://my.ep0ch.sh,https://my.floatbbs.net`, PIE-813); https. Each is answered as itself (its Clerk redirect `<origin>/signin/callback`, which the OAuth app must list, its own cookie, writes only from its own pages); any other Host is refused (421); links name the first |
 | `EP0CH_WEB_CLIENT_ID` | the Clerk OAuth application's client id (public, PKCE; its redirect is `<origin>/signin/callback`) |
 | `EP0CH_WEB_ISSUER` | Clerk's Frontend API URL; else from `CLERK_PUBLISHABLE_KEY` |
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | the Clerk user ids allowed in, shared with the MCP gateway |

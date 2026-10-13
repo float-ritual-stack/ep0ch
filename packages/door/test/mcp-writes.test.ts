@@ -30,6 +30,7 @@ const actorOf: typeof actorOfIn = (caller, env, machine) => actorOfIn(caller, { 
 
 const ISSUER = "https://fake-clerk.example.test";
 const RESOURCE = "https://mcp.example.test/mcp";
+const HOST = "mcp.example.test";
 const PERSON = "user_fictional_a";
 const CLIENT = "https://chat.example.test/oauth/client-metadata";
 const FAR = "far-box";
@@ -64,7 +65,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
   /** A request at the gateway's `/mcp`, or at `/<persona>/mcp` (`at`), with a token for that path's resource. */
   const rpc = async (method: string, params?: unknown, at?: string) => {
     const url = at ? `${new URL(gateway.url).origin}/${at}/mcp` : gateway.url;
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
+    const res = await fetch(url, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
     return await res.json() as { result?: any; error?: { message: string } };
   };
   const tool = async (name: string, args: Record<string, unknown>, at?: string) => {
@@ -167,16 +168,16 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
   test("a named path writes as that persona, and at propose whatever the outline allows; /mcp writes as before (PIE-804)", async () => {
     const origin = new URL(gateway.url).origin;
     // Discovery per path: each its own resource, and its 401 names its own metadata.
-    const meta = await (await fetch(`${origin}/.well-known/oauth-protected-resource/gpty/mcp`)).json() as { resource: string; authorization_servers: string[] };
+    const meta = await (await fetch(`${origin}/.well-known/oauth-protected-resource/gpty/mcp`, { headers: { Host: HOST } })).json() as { resource: string; authorization_servers: string[] };
     expect(meta).toMatchObject({ resource: "https://mcp.example.test/gpty/mcp", authorization_servers: [ISSUER] });
-    const bare = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const bare = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json" }, body: "{}" });
     expect(bare.status).toBe(401);
     expect(bare.headers.get("www-authenticate")).toContain(`resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource/gpty/mcp"`);
     // A token for /mcp isn't one for /gpty/mcp.
-    const crossed = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    const crossed = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     expect(crossed.status).toBe(401);
-    for (const path of ["/not a name/mcp", "/%FF/mcp", "/%/mcp", "/.hidden/mcp", "/gpty/mcp/", "/a/b/mcp"]) expect((await fetch(`${origin}${path}`, { method: "POST" })).status).toBe(404);
-    expect((await fetch(`${origin}/.well-known/oauth-protected-resource/%FF/mcp`)).status).toBe(404);
+    for (const path of ["/not a name/mcp", "/%FF/mcp", "/%/mcp", "/.hidden/mcp", "/gpty/mcp/", "/a/b/mcp"]) expect((await fetch(`${origin}${path}`, { method: "POST", headers: { Host: HOST } })).status).toBe(404);
+    expect((await fetch(`${origin}/.well-known/oauth-protected-resource/%FF/mcp`, { headers: { Host: HOST } })).status).toBe(404);
 
     // garden-notes takes full writes; through /gpty/mcp, a property is a proposal and a comment is gpty's.
     const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });

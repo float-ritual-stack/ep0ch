@@ -47,7 +47,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
       const jwt = await new SignJWT({ client_id: "client_fictional", scope: "profile" }).setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" })
         .setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE).setIssuedAt().setExpirationTime("5m").sign(signing);
       const reqs = calls.map(c => ({ jsonrpc: "2.0", id: rpcId++, method: "tools/call", params: { name: c.name, arguments: { outline: scratch.name, ...c.args } } }));
-      const res = await fetch(gateway.url, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${jwt}` }, body: JSON.stringify(reqs.length === 1 ? reqs[0] : reqs) });
+      const res = await fetch(gateway.url, { method: "POST", headers: { Host: new URL(RESOURCE).host, "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${jwt}` }, body: JSON.stringify(reqs.length === 1 ? reqs[0] : reqs) });
       return ([] as any[]).concat(await res.json()).map(r => parse(r.result));
     },
   };

@@ -13,6 +13,8 @@ import { outliner, Scratch, scratchDir } from "./scratch";
 
 const ISSUER = "https://fake-clerk.example.test";
 const RESOURCE = "https://mcp.example.test/mcp";
+/** The name the proxy asks for (the gateway answers only its own). */
+const HOST = "mcp.example.test";
 const PERSON = "user_fictional_a";
 const STRANGER = "user_fictional_b";
 
@@ -39,7 +41,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   let nextId = 1;
 
   const call = async (body: unknown, opts: { auth?: string | null; at?: Gateway; method?: string } = {}) => {
-    const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+    const headers: Record<string, string> = { Host: HOST, "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
     const auth = opts.auth === undefined ? `Bearer ${await token()}` : opts.auth;
     if (auth) headers.Authorization = auth;
     return fetch((opts.at ?? gateway).url, { method: opts.method ?? "POST", headers, ...(opts.method && opts.method !== "POST" ? {} : { body: JSON.stringify(body) }) });
@@ -96,10 +98,44 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
 
   test("serves protected-resource metadata naming the issuer, without a token", async () => {
     for (const path of ["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"]) {
-      const res = await fetch(new URL(path, gateway.url));
+      const res = await fetch(new URL(path, gateway.url), { headers: { Host: HOST } });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ resource: RESOURCE, authorization_servers: [ISSUER], bearer_methods_supported: ["header"] });
     }
+  });
+
+  test("a second public host is its own resource: its discovery, its challenge, its tokens; any other host is refused (PIE-813)", async () => {
+    const SECOND = "https://mcp.second.example.test/mcp";
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: `${RESOURCE}, ${SECOND}`, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    expect(config.resource.href).toBe(RESOURCE);
+    const outlines = machineOutlines();
+    const two = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
+    try {
+      const at = (path: string, host: string, init: RequestInit = {}) => fetch(new URL(path, two.url), { ...init, headers: { Host: host, ...(init.headers as Record<string, string> ?? {}) } });
+      const list = (host: string, bearer: string) => at("/mcp", host, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+      for (const [path, resource] of [["/.well-known/oauth-protected-resource", SECOND], ["/.well-known/oauth-protected-resource/gpty/mcp", "https://mcp.second.example.test/gpty/mcp"]] as const) {
+        expect(await (await at(path, "mcp.second.example.test")).json()).toMatchObject({ resource, authorization_servers: [ISSUER] });
+      }
+      const bare = await at("/mcp", "mcp.second.example.test", { method: "POST", body: "{}" });
+      expect(bare.status).toBe(401);
+      expect(bare.headers.get("www-authenticate")).toContain(`resource_metadata="https://mcp.second.example.test/.well-known/oauth-protected-resource/mcp"`);
+      // Each host takes its own tokens only.
+      expect((await list("mcp.second.example.test", await token({ aud: SECOND }))).status).toBe(200);
+      expect((await list("mcp.example.test", await token())).status).toBe(200);
+      expect((await list("mcp.second.example.test", await token())).status).toBe(401);
+      expect((await list("mcp.example.test", await token({ aud: SECOND }))).status).toBe(401);
+      // The https port said outright is the same name; another port isn't.
+      expect((await list("MCP.Second.Example.Test:443", await token({ aud: SECOND }))).status).toBe(200);
+      expect((await list("mcp.second.example.test:8443", await token({ aud: SECOND }))).status).toBe(421);
+      // A name it wasn't given: nothing, but its health.
+      expect((await list("mcp.elsewhere.example.test", await token())).status).toBe(421);
+      expect((await at("/.well-known/oauth-protected-resource", "127.0.0.1")).status).toBe(421);
+      expect((await at("/healthz", "127.0.0.1")).status).toBe(200);
+    } finally { two.stop(); outlines.close(); }
+    expect(gatewayConfig({ EP0CH_MCP_RESOURCE: `${RESOURCE},https://mcp.second.example.test/other`, EP0CH_MCP_ISSUER: ISSUER })).toMatchObject({ error: expect.stringContaining("same path") });
+    expect(gatewayConfig({ EP0CH_MCP_RESOURCE: `${RESOURCE},${RESOURCE}`, EP0CH_MCP_ISSUER: ISSUER })).toMatchObject({ error: expect.stringContaining("twice") });
+    expect(gatewayConfig({ EP0CH_MCP_RESOURCE: `${RESOURCE},http://mcp.second.example.test/mcp`, EP0CH_MCP_ISSUER: ISSUER })).toMatchObject({ error: expect.stringContaining("https") });
   });
 
   test("no token is 401 with WWW-Authenticate naming the resource metadata", async () => {
@@ -171,7 +207,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const listed = await rpc("tools/list");
     expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view"]);
     expect((await call(null, { method: "GET" })).status).toBe(405);
-    const malformed = await fetch(gateway.url, { method: "POST", headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
+    const malformed = await fetch(gateway.url, { method: "POST", headers: { Host: HOST, Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
     expect(malformed.status).toBe(400);
     const batch = Array.from({ length: 17 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" }));
     expect((await call(batch)).status).toBe(400);

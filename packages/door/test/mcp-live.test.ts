@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
   const tool = async (name: string, args: Record<string, unknown>, at: Gateway = gateway) => {
-    const res = await fetch(at.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }) });
+    const res = await fetch(at.url, { method: "POST", headers: { Host: new URL(RESOURCE).host, "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }) });
     const r = await res.json() as { result: { isError?: boolean; content: { text: string }[] } };
     const text = r.result.content[0]!.text;
     let json: any = null;

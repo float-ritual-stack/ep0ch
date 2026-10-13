@@ -119,26 +119,28 @@ function gateFor(settings: Partial<SignInSettings> = {}) {
 }
 
 const html = { accept: "text/html,application/xhtml+xml" };
-const at = (gate: SignInGate, path: string, init: { method?: string; headers?: Record<string, string>; body?: string; cookie?: string } = {}) =>
-  gate.handle(new Request(`${ORIGIN}${path}`, {
+const at = (gate: SignInGate, path: string, init: { method?: string; headers?: Record<string, string>; body?: string; cookie?: string; origin?: string } = {}) =>
+  gate.handle(new Request(`${init.origin ?? ORIGIN}${path}`, {
     method: init.method ?? "GET", ...(init.body !== undefined ? { body: init.body } : {}),
-    headers: { host: new URL(ORIGIN).host, ...html, "user-agent": "FictionalBrowser/1.0 (Test)", ...(init.cookie ? { cookie: init.cookie } : {}), ...init.headers },
+    headers: { host: new URL(init.origin ?? ORIGIN).host, ...html, "user-agent": "FictionalBrowser/1.0 (Test)", ...(init.cookie ? { cookie: init.cookie } : {}), ...init.headers },
   }));
 const setCookies = (response: Response) => response.headers.getSetCookie();
 const cookieValue = (response: Response, name: string) => setCookies(response).map((c) => c.split(";")[0]!).find((c) => c.startsWith(`${name}=`))?.slice(name.length + 1);
 
 /** The whole browser round trip: start, Clerk's authorize, back to the callback with the pending cookie. */
-async function signIn(gate: SignInGate, next = "/pub/", options: { bindCookie?: boolean } = {}): Promise<{ response: Response; cookie?: string }> {
-  const started = await at(gate, `/signin/start?next=${encodeURIComponent(next)}`);
+async function signIn(gate: SignInGate, next = "/pub/", options: { bindCookie?: boolean; origin?: string } = {}): Promise<{ response: Response; cookie?: string }> {
+  const origin = options.origin ?? ORIGIN;
+  const started = await at(gate, `/signin/start?next=${encodeURIComponent(next)}`, { origin });
   expect(started.status).toBe(303);
   const pending = cookieValue(started, "__Host-ep0ch_signin")!;
   const authorize = new URL(started.headers.get("location")!);
   expect(authorize.origin).toBe(issuer);
-  expect(authorize.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/signin/callback`);
+  expect(authorize.searchParams.get("redirect_uri")).toBe(`${origin}/signin/callback`);
   expect(authorize.searchParams.get("scope")).toBe("openid profile email");
   const back = await fetch(authorize, { redirect: "manual" });
   const callback = new URL(back.headers.get("location")!);
-  const response = await at(gate, `${callback.pathname}${callback.search}`, options.bindCookie === false ? {} : { cookie: `__Host-ep0ch_signin=${pending}` });
+  expect(callback.origin).toBe(origin);
+  const response = await at(gate, `${callback.pathname}${callback.search}`, { origin, ...(options.bindCookie === false ? {} : { cookie: `__Host-ep0ch_signin=${pending}` }) });
   const token = cookieValue(response, SESSION_COOKIE);
   if (token) secrets.push(token);
   return { response, ...(token ? { cookie: `${SESSION_COOKIE}=${token}` } : {}) };
@@ -165,6 +167,36 @@ test("signed out, every page is the sign-in page: dark, noindex, no-referrer, no
   expect(await (await at(gate, "/robots.txt")).text()).toContain("Disallow: /");
   // Another name for this listener is refused before anything else.
   expect((await gate.handle(new Request(`${ORIGIN}/pub/`, { headers: { host: "127.0.0.1:8793" } }))).status).toBe(421);
+});
+
+// PIE-813: one listener, two public names (a work network blocks one). Each name is answered as itself: its own Clerk
+// redirect, its own cookies, writes only from its own pages; a name not on the list gets nothing.
+test("a second origin signs in as itself: its own callback and cookie, its pages; writes only from its own pages; other names refused", async () => {
+  const SECOND = "https://my.second.example.test";
+  const settings = signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON }, `${ORIGIN}, ${SECOND}`, "/pub/");
+  if ("error" in settings) throw new Error(settings.error);
+  expect(settings).toMatchObject({ origin: ORIGIN, origins: [ORIGIN, SECOND] });
+  const gate = gateFor(settings);
+  const { response, cookie } = await signIn(gate, "/pub/o/orchard/", { origin: SECOND });
+  expect(response.status).toBe(303);
+  expect(response.headers.get("location")).toBe("/pub/o/orchard/");
+  expect(setCookies(response).find((c) => c.startsWith(`${SESSION_COOKIE}=`))).toContain("; Secure");
+  expect(await (await at(gate, "/pub/o/orchard/", { origin: SECOND, cookie })).text()).toContain("Pruning plan");
+  // Signed out there, the API's sign-in link is that origin's.
+  expect(await (await at(gate, "/pub/_marginalia/threads?page=x", { origin: SECOND, headers: { accept: "application/json" } })).json()).toMatchObject({ signin: `${SECOND}/signin` });
+  // A write carries the Origin of the name it was sent to: the other name's pages can't post here.
+  const words = { page: survey.id, quote: "dusk", action: "comment", body: "From the second name.", requestId: "second-origin-01" };
+  const post = (origin: string) => at(gate, "/pub/_marginalia/write", { origin: SECOND, method: "POST", cookie, body: JSON.stringify(words), headers: { "content-type": "application/json", origin, accept: "application/json" } });
+  expect((await post(ORIGIN)).status).toBe(403);
+  expect((await post(SECOND)).status).toBe(200);
+  // Names it wasn't given: refused before anything else.
+  for (const host of ["my.third.example.test", "127.0.0.1:8795"]) expect((await gate.handle(new Request(`${SECOND}/pub/`, { headers: { host } }))).status).toBe(421);
+  expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},${ORIGIN}/`, "/pub/")).toMatchObject({ error: expect.stringContaining("twice") });
+  // Cookies don't tell ports apart: one name on two ports would share a sign-in, so it's refused.
+  expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},${ORIGIN}:8443`, "/pub/")).toMatchObject({ error: expect.stringContaining("twice") });
+  // The https port said outright is the same name.
+  expect((await at(gate, "/pub/o/orchard/", { origin: SECOND, cookie, headers: { host: "my.second.example.test:443" } })).status).toBe(200);
+  expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},http://my.second.example.test`, "/pub/")).toMatchObject({ error: expect.stringContaining("https") });
 });
 
 test("a sign-in through Clerk lands on the page asked for, with a 30-day HttpOnly Secure SameSite=Lax cookie; then it is the tailnet's client, every outline", async () => {
