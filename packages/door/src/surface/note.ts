@@ -65,6 +65,7 @@ import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
+import { clipboardImage, droppedImage, imageLine, keepImage, noClipboardImage, takeDropped } from "../paste-image";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
@@ -2179,6 +2180,7 @@ export class NoteSurface {
         else if (cmd === "editor") void this.runKey("edit.external", {}, host);
         else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
         else if (cmd === "follow") void this.runKey("edit.follow", {}, host);
+        else if (cmd === "image") void this.runKey("draft.image", {}, host);
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
         // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
@@ -2386,6 +2388,7 @@ export class NoteSurface {
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
       follow: () => void this.runKey("edit.follow", {}, host),
+      image: () => void this.runKey("draft.image", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
@@ -6468,6 +6471,31 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
     async run({ channel }, { surface, host }) {
       return await surface.pick(host, channel);
+    },
+  }),
+  "draft.image": def({
+    summary: "put a picture in this reader's edit or comment at the cursor (PIE-592): the one on the clipboard, a file dropped on the terminal, or path=; it's copied into the outline's folder (media/, named by its day and contents) and a media line [img::<path>] goes in on its own line, one undo step. The clipboard is read on the door's machine",
+    keys: "ctrl+v in an edit or a comment; a paste of nothing but an image; an image file dropped on the terminal",
+    touches: "draft", draft: "type", replay: "ask",
+    args: { path: { type: "string", optional: true, about: "an image file on the door's machine to put in, instead of the clipboard's" } },
+    async run({ path }, { surface, host }, actor) {
+      const d = surface.writingDraft;
+      if (!d) throw new ActionRefused("nothing is being written here; open an edit (e) or a comment first");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const dropped = takeDropped();
+      let from: Buffer | string | null = path !== undefined ? droppedImage(path) : dropped;
+      if (path !== undefined && !from) throw new ActionRefused(`${path} isn't an image file on this machine (png, jpg, gif, webp…)`);
+      if (!from) from = await clipboardImage();
+      if (!from) { d.note = noClipboardImage(); host.redraw(); throw new ActionRefused(d.note); }
+      let kept: string;
+      // The outline's folder, as the service names it (the door's own note of it, else asked).
+      const folder = host.ctx.workspace && host.ctx.workspace !== "home base" ? host.ctx.workspace : (await host.ctx.board.info().catch(() => null))?.workspace ?? "";
+      try { kept = keepImage(folder, from); }
+      catch (e) { d.note = (e as Error).message; host.redraw(); throw new ActionRefused(d.note); }
+      d.putLine(imageLine(kept), actor);
+      d.note = `put in ${kept.split("/").slice(-2).join("/")} · ctrl+z takes it out (the file stays)`;
+      host.redraw();
+      return { path: kept, line: d.row + 1 };
     },
   }),
   "edit.follow": def({

@@ -14,6 +14,11 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Added:** `@` at the start of a line offers the agents the outline's extensions serve (`@tidy`), with what each
   does and when it runs, so a request is found by typing `@`.
+- **Added:** pictures into a draft. `Ctrl+V` puts in the clipboard's picture (read on the door's machine), and an image
+  file dropped on the terminal goes in as a picture rather than its path: copied into the outline's folder
+  (`media/`) and written as `[img::<path>]` on its own line.
+- **Checked, not reproduced:** the Oct 4 "a blank version after a save" (save, follow a link, back; save and reopen):
+  the reader reads the note again on back and after a save. Say the steps if it comes back.
 
 ### Writing papercuts from sysops-log (PIE-592)
 

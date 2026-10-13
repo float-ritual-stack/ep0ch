@@ -52,7 +52,7 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
-export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow";
+export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image";
 
 export class Draft {
   lines: string[];
@@ -318,6 +318,16 @@ export class Draft {
     if (this.text !== before) this.wrote(by, "the insert");
   }
 
+  /**
+   * Put media line `line` in at the cursor (PIE-592): on its own line, after the cursor's line when that has text. One
+   * undo step, as a paste is.
+   */
+  putLine(line: string, by: Actor = USER) {
+    this.anchor = null;
+    if (this.line.trim()) { this.col = this.line.length; this.pasteText(`\n${line}`, by); }
+    else { this.col = 0; this.lines[this.row] = ""; this.pasteText(line, by); }
+  }
+
   /** The text a put-aside draft was brought back with (its session's restore): esc twice on it unchanged drops it. */
   restored: string | null = null;
 
@@ -355,6 +365,9 @@ export class Draft {
       if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
+      // ctrl+v puts in the picture on the clipboard, or the file just dropped on the terminal (PIE-592): kept in the
+      // outline's folder, a media line here.
+      if (k.ch === "v") return "image";
       // ctrl+l follows the link the cursor is on (PIE-592): it opens beside the edit, which stays open.
       if (k.ch === "l") {
         if (this.linkAtCursor()) return "follow";

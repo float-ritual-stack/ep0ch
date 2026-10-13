@@ -15,6 +15,7 @@ import { NEW_NOTE_ACTIONS } from "./new-note";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable } from "./text";
+import { dropImage, droppedImage } from "./paste-image";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
@@ -1108,6 +1109,10 @@ export class App implements Ctx {
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
+      // A picture (PIE-592): a paste of nothing (the clipboard held only an image) or of one image file's path (a file
+      // dropped on the terminal) is ctrl+v, which a draft takes as draft.image.
+      const image = k.text.trim() ? droppedImage(k.text) : "";
+      if (image !== null) { if (image) dropImage(image); this.key({ kind: "char", ch: "v", ctrl: true }); return; }
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }
