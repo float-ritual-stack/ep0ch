@@ -4,8 +4,12 @@
 // never an empty bullet and never its path. The image's address names the block and the line that holds it, never a
 // path: the publisher reads the line again when it's asked (publish.ts `serveMedia`), so a URL can only reach an image a
 // shown note names.
+//
+// An artifact line (PIE-793, `[artifact::path]`) runs inline: a sandboxed frame of the artifact's own page
+// (`/p/<id>/artifact/<line>`, publish.ts `serveArtifact`, through the [file::] pipeline of publish-artifacts.ts), kept
+// dark until it draws, with a link that opens it on a page of its own.
 import { noteStructure } from "@ep0ch/outline-core/component-block";
-import { parseMediaLine, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { ARTIFACT_KIND_LABELS, artifactKind, fileName, parseMediaLine, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
 
@@ -13,6 +17,8 @@ import type { DrawnComponent } from "./publish-live";
 export const mediaPath = (blockId: string, line: number) => `/p/${blockId}/media/${line}`;
 /** `/p/<id>/media/<line>`: the block and the line, or null. */
 export const MEDIA_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/media\/(\d{1,6})$/;
+/** `/p/<id>/artifact/<line>` (outline-core's artifactPagePath): the block and the line, or null. */
+export const ARTIFACT_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/artifact\/(\d{1,6})$/;
 
 /** The media lines of a note's text, by line (none inside a fence or a component): the door's reading of it too. */
 export function noteMediaLines(text: string): Map<number, MediaSpec> {
@@ -28,8 +34,7 @@ export function noteMediaLines(text: string): Map<number, MediaSpec> {
   return out;
 }
 
-/** A file's name, never its folders. */
-export const fileName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+export { fileName };
 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
@@ -45,7 +50,8 @@ function width(spec: MediaSpec): string | undefined {
  * An image as HTML: dark behind it until it loads, held a little below full brightness unless `[dim::]` says how much
  * (0 none … 1 black), its alt text its caption.
  */
-export function mediaHtml(spec: MediaSpec, src: string | null): string {
+export function mediaHtml(spec: MediaSpec, src: string | null, title?: string): string {
+  if (spec.kind === "artifact") return artifactHtml(spec, src, title ?? fileName(spec.path));
   const alt = spec.alt ?? "";
   const align = spec.align ?? (spec.layout === "hero" ? "center" : "left");
   if (!src || spec.kind !== "img") {
@@ -65,8 +71,39 @@ export function mediaHtml(spec: MediaSpec, src: string | null): string {
     `${alt ? `<figcaption>${escapeHtml(alt)}</figcaption>` : ""}</figure>`;
 }
 
+/** The permissions an artifact's frame runs with: claude.ai's, never this page's origin (no allow-same-origin). */
+export const ARTIFACT_SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
+/** An artifact's frame height when its line gives none: a phone's screen, less the page around it. */
+const ARTIFACT_HEIGHT = "min(36rem,75vh)";
+
+/**
+ * An artifact in its note (PIE-793): its own page in a sandboxed frame, as wide and tall as its line says (`height` in
+ * rows, as an image's), dark behind until its page draws, its kind and title under it with a link to it on a page of its
+ * own. One the page may not run (outside the publish roots, missing, not an artifact's kind) is a card with its words.
+ */
+function artifactHtml(spec: MediaSpec, src: string | null, title: string): string {
+  const kind = artifactKind(spec.path), label = kind ? ARTIFACT_KIND_LABELS[kind] : "artifact";
+  const align = spec.align ?? "left";
+  if (!src || !kind) {
+    return `<figure class="media media-missing media-${align}"><span class="media-what">${escapeHtml(label)} artifact</span> ` +
+      `${escapeHtml(title)}${title !== fileName(spec.path) ? ` <code>${escapeHtml(fileName(spec.path))}</code>` : ""}</figure>`;
+  }
+  const styles = [`height:${spec.height ? `${(spec.height * 1.25).toFixed(2)}rem` : ARTIFACT_HEIGHT}`];
+  const w = width(spec);
+  if (w) styles.push(`width:${w}`);
+  return `<figure class="media artifact media-${align}"><div class="artifact-frame" style="${styles.join(";")}">` +
+    `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}" sandbox="${ARTIFACT_SANDBOX}" allow="autoplay; fullscreen; clipboard-write" ` +
+    `loading="lazy" referrerpolicy="no-referrer"></iframe></div>` +
+    `<figcaption><span class="media-what">${escapeHtml(label)}</span> ${escapeHtml(title)} · ` +
+    `<a href="${escapeHtml(src)}" target="_blank" rel="noopener">open full page</a></figcaption></figure>`;
+}
+
 /** An image as Markdown: the image itself where it's served, else its alt text and its file's name. */
-export function mediaMarkdown(spec: MediaSpec, src: string | null): string {
+export function mediaMarkdown(spec: MediaSpec, src: string | null, title?: string): string {
+  if (spec.kind === "artifact") {
+    const kind = artifactKind(spec.path), what = `${kind ? ARTIFACT_KIND_LABELS[kind] : "an"} artifact: ${(title ?? fileName(spec.path)).replace(/[[\]\\*]/g, "")}`;
+    return src && kind ? `*${what}* ([open](${src}))` : `*${what}* \`${fileName(spec.path).replace(/`/g, "'")}\``;
+  }
   const alt = (spec.alt ?? "").replace(/[[\]\\]/g, "");
   if (src && spec.kind === "img") return `![${alt}](${src})`;
   const name = fileName(spec.path).replace(/`/g, "'");
@@ -80,32 +117,36 @@ export const MEDIA_STYLE = `
 .media-center figcaption{text-align:center}.media-right figcaption{text-align:right}
 .media figcaption{color:var(--dim);font-size:.85em;margin-top:.35rem}
 .media-missing{color:var(--dim);border:1px dashed var(--rule);border-radius:.25rem;padding:.5rem .75rem}
-.media-missing .media-what{font:12px/1.4 ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.05em}
+.media-missing .media-what,.artifact .media-what{font:12px/1.4 ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.05em}
+.artifact-frame{max-width:100%;background:#141413;border:1px solid var(--rule);border-radius:.25rem;overflow:hidden}
+.media-center .artifact-frame{margin:0 auto}.media-right .artifact-frame{margin-left:auto}
+.artifact iframe{display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light}
 `;
 
 /**
  * Each note's media lines, drawn in their lines' place (`drawn`, beside the figures already there, which keep theirs):
- * in HTML a component (its sentinel), in Markdown the image or its words. `src` answers where a line's image is served
- * from, or null when it isn't. `first`: the page's own note, whose first line is its title (kept above an image there).
+ * in HTML a component (its sentinel), in Markdown the image or its words. `src` answers where a line's image (or
+ * artifact) is served from, or null when it isn't; `title` an artifact's title. `first`: the page's own note, whose first
+ * line is its title (kept above an image there).
  */
 export function drawNoteMedia(
   notes: readonly { id: string; text: string }[], format: "markdown" | "html", components: string[],
   drawn: Map<string, Map<number, DrawnComponent>>, src: (blockId: string, line: number, spec: MediaSpec) => string | null,
-  first?: { id: string; title: string },
+  first?: { id: string; title: string }, title?: (blockId: string, line: number, spec: MediaSpec) => string | undefined,
 ): void {
   for (const note of notes) {
-    if (!/\[?(?:img|image|video)::/i.test(note.text)) continue;
+    if (!/\[?(?:img|image|video|artifact)::/i.test(note.text)) continue;
     const own = drawn.get(note.id) ?? new Map<number, DrawnComponent>();
     const taken = (line: number) => [...own].some(([at, component]) => at <= line && line < component.end);
     for (const [line, spec] of noteMediaLines(note.text)) {
       if (taken(line)) continue;
-      const at = src(note.id, line, spec);
+      const at = src(note.id, line, spec), named = spec.kind === "artifact" ? title?.(note.id, line, spec) : undefined;
       let shown: string;
       if (format === "html") {
         if (components.length >= MAX_PUBLISHED_COMPONENTS) break;
-        components.push(mediaHtml(spec, at));
+        components.push(mediaHtml(spec, at, named));
         shown = componentSentinel(components.length - 1);
-      } else shown = mediaMarkdown(spec, at);
+      } else shown = mediaMarkdown(spec, at, named);
       own.set(line, { end: line + 1, markdown: line === 0 && first?.id === note.id ? `${first.title}\n\n${shown}` : shown });
     }
     if (own.size) drawn.set(note.id, own);

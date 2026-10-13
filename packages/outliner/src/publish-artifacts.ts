@@ -417,13 +417,16 @@ export class ArtifactCompiler {
   }
 }
 
-/** The page that runs a compiled React artifact: Tailwind from its Play CDN, the bundle inline. */
+/**
+ * The page that runs a compiled React artifact: Tailwind from its Play CDN, the bundle inline. Dark first (PIE-793): its
+ * canvas is dark until the component draws its own, so neither its frame in a note nor its own page flashes white.
+ */
 export function reactArtifactPage(title: string, script: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)}</title>
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title>
 <script src="${TAILWIND_PLAY_CDN}"></script>
-<style>.artifact-error{margin:1rem;padding:1rem;border:1px solid #c33;color:#900;background:#fff5f5;white-space:pre-wrap;font:14px/1.45 ui-monospace,Menlo,monospace}</style>
+<style>.artifact-error{margin:1rem;padding:1rem;border:1px solid #a33;color:#f0b4b4;background:#2a1515;white-space:pre-wrap;font:14px/1.45 ui-monospace,Menlo,monospace}</style>
 </head><body>
 <div id="root"></div>
 <script>addEventListener("error",function(e){var p=document.createElement("pre");p.className="artifact-error";p.textContent="This artifact failed while running:\\n\\n"+(e.message||e.error);document.body.appendChild(p)});</script>

@@ -1,7 +1,8 @@
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
@@ -125,6 +126,11 @@ export interface DocEnv {
    * change. Without it (an embed, a draft's preview, `ep0ch show`) the caption has no controls.
    */
   image?: (line: number, control: ImageControl, text: string) => string;
+  /**
+   * An artifact line's facts for its card (PIE-793, src/artifacts.ts): its kind and title, its file read through the
+   * service. Without it (an embed, `ep0ch show`) the card names its file.
+   */
+  artifact?: (spec: MediaSpec) => ArtifactFacts;
   /** Drawn for print (`ep0ch show`): an image's caption names its whole path, and says nothing about graphics. */
   printed?: boolean;
   /**
@@ -135,8 +141,8 @@ export interface DocEnv {
    */
   decorate?: (line: number, width: number) => { end: number; rows?: string[]; headRow?: number; frame?: { title: string; colour: number } } | null;
 }
-/** A control on an image's caption: a size step, an alignment step, or the header on or off. */
-export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" };
+/** A control on an image's caption: a size step, an alignment step, or the header on or off; on an artifact's card, open. */
+export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" } | { open: true };
 /**
  * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
  * fractions of the image (a header's cover crop).
@@ -549,6 +555,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // Media line (PIE-532): the image laid out as its properties say, its caption under it with the controls that
     // change them; the header image is only its caption here when the reader draws it above the title.
     const spec = mediaAt.get(i);
+    if (spec?.kind === "artifact") {
+      const facts = env.artifact?.(spec) ?? artifactFacts(spec);
+      const ref: DocMedia = { path: spec.path, kind: spec.kind, row: out.length, line: i, spec };
+      mediaRefs.push(ref);
+      artifactCard(spec, facts, W, env, i, ref, out, edge);
+      continue;
+    }
     if (spec) {
       const entry = media(spec.path, spec.kind);
       const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
@@ -818,6 +831,42 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
   const at = problems ? head.lastIndexOf(" · ⚠") : -1;
   const text = at >= 0 ? head.slice(0, at) + fg(C.yellow) + head.slice(at) + fg(C.dark) : head;
   return (env.graphics ? fg(C.dark) : fg(C.cyan)) + pad(text, room) + controls + RESET;
+}
+
+/**
+ * An artifact's card (PIE-793): no script runs in a terminal, so the line is drawn as what it is, its kind on the frame,
+ * its title, its file and what's wrong with its line, and [open ↗], which opens it running on its web page (artifact.open).
+ * `ref.row` is its title's row: the element a click or [ ] lands on.
+ */
+function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: DocEnv, line: number, ref: DocMedia, out: string[], edge: (row: number) => void) {
+  const kind = facts.kind ? `${ARTIFACT_KIND_LABELS[facts.kind]} artifact` : "artifact";
+  const name = env.printed ? spec.path : fileName(spec.path);
+  const open = env.image && facts.kind ? fg(C.cyan) + env.image(line, { open: true }, "[open ↗]") + RESET : "";
+  const said = [
+    facts.state === "missing" ? `✗ can't read it: ${facts.reason ?? "missing"}` : facts.state === "reading" ? "◌ reading…" : "",
+    ...spec.problems.map(p => `⚠ ${p}`),
+  ].filter(Boolean);
+  const facts2 = [name !== facts.title ? name : "", spec.height ? `${spec.height} rows` : "", sizeText(spec.size), facts.kind ? "runs on its web page" : ""].filter(Boolean).join(" · ");
+  const ink = facts.state === "missing" ? C.lred : C.magenta;
+  // Too narrow for a frame: one line, its kind, title and open.
+  if (W < 24) {
+    ref.row = out.length;
+    out.push(fg(ink) + pad(`◇ ${facts.title}`, Math.max(4, W - vwidth(open))) + RESET + open);
+    return;
+  }
+  const inner = W - 4;
+  const fit = (x: string, room: number) => (vwidth(x) > room ? splitVisible(x, room - 1)[0] + "…" : x);
+  const head = ` ◇ ${kind} `;
+  edge(out.length);
+  out.push(fg(ink) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, W - 3 - vwidth(head))) + "╮" + RESET);
+  const row = (text: string) => fg(ink) + "│ " + RESET + text + fg(ink) + " │" + RESET;
+  ref.row = out.length;
+  const title = fit(facts.title, Math.max(4, inner - vwidth(open) - 1));
+  out.push(row(fg(C.white) + BOLD + title + UNBOLD + RESET + " ".repeat(Math.max(1, inner - vwidth(title) - vwidth(open))) + open));
+  if (facts2) out.push(row(fg(C.dark) + pad(fit(facts2, inner), inner) + RESET));
+  for (const x of said) out.push(row(fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : C.dark) + pad(fit(x, inner), inner) + RESET));
+  edge(out.length);
+  out.push(fg(ink) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET);
 }
 
 /**

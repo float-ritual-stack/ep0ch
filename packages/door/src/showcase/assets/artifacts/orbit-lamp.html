@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbit lamp</title>
+<!-- A fictional desk toy for the showcase (PIE-793): three r128 from cdnjs, as a claude.ai HTML artifact loads it. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0f14; color: #9aa3b2; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #hint { position: absolute; left: 12px; bottom: 10px; }
+</style>
+</head>
+<body>
+<div id="hint">drag to turn the lamp</div>
+<script>
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100);
+  camera.position.z = 6;
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearColor(0x0d0f14);
+  document.body.appendChild(renderer.domElement);
+
+  const lamp = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 1), new THREE.MeshStandardMaterial({ color: 0xd9a441, emissive: 0x3a2508, flatShading: true }));
+  scene.add(lamp);
+  const moons = [];
+  for (let i = 0; i < 3; i++) {
+    const moon = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshStandardMaterial({ color: [0x5fb3a8, 0x8a7fd0, 0xc96f6f][i] }));
+    moon.userData = { r: 2 + i * 0.55, speed: 0.6 - i * 0.15, tilt: i * 0.5 };
+    scene.add(moon);
+    moons.push(moon);
+  }
+  scene.add(new THREE.AmbientLight(0x404858, 0.8));
+  const light = new THREE.PointLight(0xffe1a8, 1.2, 20);
+  light.position.set(3, 3, 4);
+  scene.add(light);
+
+  let drag = null, spin = { x: 0.3, y: 0 };
+  addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; });
+  addEventListener("pointerup", () => { drag = null; });
+  addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    spin.y += (e.clientX - drag.x) * 0.01; spin.x += (e.clientY - drag.y) * 0.01;
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  addEventListener("resize", () => {
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+  });
+
+  const clock = new THREE.Clock();
+  (function frame() {
+    const t = clock.getElapsedTime();
+    lamp.rotation.set(spin.x, spin.y + t * 0.2, 0);
+    for (const m of moons) {
+      const { r, speed, tilt } = m.userData;
+      m.position.set(Math.cos(t * speed) * r, Math.sin(t * speed) * r * Math.sin(tilt), Math.sin(t * speed) * r * Math.cos(tilt));
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  })();
+</script>
+</body>
+</html>

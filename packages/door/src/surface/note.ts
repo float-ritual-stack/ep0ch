@@ -39,7 +39,8 @@ import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-c
 import { inWindow, type Placement } from "../kitty";
 import { sizedPlacement } from "../text-sizing";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, artifactPagePath, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
+import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
@@ -1020,7 +1021,7 @@ export class NoteSurface {
     if (!m || m.partial || !host?.ctx.graphics || this.modes.covers || this.panel?.full || h < HERO_MIN_PANE) return null;
     const ref = this.imagesIn(m).find(x => x.spec.layout === "hero");
     if (!ref) return null;
-    const entry = media(ref.path, ref.spec.kind);
+    const entry = media(ref.path, ref.spec.kind === "video" ? "video" : "img");
     if (entry.state === "error") return null;
     const cap = Math.max(3, Math.min(ref.spec.height ?? Math.floor(h / 3), Math.floor(h / 2)));
     const name = ref.path.split("/").pop() ?? ref.path;
@@ -1182,7 +1183,7 @@ export class NoteSurface {
     }
     if (this.hero && !named) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
-      if (ref) out.push({ path: ref.path, kind: ref.spec.kind, ...look(ref.spec), line: ref.line, gone: clamp(scroll / Math.max(1, this.hero.full)) });
+      if (ref) out.push({ path: ref.path, kind: ref.spec.kind === "video" ? "video" : "img", ...look(ref.spec), line: ref.line, gone: clamp(scroll / Math.max(1, this.hero.full)) });
       if (mode === "first") return out;
     }
     const all = m.text.split("\n"), first = doc.media[0];
@@ -1620,6 +1621,8 @@ export class NoteSurface {
       },
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
+      // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
+      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, path => src.board.readFile(path), () => src.redraw()) } : {}),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
@@ -3772,6 +3775,7 @@ export class NoteSurface {
     if ("size" in c) void this.runKey("image.size", { by: c.size, line }, host);
     else if ("align" in c) void this.runKey("image.align", { by: c.align, line }, host);
     else if ("fit" in c) void this.runKey("image.fit", { to: c.fit, line }, host);
+    else if ("open" in c) void this.runKey("artifact.open", { line }, host);
     else void this.runKey("image.hero", { on: c.hero, line }, host);
     host.redraw();
   }
@@ -4151,8 +4155,26 @@ export class NoteSurface {
     return { outside: where, url, launched: true };
   }
 
+  /**
+   * Open artifact `ref` running on its web page (PIE-793): the note's tailnet page (notes.address) and the line's
+   * artifact below it, in the person's browser; an agent is given the address (openOutside).
+   */
+  async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
+    const address = await host.ctx.board.noteAddress(ref.block).catch((e: Error) => { throw new ActionRefused(`couldn't ask where its page is: ${e.message}`); });
+    const page = address.page;
+    if (!page) {
+      const why = "it has no web page yet: the outline's publisher isn't running, or wasn't told where it is opened (its `publish serve` takes --url https://<this machine>.<tailnet>.ts.net/pub, or OUTLINER_PUBLISH_URL)";
+      host.ctx.flash(why);
+      throw new ActionRefused(why);
+    }
+    const base = page.slice(0, page.length - `/p/${ref.block}`.length);
+    return this.openOutside("browser", `${base}${artifactPagePath(ref.block, ref.line)}`, host);
+  }
+
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | null> {
+    // An artifact's card (PIE-793) opens it running on its web page.
+    if (l.media && l.image && parseMediaLine(l.image.source)?.kind === "artifact") return this.openArtifact(l.image, host);
     if (l.media) return this.openOutside("viewer", l.media, host);
     // A resource token: its Resource's stored content, registered and fetched first if it must be (src/authored.ts).
     if (l.resource) {
@@ -5648,7 +5670,12 @@ const HERO_ROWS = 10;
 /** The widths + and - step an image through, as shares of the reader (100 is `full`). */
 const SIZE_STEPS = [25, 33, 50, 66, 75, 100];
 /** What a caption control of an image does, said as its element's label. */
-const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : c.hero ? "make it the header" : "not the header";
+/** An image action's image, refused when it's an artifact (PIE-793): an artifact takes a size, a height and a place, nothing else. */
+const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
+  if (ref.spec.kind === "artifact") throw new ActionRefused("that's an artifact, not an image: it takes a size, a height and a place (image.size, image.align), and artifact.open runs it");
+  return ref;
+};
+const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : "open" in c ? "open it on its web page" : c.hero ? "make it the header" : "not the header";
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
 const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
@@ -7596,6 +7623,17 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       };
     },
   }),
+  "artifact.open": def({
+    summary: "open an artifact (PIE-793: an [artifact::path] line, a .jsx, .html, .svg or .mermaid file claude.ai would run) running on its web page, in the person's browser; an agent is given its address instead. n= as images lists them, or line=; left out, the one that's the [ ] position",
+    keys: "⏎ while an artifact's card is the [ ] position, a click on its card or its [open ↗]",
+    touches: "nothing", replay: "safe",
+    args: { ...IMAGE_ARGS },
+    async run(which, { surface, host }, actor) {
+      const ref = await surface.imageNamed(which, actor);
+      if (ref.spec.kind !== "artifact") throw new ActionRefused("that's an image, not an artifact: element.open opens it in the system viewer");
+      return surface.openArtifact(ref, host);
+    },
+  }),
   "image.size": def({
     summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by 2 rows). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
     keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
@@ -7662,7 +7700,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { ...IMAGE_ARGS, on: { type: "boolean", optional: true, about: "true: it's the header; false: it isn't; left out, it toggles" } },
     async run({ on, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
-        const ref = await surface.imageNamed(which, actor);
+        const ref = notArtifact(await surface.imageNamed(which, actor));
         const want = on ?? ref.spec.layout !== "hero";
         const m = await surface.whole();
         const others = want ? surface.imagesIn(m).filter(x => x.line !== ref.line && x.spec.layout === "hero").map(x => ({ line: x.line, source: x.source, set: { layout: null } })) : [];
@@ -7677,7 +7715,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "cover or contain; left out, the other one" } },
     async run({ to, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
-        const ref = await surface.imageNamed(which, actor);
+        const ref = notArtifact(await surface.imageNamed(which, actor));
         const want = to === undefined ? (ref.spec.fit === "contain" ? "cover" : "contain") : to.trim().toLowerCase();
         if (want !== "cover" && want !== "contain") throw new ActionRefused(`to is cover or contain, not ${JSON.stringify(to)}`);
         return surface.changeImage(ref, { fit: want === "cover" ? null : want }, want === "contain" ? "shown whole" : "cropped to fill", host, actor);
@@ -7693,7 +7731,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const v = to.trim().toLowerCase();
         const d = v === "auto" ? null : parseDim(v);
         if (v !== "auto" && d === null) throw new ActionRefused(`to is a number from 0 (as it is) to 1 (black), or auto; not ${JSON.stringify(to)}`);
-        const ref = await surface.imageNamed(which, actor);
+        const ref = notArtifact(await surface.imageNamed(which, actor));
         return surface.changeImage(ref, { dim: d === null ? null : String(d) }, d === null ? "dimmed as bright images are" : `dim ${d}`, host, actor);
       });
     },

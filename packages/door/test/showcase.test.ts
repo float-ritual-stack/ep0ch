@@ -25,6 +25,7 @@ import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
+import { external } from "../src/open";
 import { outliner, Scratch, until } from "./scratch";
 import { UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 
@@ -357,6 +358,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
     // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
     hero: ["An evening on the plot", "▣ evening-beds.jpg", "hero-focus"],
+    // Two artifacts as cards (PIE-793): the React one titled by its line, the HTML one by its own <title>.
+    artifacts: ["Toys on the desk", "◇ React artifact", "Pulse pad", "[open ↗]", "◇ HTML artifact", "Orbit lamp", "runs on its web page"],
     // The reader's header (PIE-657): the title in it, the dim line, the old header written out to compare.
     title: ["A title you can find", "Before:", "3 note detail · A title you can find"],
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
@@ -2963,6 +2966,50 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await line(10)).toContain("[align::right]");
     press({ kind: "esc" });
     await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
+  }, 30_000);
+
+  test("artifacts (PIE-793): each line a card; ⏎, a click on it or its [open ↗] opens it running on the note's web page, an agent given the address", async () => {
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    const id = seeded.notes.artifacts.id;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" })).toMatchObject({ key: "artifacts" });
+    await until(() => screen().includes("Orbit lamp"), "the cards, the HTML one titled from its file (read through the service)", 8000);
+    // The files were copied into the outline's own folder, and the lines name them there.
+    const text = (await board.get(id))!.text;
+    expect(text).toContain("[artifact::artifacts/pulse-pad.jsx] [height::22] [alt::Pulse pad]");
+    expect(text).toContain("artifact:: artifacts/orbit-lamp.html");
+    const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
+    expect(list.map((x: any) => [x.n, x.kind, x.path])).toEqual([[1, "artifact", "artifacts/pulse-pad.jsx"], [2, "artifact", "artifacts/orbit-lamp.html"]]);
+    // No publisher said where it is opened: refused, saying what to do.
+    await expect(app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no web page yet.*--url/);
+    // A publisher tells the service where it is opened (as `publish serve --url` does): its page is the note's, below it.
+    const sock = await Bun.connect({ unix: scratch.sock, socket: { data() {} } });
+    sock.write(JSON.stringify({ id: "pub", action: "events.subscribe", ...((board as any).outline ? { outline: (board as any).outline } : {}),
+      client: { clientId: "publish-showcase-test", role: "observer", contextId: "publish", publish: { url: "https://pub.example.invalid/pub" } } }) + "\n");
+    try {
+      const url = `https://pub.example.invalid/pub/p/${id}/artifact/8`;
+      for (let end = Date.now() + 5000; !(await board.noteAddress(id)).page; await Bun.sleep(30)) if (Date.now() > end) throw new Error("timed out waiting for the publisher's address");
+      // An agent is given the address; nothing opens on the person's screen.
+      expect(await app.act({ action: "artifact.open", args: { line: 9 }, as: "test-agent" })).toMatchObject({ outside: "browser", url, launched: false });
+      await expect(app.act({ action: "image.hero", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/an artifact, not an image/);
+      // The person: [ ] to the HTML card and ⏎, then a click on the React card's [open ↗]; each opens the browser.
+      const opened: string[][] = [], run = external.run;
+      external.run = cmd => { opened.push(cmd); };
+      try {
+        press({ kind: "enter" });
+        expect(S().focus).toBe("stage");
+        ch("]"); ch("]");
+        press({ kind: "enter" });
+        await until(() => opened.length === 1, "⏎ opened the lamp", 5000);
+        expect(opened[0]!.at(-1)).toBe(url);
+        const rows = sc.render(app).lines.map(plain);
+        const y = rows.findIndex(l => l.includes("Pulse pad") && l.includes("[open ↗]")), x = rows[y]!.indexOf("[open ↗]") + 2;
+        press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+        await until(() => opened.length === 2, "a click on [open ↗] opened the pad", 5000);
+        expect(opened[1]!.at(-1)).toBe(`https://pub.example.invalid/pub/p/${id}/artifact/4`);
+      } finally { external.run = run; }
+    } finally { sock.end(); }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
   test("new notes (PIE-544): ctrl+n under the note read, a missing [[page]] offered then made, [page::x] titled; by keys, mouse and act", async () => {

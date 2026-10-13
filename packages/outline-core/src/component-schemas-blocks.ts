@@ -99,6 +99,21 @@ const HERO: ComponentSchema = {
   source: { use: `${PIC} [layout::hero]` }, example: {}, sweep: ["fit", "hero-focus", "height", "dim"], grids: [], space: ["fit", "hero-focus"],
 };
 
+const ART = "[artifact::artifacts/pulse-pad.jsx]";
+const ARTIFACT: ComponentSchema = {
+  id: "artifact",
+  title: "Artifacts (claude.ai's, in a note)",
+  intro: "A file claude.ai would run, in a note (PIE-793): a line that is only `[artifact::path]` (or `artifact:: path`) naming a React component (`.jsx`, `.tsx`), an HTML page, an SVG or a mermaid diagram. A relative path is the outline's own folder (`artifacts/` there, say). The web pages run it inline in a sandboxed frame; the door draws a card that opens that page (`artifact.open`). The path here is illustrative, so the library draws the card a missing file gets.",
+  where: "a line of a note: `[artifact::path]` and the `[height::…]`, `[size::…]`… beside it on the same line",
+  props: [
+    { key: "height", where: "line", type: "int", meaning: "its frame's height on the web page, in rows", min: 1, max: 80, samples: ["16", "24", "40"], use: `${ART} [height::{height}]` },
+    { key: "size", where: "line", type: "text", meaning: "its frame's width: columns, a percentage of the page, or `full`", samples: ["60%", "full"], use: `${ART} [size::{size}]` },
+    { key: "align", where: "line", type: "enum", meaning: "where its frame sits across the page", default: "left", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }), use: `${ART} [align::{align}]` },
+    { key: "alt", where: "line", type: "text", meaning: "its title, over an HTML file's own <title> and its file's name", samples: ["Pulse pad"], use: `${ART} [alt::{alt}]` },
+  ],
+  source: { use: ART }, example: {}, sweep: ["height", "alt"], grids: [], space: ["height"],
+};
+
 // ── references, embeds, fences, tables ────────────────────────────────────────
 
 const ID = "3f2a1c9e-0000-4000-8000-00000000a001";
@@ -141,4 +156,4 @@ const TABLE: ComponentSchema = {
 };
 
 /** The links components, the box, pictures, references, fences and tables. */
-export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, EMBED, FENCE, TABLE];
+export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE];
