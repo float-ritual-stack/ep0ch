@@ -4,7 +4,7 @@
 // OSC 52 would be copied: only for a tile the person uses. Each hop here: the pane's env, the shim's request, the action,
 // the tile's copy. Fictional text; a fake control socket stands in for the door.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CLIP_DIR, clipVars } from "../src/desk/herdr-agent";
@@ -17,13 +17,20 @@ import { until } from "./scratch";
 const SHIM = resolve(import.meta.dir, "../scripts/clip/wl-copy");
 
 describe("the pane's env", () => {
-  test("a machine with no display gets the door's wl-copy first on PATH and a WAYLAND_DISPLAY that picks it", () => {
-    expect(clipVars({ PATH: "/usr/bin:/bin" })).toEqual({ WAYLAND_DISPLAY: "ep0ch-clip", PATH: `${CLIP_DIR}:/usr/bin:/bin` });
+  const ssh = "203.0.113.7 51234 198.51.100.2 22";
+  test("a machine with no display, reached over ssh, gets the door's wl-copy first on PATH, a WAYLAND_DISPLAY that picks it, and the ssh session", () => {
+    expect(clipVars({ PATH: "/usr/bin:/bin", SSH_CONNECTION: ssh })).toEqual({ WAYLAND_DISPLAY: "ep0ch-clip", SSH_CONNECTION: ssh, PATH: `${CLIP_DIR}:/usr/bin:/bin` });
     expect(CLIP_DIR).toBe(resolve(import.meta.dir, "../scripts/clip"));
   });
   test("one with a display of its own keeps its own clipboard tools", () => {
-    expect(clipVars({ PATH: "/usr/bin", WAYLAND_DISPLAY: "wayland-0" })).toEqual({});
-    expect(clipVars({ PATH: "/usr/bin", DISPLAY: ":0" })).toEqual({});
+    expect(clipVars({ PATH: "/usr/bin", WAYLAND_DISPLAY: "wayland-0", SSH_CONNECTION: ssh })).toEqual({});
+    expect(clipVars({ PATH: "/usr/bin", DISPLAY: ":0", SSH_CONNECTION: ssh })).toEqual({});
+  });
+  test("with no ssh session to carry, no fake display: it would make Claude Code think it can open a browser (PIE-799)", () => {
+    expect(clipVars({ PATH: "/usr/bin" })).toEqual({});
+  });
+  test("nothing stands in for wl-paste: Claude's image paste and clipboard reads fail as they did, and nvim's clipboard is unchanged", () => {
+    expect(readdirSync(CLIP_DIR)).toEqual(["wl-copy"]);
   });
 });
 
