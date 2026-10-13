@@ -1631,8 +1631,8 @@ Answers `RenderedNote`.
 | Field | Type | |
 |---|---|---|
 | `subject` | `{ readonly kind: "block"; readonly blockId: string; } \| { readonly kind: "resource"; readonly resourceId: string; }` | The block (`{ kind: "block", blockId }`) or Resource (`{ kind: "resource", resourceId }`) the threads are on. |
-| `lifecycle?` | `AnnotationLifecycle` | Only `open` or only `resolved` threads. |
-| `includeResolved?` | `boolean` | Resolved threads too (left out by default). |
+| `lifecycle?` | `MarkLifecycle` | Only threads in this lifecycle. |
+| `includeResolved?` | `boolean` | Earlier threads too (seen and resolved: left out by default; open and kept are current). |
 
 **`AnnotationSubject`**
 
@@ -1652,7 +1652,7 @@ Answers `RenderedNote`.
 | `resolutionHistory` | `readonly AnnotationResolutionEvent[]` |  |
 | `body` | `string` | What it says; empty for a highlight. |
 | `source` | `AnnotationSource` |  |
-| `lifecycle` | `AnnotationLifecycle` |  |
+| `lifecycle` | `MarkLifecycle` |  |
 | `promotedBlockIds?` | `readonly string[]` |  |
 | `parentAnnotationId?` | `string` |  |
 | `properties?` | `Readonly<Record<string, readonly string[]>>` | Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. |
