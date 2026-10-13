@@ -6893,7 +6893,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ thread, back }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
       const t = s.threads[findThread(s, thread)]!;
-      const to = back ?? !t.open ? "open" : "seen";
+      const to = (back ?? !t.open) ? "open" : "seen";
       return attention(on, actor, thread, to, to === "seen" ? "marked a comment seen" : "brought a comment back");
     },
   }),
@@ -6905,7 +6905,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ thread, keep }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
       const t = s.threads[findThread(s, thread)]!;
-      const to = keep ?? t.lifecycle !== "kept" ? "kept" : "open";
+      const to = (keep ?? t.lifecycle !== "kept") ? "kept" : "open";
       return attention(on, actor, thread, to, to === "kept" ? "kept a comment" : "unkept a comment");
     },
   }),

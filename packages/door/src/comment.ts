@@ -431,6 +431,9 @@ export class CommentSession {
     env.redraw();
   }
 
+  /** Threads whose asked-for TL;DR this session is waiting to see land. */
+  private readonly waiting = new Set<string>();
+
   /** `t`: @margin writes the current thread's TL;DR (it lands as a reply with [kind::tldr], the thread's face). */
   async askTldr(env: CommentEnv): Promise<string | null> {
     const t = this.threads[this.sel];
@@ -440,14 +443,19 @@ export class CommentSession {
       env.flash(`@${r.asked ?? "margin"} is writing the TL;DR`);
       // It lands in the background: read the thread again until its new face is there (an agent's write isn't
       // always followed by an event this reader hears), for up to two minutes.
+      // One wait per thread; it ends when the reader has gone to another note (the thread isn't in its comments).
       const before = t.tldr?.id;
-      void (async () => {
-        for (let waited = 0; waited < 120_000; waited += 1500) {
-          await Bun.sleep(1500);
-          const now = (await env.reloadComments().catch(() => [])).find(x => x.id === t.id);
-          if (now?.tldr && now.tldr.id !== before) { env.flash("the TL;DR is in"); env.redraw(); return; }
-        }
-      })();
+      if (!this.waiting.has(t.id)) {
+        this.waiting.add(t.id);
+        void (async () => {
+          for (let waited = 0; waited < 120_000; waited += 1500) {
+            await Bun.sleep(1500);
+            const now = (await env.reloadComments().catch(() => [])).find(x => x.id === t.id);
+            if (!now) return;
+            if (now.tldr && now.tldr.id !== before) { env.flash("the TL;DR is in"); env.redraw(); return; }
+          }
+        })().finally(() => this.waiting.delete(t.id));
+      }
       return r.asked ?? null;
     } catch (e) {
       this.error = `no TL;DR: ${e instanceof Error ? e.message : String(e)}`;
