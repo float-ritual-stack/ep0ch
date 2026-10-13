@@ -9,8 +9,21 @@ import { openSync, writeSync, closeSync } from "node:fs";
 import { ask } from "../../src/jsonl";
 
 const args = process.argv.slice(2);
-if (args.includes("--primary") || args.includes("-p") || args.includes("--clear") || args.includes("-c")) process.exit(0);
-const text = await new Response(Bun.stdin.stream()).text();
+// wl-copy's own forms: text as arguments (`wl-copy hello`), else on stdin; options with a value skipped.
+const WITH_VALUE = new Set(["-t", "--type", "-s", "--seat"]);
+const words: string[] = [];
+let primary = false, clear = false;
+for (let i = 0; i < args.length; i++) {
+  const a = args[i]!;
+  if (a === "--") { words.push(...args.slice(i + 1)); break; }
+  if (WITH_VALUE.has(a)) { i += 1; continue; }
+  if (a === "-p" || a === "--primary") primary = true;
+  else if (a === "-c" || a === "--clear") clear = true;
+  else if (!a.startsWith("-")) words.push(a);
+}
+// Stdin is read whole even when it's dropped, so whoever writes to it is never cut off.
+const text = words.length ? words.join(" ") : await new Response(Bun.stdin.stream()).text();
+if (primary || clear) process.exit(0);
 if (text) {
   try {
     const tty = openSync("/dev/tty", "w");

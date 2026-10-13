@@ -63,6 +63,24 @@ describe("the door's wl-copy", () => {
     } finally { door.stop(); }
   }, 15_000);
 
+  test("found on the pane's PATH as wl-copy, it takes text as arguments too, and reads a big --primary write to its end", async () => {
+    const door = fakeDoor();
+    try {
+      const env = { EP0CH_CONTROL: door.path, EP0CH_TILE_ID: "drawer.agent", PATH: `${CLIP_DIR}:${process.env.PATH ?? ""}` };
+      // As a shell in the pane runs it: by name, through PATH and the shebang.
+      const byName = Bun.spawn(["setsid", "sh", "-c", "wl-copy -t text/plain Mulch the rhubarb"], { stdin: "ignore", env });
+      expect(await byName.exited).toBe(0);
+      await until(() => door.asked.length === 1, "the door asked", 3000);
+      expect(door.asked[0]).toMatchObject({ action: "terminal.clip", args: { text: "Mulch the rhubarb" } });
+      // A big write to --primary: every byte is taken (the writer sees no broken pipe), nothing is sent.
+      const big = "x".repeat(512 * 1024);
+      const primary = Bun.spawn(["setsid", "bash", "-c", `set -o pipefail; head -c ${big.length} /dev/zero | tr "\\0" x | wl-copy --primary`], { env });
+      expect(await primary.exited).toBe(0);
+      await Bun.sleep(300);
+      expect(door.asked).toHaveLength(1);
+    } finally { door.stop(); }
+  }, 20_000);
+
   test("with no door to tell (run by hand, or the door gone), it still exits 0: a copy never fails", async () => {
     expect((await copy("Net the brassicas", [], { EP0CH_CONTROL: join(tmpdir(), "no-such-door.sock"), EP0CH_TILE_ID: "x" })).code).toBe(0);
     expect((await copy("Net the brassicas", [], {})).code).toBe(0);
