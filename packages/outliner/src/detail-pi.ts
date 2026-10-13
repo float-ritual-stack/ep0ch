@@ -1,3 +1,4 @@
+import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import type { FragmentCandidateCollection } from "./fragment-search";
 import {captureAnnotationPassage} from "./document-annotation";
 import {loadDetailDraftPreview} from './detail-read-preview';
@@ -672,7 +673,7 @@ const effects: DetailEffects = {
     });
   },
   async restoreBlock(blockId) {
-    return client.request<Block>(detailRestoreRequest(blockId));
+    return client.request<RestoredBlock>(detailRestoreRequest(blockId));
   },
   async resolveReference(target) {
     return resolveOutlinerLinkTarget(client, target);

@@ -2263,18 +2263,50 @@ Second paragraph`;
     expect(store.create("Lunch menu [page::Lunch]").id).toBeString();
   });
 
-  test("a text rename names an owner in Trash and keeps the address across restore", () => {
+  test("a note in Trash holds no page name: a live note takes it, links follow, and a restore gets the next free name (PIE-312)", () => {
+    const store = makeStore();
+    const first = store.create("Daily notes [page::2031-04-02]");
+    const linker = store.create("See [[2031-04-02]]");
+    store.delete(first.id);
+    expect(store.resolvePageAddress("2031-04-02")).toMatchObject({status: "deleted", block: {id: first.id}});
+    const second = store.create("Fresh day [page::2031-04-02]");
+    expect(store.resolvePageAddress("2031-04-02")).toMatchObject({status: "resolved", kind: "page", block: {id: second.id}});
+    expect(store.update(linker.id, "See [[2031-04-02]] again", linker.revision).id).toBe(linker.id);
+    const restored = store.restore(first.id, {author: "user"});
+    expect(restored.renamedPages).toEqual([{blockId: first.id, from: "2031-04-02", to: "2031-04-02-2"}]);
+    expect(restored.text).toBe("Daily notes [page::2031-04-02-2]");
+    expect(restored.effectiveDeletedRootId).toBeUndefined();
+    expect(store.resolvePageAddress("2031-04-02").block?.id).toBe(second.id);
+    expect(store.resolvePageAddress("2031-04-02-2")).toMatchObject({status: "resolved", kind: "page", block: {id: first.id}});
+  });
+
+  test("a text rename takes a name an owner in Trash held, and that owner keeps its address across a restore when free", () => {
     const store = makeStore();
     const page = store.create("Lantern notes [page::Lantern]");
     store.update(page.id, "Lantern notes [page::Beacon]", page.revision, {author: "agent", actorId: "cli"});
     store.delete(page.id);
-    const other = store.create("Other notes");
-    expect(() => store.update(other.id, "Other notes [page::Beacon]", other.revision)).toThrow(
-      `[[Beacon]] is already the page of block ${page.id} (in Trash); pick another name`,
-    );
     store.restore(page.id);
     expect(store.resolvePageAddress("beacon")).toMatchObject({status: "resolved", kind: "page", block: {id: page.id}});
     expect(store.resolvePageAddress("lantern")).toMatchObject({status: "resolved", kind: "alias", block: {id: page.id}});
+    store.delete(page.id);
+    const other = store.create("Other notes");
+    store.update(other.id, "Other notes [page::Lantern]", other.revision);
+    expect(store.resolvePageAddress("lantern")).toMatchObject({status: "resolved", kind: "page", block: {id: other.id}});
+    const back = store.restore(page.id);
+    expect(back.renamedPages).toBeUndefined();
+    expect(store.resolvePageAddress("beacon").block?.id).toBe(page.id);
+  });
+
+  test("a restore renames a taken page name in the subtree too, past every name already used", () => {
+    const store = makeStore();
+    const root = store.create("Archive root");
+    const child = store.create("Harbor log [page::Harbor]", root.id);
+    store.delete(root.id);
+    store.create("New harbor [page::Harbor]");
+    store.create("Harbor two [page::Harbor-2]");
+    const restored = store.restore(root.id);
+    expect(restored.renamedPages).toEqual([{blockId: child.id, from: "Harbor", to: "Harbor-3"}]);
+    expect(store.require(child.id).text).toBe("Harbor log [page::Harbor-3]");
   });
 
   test("removing [page::…] from the text frees the address for another note", () => {
