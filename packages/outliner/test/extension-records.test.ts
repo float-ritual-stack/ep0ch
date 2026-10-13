@@ -307,7 +307,7 @@ test("a comment on ticket text follows the text when Jira edits it, and says whe
   expect(thread().resolvedTarget).toBeNull();
 });
 
-test("the publisher leaves ticket blocks off a published page unless the page opts in with [publish.ext::jira]", async () => {
+test("a share link leaves ticket blocks off a page unless the page opts in with [publish.ext::jira]; the owner's tailnet page shows them", async () => {
   const { store, client, create, recordOf } = await setup();
   const page = await create("Depot rollout PC-1 [jira::PC-1] [publish::true] [page::Depot rollout]\nOur plan for the switch.");
   const record = await recordOf(page.id);
@@ -317,7 +317,12 @@ test("the publisher leaves ticket blocks off a published page unless the page op
   const publisher = new Publisher({ client });
   cleanups.push(() => publisher.stop());
   await publisher.start();
-  const get = async (path: string) => (await publisher.handle(new Request(`http://127.0.0.1${path}`))).text();
+  // The owner reads his own outline on the tailnet (PIE-789): nothing there is held back but [publish::never].
+  expect(await (await publisher.handle(new Request("http://127.0.0.1/p/depot-rollout"))).text()).toContain("Rollout checklist for the depot switch");
+  // A share link is what holding back is for.
+  await client.request({ action: "shares.start", ttl: "5m", mutation: PERSON });
+  const token = (JSON.parse(store.readMetadata("share_sessions")!) as { sessions: { token: string; state: string }[] }).sessions.find((session) => session.state === "active")!.token;
+  const get = async (path: string) => (await publisher.handle(new Request(`http://127.0.0.1/share/s/${token}${path}`), "public")).text();
 
   const plain = await get("/p/depot-rollout");
   expect(plain).toContain("Our plan for the switch.");
