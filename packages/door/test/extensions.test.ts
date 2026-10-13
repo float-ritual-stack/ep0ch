@@ -8,6 +8,7 @@
 // Fictional notes only; the extensions' content is made up.
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { completionOf } from "../src/surface/completer";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -185,6 +186,29 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(app.actions().actions.filter(a => a.name === "ext.tarot.keep")).toHaveLength(1);
     expect(kindForKey("T")?.kind.kind).toBe("tarot.reading");
     expect(app.actions().actions.map(a => a.name)).toContain("ext.fancy-horror.ward");
+  });
+
+  test("@ at a line's start offers the agents with what each does (PIE-592): @tidy is found by typing @, and written as @tidy", async () => {
+    const s = new NoteSurface(), h: SurfaceHost = { ctx: app as any, redraw() {}, navigate() {} };
+    const m = await board.createBlock(null, "Errands\nbuy  string");
+    s.show(m, h);
+    await s.edit(h);
+    const d = s.draft!;
+    d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
+    s.key({ kind: "enter" }, h);
+    for (const c of "@ti") s.key({ kind: "char", ch: c }, h);
+    await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the agents offered");
+    const p = completionOf(d)!;
+    expect(p.items.map(i => i.label)).toEqual([expect.stringMatching(/^@tidy · /)]);
+    expect(p.items[0]!.context).toContain("once the line is quiet");
+    s.key({ kind: "enter" }, h);
+    await until(() => !completionOf(d), "the insertion");
+    expect(d.lines.at(-1)).toBe("@tidy ");
+    // Mid-line, an @ is prose: no popup.
+    for (const c of "and @ti") s.key({ kind: "char", ch: c }, h);
+    await Bun.sleep(50);
+    expect(completionOf(d)?.items.length ?? 0).toBe(0);
+    s.key({ kind: "esc" }, h); s.key({ kind: "esc" }, h);
   });
 
   test("a reader draws each kind under its line: a record, an output's markdown, a component's view, an agent's state", async () => {

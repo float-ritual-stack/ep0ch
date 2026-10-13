@@ -140,6 +140,16 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
+  } else if (target.kind === "agent") {
+    // The extensions' agents (PIE-501), so a request is found by typing `@` (PIE-592): what each does and when it runs.
+    // Imported when asked: the extensions module reaches the tile registry, which this one is loaded under.
+    const all = (await import("../extensions")).noteAgents() ?? [];
+    const q = target.query.toLowerCase();
+    items = all.filter(a => a.name.toLowerCase().startsWith(q)).map(a => ({
+      label: `@${a.name}${a.description ? ` · ${a.description}` : ""}`, insertion: `@${a.name} `, kind: "agent",
+      context: a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again",
+    }));
+    empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
   } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
     items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));

@@ -15,7 +15,7 @@ import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
 import { spanBg } from "../src/surface/margin";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, SHOWCASE_ASSETS, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { subject } from "../src/board";
@@ -507,6 +507,45 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(desk().all().length).toBe(before + 1);
     expect(desk().focus).toBe(focus);
     press({ kind: "char", ch: "p", ctrl: true });
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
+  test("pictures into a draft (PIE-592): a file dropped on the terminal, and the clipboard's by ctrl+v, are kept in the outline's folder and written as media lines; ctrl+z takes them out", async () => {
+    ch("5"); press({ kind: "enter" });
+    const desk = () => S().stages.get(4).top;
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
+    const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
+    const before = d.text;
+    // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): typed in as
+    // text, as every paste is; ctrl+v on it makes it the picture.
+    const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
+    press({ kind: "paste", text: dropped });
+    expect(d.lines[d.row].endsWith(dropped)).toBe(true);
+    press({ kind: "char", ch: "v", ctrl: true });
+    await until(() => d.text.includes("[img::"), "the dropped picture", 5000);
+    expect(d.text).not.toContain(dropped);
+    const row = d.lines.findIndex((l: string) => l.startsWith("[img::"));
+    expect(row).toBe(d.row);                                              // on its own line, the cursor after it
+    const kept = d.lines[row].match(/^\[img::(.+)\]$/)![1]!;
+    expect(kept.startsWith(join((await board.info()).workspace, "media") + "/")).toBe(true);
+    expect(kept.endsWith(".webp") && existsSync(kept)).toBe(true);
+    // The clipboard's picture (read on the door's machine; here a stand-in): ctrl+v, on its own line.
+    const { clipboardImageReader } = await import("../src/paste-image");
+    clipboardImageReader.read = async () => readFileSync(join(SHOWCASE_ASSETS, "allotment-dusk.jpg"));
+    try {
+      // A paste of nothing (the terminal's paste when the clipboard holds only a picture) is ctrl+v.
+      press({ kind: "paste", text: "" });
+      await until(() => /^\[img::.+\.jpg\]$/.test(d.lines[d.row] ?? ""), "the clipboard's picture", 5000);
+      // Nothing on the clipboard: said, and nothing written.
+      clipboardImageReader.read = async () => null;
+      const was = d.text;
+      press({ kind: "char", ch: "v", ctrl: true });
+      await until(() => /no picture on the clipboard|without a desktop/.test(d.note), "the clipboard said empty", 5000);
+      expect(d.text).toBe(was);
+    } finally { clipboardImageReader.read = null; }
+    for (let i = 0; i < 3; i++) press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toBe(before);
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 20_000);
 

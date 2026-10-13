@@ -167,6 +167,8 @@ export interface CommentEnv {
   pick?(): void;
   /** Open the link at the comment's cursor beside it (ctrl+l, PIE-592), as the edit does: its host's `edit.follow`. */
   follow?(): void;
+  /** Put in the picture on the clipboard, or the one dropped (ctrl+v, PIE-592), as the edit does: its host's `draft.image`. */
+  image?(): void;
   /** The composer's reference completion, when the connection can look references up. */
   complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
@@ -272,6 +274,7 @@ export class CommentSession {
           else if (cmd === "editor") env.external(d);
           else if (cmd === "pick") env.pick?.();
           else if (cmd === "follow") env.follow?.();
+          else if (cmd === "image") env.image?.();
           else if (cmd === "reload") void this.relocate(env);
           else if (cmd === "close" || cmd === "discard") {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).

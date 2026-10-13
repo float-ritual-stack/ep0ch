@@ -892,6 +892,7 @@ export class Lanes implements SourceModel {
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
     // A new card has no reader beside it to open a link in: open it from the card once it's made.
     else if (cmd === "follow") this.host.ctx.flash("ctrl+l opens a link from a note's edit or a comment; a new card's links open once it's made");
+    else if (cmd === "image") { this.host.ctx.flash("a picture goes into a note's edit or a comment; make the card, then e on it"); }
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c && this.host.ctx.copy?.(c.text) !== false) this.host.ctx.flash(`copied ${c.chars} chars`); this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
