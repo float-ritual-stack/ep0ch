@@ -2761,7 +2761,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.putMarks(id, put, xNow, r.row);
       this.putStatus(id, put);
       // Its kind's word as its title says it (detail, `preview · board`), after its own name when it has one.
-      const p = this.panes.get(id)!, word = p.title(), name = this.nameOf(id);
+      // (A title that is the note's own, a river column's, says the kind's word instead: `column`.)
+      const p = this.panes.get(id)!, name = this.nameOf(id), own = p.title();
+      const word = visibleText(own).startsWith(subject(m)) ? kindOf(p)?.word ?? p.kind : own;
       const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
       // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
       // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
@@ -2855,7 +2857,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The note a reader tile shows, when its border is that note's title (PIE-809): a block, not a file or a Resource. */
   private noteOf(id: number): Msg | null {
     const p = this.panes.get(id);
-    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") ? p.msg : null;
+    // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
+    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.msg : null;
   }
   private plainName(id: number) {
     const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
