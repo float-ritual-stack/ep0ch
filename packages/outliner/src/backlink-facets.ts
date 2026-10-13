@@ -82,7 +82,7 @@ export function facetRulesFromBlocks(
   const problems: string[] = [];
   for (const note of notes) {
     const word = getProperty(note.properties, STATUS_FAMILY_PROPERTY)!.trim().toLowerCase();
-    const family = FAMILY_WORDS[word];
+    const family = Object.hasOwn(FAMILY_WORDS, word) ? FAMILY_WORDS[word] : undefined;
     if (!family) { problems.push(`${note.id}: status-family ${word || "(empty)"} isn't one of ${Object.keys(FAMILY_WORDS).join(", ")}`); continue; }
     const values = stripPropertyTokens(note.text).split(/[,\n]/).map((v) => v.trim().toLowerCase()).filter(Boolean);
     for (const value of values) {

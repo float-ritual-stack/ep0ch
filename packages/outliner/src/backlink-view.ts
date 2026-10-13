@@ -111,9 +111,15 @@ function matchesStage(source: BacklinkSource, stage: BacklinkStageFilter): boole
   return stageMatches(source.facets?.stage, stage);
 }
 
+/** The Stage filter's form for a value spelled like one of its keywords (`value:open`), so each stays a choice. */
+export const STAGE_VALUE = "value:";
+const STAGE_KEYWORDS: readonly string[] = ["all", "open", ...BACKLINK_STAGE_BUCKETS];
+
 /** Whether a stage (its value as written and its family) passes the Stage filter: a family's name, open, or the value itself. */
 export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucket } | undefined, filter: BacklinkStageFilter): boolean {
   const f = filter.trim().toLowerCase();
+  // `value:open`: the value as written, where it's spelled like a keyword (a status `open` a rule put in done).
+  if (f.startsWith(STAGE_VALUE)) return !!stage && stage.value.trim().toLowerCase() === f.slice(STAGE_VALUE.length);
   if (f === "all") return true;
   if (f === "open") return isOpenBacklinkStage(stage?.bucket);
   if ((BACKLINK_STAGE_BUCKETS as readonly string[]).includes(f)) return stage?.bucket === f;
@@ -257,9 +263,15 @@ export function nextBacklinkSort(
  * The Stage filter's next step: all, open, then each value the rows actually have (`stages`, PIE-819: facets, not a
  * fixed list), round again. Without `stages`, the families (all, open, waiting, draft, active, done).
  */
-export function nextBacklinkStageFilter(stage: BacklinkStageFilter, stages?: readonly { value: string }[]): BacklinkStageFilter {
-  // A value spelled as a keyword (a status `open`) is that keyword: each step once.
-  const list = stages ? ["all", "open", ...stages.map((s) => s.value)].filter((x, i, all) => all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i) : BACKLINK_STAGE_FILTERS;
+export function nextBacklinkStageFilter(stage: BacklinkStageFilter, stages?: readonly { value: string; bucket?: BacklinkStageBucket }[]): BacklinkStageFilter {
+  // A value spelled like a keyword is its own choice, `value:open`, unless it is that very family (`done` in done);
+  // each value once, whatever its case.
+  const values = (stages ?? []).filter((x, i, all) => all.findIndex((y) => y.value.toLowerCase() === x.value.toLowerCase()) === i)
+    .map((s) => {
+      const v = s.value.toLowerCase();
+      return STAGE_KEYWORDS.includes(v) && v !== s.bucket ? `${STAGE_VALUE}${s.value}` : s.value;
+    });
+  const list = stages ? ["all", "open", ...values] : BACKLINK_STAGE_FILTERS;
   const index = list.findIndex((x) => x.toLowerCase() === stage.toLowerCase());
   return list[(index + 1) % list.length]!;
 }

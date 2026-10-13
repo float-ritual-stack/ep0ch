@@ -281,6 +281,8 @@ describe("the outline's own status families (PIE-819)", () => {
     expect(rules.stageBuckets.done).toContain("open");
     expect(rules.stageBuckets.active).not.toContain("open");
     expect(problems).toEqual([expect.stringContaining("status-family someday isn't one of")]);
+    // An inherited name is no family: said and skipped, never a crash on every backlinks read.
+    for (const word of ["constructor", "__proto__", "tostring"]) expect(facetRulesFromBlocks([at("3", "x", word)]).problems).toHaveLength(1);
     expect(facetRulesFromBlocks([]).rules).toBe(DEFAULT_BACKLINK_FACET_RULES);
   });
 });

@@ -90,13 +90,20 @@ describe("stages as the notes write them (PIE-819)", () => {
     expect(backlinkGroupHidden(g, true)).toBe(0);
     expect(v.stages.map(s => s.value)).toEqual(["open", "answered"]);
     expect(nextBacklinkStageFilter("all", v.stages)).toBe("open");
-    expect(nextBacklinkStageFilter("open", v.stages)).toBe("answered");  // a status spelled `open` is the open step, once
+    expect(nextBacklinkStageFilter("open", v.stages)).toBe("value:open");  // the status `open` alone, apart from the open families
+    expect(nextBacklinkStageFilter("value:open", v.stages)).toBe("answered");
     const answered = backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ANSWERED" });   // matched however it's spelled
     expect(answered.matching.map(s => s.blockId).sort()).toEqual(["2", "3"]);
     expect(nextBacklinkStageFilter("answered", v.stages)).toBe("all");
-    // A value spelled like a keyword in capitals (`Open`, `All`) never takes the keyword's place.
+    // A value spelled like a keyword (`Open`, `All`) never takes the keyword's place: it's its own choice, `value:Open`.
     expect(nextBacklinkStageFilter("all", [{ value: "Open" }, { value: "All" }])).toBe("open");
-    expect(nextBacklinkStageFilter("open", [{ value: "Open" }, { value: "All" }])).toBe("all");
+    expect(nextBacklinkStageFilter("open", [{ value: "Open" }, { value: "All" }])).toBe("value:Open");
+    expect(nextBacklinkStageFilter("value:Open", [{ value: "Open" }, { value: "All" }])).toBe("value:All");
+    expect(nextBacklinkStageFilter("value:All", [{ value: "Open" }, { value: "All" }])).toBe("all");
+    // A status `open` a rule put in done: `value:open` selects it alone; `open` is the open families.
+    const moved: BacklinkCollection = { ...c, sources: [q("4", "open", "done"), q("5", "waiting", "waiting")] };
+    expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "value:open" }).matching.map(s => s.blockId)).toEqual(["4"]);
+    expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }).matching.map(s => s.blockId)).toEqual(["5"]);
     expect(backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ALL" }).matching).toHaveLength(3);
   });
 });

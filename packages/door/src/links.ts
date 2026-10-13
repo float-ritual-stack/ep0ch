@@ -194,7 +194,7 @@ function narrowRows(all: readonly LinkRow[], o: Readonly<BacklinkViewOptions>, f
     const w = linkWords(row), f = rowFacets(row);
     if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.stage ? [f.stage.value] : [])])) continue;
     if (o.kind !== null && f?.kind !== o.kind) continue;
-    if (o.stage !== "all" && !(f && stageMatches(f.stage, o.stage))) continue;
+    if (!stageMatches(f?.stage, o.stage)) continue;
     rows.push(row);
   }
   const dir = o.sortDirection === "asc" ? 1 : -1, field = o.sortField;
