@@ -8,7 +8,7 @@
 // are the desk's. `,` and `.` are the spec's keys for the kind's actions (BRIEF_ACTIONS); a note opened from it goes
 // to a reader beside (the kind's open rule, `beside`), unless it's another brief, which it steps to.
 import { subject, type Msg } from "../board";
-import { USER, type OutlineEvent, type SocketBoard } from "../socket";
+import { authorName, USER, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
@@ -57,7 +57,7 @@ export function briefHeader(m: Msg, w: number, info: HeaderInfo, s: Stepped): st
   return [
     pad(`${fg(C.yellow)}${weekday(s.date)} ${s.date}${fg(C.lcyan)} · ${s.n} of ${s.of} brief${s.of === 1 ? "" : "s"}${fg(C.dark)} · , earlier · . later`, w) + RESET,
     fg(C.white) + pad(subject(m), w) + RESET,
-    pad(`${fg(C.brown)}${m.author ?? "?"} · ${bbsDate(m.updatedAt)}${fg(C.dark)}${info.properties ? ` · i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : ""}${said}`, w) + RESET,
+    pad(`${fg(C.brown)}${authorName(m.author)} · ${bbsDate(m.updatedAt)}${fg(C.dark)}${info.properties ? ` · i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : ""}${said}`, w) + RESET,
   ];
 }
 

@@ -46,7 +46,8 @@ type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
 interface McpContent { type: "text"; text: string }
 interface ToolResult { content: McpContent[]; isError?: boolean }
-interface McpIo { input?: AsyncIterable<string>; write?: (line: string) => void; err?: (line: string) => void }
+/** `folder`: where a stdio server runs (default: this process's), whose `.ep0ch` may name the caller's persona. */
+interface McpIo { input?: AsyncIterable<string>; write?: (line: string) => void; err?: (line: string) => void; folder?: string }
 
 type Board = NotesBoard;
 
@@ -1233,7 +1234,7 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
     const call = mintCallId();
     for await (const line of io.input ?? stdinLines()) {
       clientId = clientNamed(line) ?? clientId;
-      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}), call });
+      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}), call, folder: io.folder ?? process.cwd() });
       if (answer?.reply) write(JSON.stringify(answer.reply));
     }
     return 0;

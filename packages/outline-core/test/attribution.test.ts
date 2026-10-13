@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { actorHandle, actorLabel, composeActor, parseActor } from "../src/attribution";
+import { actorHandle, actorLabel, actorName, composeActor, parseActor } from "../src/attribution";
 
 describe("attribution", () => {
   test("a persona rides on its principal and is shown with it", () => {
@@ -21,5 +21,14 @@ describe("attribution", () => {
     expect(actorLabel("evan")).toBe("evan");
     expect(actorLabel("ext:graphs")).toBe("ext:graphs");
     expect(actorLabel("a/b/c d")).toBe("a/b/c d");
+  });
+  test("a byline shows the persona first; the full label keeps the principal; co-writers are each named", () => {
+    expect(actorName("mcp:loki/claude-code@float-2")).toBe("loki");
+    expect(actorName("kitty/claude-code@float-2")).toBe("kitty");
+    expect(actorName("claude-code@float-2")).toBe("claude-code@float-2");
+    expect(actorName("mcp:claude.ai")).toBe("claude.ai");
+    expect(actorName("ext:echonet")).toBe("ext:echonet");
+    expect(actorName("ep0ch-door:box-a+wren/claude-code@box-a")).toBe("ep0ch-door:box-a + wren");
+    expect(actorLabel("ep0ch-door:box-a+wren/claude-code@box-a")).toBe("ep0ch-door:box-a + wren (claude-code@box-a)");
   });
 });

@@ -36,6 +36,31 @@ are its record. The outliner's entries from then are kept below, under
   and `!((id^anchor))` on it carries every line of it, not the lines down from a blank one.
 - **Run:** the protocol changed (159: the page link grammar, and quotes and callouts as fragment kinds on the wire): `ep0ch install --apply` on each machine (the outline host and the doors together).
 
+### A folder names who works in it: `agent` in `.ep0ch` (PIE-718)
+
+- **Added:** `agent = "<name>"` in a folder's `.ep0ch` names the persona every agent write from there carries: the
+  Claude mod's outline, workboard and door tools, `ep0ch mcp` over stdio, and a bare `ep0ch act` from Claude Code. Order:
+  the call's `actor`, `OUTLINER_ACTOR`, `EP0CH_AGENT`, the folder's `agent`, then `EP0CH_MCP_PERSONAS`. `ep0ch where`
+  and the mod's binding card say which one a session writes as.
+- **Changed:** a persona is a recorded name, never a permission (ADR 0003): `ep0ch mcp` no longer refuses a persona
+  `EP0CH_MCP_PERSONAS` gives another principal; it records it with its own principal (`loki/claude-code@laptop`).
+- **Changed:** the mod's door tools act as the same actor id as its outline writes (`kitty/claude-code@float-2`, not
+  `kitty`), so one agent is one actor in the change feed. An `@kitty` line still invites it.
+- **Changed:** who wrote something is shown persona first everywhere a byline is drawn: the door's message lists,
+  readers, river, comments and margin, activity and what-changed, agent flashes (`an agent (kitty · claude-code@float-2)`),
+  the web inbox, proposal headers and MCP comment bodies. The principal stays one step away (revisions, receipts).
+- **Run:** `ep0ch install --apply` on each machine first (older code refuses an `agent` line in `.ep0ch`), then add the
+  line where you want one, for example `agent = "loki"` under `ws = "pie"`.
+
+### The mod's text-replacing tools need the revision you read (PIE-631)
+
+- **Changed:** the Claude mod's `work_body` and `note_section` require `expectedRevision`. Without it they answer
+  "read it first with outline_read", and a note that changed since the read is refused, so a replacement built on an
+  old read no longer overwrites an edit made in between.
+- **Fixed:** references in Claude's replies use the one fence rule: a reference inside a four-backtick fence, or in
+  indented code, is no longer turned into a link, and `((id^fragment|label))` links to its note instead of a page of
+  that name.
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

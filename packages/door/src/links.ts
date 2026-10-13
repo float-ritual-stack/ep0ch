@@ -25,7 +25,7 @@ import {
 import { subject, type Msg } from "./board";
 import { ago, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
-import { backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
+import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
 import { BACKLINK_QUERY_LIMIT } from "./backlinks";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
@@ -282,7 +282,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     case "backlink": return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
-      return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", b.author ?? "", ago(b.updatedAt)].filter(Boolean).join(" · ") };
+      return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", authorName(b.author, ""), ago(b.updatedAt)].filter(Boolean).join(" · ") };
     }
   }
 }

@@ -87,8 +87,11 @@ export type WhereFacts = {
    * socket, only when a door answers there.
    */
   reach?: { rule: 'control' | 'folder' | 'only' | 'none'; text: string; control: string | null }
-  /** The machine Claude runs on (its hostname) and its folder. */
-  here: { machine: string | null; folder: string | null }
+  /**
+   * The machine Claude runs on (its hostname) and its folder, and the persona its writes carry (ADR 0003): from
+   * OUTLINER_ACTOR, EP0CH_AGENT or the folder's `.ep0ch` `agent` (`file` names it); null: none.
+   */
+  here: { machine: string | null; folder: string | null; persona: { name: string; source: 'OUTLINER_ACTOR' | 'EP0CH_AGENT' | 'file'; file: string | null } | null }
   /** The innermost Herdr pane: its label when Herdr gave one, and whether it is the door agent's own pane. */
   herdr: { pane: string; label: string | null; agent: boolean } | null
   door: null | {

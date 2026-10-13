@@ -9,7 +9,7 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 import type { Msg } from "./board";
 import type { LinkTarget } from "./refs";
-import { whoOf, USER, type Actor } from "./socket";
+import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
@@ -1090,8 +1090,8 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   }),
 });
 
-/** How a patch's writer is named where it landed: `tidy` for an agent, `you` for the person. */
-export const patchLabel = whoOf;
+/** How a patch's writer is named where it landed: `tidy` for an agent (its persona first), `you` for the person. */
+export const patchLabel = (actor: Actor): string => authorName(whoOf(actor));
 
 /** The same party: the person, or the same agent. */
 export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind === "user" || a.id === (b as { id: string }).id);

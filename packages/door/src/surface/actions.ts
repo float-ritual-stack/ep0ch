@@ -4,6 +4,7 @@
 // action is never silent: the status bar says "an agent (<id>) …", the reader it touched says what it
 // did, and what it writes is recorded as `author: agent` with its actor id.
 import type { Actor } from "../socket";
+import { actorName, parseActor } from "@ep0ch/outline-core/attribution";
 import { checkToolArgs, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
@@ -449,8 +450,17 @@ function coerce(action: string, spec: Record<string, ArgSpec>, input: Record<str
   return out;
 }
 
-/** "an agent (claude-7)": how the door names an agent on screen. */
-export const agentLabel = (actor: Actor) => (actor.kind === "agent" ? `an agent (${actor.id})` : "you");
+/**
+ * "an agent (claude-7)": how the door names an agent on screen. A persona comes first and its principal after it
+ * (`an agent (kitty · claude-code@box-a)`, ADR 0003), never the raw `kitty/claude-code@box-a`.
+ */
+export const agentLabel = (actor: Actor) => (actor.kind === "agent" ? `an agent (${agentWords(actor.id)})` : "you");
+
+/** An agent's id in words: `kitty · claude-code@box-a` for a persona on its principal, else its name (`actorName`). */
+export function agentWords(id: string): string {
+  const a = parseActor(id);
+  return a.persona && a.principal ? `${a.persona} · ${a.principal}` : actorName(id);
+}
 
 /**
  * A context whose flashes say who did it: while an agent's action runs (and when its save or send lands

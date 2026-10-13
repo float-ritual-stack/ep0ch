@@ -627,11 +627,12 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     const big = (await shown({}, 70)).view;
     // Only the title's words are sized; its Work ID keeps the accent in cells before them (PIE-809).
     expect(big.placements?.map(p => ({ col: p.col, row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ col: 10, row: 1, rows: 2, cols: 42, text: "Build the compost bin", scale: 2 }]);
-    // Too narrow for twice the title's width: bold, one row, the meta line moves up.
+    // Too narrow for twice the title's width: bold, wrapped whole onto the rows it needs (PIE-815, never cut), then the meta line.
     const narrow = (await shown({}, 30)).view;
     expect(narrow.placements ?? []).toEqual([]);
-    expect(strip(narrow.lines[1]!).trim()).toMatch(/^HUB-003 · Build the compost b/);
-    expect(strip(narrow.lines[2]!)).toContain("claude-code");
+    expect(strip(narrow.lines[1]!).trim()).toBe("HUB-003 · Build the compost");
+    expect(strip(narrow.lines[2]!).trim()).toBe("bin");
+    expect(strip(narrow.lines[3]!)).toContain("claude-code");
     // No text sizing in the terminal: the same.
     const src = fakeSource(notes);
     Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
