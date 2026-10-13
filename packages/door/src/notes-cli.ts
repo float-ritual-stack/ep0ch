@@ -247,11 +247,11 @@ export const selects = (s: Selection) => !!(s.query || s.view || s.under || s.da
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
  * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
  */
-export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string } | { error: string }> {
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string } | { error: string }> {
   const ids = s.ids.map(blockIdOf);
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
-  let truncated: string | undefined;
+  let truncated: string | undefined, hint: string | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
@@ -281,11 +281,12 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     try {
       const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}) });
       if (q.truncated) truncated = "the outline's first 1000 matches";
+      hint = q.hint;
       found = q.ids;
     } catch (e) { return refused(e); }
   }
   const seen = new Set<string>();
-  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}) };
+  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}) };
 }
 
 /** The most of a view's members a selection reads (ten pages of the service's thousand). */
@@ -334,6 +335,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       const picked = await selectNotes(board, { ids: [], ...sel, words });
       if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
       if (picked.truncated) io.err(`ep0ch: only ${picked.truncated}; narrow it (another clause, --under <id>)`);
+      if (picked.hint) io.err(`ep0ch: ${picked.hint}`);
       if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }
       if (json) return await printRecords(board, picked.ids, io);
       const index = await board.index(), by = new Map(index.map(b => [b.id, b])), pathOf = pathsOf(index);

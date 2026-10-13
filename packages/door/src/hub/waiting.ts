@@ -9,6 +9,7 @@
 // beside a reader that follows what it picks; the reader, its sessions, the mouse and `act` are the desk's. Picking
 // an item is the list kind's action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
 import { subject, type Msg } from "../board";
+import { fromWallClock, readDate } from "@ep0ch/outline-core/dates";
 import { type Actor, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -23,15 +24,10 @@ import { RowView } from "../scroll";
 export const WAITING_QUERY = "type=outbox-item outbox=waiting";
 const WAITING_LIMIT = 500;
 
-/** When the wait began: `sent` read as local time, or when the item was written. */
+/** When the wait began: `sent` as people write a date (outline-core `dates.ts`), in local time, or when the item was written. */
 export function sentAt(m: Msg): number {
-  const s = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]+(\d{1,2}):(\d{2})\s*(am|pm)?)?/i.exec(m.props.sent?.trim() ?? "");
-  if (!s) return m.createdAt;
-  let h = Number(s[4] ?? 0);
-  const pm = s[6]?.toLowerCase();
-  if (pm === "pm" && h < 12) h += 12;
-  if (pm === "am" && h === 12) h = 0;
-  return new Date(Number(s[1]), Number(s[2]) - 1, Number(s[3]), h, Number(s[5] ?? 0)).getTime();
+  const when = m.props.sent?.trim() ? readDate(m.props.sent) : null;
+  return when ? fromWallClock(when.from) : m.createdAt;
 }
 
 /** Who it waits on and what it waits for: `waiting-on`'s "Name: question", else `to` and the item's title. */

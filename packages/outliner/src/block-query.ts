@@ -3,6 +3,7 @@ import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
 import { ROADMAP_WORK_STAGES } from "./types";
 import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { readBound, readDate, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
 import type {
   Block,
   BlockProperty,
@@ -348,14 +349,15 @@ export function serializePropertyFilters(
 }
 
 // ---------------------------------------------------------------------------
-// Boolean query grammar (OR, NOT, grouping, created/updated ranges).
+// Boolean query grammar (OR, NOT, grouping, comparisons).
 //
 //   expression := or
 //   or         := and ( OR and )*
 //   and        := unary ( [AND] unary )*        juxtaposition is AND
 //   unary      := NOT unary | primary
-//   primary    := "(" expression ")" | range | clause
+//   primary    := "(" expression ")" | range | compare | clause
 //   range      := (created | updated) (< | <= | > | >=) time
+//   compare    := key (< | <= | > | >=) bound   any other property (PIE-769): a date, a number or text
 //
 // Keywords are case-insensitive. Every clause keeps the existing presence and
 // equality syntax, so a query without operators, parentheses or ranges parses
@@ -434,7 +436,8 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
         simple = false;
       } else {
         tokens.push({ kind: "word", text, start });
-        if (isQueryAtomWord(text)) simple = false;
+        // A clause whose value is a date (`due=today`, `due="Oct 20"`) is the evaluator's: it holds for that day.
+        if (isQueryAtomWord(text) || datedClause(text)) simple = false;
       }
     }
     for (let index = 0; index < closing; index += 1) {
@@ -443,6 +446,19 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
     }
   }
   return { tokens, simple };
+}
+
+const KEY_VALUE = new RegExp(`^(?:${PROPERTY_KEY_SOURCE})(?:=|::)(.+)$`, "s");
+
+/** Unquote a query word's `"…"` (only \\ and \" escape); a word without quotes is itself. */
+function unquoted(word: string): string {
+  return word.startsWith('"') && word.endsWith('"') && word.length >= 2 ? word.slice(1, -1).replace(/\\([\\"])/g, "$1") : word;
+}
+
+/** The date a `key=value` clause's value reads as (`due=today`, `due="Oct 20"`), or null: a plain value compares as text. */
+function datedClause(text: string): boolean {
+  const value = KEY_VALUE.exec(text)?.[1];
+  return value !== undefined && readNumber(unquoted(value)) === null && readDateBound(unquoted(value)) !== null;
 }
 
 /** Count the trailing ")" in one clause that close no "(" of the clause itself (quotes excluded). */
@@ -592,7 +608,7 @@ class ExpressionParser {
       this.index += 1;
       return inner;
     }
-    if (token.kind === "cmp") syntaxError("A range needs created or updated before its comparison", token.start);
+    if (token.kind === "cmp") syntaxError("A comparison needs a property before it", token.start, "Write it like due <= +3d, rating > 3 or updated >= -7d");
     if (token.kind !== "word") {
       syntaxError(`${token.kind.toUpperCase()} needs a clause before it`, token.start);
     }
@@ -602,10 +618,22 @@ class ExpressionParser {
     if (comparison?.kind === "cmp") {
       this.index += 1;
       const field = token.text.toLowerCase();
-      if (field !== "created" && field !== "updated") {
-        syntaxError("Range comparisons support only created and updated", token.start);
-      }
       const value = this.peek();
+      if (field !== "created" && field !== "updated") {
+        let key: string;
+        try {
+          key = normalizePropertyKey(token.text);
+        } catch {
+          syntaxError(`${token.text} is not a property to compare`, token.start, "Write it like due <= +3d, rating > 3 or release-window = today");
+        }
+        if (value?.kind !== "word") {
+          syntaxError(`${key} ${comparison.op} needs a value after it`, value?.start ?? this.inputLength, `Write it like ${key} ${comparison.op} today, ${key} ${comparison.op} 3 or ${key} ${comparison.op} "Oct 20"`);
+        }
+        this.index += 1;
+        const bound = unquoted(value.text).trim();
+        if (!bound) syntaxError(`${key} ${comparison.op} needs a value after it`, value.start);
+        return { kind: "compare", key, op: comparison.op, value: bound };
+      }
       if (value?.kind !== "word") syntaxError(`${field} ${comparison.op} requires a time value`, value?.start ?? this.inputLength);
       this.index += 1;
       try {
@@ -680,6 +708,13 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
       if (typeof expression.value !== "string") throw new BlockQueryError("Query range value must be a string");
       parseQueryTime(expression.value);
       return { kind: "time", field: expression.field, op: expression.op, value: expression.value.trim() };
+    }
+    case "compare": {
+      if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
+      const key = normalizePropertyKey(String(expression.key));
+      if (!COMPARISONS.has(expression.op)) throw new BlockQueryError(`Query comparison must be <, <=, > or >=: ${String(expression.op)}`);
+      if (typeof expression.value !== "string" || !expression.value.trim()) throw new BlockQueryError(`Query comparison ${key} ${expression.op} needs a value`);
+      return { kind: "compare", key, op: expression.op, value: expression.value.trim() };
     }
     case "tag":
     case "links":
@@ -818,6 +853,19 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     }
     case "property": {
       const filter = [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
+      // `due=today`, `due="Oct 20"`: the same text, or a value on that day (a span holding it), however it's written.
+      const day = expression.value === undefined || readNumber(expression.value) !== null ? null : readDateBound(expression.value, wallClock(now));
+      if (day) {
+        const wall = wallClock(now), bound = { kind: "date" as const, when: day }, key = expression.key, value = expression.value!;
+        const holds = (properties: readonly (BlockProperty | PropertyRecord)[], scope: PropertyQueryScope = "block") =>
+          properties.some(p => p.key === key && (scope === "all" || ("scope" in p ? p.scope : "block") === scope)
+            && (matchesFilters([p], [{ key, value }], "all") || valueHolds(p.value, "=", bound, wall) === true));
+        if (expression.relation === "child") {
+          const least = expression.count ?? 1;
+          return subject => (subject.childProperties?.() ?? []).filter(properties => holds(properties)).length >= least;
+        }
+        return (_subject, properties, scope) => holds(properties, scope);
+      }
       if (expression.relation === "child") {
         const least = expression.count ?? 1;
         return (subject) => {
@@ -827,6 +875,11 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
         };
       }
       return (_subject, properties, scope) => matchesFilters(properties, filter, scope);
+    }
+    case "compare": {
+      const wall = wallClock(now), bound = readBound(expression.value, wall), key = expression.key, op = expression.op;
+      return (_subject, properties, scope = "block") => properties.some(p =>
+        p.key === key && (scope === "all" || ("scope" in p ? p.scope : "block") === scope) && valueHolds(p.value, op, bound, wall) === true);
     }
     case "time": {
       const time = parseQueryTime(expression.value);
@@ -871,6 +924,7 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
 export function positivePropertyFilters(expression: QueryExpression): PropertyFilter[] {
   switch (expression.kind) {
     case "property": return expression.relation ? [] : [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
+    case "compare": return [{ key: expression.key }];
     case "time":
     case "tag":
     case "links":
@@ -922,7 +976,8 @@ export function bindThis(expression: QueryExpression, thisId: string | undefined
 export function expressionPropertyKeys(expression: QueryExpression | undefined): string[] {
   if (!expression) return [];
   switch (expression.kind) {
-    case "property": return [expression.key];
+    case "property":
+    case "compare": return [expression.key];
     case "not": return expressionPropertyKeys(expression.operand);
     case "and":
     case "or": return expression.operands.flatMap(expressionPropertyKeys);
@@ -930,26 +985,32 @@ export function expressionPropertyKeys(expression: QueryExpression | undefined):
   }
 }
 
-/** The date buckets a group can name: `created:day`, `updated:month`, … */
-const DATE_GROUP = /^(created|updated):(day|week|month)$/;
+/** The date buckets a group can name: `created:day`, `updated:month`, and any property's (`due:week`, `sent:year`). */
+const DATE_GROUP = new RegExp(`^(${PROPERTY_KEY_SOURCE}):(day|week|month|year)$`);
+const GROUP_FORMS = "a property name, or a date bucket: <property>:day|week|month|year (due:week), created:month or updated:day";
 
 /** A group as the service keeps it: a property key lowercased, or a date bucket. Throws why it can't be one. */
 export function normalizeGroupField(group: unknown): string {
-  if (typeof group !== "string" || !group.trim()) throw new BlockQueryError("group is a property name, or created:day|week|month or updated:day|week|month");
+  if (typeof group !== "string" || !group.trim()) throw new BlockQueryError(`group is ${GROUP_FORMS}`);
   const trimmed = group.trim().toLowerCase();
   if (DATE_GROUP.test(trimmed)) return trimmed;
   const key = trimmed.startsWith(SORT_PROPERTY) ? trimmed.slice(SORT_PROPERTY.length).trim() : trimmed;
   if (!isPropertyKey(key)) {
-    throw new BlockQueryError(`group is a property name (a letter, then letters, digits, _ . or -), or created:day|week|month or updated:day|week|month, not ${group}`);
+    throw new BlockQueryError(`group is ${GROUP_FORMS} (a property name is a letter, then letters, digits, _ . or -), not ${group}`);
   }
   return key;
 }
 
+export type DateUnit = "day" | "week" | "month" | "year";
+/** A group's date bucket: of a block's own time (`created:month`), or of a property's dates (`due:week`, PIE-769). */
+export type DateGroup = { field: "createdAt" | "updatedAt"; unit: DateUnit } | { key: string; unit: DateUnit };
+
 /** The date bucket a group names, or null for a property. */
-export function dateGroupOf(group: string): { field: "createdAt" | "updatedAt"; unit: "day" | "week" | "month" } | null {
+export function dateGroupOf(group: string): DateGroup | null {
   const match = DATE_GROUP.exec(group);
   if (!match) return null;
-  return { field: match[1] === "created" ? "createdAt" : "updatedAt", unit: match[2] as "day" | "week" | "month" };
+  const unit = match[2] as DateUnit;
+  return match[1] === "created" ? { field: "createdAt", unit } : match[1] === "updated" ? { field: "updatedAt", unit } : { key: match[1]!, unit };
 }
 
 /** `"<field>[ asc|desc]"` (asc unless said) or `{ field, direction }`, checked and normalized. */
@@ -1140,16 +1201,20 @@ const OWNED_ORDERS: ReadonlyMap<string, readonly string[]> = new Map([["work-sta
 
 /**
  * How `key`'s values compare, `direction` 1 (asc) or -1 (desc): values in its owned order first, in that order; then
- * decimal numbers as numbers; then text without case. The classes keep their places in either direction; the direction
- * orders within each. A value that is empty is the caller's to place (last).
+ * decimal numbers as numbers; then dates as dates, however written (outline-core `dates.ts`: `Oct 20` before
+ * `2026-11-02`); then text without case. The classes keep their places in either direction; the direction orders within
+ * each. A value that is empty is the caller's to place (last).
  */
-export function valueOrder(key: string | null, direction: 1 | -1 = 1): (left: string, right: string) => number {
+export function valueOrder(key: string | null, direction: 1 | -1 = 1, now = Date.now()): (left: string, right: string) => number {
   const owned = key ? OWNED_ORDERS.get(key) : undefined;
+  const wall = wallClock(now);
   const classed = (value: string): [number, number | string] => {
     const at = owned ? owned.indexOf(value.trim().toLowerCase()) : -1;
     if (at >= 0) return [0, at];
     const v = sortValue(value) ?? "";
-    return typeof v === "number" ? [1, v] : [2, v];
+    if (typeof v === "number") return [1, v];
+    const when = readDate(value, wall);
+    return when ? [2, when.from] : [3, v];
   };
   return (left, right) => {
     const [ca, a] = classed(left), [cb, b] = classed(right);

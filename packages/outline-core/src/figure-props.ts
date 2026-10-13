@@ -11,6 +11,7 @@
 
 import type { ComponentBlock } from "./component-block";
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
+import { readDate } from "./dates";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
 export type Props = Record<string, any>;
@@ -123,11 +124,14 @@ export function addCell(cells: Cells, row: string, col: string, n: number): void
 // ── days: dates are written `YYYY-MM-DD` and counted as whole days, in no time zone ───────────────────
 
 export const DAY = 86_400_000;
-/** `YYYY-MM-DD` (or a longer ISO time, or a Date) as a day number, or null. */
+/** `YYYY-MM-DD` (or a longer ISO time, or a Date), or any date a value holds as people write it (`Oct 20`, `10/20`: outline-core `dates.ts`), as a day number, or null. */
 export function dayOf(v: unknown): number | null {
   if (v instanceof Date) return Math.floor(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()) / DAY);
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? "").trim());
-  return m ? Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY) : null;
+  const text = String(v ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (m) return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY);
+  const when = text ? readDate(text) : null;
+  return when ? Math.floor(when.from / DAY) : null;
 }
 export const isoOf = (day: number) => new Date(day * DAY).toISOString().slice(0, 10);
 /** The day a moment (epoch ms) falls on, as the person's clock says. */

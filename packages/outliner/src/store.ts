@@ -24,7 +24,7 @@ import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./re
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
-import { questionFacets, questionGroups, questionHint, questionKeys } from "./question-answer";
+import { questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
 import { linkTargetFacets } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
@@ -3718,10 +3718,20 @@ export class OutlinerStore {
       const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key).map(record => record.value);
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key));
-      const hint = questionHint(query, this.knownPropertyKeys(graph));
+      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.activeValuesOf(graph, key, scope))].filter(Boolean).join(" · ");
       if (hint) answer.hint = hint;
     }
     return answer;
+  }
+
+  /** Every active block's values for `key` in `scope`: what a date or number comparison warns it couldn't read. */
+  private activeValuesOf(graph: LoadedGraph, key: string, scope: PropertyQueryScope): { id: string; value: string }[] {
+    const out: { id: string; value: string }[] = [];
+    for (const [id, records] of graph.propertyRecordsByBlock) {
+      if (graph.byId.get(id)?.effectiveDeletedRootId) continue;
+      for (const record of records) if (record.key === key && (scope === "all" || record.scope === scope)) out.push({ id, value: record.value });
+    }
+    return out;
   }
 
   /** Every property key some active block carries, in any scope: what a "no notes have <key>" hint checks against. */
