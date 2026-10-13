@@ -87,7 +87,9 @@ export class TreePane implements Pane {
     if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
       this.roots = r; this.rebuild();
-      if (!desk.current && r[0]) desk.setCurrent(r[0], { from: this });
+      // A screen with no current note starts on the first root: only from a tree in sight (PIE-814: one in a shut dock
+      // set every following reader's note from where the person couldn't see it).
+      if (!desk.current && r[0] && desk.shownNow?.(this) !== false) desk.setCurrent(r[0], { from: this });
       desk.redraw();
     }, () => {});
   }
