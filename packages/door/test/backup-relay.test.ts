@@ -113,6 +113,39 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(changeSeq(hubCopy())).toBe(3);
   }, 120_000);
 
+  test("on the work VPN: the run says it went through the hub as status, the drill runs on the hub, and waits when the hub is out of reach too (PIE-810)", async () => {
+    outline(join(laptop.outlines, "orchard.sqlite"), ["Prune the apples"]);
+    const t = Date.now();
+    const quiet = { say, probe: DOWN, drill: true, announce: async () => {}, heartbeat: async () => {} };
+    const run = await runAll(laptop, quiet);
+    expect(run.alert.incidents).toEqual([]);
+    const s = readBackupState(laptop.state);
+    expect(s.route).toMatchObject({ via: "hub-box", why: expect.stringContaining("doesn't answer") });
+    // The drill ran on the hub, from the laptop's repository, which the hub can reach.
+    const drilled = { ...s.drill! };
+    expect([drilled.ok, drilled.via]).toEqual([true, "hub-box"]);
+    expect(drilled.detail).toContain("through hub-box");
+    expect(drilled.detail).toContain("orchard ok");
+    // Status, not a problem: the status bar's mark is quiet, and doctor's verdict says the route.
+    expect(alertMark(readAlert(laptop.state), t)).toMatchObject({ text: "→ backup", status: true, say: expect.stringContaining("repository unreachable (work VPN?): sent through hub-box") });
+    expect(statusLines(laptop).join("\n")).toContain("✓ all backed up · repository unreachable (work VPN?): sent through hub-box");
+    // The hub out of reach too: the drill waits, said, and the last one stands; it isn't an incident.
+    const down = laptopWith({ FAKE_SSH_DOWN: "1" });
+    const after = await runAll(down, quiet);
+    expect(after.alert.incidents).toEqual([]);
+    const waited = readBackupState(laptop.state);
+    expect(waited.drill).toEqual(drilled);
+    expect(waited.drillWaiting?.why).toContain("hub-box doesn't answer over ssh");
+    // The next run retries the waiting drill: the hub answering again, it runs there.
+    await runAll(laptop, { ...quiet, drill: undefined });
+    expect(readBackupState(laptop.state).drillWaiting).toBeUndefined();
+    // A direct upload ends the long way round: the route and the mark go.
+    outline(join(laptop.outlines, "orchard.sqlite"), ["Pick the pears"]);
+    await runAll(laptop, { ...quiet, probe: REACHABLE, drill: false });
+    expect(readBackupState(laptop.state).route).toBeUndefined();
+    expect(alertMark(readAlert(laptop.state), Date.now())).toBeNull();
+  }, 240_000);
+
   test("restic's own failure relays too, and a direct upload later clears the mark", async () => {
     outline(join(laptop.outlines, "garden.sqlite"), ["Prune the roses"]);
     const broken = laptopWith({ EP0CH_RESTIC: join(dir, "bin", "restic-blocked") });

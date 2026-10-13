@@ -52,6 +52,23 @@ export async function relay(c: BackupConfig, hub: string, copy: string, o: { out
   return { ok: false, error: why };
 }
 
+/**
+ * The restore drill on the hub, for this machine (PIE-810): `ep0ch backup drill --machine <this> --json` there restores
+ * this machine's snapshots from its repository, which the hub can reach. Its answer, or why there is none.
+ */
+export async function drillVia(c: BackupConfig, hub: string, timeoutMs = 900_000): Promise<{ ok: boolean; detail: string } | { error: string; unreachable: boolean }> {
+  if (!MACHINE_NAME.test(c.machine)) return { error: `${c.machine} isn't a machine name`, unreachable: false };
+  const r = await ssh(c.env, hub, `ep0ch backup drill --machine ${c.machine} --json`, undefined, timeoutMs).catch(e => ({ code: 255, out: "", err: (e as Error).message }));
+  try {
+    const d = lastJson(r.out) as { ok?: unknown; detail?: unknown; error?: unknown };
+    if (typeof d.error === "string") return { error: `${hub} couldn't drill it: ${d.error}`, unreachable: false };
+    if (typeof d.ok === "boolean" && typeof d.detail === "string") return { ok: d.ok, detail: d.detail };
+  } catch { /* no answer from the command itself */ }
+  // Only a hub that doesn't answer is a wait; one that answers and fails is a failed drill (an incident).
+  return r.code === 255 ? { error: `${hub} doesn't answer over ssh`, unreachable: true }
+    : { error: `ep0ch backup drill on ${hub} failed (${r.code}): ${r.err.trim().split("\n").at(-1) ?? ""}`, unreachable: false };
+}
+
 /** The hub's incoming folder for a machine's copies: private, in the job's state. */
 export const incomingDir = (c: BackupConfig, machine: string) => join(c.state, "incoming", machine);
 

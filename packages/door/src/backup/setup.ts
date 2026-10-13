@@ -246,7 +246,11 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
     const hub = f.config.kept?.EP0CH_MCP_HUB ?? parseEnvFile(f.config.text ?? "").EP0CH_MCP_HUB;
     if (hub) out.push({ name: `netmail from ${hub}`, status: "info", detail: `no pull recorded yet: the backup job pulls ${hub}'s queued remote MCP writes every run`, fix: "ep0ch mcp pull" });
   }
-  if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
+  if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}${s.drill.via ? ` through ${s.drill.via}` : ""}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
+  // A drill that was due and couldn't run anywhere: said (never a silent skip), the last one standing.
+  if (s.drillWaiting) out.push({ name: "restore drill", status: "info", detail: `waits for the repository since ${ago(s.drillWaiting.since)}: ${s.drillWaiting.why}`, fix: "ep0ch backup drill   (once the repository or the hub answers)" });
+  // The long way round (PIE-810): status, not a problem.
+  if (s.route) out.push({ name: "restic route", status: "info", detail: `repository unreachable (work VPN?): sent through ${s.route.via} since ${ago(s.route.since)} (${plainReason(s.route.why, { repo: f.repo, hub: s.route.via })})` });
   // The push channel: Herdr's notification always; ntfy to the phone when its secrets group is there.
   if (f.groups && !f.groups.includes("heartbeat")) out.push({ name: "heartbeat", status: "info", detail: "no dead-man's ping: a job that stops running is only noticed here (the status bar's ? backup); a secrets group heartbeat with HEARTBEAT_URL (a healthchecks.io check, every 15 minutes) pings after each clean run", fix: "printf 'HEARTBEAT_URL=%s\\n' '<your check URL>' > ~/.config/secrets/heartbeat.env && chmod 600 ~/.config/secrets/heartbeat.env" });
   if (f.groups && !f.groups.includes("ntfy")) out.push({ name: "push", status: "info", detail: "stale backups are announced in Herdr and on the door's status bar; for a phone push too, add a secrets group ntfy with NTFY_URL=https://ntfy.sh/<a private topic>", fix: "printf 'NTFY_URL=https://ntfy.sh/%s\\n' \"ep0ch-$(openssl rand -hex 8)\" > ~/.config/secrets/ntfy.env && chmod 600 ~/.config/secrets/ntfy.env (then subscribe to that topic in the ntfy app)" });

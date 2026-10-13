@@ -6,8 +6,8 @@ import { age, hhmm, readAlert, readBackupState } from "./alert";
 import { plainReason } from "./plain";
 import { noTint, PALETTE, renderStatus, type Tint, moment } from "./verdict";
 import { fg, RESET, width } from "../style";
-import { backupConfig, type BackupConfig, type Env } from "./config";
-import { blockCount, drill, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
+import { backupConfig, type BackupConfig, type Env, MACHINE_NAME } from "./config";
+import { blockCount, drill, drillHere, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
 import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
@@ -66,12 +66,20 @@ async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly str
       return Object.entries(s.mirrors).some(([, m]) => m.error) ? 1 : 0;
     }
     case "drill": {
+      // From here, or through the hub when the repository is out of reach (jobs.ts drillHere).
       const s = readBackupState(c.state);
-      const d = await drill(c, { say });
-      s.drill = { at: new Date().toISOString(), ...d };
+      const d = await drillHere(c, { say });
+      if ("waiting" in d) {
+        s.drillWaiting = { since: s.drillWaiting?.since ?? new Date().toISOString(), why: d.waiting };
+        writeBackupState(c.state, s);
+        say(`· the restore drill waits for the repository: ${d.waiting}`);
+        return 1;
+      }
+      delete s.drillWaiting;
+      s.drill = { at: new Date().toISOString(), ...d.drill };
       writeBackupState(c.state, s);
-      say(`${d.ok ? "✓" : "✗"} ${d.detail}`);
-      return d.ok ? 0 : 1;
+      say(`${d.drill.ok ? "✓" : "✗"} ${d.drill.detail}`);
+      return d.drill.ok ? 0 : 1;
     }
   }
 }
@@ -81,7 +89,7 @@ export const BACKUP_FLAGS: Record<string, { bare: string[]; value: string[] }> =
   run: { bare: ["--drill", "--verbose"], value: [] },
   snapshot: { bare: ["--force", "--verbose"], value: [] },
   mirror: { bare: [], value: [] },
-  drill: { bare: [], value: [] },
+  drill: { bare: ["--json"], value: ["--machine"] },
   status: { bare: ["--json", "--verbose"], value: [] },
   list: { bare: [], value: ["--machine"] },
   restore: { bare: [], value: ["--machine", "--at", "--to"] },
@@ -110,6 +118,16 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
   const c = backupConfig(env);
   if ("error" in c) { io.err(`ep0ch backup: ${c.error}`); return 2; }
   const say = (s: string) => io.out(s);
+  // The hub's drill for another machine (PIE-810, relay.ts drillVia): reads that machine's repository, writes no state here.
+  if (sub === "drill" && flag(args, "--machine")) {
+    const machine = flag(args, "--machine")!;
+    const answer = (x: unknown) => { io.out(JSON.stringify(x)); };
+    if (!MACHINE_NAME.test(machine) || machine === c.machine) { answer({ error: `${machine} isn't another machine's name` }); return 2; }
+    if (!c.mirrors.some(m => m.machine === machine)) { answer({ error: `${c.machine} doesn't mirror ${machine}: add it to EP0CH_BACKUP_MIRRORS in ${c.file}` }); return 2; }
+    const d = await drill(c, { machine, say: args.includes("--json") ? () => {} : say });
+    if (args.includes("--json")) answer(d); else say(`${d.ok ? "✓" : "✗"} ${d.detail}`);
+    return d.ok ? 0 : 1;
+  }
   // The parts that write the job's state run one at a time, as the timer's run does (takeLock).
   if (sub === "snapshot" || sub === "mirror" || sub === "drill") {
     const release = takeLock(c);

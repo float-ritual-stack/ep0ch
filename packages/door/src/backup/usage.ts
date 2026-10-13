@@ -4,7 +4,12 @@ export const BACKUP_USAGE = `  ep0ch backup run [--drill] [--verbose]   the back
                                    repository, other machines' mirrors are refreshed from theirs, and what's stale is
                                    put on the door's status bar and announced once (scripts/backup/README.md)
   ep0ch backup snapshot [--force] [--verbose] | mirror | drill
-                                   one part of it: snapshot (--force: unchanged outlines too), mirror, the restore drill
+                                   one part of it: snapshot (--force: unchanged outlines too), mirror, the restore drill.
+                                   When the repository doesn't answer (the work VPN), snapshots go through EP0CH_MCP_HUB
+                                   and the drill runs there; with the hub out of reach too, the drill waits, said
+  ep0ch backup drill --machine <name> [--json]
+                                   (run over ssh by a machine that can't reach its repository) the restore drill of that
+                                   machine's repository, from here; writes nothing here
   ep0ch backup receive --machine <name> --outline <name> [--seq N] [--schema V] [--sha256 H]
                                    (run over ssh by a machine that can't reach the repository; the file on stdin) verifies
                                    the copy, installs it as that machine's mirror and uploads it to its repository

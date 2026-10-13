@@ -83,7 +83,9 @@ export function verdict(s: BackupState, a: Alert | null, now: number, c: Verdict
   problems.sort((x, y) => (x.level === y.level ? 0 : x.level === "bad" ? -1 : 1));
   if (!s.lastRun && !problems.length) return { level: "warn", headline: "? not run here yet", problems: [{ level: "warn", text: "the backup job hasn't run on this machine", fix: RUN }], fix: RUN };
   const level: Level = problems.some(p => p.level === "bad") ? "bad" : problems.length ? "warn" : "ok";
-  const headline = level === "ok" ? "✓ all backed up" : level === "bad" ? "✗ failing" : `! ${problems.length} problem${problems.length === 1 ? "" : "s"}`;
+  // Backed up the long way round (PIE-810): said beside the verdict, as status.
+  const route = s.route ? ` · repository unreachable (work VPN?): sent through ${s.route.via}` : "";
+  const headline = (level === "ok" ? "✓ all backed up" : level === "bad" ? "✗ failing" : `! ${problems.length} problem${problems.length === 1 ? "" : "s"}`) + route;
   return { level, headline, problems, fix: problems[0]?.fix ?? null };
 }
 
