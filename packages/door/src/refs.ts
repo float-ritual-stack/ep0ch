@@ -111,7 +111,8 @@ const scopeBy = new WeakMap<object, Map<string, Cached<TicketPrefixes>>>();
  * prefixes in use, as the service says them; null while asked (or when it couldn't be).
  */
 export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes | null {
-  const c = ask(scopeBy, src, "scope", b => b.ticketPrefixes(), c => configAt > c.at || anyChangeSince(c.at));
+  // Configuration, as the prefix is: asked again after a reconnect or reset (a prefix first used since shows then).
+  const c = ask(scopeBy, src, "scope", b => b.ticketPrefixes(), c => configAt > c.at || (!!c.error && anyChangeSince(c.at)));
   return c?.value ?? null;
 }
 
