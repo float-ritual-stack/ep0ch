@@ -266,6 +266,29 @@ describe("two clients on one session", () => {
     expect(keys.at(-1)).toEqual({ kind: "char", ch: "k" });
   });
 
+  test("a terminal attaching takes the session from one left untouched (its terminal restarted, its ssh not yet dropped): drawn at its size, images placed whole", () => {
+    const { term, keys, paint } = session();
+    const stale = fakeLink(100, 30), fresh = fakeLink(80, 24);
+    const cs = term.attach(stale.link, hello(100, 30, { kitty: true }));
+    paint();
+    // Its terminal went away without a goodbye: its link stays open, and nobody has typed on it for a minute.
+    (cs as unknown as { since: number }).since = Date.now() - 60_000;
+    const cf = term.attach(fresh.link, hello(80, 24, { kitty: true }));
+    paint();
+    expect(term.info.cols).toBe(80);
+    expect(term.list().find(c => c.id === cf.id)!.active).toBe(true);
+    expect(fresh.text()[0]).toMatch(/^row 0 of 80.24$/);     // CP437 under the tube: × reads x
+    expect(fresh.text().join("\n")).not.toContain("for another terminal");
+    // Its own uploads, placed at its size (the tube under its text): nothing cut away for the other terminal's.
+    expect(fresh.sent.filter(m => m.t === "output" && m.text.includes("a=t,")).length).toBeGreaterThan(0);
+    term.input(cf, "j");
+    expect(keys).toEqual([{ kind: "char", ch: "j" }]);
+    // One typed on a moment ago keeps the keys when another attaches: both are in use.
+    const third = fakeLink(60, 20);
+    term.attach(third.link, hello(60, 20));
+    expect(term.list().find(c => c.id === cf.id)!.active).toBe(true);
+  });
+
   test("a click from the other client only takes the session: it was aimed at a frame of another size", () => {
     const { term, keys, paint } = session();
     const a = fakeLink(100, 30), b = fakeLink(60, 20);
