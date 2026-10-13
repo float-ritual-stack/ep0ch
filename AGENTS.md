@@ -152,6 +152,19 @@ So no client or component hard-codes which properties can be filtered, grouped o
 - An agent's action never takes the person's focus, selection or keys, and it is always attributed
   (`author: agent` with its actor id, and said on screen).
 
+## Agents act, nodes mail, readers read
+
+Three ways into an outline, each with its own consent ([ADR 0005](docs/adr/0005-agents-act-nodes-mail.md)). They look
+alike and keep collapsing into one system; keep them apart.
+
+- **Agents** (MCP, the mod) act for the person. The MCP access level (`ep0ch mcp access`) gates them and nothing else.
+- **Nodes** (EchoNet) never write another outline's blocks. They hand over a packet, and the receiving outline's own
+  tosser imports it where its own subscription notes ask. The subscription note is the consent; EchoNet never reads
+  the MCP access level.
+- **Readers** (pages, shares, the public listener) only see what `[publish::…]`, share links and sign-in allow.
+
+They share how a change is recorded (attribution, `[from::]`, revisions, undo), never what permits it.
+
 ## Outlines by name
 
 Which outline a client opens (PIE-530, `outline-core/src/outline-location.ts`), first match wins: `--ws
