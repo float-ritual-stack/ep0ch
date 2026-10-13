@@ -1495,7 +1495,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "section", args: { name: "dates" }, as: "test-agent" })).toMatchObject({ key: "dates" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "dates")).top; };
     const lane = (name: string) => ((stage().pane(name) as any)?.items ?? []).map((m: any) => m.text.split(" [")[0]);
-    await until(() => lane("Due-in-three-days").length === 3, "the due lane", 8000);
+    await until(() => lane("Due-in-three-days").length === 3 && lane("Waiting-until-today").length === 1 && lane("Window-open-today").length === 1, "the date lanes", 8000);
     // Sorted by due, written three ways: yesterday's ISO date, tomorrow's "Oct 14", the day after next's "10/16".
     expect(lane("Due-in-three-days")).toEqual(["Order the seed potatoes", "Collect the manure delivery", "Pay the plot rent"]);
     expect(lane("Waiting-until-today")).toEqual(["Ask the committee about the shed again"]);

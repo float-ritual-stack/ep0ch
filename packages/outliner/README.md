@@ -2057,7 +2057,8 @@ rating > 3
   change or refresh. `updated=…` is still a property equality clause.
 - **Comparisons on any property** (PIE-769): a property key, then `<`, `<=`, `>` or `>=`, then a bound, with or
   without spaces (`due <= +3d`, `rating>3`). The bound decides how values compare: a **date** when it reads as one
-  (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d`, `-12h`, `+2w`, or any date as people write one, below), a
+  (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d` and `+2w` (that calendar day), `-12h` (that moment), or any
+  date as people write one, below), a
   **number** when it is a decimal (`3`, `-2.5`), and **text** otherwise (ignoring case, in the locale's order:
   `stage >= beta`). A value that can't be read as the bound's kind doesn't match, and the answer's `hint` names it
   (`due: 1 note has a value that isn't a date: “someday”`), counting only the notes the question asks of. A note
