@@ -1,6 +1,10 @@
 // Where am I: EP0CH_NEST (src/nest.ts) and `ep0ch where` (src/where.ts), with the door, Herdr and the process
 // table faked. The real door is in runtime.test.ts ("where am I, from a tile").
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { actAs } from "../src/control";
 import { agentConfig } from "../src/desk/herdr-agent";
 import { tileEnv } from "../src/desk/pty";
 import { loginShell, shellCwd, shellEnv } from "../src/drop";
@@ -124,15 +128,17 @@ describe("ep0ch where", () => {
   test("the facts the Claude mod's binding card reads: this machine and folder, the door's outline and its machine, the Herdr pane", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/drawer.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
     const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { id: "drawer.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
-    const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes" };
+    const persona = { name: "testbot", source: "file" as const, file: "/work/notes/.ep0ch" };
+    const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes", persona: () => persona };
     const w = await where(d);
-    expect(w.here).toEqual({ machine: "near-box", folder: "/work/notes" });
+    expect(w.here).toEqual({ machine: "near-box", folder: "/work/notes", persona });
+    expect(formatWhere(w)).toContain("an agent here writes as testbot (agent in /work/notes/.ep0ch)");
     expect(w.herdr).toEqual({ pane: "door-claude", label: "door-claude", agent: true });
     expect(w.door).toMatchObject({ outline: "orchard", host: "far-box", machine: "far", tile: { drawer: true } });
     expect(formatWhere(w)).toContain("this runs on near-box in /work/notes");
     // A door on this machine's host names no machine; outside Herdr there is no pane.
     const local = await where(deps({ EP0CH_CONTROL: "/c/door.sock" }, { peek: { screen: { pid: 4, outline: "orchard", host: "near-box", state: {} } } }));
-    expect([local.door?.machine, local.door?.host, local.herdr, local.here]).toEqual([null, "near-box", null, { machine: null, folder: null }]);
+    expect([local.door?.machine, local.door?.host, local.herdr, local.here]).toEqual([null, "near-box", null, { machine: null, folder: null, persona: null }]);
   });
 
   test("in the door's drop shell: the shell layer is live, and the keys are the shell's while the door waits", async () => {
@@ -331,5 +337,20 @@ describe("ep0ch where: a Claude that does not descend from a tile still reaches 
     const w = await where({ ...deps({ EP0CH_CONTROL: "/c/door.sock" }, { peek }), resolve: async () => { asked++; return folder; } });
     expect(asked).toBe(0);
     expect(w.reach.rule).toBe("control");
+  });
+});
+
+describe("who an act is (ADR 0003)", () => {
+  test("--as as given; else the session's persona, on Claude Code's principal when Claude Code runs it", () => {
+    const folder = mkdtempSync(join(tmpdir(), "ep0ch-act-as-"));
+    try {
+      writeFileSync(join(folder, ".ep0ch"), 'ws = "orchard"\nagent = "testbot"\n');
+      const box = () => "box-a";
+      expect(actAs("wren", { CLAUDECODE: "1" }, folder, box)).toBe("wren");
+      expect(actAs(undefined, { CLAUDECODE: "1" }, folder, box)).toBe("testbot/claude-code@box-a");
+      expect(actAs(undefined, { CLAUDECODE: "1", EP0CH_AGENT: "scout" }, folder, box)).toBe("scout/claude-code@box-a");
+      expect(actAs(undefined, {}, folder, box)).toBe("testbot");
+      expect(actAs(undefined, {}, tmpdir(), box)).toBeUndefined();
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 });

@@ -19,6 +19,7 @@ import { completerOf, defaultCompleter, completionKey, type Completer } from "./
 import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
+import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 
@@ -430,7 +431,8 @@ export class DraftSession {
   /** The invitation `id` if it's open to `agent`: this session's, not yet replied to. */
   invitation(id: string, agent: string): Invitation | null {
     const inv = this.invitations.get(id);
-    return inv && !inv.used && inv.agent === agent ? inv : null;
+    // `@kitty` invites kitty under any principal (`kitty/claude-code@box-a`): the persona is the name a person writes.
+    return inv && !inv.used && actorHandle(inv.agent) === actorHandle(agent) ? inv : null;
   }
 
   /**
@@ -551,7 +553,7 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   // An invitation (the person's `@name` line) is the one way into their draft uninvited edits never have.
   if (how.invitation !== undefined) {
     const s = on instanceof DraftSession ? on : [...registry(on.board)].find(x => x.target.blockId === on.blockId && x.invitation(how.invitation!, actor.id));
-    if (!s?.invitation(how.invitation, actor.id)) return `no open invitation ${how.invitation} for ${actor.id} in this draft: an @${actor.id} line in the person's draft invites one reply, once`;
+    if (!s?.invitation(how.invitation, actor.id)) return `no open invitation ${how.invitation} for ${actorName(actor.id)} in this draft: an @${actorName(actor.id)} line in the person's draft invites one reply, once`;
     return null;
   }
   if (on instanceof DraftSession) {
@@ -599,7 +601,7 @@ export function draftRule(actor: Actor, use: DraftUse, at: { board?: object | nu
     const s = at.session, who = s.openedBy.kind === "user" ? "the person" : agentLabel(s.openedBy);
     return s.target.blockId
       ? `${who} has this note open in an edit here; an agent doesn't replace their draft · draft.patch lands in it, or comment on the note or block.mark it to get their attention`
-      : `${who} is writing ${s.target.what} here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @${actor.id} line in it invites one reply)`;
+      : `${who} is writing ${s.target.what} here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @${actorName(actor.id)} line in it invites one reply)`;
   }
   if (use === "text") return null;
   if (use === "replace") use = "write";

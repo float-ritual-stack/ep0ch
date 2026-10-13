@@ -6,7 +6,8 @@
 // 1. `--ws <name>`, from anywhere.
 // 2. `EP0CH_WS=<name>`, for shells and scripts.
 // 3. The nearest `.ep0ch` walking up from the folder (like `.git` or `.nvmrc`). It holds only names
-//    (`ws = "float-hub"`, and `machine = "float-2"` for an outline on another machine), never a path or a hash.
+//    (`ws = "float-hub"`, `machine = "float-2"` for an outline on another machine, and `agent = "loki"`, the persona
+//    an agent working in this folder writes as: ADR 0003, recorded, never a permission), never a path or a hash.
 // 4. Nothing: the client offers to start one (with a guess: the folder's name, or its repository's), pick or import
 //    (the door's home base, the outliner's Choose outline popup).
 //    Accepting the guess writes `.ep0ch`, so renaming the folder later changes nothing.
@@ -21,6 +22,7 @@
 // assistant sessions, files it links relatively). `<outlines>` is EP0CH_OUTLINES, else `~/outlines`. An outline is
 // found by name, never by path.
 import { basename, dirname, join, resolve } from "node:path";
+import { PERSONA_PATTERN } from "./attribution";
 import { OUTLINE_NAME_PATTERN } from "./protocol";
 
 export { OUTLINE_NAME_PATTERN };
@@ -66,37 +68,37 @@ export function isMachineName(name: unknown): name is string {
 /** The file that names a folder's outline. */
 export const DOT_EP0CH = ".ep0ch";
 
-/** `.ep0ch`'s text: the outline's name, and the machine it is on when that isn't this one. */
-export function formatDotEp0ch(name: string, machine?: string): string {
+/** `.ep0ch`'s text: the outline's name, the machine it is on when that isn't this one, and the folder's persona. */
+export function formatDotEp0ch(name: string, machine?: string, agent?: string): string {
   if (!isOutlineName(name)) throw new Error(`"${name}" isn't an outline name (${OUTLINE_NAME_PATTERN.source})`);
   if (machine !== undefined && !isMachineName(machine)) throw new Error(`"${machine}" isn't a machine name: an ssh config name (${MACHINE_NAME_PATTERN.source})`);
-  return `ws = "${name}"\n${machine ? `machine = "${machine}"\n` : ""}`;
+  if (agent !== undefined && !PERSONA_PATTERN.test(agent)) throw new Error(`"${agent}" isn't a persona name (${PERSONA_PATTERN.source})`);
+  return `ws = "${name}"\n${machine ? `machine = "${machine}"\n` : ""}${agent ? `agent = "${agent}"\n` : ""}`;
 }
 
-/** What a `.ep0ch` holds: the outline's name, and its machine when it is on another one. */
-export interface DotEp0chNames { name: string; machine?: string }
+/** What a `.ep0ch` holds: the outline's name, its machine when it is on another one, and the folder's persona. */
+export interface DotEp0chNames { name: string; machine?: string; agent?: string }
 
 /**
- * The names a `.ep0ch` holds: one `ws = "<name>"` and at most one `machine = "<ssh-name>"`. Blank lines and `#`
- * comments are allowed; anything else is refused, so a typo is said, never read as "no outline" or "this machine".
+ * The names a `.ep0ch` holds: one `ws = "<name>"`, at most one `machine = "<ssh-name>"` and at most one
+ * `agent = "<persona>"`. Blank lines and `#` comments are allowed; anything else is refused, so a typo is said, never
+ * read as "no outline", "this machine" or "no persona".
  */
 export function parseDotEp0ch(text: string, file: string): DotEp0chNames {
-  let name: string | undefined, machine: string | undefined;
+  const seen: { ws?: string; machine?: string; agent?: string } = {};
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const m = /^(ws|machine)\s*=\s*"([^"]*)"$/.exec(line);
-    if (!m || (m[1] === "ws" ? name : machine) !== undefined) throw new Error(`${file} must hold ws = "<name>" and at most one machine = "<ssh-name>"; it has ${JSON.stringify(line)}`);
-    if (m[1] === "ws") {
-      if (!isOutlineName(m[2])) throw new Error(`${file} names "${m[2]}", which isn't an outline name (${OUTLINE_NAME_PATTERN.source})`);
-      name = m[2];
-    } else {
-      if (!isMachineName(m[2])) throw new Error(`${file} names the machine "${m[2]}", which isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
-      machine = m[2];
-    }
+    const m = /^(ws|machine|agent)\s*=\s*"([^"]*)"$/.exec(line);
+    if (!m || seen[m[1] as keyof typeof seen] !== undefined) throw new Error(`${file} must hold ws = "<name>", at most one machine = "<ssh-name>" and at most one agent = "<persona>"; it has ${JSON.stringify(line)}`);
+    const [, key, value] = m as unknown as [string, keyof typeof seen, string];
+    if (key === "ws" && !isOutlineName(value)) throw new Error(`${file} names "${value}", which isn't an outline name (${OUTLINE_NAME_PATTERN.source})`);
+    if (key === "machine" && !isMachineName(value)) throw new Error(`${file} names the machine "${value}", which isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
+    if (key === "agent" && !PERSONA_PATTERN.test(value)) throw new Error(`${file} names the persona "${value}", which isn't a persona name (${PERSONA_PATTERN.source})`);
+    seen[key] = value;
   }
-  if (name === undefined) throw new Error(`${file} names no outline; it must hold ws = "<name>"`);
-  return { name, ...(machine ? { machine } : {}) };
+  if (seen.ws === undefined) throw new Error(`${file} names no outline; it must hold ws = "<name>"`);
+  return { name: seen.ws, ...(seen.machine ? { machine: seen.machine } : {}), ...(seen.agent ? { agent: seen.agent } : {}) };
 }
 
 /** What the rule reads from disk: a file's text, or undefined when there is none. */
@@ -115,6 +117,31 @@ export function nearestDotEp0ch(folderInput: string, fs: LocationReader): DotEp0
     if (text !== undefined) return { folder, file, ...parseDotEp0ch(text, file) };
     if (dirname(folder) === folder) return undefined;
   }
+}
+
+/** Where a session's persona came from: an environment variable, or the folder's `.ep0ch` (`file` names it). */
+export interface SessionPersona { name: string; source: "OUTLINER_ACTOR" | "EP0CH_AGENT" | "file"; file?: string }
+
+/** A claimed persona as a name: what comes before any `/` or `@` it brings (a persona never names a principal). */
+export function personaNameOf(raw: string | undefined): string | undefined {
+  const name = raw?.trim().split(/[/@]/)[0];
+  return name && PERSONA_PATTERN.test(name) ? name : undefined;
+}
+
+/**
+ * The persona a session in `folder` writes as (ADR 0003 §3), first match wins: `OUTLINER_ACTOR`, else `EP0CH_AGENT` (a
+ * door tile's agent), else the nearest `.ep0ch`'s `agent = "<persona>"`. Undefined: none (a machine's default for its
+ * principal, `EP0CH_MCP_PERSONAS`, is the MCP server's own next step). A recorded name, never a permission. A malformed
+ * `.ep0ch` gives no persona here; opening the outline is where it is said.
+ */
+export function sessionPersona(o: { env: Record<string, string | undefined>; folder: string; fs: LocationReader }): SessionPersona | undefined {
+  for (const source of ["OUTLINER_ACTOR", "EP0CH_AGENT"] as const) {
+    const name = personaNameOf(o.env[source]);
+    if (name) return { name, source };
+  }
+  let dot: DotEp0ch | undefined;
+  try { dot = nearestDotEp0ch(o.folder, o.fs); } catch { return undefined; }
+  return dot?.agent ? { name: dot.agent, source: "file", file: dot.file } : undefined;
 }
 
 /** `$HOME`, `/` and a folder directly under `/` (`/tmp`, `/opt`) never give their name to an outline. */

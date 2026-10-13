@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A folder names who works in it: `agent` in `.ep0ch` (PIE-718)
+
+- **Added:** `agent = "<name>"` in a folder's `.ep0ch` names the persona every agent write from there carries: the
+  Claude mod's outline, workboard and door tools, `ep0ch mcp` over stdio, and a bare `ep0ch act` from Claude Code. Order:
+  the call's `actor`, `OUTLINER_ACTOR`, `EP0CH_AGENT`, the folder's `agent`, then `EP0CH_MCP_PERSONAS`. `ep0ch where`
+  and the mod's binding card say which one a session writes as.
+- **Changed:** a persona is a recorded name, never a permission (ADR 0003): `ep0ch mcp` no longer refuses a persona
+  `EP0CH_MCP_PERSONAS` gives another principal; it records it with its own principal (`loki/claude-code@laptop`).
+- **Changed:** the mod's door tools act as the same actor id as its outline writes (`kitty/claude-code@float-2`, not
+  `kitty`), so one agent is one actor in the change feed. An `@kitty` line still invites it.
+- **Changed:** who wrote something is shown persona first everywhere a byline is drawn: the door's message lists,
+  readers, river, comments and margin, activity and what-changed, agent flashes (`an agent (kitty · claude-code@float-2)`),
+  the web inbox, proposal headers and MCP comment bodies. The principal stays one step away (revisions, receipts).
+- **Run:** nothing. To name a folder's agent, add the line, for example `agent = "loki"` under `ws = "pie"`.
+
 ### The mod's text-replacing tools need the revision you read (PIE-631)
 
 - **Changed:** the Claude mod's `work_body` and `note_section` require `expectedRevision`. Without it they answer

@@ -10,7 +10,7 @@ import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draf
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
 import type { Completer } from "./surface/completer";
-import { USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
+import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
@@ -478,7 +478,7 @@ export class CommentSession {
     const status = (s: string, colour: number) => fg(colour) + s + RESET;
     const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
-    const what = t.kind === "quote" ? kind : `reply to ${t.thread.author}`;
+    const what = t.kind === "quote" ? kind : `reply to ${authorName(t.thread.author)}`;
     const away = this.place === "popup" || this.place === "split";
     const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
@@ -519,7 +519,7 @@ export class CommentSession {
     this.threads.forEach((t, i) => {
       if (!t.open && (i === 0 || this.threads[i - 1]!.open)) lines.push(fg(C.dark) + pad("── earlier ── s on one brings it back", w) + RESET);
       if (i === this.sel) selAt = lines.length;
-      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
+      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${authorName(t.author)} · ${ago(t.at)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
       lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       // On the earlier shelf a thread is its one line until it's chosen.
       if (!t.open && i !== this.sel) return;
@@ -538,7 +538,7 @@ export class CommentSession {
       for (const l of whole ? body : body.slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
       if (!whole) more(body.length - 4, "    ");
       for (const r of t.replies) {
-        const rl = wrap(`${r.author} · ${ago(r.at)}${r.tldr ? " · TL;DR" : ""}: ${r.body}`, w - 6);
+        const rl = wrap(`${authorName(r.author)} · ${ago(r.at)}${r.tldr ? " · TL;DR" : ""}: ${r.body}`, w - 6);
         for (const [j, l] of (whole ? rl : rl.slice(0, 3)).entries()) lines.push(fg(C.cyan) + (j ? "      " : "    └ ") + l + RESET);
         if (!whole) more(rl.length - 3, "      ");
       }

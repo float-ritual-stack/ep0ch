@@ -8,7 +8,8 @@
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { headedTitle } from "../board";
 import { bodyLinesOf, subject, type Msg } from "../board";
-import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
+import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
+import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
 import { COPY_ROWS, historyRow, IN_TRASH, type Link } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
@@ -87,7 +88,7 @@ const ownClause = (c: Clause) => c.key === "author" || c.key === "text";
 function passesOwn(m: Msg, f: Clause[]): boolean {
   return f.filter(ownClause).every(c => {
     // A word: outline-core's matcher (punctuation folded, a typo forgiven); `-word` lists exactly what `word` leaves out.
-    const hit = c.key === "text" ? matchesSearchText(prepared(c), [m.text]) : c.value === "*" || (m.author ?? "").toLowerCase() === c.value.toLowerCase();
+    const hit = c.key === "text" ? matchesSearchText(prepared(c), [m.text]) : c.value === "*" || (m.author ?? "").toLowerCase() === c.value.toLowerCase() || (!!m.author && actorHandle(m.author) === c.value.toLowerCase());
     return c.exclude ? !hit : hit;
   });
 }
@@ -434,7 +435,7 @@ export class RiverColumn extends ReaderPane {
       const mark = on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ";
       const tw = Math.max(8, w - row.depth * 2 - 2);
       push(rail + mark + (on && active ? selected() : fg(C.white)) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET, n);
-      push(rail + " " + pad(`${fg(authorColour(m.author))}${m.author ?? "?"}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`, tw), n);
+      push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
       for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);

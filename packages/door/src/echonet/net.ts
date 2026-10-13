@@ -19,6 +19,7 @@
 // `echo=<name>` wouldn't match, so the tagged notes are the `echo` question's, filtered here.
 import { subject, type Msg } from "../board";
 import { ago, bbsDate } from "../text";
+import { actorName } from "@ep0ch/outline-core/attribution";
 
 export const NODELIST = "nodelist";
 export const TOSS = "toss";
@@ -155,7 +156,7 @@ export function messageFrom(m: Msg): string {
   const said = m.props.by?.trim() || m.props.author?.trim(), from = fromOf(m);
   if (said) return said;
   if (from) return from.node.split("@")[0]!;
-  return !m.author || m.author === "user" ? "sysop" : m.author;
+  return !m.author || m.author === "user" ? "sysop" : actorName(m.author);
 }
 
 /** The node a message came from: a copy's `from`, else the area's own node. */

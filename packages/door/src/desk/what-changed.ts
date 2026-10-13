@@ -18,7 +18,7 @@ import { RowView } from "../scroll";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { diffRows } from "../unsent";
 import { readState, writeState } from "../state";
-import type { Actor, Change, OutlineEvent, SocketBoard } from "../socket";
+import { authorName, type Actor, type Change, type OutlineEvent, type SocketBoard } from "../socket";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { RowPress } from "../scroll";
@@ -257,7 +257,7 @@ export class WhatChangedPane implements Pane {
     rows.forEach((r, n) => {
       const isNew = this.isNew(r), mark = isNew ? "●" : " ", title = r.title ?? "…", age = ago(r.at).padStart(4);
       const tag = r.ext ? "ext" : r.agent ? "agent" : "";
-      const who = `${r.who}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
+      const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
       if (n === this.at) lines.push({ row: n, text: selected(focused) + pad(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w) + RESET });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
       for (const d of this.diffs.get(this.keyOf(r)) ?? []) {

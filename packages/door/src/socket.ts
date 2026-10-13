@@ -6,6 +6,7 @@
 // returns the comment that was already saved instead of adding a second one.
 import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
+import { actorName } from "@ep0ch/outline-core/attribution";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -377,10 +378,12 @@ export const COMMENT_AUTHOR = "user";
  */
 export type Actor = ({ kind: "user" } | { kind: "agent"; id: string }) & { with?: string[] };
 export const USER: Actor = { kind: "user" };
-/** Who did it, as a door's answer says it: the agent's id, or "you" for the person. */
-export const whoOf = (actor: Actor): string => (actor.kind === "agent" ? actor.id : "you");
-/** `{ by: <agent id> }` for an agent's doing, nothing for the person's: what a record or an answer spreads in. */
-export const byOf = (actor: Actor): { by?: string } => (actor.kind === "agent" ? { by: actor.id } : {});
+/** Who did it, as a door's answer and a mark's chip say it: the agent's name, persona first (`actorName`), or "you" for the person. */
+/** A stored author (an actor id, `user`, …) as a byline shows it: the persona first (`actorName`), `none` when there's none. */
+export const authorName = (author: string | null | undefined, none = "?"): string => (author ? actorName(author) || none : none);
+export const whoOf = (actor: Actor): string => (actor.kind === "agent" ? actorName(actor.id) : "you");
+/** `{ by: <agent name> }` for an agent's doing, nothing for the person's: what a record or an answer spreads in. */
+export const byOf = (actor: Actor): { by?: string } => (actor.kind === "agent" ? { by: actorName(actor.id) } : {});
 /** The actor id an agent gets when it doesn't name itself: `ep0ch-door:<hostname>:agent`. */
 export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
 /** One party's own id: an agent's, or the door's for the person at the keys. */

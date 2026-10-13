@@ -1,6 +1,6 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
-import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, doorActorOf, machineNameOf } from '../hooks/outline-tools'
+import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, machineNameOf } from '../hooks/outline-tools'
 import { WORK_TOOLS } from '../hooks/work-tools'
 
 tier('user')
@@ -271,20 +271,20 @@ describe('door tools', () => {
 
     await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'block.mark', args: { reason: 'needs your call', line: 3 }, tile: 'middle' })
     const act = session.runs.findLast(run => run.argv[1] === 'act')!
-    expect(act.argv).toEqual(['ep0ch', 'act', 'block.mark', 'reason=needs your call', 'line=3', 'tile=middle', '--as', 'loki'])
+    expect(act.argv).toEqual(['ep0ch', 'act', 'block.mark', 'reason=needs your call', 'line=3', 'tile=middle', '--as', 'loki/claude-code@garden-host'])
     expect(act.init?.env).toEqual({ EP0CH_CONTROL: CONTROL })
 
     // ep0ch reads a value starting with @ as a file: it goes through stdin instead.
     await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'view.scrollTo', args: { text: '@request tidy' }, actor: 'garden-agent' })
     const at = session.runs.findLast(run => run.argv[1] === 'act')!
-    expect(at.argv).toEqual(['ep0ch', 'act', 'view.scrollTo', 'text=@-', '--as', 'garden-agent'])
+    expect(at.argv).toEqual(['ep0ch', 'act', 'view.scrollTo', 'text=@-', '--as', 'garden-agent/claude-code@garden-host'])
     expect(at.init?.stdin).toBe('@request tidy')
 
     // door_open is the same open as a click or `show`: the CLI's door-open from this tile, as the agent.
     const opened = await $.tool.call({ tool: 'mcp__pi-outliner__door_open', id: `((${NOTE}))` })
     expect(opened).toMatchObject({ result: "Showing Seed swap plan in the door's middle reader." })
     const open = session.runs.find(run => run.argv.includes('door-open'))!
-    expect(open.argv.slice(3)).toEqual(['door-open', NOTE, '--control', CONTROL, '--actor', 'loki', '--from', 'claude'])
+    expect(open.argv.slice(3)).toEqual(['door-open', NOTE, '--control', CONTROL, '--actor', 'loki/claude-code@garden-host', '--from', 'claude'])
   })
 
   test("a door's refusal comes back as the tool's error; a reference is resolved before opening", async ($, on) => {
@@ -301,7 +301,7 @@ describe('door tools', () => {
     expect(session.runs.find(run => run.argv.includes('resolve'))?.argv.slice(3)).toEqual(['resolve', 'pi-outliner://page/Seed%20Swap'])
     const open = session.runs.find(run => run.argv.includes('door-open'))!
     expect(open.argv.slice(3, 5)).toEqual(['door-open', NOTE])
-    expect(open.argv[open.argv.indexOf('--actor') + 1]).toBe('claude-code')
+    expect(open.argv[open.argv.indexOf('--actor') + 1]).toBe('claude-code@garden-host')
   })
 
   test("door_open passes the door's refusal through, and is never shown anywhere else", async ($, on) => {
@@ -405,8 +405,9 @@ describe('who a write is attributed to: principal and persona', () => {
     expect(actorOf({}, {})).toBe('claude-code')
     expect(machineNameOf('  Float 2\n')).toBe('Float-2')
   })
-  test('door tools keep the short name', () => {
-    expect(doorActorOf({}, { EP0CH_AGENT: 'loki' })).toBe('loki')
-    expect(doorActorOf({}, {})).toBe('claude-code')
+  test("the session folder's .ep0ch agent is the persona when the environment names none (ADR 0003)", () => {
+    expect(actorOf({}, {}, 'box-a', 'testbot')).toBe('testbot/claude-code@box-a')
+    expect(actorOf({}, { EP0CH_AGENT: 'scout' }, 'box-a', 'testbot')).toBe('scout/claude-code@box-a')
+    expect(actorOf({ actor: 'wren' }, {}, 'box-a', 'testbot')).toBe('wren/claude-code@box-a')
   })
 })

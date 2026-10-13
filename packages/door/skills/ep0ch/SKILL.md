@@ -144,8 +144,10 @@ A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent
 (a bare `claude` gets `--continue` on this restart only; in Herdr it comes back in the session's pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
 yourself (path 1): `/exit`, then `claude --continue`.
 
-- **Who it's from:** each act and open goes with `--as`: the call's `actor`, else `OUTLINER_ACTOR`, else
-  `EP0CH_AGENT`, else `claude-code`. The person's screen shows it.
+- **Who it's from:** each act and open goes with `--as`, the same actor id the mod's outline writes carry
+  (`loki/claude-code@<machine>`): the call's `actor`, else `OUTLINER_ACTOR`, else `EP0CH_AGENT`, else the folder's
+  `.ep0ch` `agent`, on this client's principal. The person's screen shows the persona first (`an agent (loki ·
+  claude-code@float-2)`). A bare `ep0ch act` from Claude Code without `--as` does the same.
 - **`door_act {action, args, reader?}`:** `args` is `key: value`; a block is `id` there, and `ref` (or `reference`, `block`, `blockId`, `uri`, `note`) is accepted for it. A wrong argument is answered with the action's arguments and a call that works (`ep0ch act …`). `ep0ch` reads a value starting with `@` as
   a file, so the tool sends one such value through stdin, and refuses a second in the same call. `as` and
   `reader` aren't args: use `actor` and `reader`.
