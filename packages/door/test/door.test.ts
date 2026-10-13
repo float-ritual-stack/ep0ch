@@ -99,6 +99,60 @@ describe("Kitty placement ids", () => {
   });
 });
 
+import { Painter } from "../src/display";
+import { spineImage } from "../src/spine";
+import { KeyDecoder, Rows } from "../src/term";
+describe("a terminal that lost its images (PIE-795)", () => {
+  test("its ENOENT is read, the image forgotten, and the same frame uploaded and placed again with no keypress", async () => {
+    const out: string[] = [];
+    const info = { cols: 40, rows: 10, cellW: 9, cellH: 18, kitty: true };
+    const painter = new Painter(new Rows(s => out.push(s), info), "kitty");
+    const decoder = new KeyDecoder(info);
+    decoder.kittyError = id => painter.imageLost(id);
+    // Two spines with one title share one image: uploaded once in the frame.
+    const title = spineImage("Recon", 3);
+    const spines = [0, 3].map(col => ({ key: `spine:${col}`, image: title, col, row: 0, cols: 2, rows: 8 }));
+    painter.show(Array(10).fill(""), spines);
+    let sent = out.join("");
+    expect(sent.match(/a=t,/g)).toHaveLength(1);
+    expect(sent.match(/a=p,/g)).toHaveLength(2);
+    // Uploads and placements ask for errors (q=1); the terminal's OKs stay quiet.
+    expect(sent).toMatch(/a=t,[^\x1b]*q=1/);
+    expect(sent).toMatch(/a=p,[^\x1b]*q=1/);
+    const id = Number(/a=p,i=(\d+)/.exec(sent)![1]);
+    // The terminal restarted: both placements come back ENOENT. One redraw follows, on its own.
+    out.length = 0;
+    for (const pid of [1, 2]) decoder.feed(`\x1b_Gi=${id},p=${pid};ENOENT:Put command refers to non-existent image with id: ${id}\x1b\\`);
+    await Bun.sleep(5);
+    sent = out.join("");
+    expect(sent.match(/a=t,/g)).toHaveLength(1);
+    expect(sent.match(/a=p,/g)).toHaveLength(2);
+    expect(sent).not.toContain(`i=${id},`);
+    // An image the terminal keeps refusing is sent again three times a minute at most, never in a loop.
+    let again = Number(/a=p,i=(\d+)/.exec(sent)![1]);
+    let uploads = 0;
+    for (let round = 0; round < 5; round += 1) {
+      out.length = 0;
+      decoder.feed(`\x1b_Gi=${again},p=9;ENOENT:no such image\x1b\\`);
+      await Bun.sleep(5);
+      const now = out.join("");
+      uploads += now.match(/a=t,/g)?.length ?? 0;
+      again = Number(/a=p,i=(\d+)/.exec(now)?.[1] ?? again);
+    }
+    expect(uploads).toBe(2);
+    // Any other refusal (too big for it) isn't a lost image: nothing is sent again.
+    out.length = 0;
+    decoder.feed(`\x1b_Gi=${again};EFBIG:too big\x1b\\`);
+    await Bun.sleep(5);
+    expect(out.join("")).toBe("");
+    // An error for an id this layer never uploaded (another program's) changes nothing.
+    out.length = 0;
+    decoder.feed("\x1b_Gi=12;ENOENT:no such image\x1b\\");
+    await Bun.sleep(5);
+    expect(out.join("")).toBe("");
+  });
+});
+
 import { renderGraph, reframeAscii } from "../src/graphs";
 import { renderDoc } from "../src/doc";
 describe("mdxcn figures and callouts", () => {

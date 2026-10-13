@@ -90,6 +90,7 @@ export class Painter implements Display {
   glyphs(line: string): string { return this.video === "kitty+crt" ? toCp437Glyphs(line) : line; }
 
   show(lines: string[], placements: Placement[]): void {
+    this.lastFrame = { lines, placements };
     if (this.away) return;
     const wanted = this.video === "cells" ? [] : placements;
     const images = this.video === "kitty+crt" ? [crtUnderlay(this.term.info), ...wanted.filter(p => !isSized(p))] : wanted.filter(p => !isSized(p));
@@ -117,6 +118,22 @@ export class Painter implements Display {
 
   invalidate(): void { this.term.invalidate(); }
   dispose(): void { this.kitty.dispose(); }
+
+  /** The last frame asked for, so an image the terminal lost can be drawn again without waiting for the next one. */
+  private lastFrame: { lines: string[]; placements: Placement[] } | null = null;
+  private redraw = false;
+  /**
+   * The terminal no longer has image `id` (it restarted or was reattached, and answered ENOENT): forgotten, and the
+   * last frame drawn again, once for however many of its placements failed, so the image is uploaded and placed anew.
+   */
+  imageLost(id: number): void {
+    if (!this.kitty.forget(id) || this.redraw) return;
+    this.redraw = true;
+    setTimeout(() => {
+      this.redraw = false;
+      if (this.lastFrame) this.show(this.lastFrame.lines, this.lastFrame.placements);
+    }, 0);
+  }
 
   private readonly reporter = new StatusReporter(s => this.term.write(s));
   /** What it was last asked to report, for after a program had the terminal. */

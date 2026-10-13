@@ -240,6 +240,12 @@ export class KeyDecoder {
    */
   rawSink: (() => ((bytes: string) => void) | null) | null = null;
 
+  /**
+   * The terminal refused a Kitty graphics command (src/kitty.ts sends uploads and placements with `q=1`): its image id
+   * and what it said (`ENOENT:…` when it no longer has that image). The painter forgets the image and draws it again.
+   */
+  kittyError: ((id: number, message: string) => void) | null = null;
+
   /** Forget a half-read sequence (the terminal was handed to another program and back). */
   reset() { this.pending = ""; }
 
@@ -311,7 +317,15 @@ export class KeyDecoder {
       }
       // Replies to our own queries.
       let m = p.match(/^\x1b_G([^\x1b]*)\x1b\\/);
-      if (m) { if (this.probing && /i=31/.test(m[1]!)) { this.probing.kitty = /OK/.test(m[1]!); this.info.kitty = this.probing.kitty; } this.pending = p.slice(m[0].length); continue; }
+      if (m) {
+        this.pending = p.slice(m[0].length);
+        const [keys = "", message = ""] = m[1]!.split(";");
+        const id = Number(/(?:^|,)i=(\d+)/.exec(keys)?.[1]);
+        if (this.probing && id === 31) { this.probing.kitty = /OK/.test(message); this.info.kitty = this.probing.kitty; }
+        // Only a missing image is drawn again: any other refusal (too big, a bad parameter) would fail the same way.
+        else if (/^ENOENT\b/.test(message) && Number.isFinite(id)) this.kittyError?.(id, message);
+        continue;
+      }
       m = p.match(/^\x1b\[6;(\d+);(\d+)t/);
       if (m) { this.info.cellH = Number(m[1]); this.info.cellW = Number(m[2]); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
