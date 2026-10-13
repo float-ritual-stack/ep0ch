@@ -1410,7 +1410,7 @@ children is a board; `g` picks one. The last board per outline is remembered.
   width goes to its neighbours. `c`, `⏎` or a click on a spine opens it; its `×` (or `^W x`) closes it without
   opening it; `alt+c` opens everything collapsed. A new detail makes room as on every screen (the readers row's
   `readable`, PIE-794): while it would be narrower than a readable width, the earlier details fold to spines (never
-  the preview), where the row once closed the oldest past two.
+  the preview, the one you have, or one holding an edit or a comment), where the row once closed the oldest past two.
   A collapsed reader keeps its edit, comment or property panel exactly: nothing is saved, sent or dropped,
   `Ctrl+C` still asks twice, and opening it returns to it (`e` enters it again). Its own keys don't reach
   it while collapsed. A note opened into a collapsed reader (`⏎`, `open`) opens it. Floats don't collapse.

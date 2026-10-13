@@ -316,32 +316,35 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(message()).toContain(`an agent (${AS}) closed ${f.now}`);
   });
 
-  test("growth by room (PIE-794): an agent's quiet open adds a detail and closes none; the earlier one the person doesn't have folds to a spine, never theirs", async () => {
+  test("growth by room (PIE-794): an agent's quiet open adds a detail and closes none; an earlier one folds to a spine, never the person's nor one holding an edit", async () => {
     await withDetails();
     await act("edit.text", { text: "Prune the apples [stage::queued]\nAn agent's draft." }, "detail2");
     await until(() => !!details()[1].draft, "the agent's draft");
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const mine = details()[0], held = details()[1];
+    const folded = () => ((b as any).layoutGet().tiles as any[]).filter(t => t.collapsed).map(t => t.name);
+    // detail1 is the person's, detail2 holds an edit: the new detail opens beside them, none folds, none closes.
     b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
-    // Nothing closes: the new detail is the third; the row past its readable width folds detail2 (its draft kept), not detail1.
     expect(details()).toContain(mine);
     expect(details()).toContain(held);
     expect(row()).toEqual(["preview", "detail1", "detail2", "detail3"]);
-    const folded = () => ((b as any).layoutGet().tiles as any[]).filter(t => t.collapsed).map(t => t.name);
-    expect(folded()).toEqual(["detail2"]);
-    expect(held.draft).toBeTruthy();
-    expect(focus()).toBe("detail1");
-    expect(message()).toContain("folded detail2 to a spine");
-    // The spine's × closes it without opening it (tile.close, as ^W x); a tile holding an edit has none until it's closed.
-    const x = () => { b.render(B().ctx); return (b as any).closeButtons.find((c: any) => c.id === (b as any).idNamed("detail2")); };
-    expect(x()).toBeUndefined();
-    await act("edit.close", { discard: true }, "detail2");
-    expect(x()).toBeDefined();
-    const x2 = x();
-    mouse("down", x2.from, x2.row); mouse("up", x2.from, x2.row);
-    await until(() => !row().includes("detail2"), "the spine closed by its ×");
     expect(folded()).toEqual([]);
+    expect(focus()).toBe("detail1");
+    // With the edit gone, the next one folds the earlier detail the person doesn't have.
+    await act("edit.close", { discard: true }, "detail2");
+    b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
+    expect(row()).toEqual(["preview", "detail1", "detail2", "detail3", "detail4"]);
+    expect(folded()).toContain("detail2");
+    expect(folded()).not.toContain("detail1");
+    expect(message()).toMatch(/folded .*detail2.* to (a spine|spines)/);
+    // The spine's × closes it without opening it (tile.close, as ^W x).
+    const x = () => { b.render(B().ctx); return (b as any).closeButtons.find((c: any) => c.id === (b as any).idNamed("detail2")); };
+    const at = x();
+    expect(at).toBeDefined();
+    mouse("down", at.from, at.row); mouse("up", at.from, at.row);
+    await until(() => !row().includes("detail2"), "the spine closed by its ×");
+    expect(folded()).not.toContain("detail2");
   });
 
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {
