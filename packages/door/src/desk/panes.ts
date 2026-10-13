@@ -10,11 +10,11 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import type { Activity, Actor } from "../socket";
+import { USER, type Activity, type Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
@@ -60,6 +60,8 @@ export interface DeskApi {
    * on any desk (PIE-727: a desk holding only a group took seven presses, each refused on the status bar).
    */
   leave?(): void;
+  /** A `#tag` opened in reader `r` (PIE-800): the notes carrying it, in a query tile whose home is `r`. */
+  openTag?(r: Pane, tag: string, actor: Actor): Promise<TagList>;
   /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
   revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */
@@ -378,6 +380,8 @@ export class ReaderPane implements Pane {
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
       summaryKeys: m => desk.summaryKeys?.(m),
+      // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
+      ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER) } : {}),
       // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
       ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).

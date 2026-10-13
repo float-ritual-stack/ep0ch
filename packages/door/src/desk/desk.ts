@@ -23,7 +23,7 @@ import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyNam
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
@@ -54,6 +54,7 @@ import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
 import { ScreenTile } from "./screen-tile";
+import { QueryPane } from "./query";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
@@ -1450,6 +1451,40 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     await desk.panes.get(tid)!.reveal!(m, desk);
     desk.redraw(); this.redraw();
     return { revealed: m.id, outline: desk.pathTo(desk.panes.get(tid)!) ?? desk.nameOf(tid) };
+  }
+
+  /**
+   * DeskApi.openTag (PIE-800): a `#tag` opened in reader `r` lists the notes carrying it (the service's `#tag` query, the
+   * atom views use) in a query tile whose home is `r` (PIE-794: its selection previews, ⏎ replaces `r`'s note, alt+⏎ a
+   * new detail beside `r`): the one already listing for `r`, asked the new tag, else one opened below `r` with a preview
+   * following its selection beside it, as `b` opens the links tile (tile.open, the layout's rules: a locked screen says
+   * so). The person's keys go to the list; an agent's stay where they are, and an agent never retargets the person's list
+   * (it is answered the notes instead).
+   */
+  async openTag(r: Pane, tag: string, actor: Actor): Promise<TagList> {
+    const rid = this.idOf(r);
+    if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
+    const home = this.nameOf(rid), query = `#${tag}`;
+    let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && p.home === home; });
+    const opened = id === undefined;
+    // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
+    if (!opened && actor.kind === "agent") {
+      const r = await this.ctx.board.queryNotes(query, 200);
+      return { tag, tile: this.nameOf(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
+    }
+    if (id === undefined) {
+      const list = await this.openTile({ kind: "query", query, source: `tile:${home}` }, home, "down", actor);
+      await this.openTile({ kind: "preview", source: `tile:${list.tile}` }, list.tile, "right", actor);
+      id = this.idNamed(list.tile)!;
+    }
+    const q = this.panes.get(id);
+    if (!(q instanceof QueryPane)) throw new ActionRefused(`no list opened for #${tag}: the screen made ${this.nameOf(id)} instead`);
+    await q.retarget(query, this);
+    // A query the service refused is said, never answered as no notes (the tile shows it too).
+    if (q.read?.status === "failed") throw new ActionRefused(`#${tag}: ${q.read.errors.join("; ") || "the service couldn't answer"}`);
+    if (actor.kind !== "agent") { this.keysTo(id); q.focused(this); }
+    this.save(); this.redraw();
+    return { tag, tile: this.nameOf(id), query, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
   }
 
   /** DeskApi.hasFocus: tile `p` has the person's focus (a whole screen in it sees them through it). */
@@ -3574,7 +3609,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const base = this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.

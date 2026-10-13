@@ -93,6 +93,8 @@ export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor }
  * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
  */
 export interface Outside { outside: "browser" | "viewer"; url: string; launched: boolean }
+/** A `#tag` opened (PIE-800): the list the host made or asked, and the notes carrying the tag (an agent's answer). */
+export interface TagList { tag: string; query: string; tile?: string; notes: { id: string; title: string }[] }
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -112,6 +114,11 @@ export interface SurfaceHost {
   freshClick?: boolean;
   /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
   revealInOutline?(): void;
+  /**
+   * A `#tag` was opened in the note (PIE-800): the host lists the notes carrying it (the service's `#tag` query), as a
+   * list whose home is this reader. `how.by` is who opened it.
+   */
+  tag?(tag: string, how?: OpenHow): Promise<TagList>;
   /** The click being handled gave this reader the keys: a list's row is only selected by it (PIE-794), as in a links tile. */
   focusing?: boolean;
   /**
@@ -311,7 +318,7 @@ export type Link = LinkTarget;
 const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
 /** A live figure's tab or density control, named across renders (its figure's key, then which). */
 const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : "density"}`;
-const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
+const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -3319,7 +3326,7 @@ export class NoteSurface {
   }
 
   /** ⏎ on a selected link: media open in the system viewer, blocks and pages open through the host. */
-  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | Outside | null> {
+  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | Outside | TagList | null> {
     const l = this.links[i];
     return l ? this.followTarget(l, host, { link: true, fresh }) : Promise.resolve(null);
   }
@@ -4134,7 +4141,7 @@ export class NoteSurface {
    * Open a link the host drew itself (the river's note body): it becomes the selected `[ ]` link when
    * it is one of them, then opens where ⏎ on it would.
    */
-  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | Outside | null> {
+  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | Outside | TagList | null> {
     // A step's box opens its status choice; a row of an open choice chooses it (PIE-472).
     if ((l.role === "task" || l.role === "callout") && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
     if (l.role === "callout" && l.callout) {
@@ -4198,7 +4205,12 @@ export class NoteSurface {
   }
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
-  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | null> {
+  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | null> {
+    // A `#tag` (PIE-800): the notes carrying it, listed where the host lists them (the desk: a query tile beside this reader).
+    if (l.tag !== undefined) {
+      if (!host.tag) { host.ctx.flash(`#${l.tag}: this screen has nowhere to list the notes carrying it · / searches #${l.tag}`); return null; }
+      return host.tag(l.tag, { ...how, ...(host.actor ? { by: host.actor } : {}) });
+    }
     // An artifact's card (PIE-793) opens it running on its web page: as an element (with its line), or as one of the
     // note's followable links (its path alone: the note's artifact line that names it).
     if (l.media && l.image && parseMediaLine(l.image.source)?.kind === "artifact") return this.openArtifact(l.image, host);
@@ -6473,6 +6485,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const m = await surface.followLink(i, host, !!fresh);
       // Outside the door (a web page, a file): the person's opened there; an agent's is given the address.
       if (m && "outside" in m) return { opened: null, ...m };
+      // A #tag (PIE-800): the list it opened (or, for an agent, the notes carrying it).
+      if (m && "query" in m) return { opened: null, ...m };
       if (m) surface.noteAgent(actor, `followed a link to ${subject(m).slice(0, 40)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
     },

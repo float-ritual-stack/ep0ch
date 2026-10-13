@@ -467,6 +467,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "tags", need: "open the notes carrying a #tag from the tag itself, in a note", part: "a #tag the service reads as a tag is a link (refs.ts presentLinks: LinkTarget.tag, from the service's property tokens, never re-parsed): [ ], ⏎, a click and element.open list the notes carrying it in a query tile beside the reader (Desk.openTag: query=#tag, the service's #tag atom, its home that reader), with a preview of its selection; the list opens as every list does (PIE-794)", files: "src/refs.ts (tagsIn, presentLinks), src/surface/note.ts (followTarget, SurfaceHost.tag), src/desk/desk.ts (openTag), src/desk/query.ts (query=, home)",
+    aside: "the detail holds Before the first frost: #frost-jobs and #compost in its text are links · a click on #frost-jobs opens a list below the detail of every note tagged with it (the standpipe too: #frost-jobs/water is a nested tag, as views read it), a preview beside the list · j k or a click previews a job, ⏎ or a double click opens it in the detail (alt+← comes back), alt+⏎ in a new detail beside · a click on #compost asks the same list for the other tag · `act element.open n=<the tag's element>` does it for an agent, and its list never takes your keys",
+    stage(n, show) {
+      const d = detailPane();
+      return deskOf({ title: "showcase · tags", panes: [d], names: ["detail"] }, show, [], dsk => { if (n.frost) d.hold(n.frost, dsk); });
+    },
+  },
+  {
     key: "children", need: "list a note's children (a thread's replies) with its links; choose which groups a links tile lists", part: "the one links model's Children group (PIE-693): the notes under a block, with the kind and stage the service computes (blocks.facets), narrowed by Kind, Stage and Sort and counted with the rest; a links tile's groups (backlinks.groups: v, a click on the counters, the tile menu; saved with the layout); the thread tile is a links tile with Children alone", files: "src/links.ts (readChildren, ChildLink), src/desk/backlinks-pane.ts (groups, backlinks.groups), outliner src/store.ts (blockFacets)",
     aside: "left: the seed swap thread · middle: its links, every group: outlinks, resources, backlinks and ↓ children, the counters →♦←↓ across them · right: the same tile with Children alone (the replies) · w steps Stage (open keeps Ana's and Cal's), K the kind, s the sort, on every group · v (or a click on the counters) lists the groups, a click switches one · j k preview, ⏎ opens a reply in the reader, alt+⏎ in a new detail · `act backlinks.groups tile=links show=children,backlinks` does it for an agent, attributed; it never takes your keys",
     stage(n, show) {

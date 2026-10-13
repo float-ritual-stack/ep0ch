@@ -325,6 +325,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
     // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
     "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
+    // The frost note in a detail, its #tags drawn as links.
+    tags: ["Before the first frost", "#frost-jobs", "#compost"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
     children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
     // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
@@ -1085,6 +1087,57 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !!closes(), "the spine's ×", 5000);
     await stage().dispatch.act({ action: "tile.close", tile: gone }, { kind: "user" });
     expect(made()).not.toContain(gone);
+    expect(S().focus).toBe("index");
+  }, 30_000);
+
+  test("tags (PIE-800): a #tag is a link; opening it lists the notes carrying it beside the reader, nested tags too; the list previews, ⏎ replaces the reader's note, alt+⏎ opens beside", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "tags" }, as: "test-agent" })).toMatchObject({ key: "tags" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "tags")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    const detail = () => stage().pane("detail") as any;
+    const person = (action: string, args: Record<string, unknown> = {}, tile = "detail") => stage().dispatch.act({ action, tile, args }, { kind: "user" });
+    const tagElem = (tag: string) => (detail().surface.describeElements() as any[]).find(e => e.label === `#${tag}` || e.label?.includes(`#${tag}`));
+    await until(() => shows("detail") === seeded.notes.frost.id && !!tagElem("frost-jobs"), "the frost note, its #tags as links", 8000);
+    // Opening the tag (⏎ on it, a click) lists every note carrying it (a nested tag's too, and this note) below the detail.
+    await person("element.open", { n: tagElem("frost-jobs").n });
+    const list = () => tiles().find(t => t.kind === "query");
+    await until(() => (list()?.query ?? "") === "#frost-jobs" && (list()?.cards?.length ?? 0) === 4, "the frost jobs listed", 8000);
+    expect(list().cards.map((c: any) => c.title).sort()).toEqual(["Before the first frost", "Fleece over the brassicas", "Lag the standpipe", "Lift the dahlias"]);
+    expect(list().home).toBe("detail");
+    const L = list().name as string, P = tiles().find(t => t.kind === "preview")?.name as string;
+    const job = list().cards.findIndex((c: any) => c.title === "Lag the standpipe") + 1, lag = list().cards[job - 1].id;
+    // A pick previews (the detail keeps its note); ⏎ replaces the detail's note, kept in its history.
+    const pick = (args: Record<string, unknown>) => person("query.pick", args, L);
+    await pick({ n: job });
+    await until(() => shows(P) === lag, "the preview following the pick", 5000);
+    expect(shows("detail")).toBe(seeded.notes.frost.id);
+    await pick({ n: job, open: true });
+    await until(() => shows("detail") === lag, "⏎: the detail holds it", 5000);
+    expect(tiles().find(t => t.name === "detail").mode).toBe("held");
+    // alt+⏎: a new detail beside the home, which keeps its note.
+    const before = tiles().length;
+    await pick({ n: job, fresh: true });
+    await until(() => tiles().length === before + 1, "a new detail", 5000);
+    expect(shows("detail")).toBe(lag);
+    // Back on the frost note, #compost asks the same list for the other tag.
+    await person("back");
+    await until(() => shows("detail") === seeded.notes.frost.id && !!tagElem("compost"), "back on the frost note", 5000);
+    await person("element.open", { n: tagElem("compost").n });
+    await until(() => list()?.query === "#compost" && list()?.cards?.length === 2, "the compost list", 5000);
+    expect(tiles().filter(t => t.kind === "query")).toHaveLength(1);
+    // An agent opening a tag there is answered the notes; the person's list keeps its tag and selection.
+    const sel = list().selected?.id;
+    const out = await app.act({ action: "element.open", tile: "detail", args: { n: tagElem("frost-jobs").n }, as: "test-agent" }).catch((e: Error) => ({ refused: e.message })) as any;
+    expect(out.refused).toBeUndefined();
+    // Its answer is the notes carrying the tag.
+    expect(out).toMatchObject({ query: "#frost-jobs" });
+    expect(out.notes.map((x: any) => x.title)).toContain("Lag the standpipe");
+    expect(list().query).toBe("#compost");
+    expect(list().selected?.id).toBe(sel);
+    // The list saves with the screen as written: its query and its home.
+    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail"`);
     expect(S().focus).toBe("index");
   }, 30_000);
 
