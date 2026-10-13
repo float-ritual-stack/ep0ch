@@ -9,8 +9,8 @@ export interface TossHealth {
   outline: string;
   /** When its last toss wrote the bulletin (ms since the epoch), or null when it never has. */
   lastToss: number | null;
-  /** How often its schedule tosses (ms), from its copy of the extension. */
-  everyMs: number;
+  /** How often its schedule tosses (ms), from its copy of the extension; null when no interval says. */
+  everyMs: number | null;
   /** ok: within twice the schedule; stale: older (or never), with the command that tosses now. */
   status: "ok" | "stale";
   /** "tossed 4 min ago (every 30m)", or what's wrong and since when. */
@@ -27,15 +27,18 @@ export function ago(ms: number): string {
   return `${Math.round(s / 86400)} days`;
 }
 
-/** A schedule's `every` (`30m`, `90s`, `2h`) in ms; 30 minutes when it can't be read. */
-function everyOf(manifest: string): { ms: number; text: string } {
+/**
+ * A toss's schedule as its copy of the extension declares it: `every` (`30m`, `90s`, `2h`) in ms, or null when it has
+ * none (it tosses only when asked) or one no interval says (a cron): then no age is too old.
+ */
+function everyOf(manifest: string): { ms: number; text: string } | null {
+  let schedule: { every?: string; cron?: string } | undefined;
   try {
-    const actions = (JSON.parse(readFileSync(manifest, "utf8")) as { actions?: Array<{ id?: string; schedule?: { every?: string } }> }).actions ?? [];
-    const every = actions.find((action) => action.id === "toss")?.schedule?.every ?? "30m";
-    const match = /^([1-9]\d{0,4})([smh])$/.exec(every);
-    if (match) return { ms: Number(match[1]) * { s: 1000, m: 60_000, h: 3_600_000 }[match[2] as "s" | "m" | "h"], text: every };
-  } catch { /* the default */ }
-  return { ms: 30 * 60_000, text: "30m" };
+    const actions = (JSON.parse(readFileSync(manifest, "utf8")) as { actions?: Array<{ id?: string; schedule?: { every?: string; cron?: string } }> }).actions ?? [];
+    schedule = actions.find((action) => action.id === "toss")?.schedule;
+  } catch { return null; }
+  const match = /^([1-9]\d{0,4})([smh])$/.exec(schedule?.every ?? "");
+  return match ? { ms: Number(match[1]) * { s: 1000, m: 60_000, h: 3_600_000 }[match[2] as "s" | "m" | "h"], text: schedule!.every! } : null;
 }
 
 /** Each outline in `outlines` with EchoNet in its own folder: when it last tossed, and whether that's too long ago. */
@@ -50,14 +53,20 @@ export function tossHealth(outlines: string, now = Date.now()): TossHealth[] {
     let lastToss: number | null = null;
     try { lastToss = statSync(join(outlines, name, "echonet", "bulletin.json")).mtimeMs; } catch { /* never tossed */ }
     const fix = `ep0ch echo toss --ws ${name}`;
+    const everyMs = every?.ms ?? null;
+    // No interval to hold it to (tossed only when asked, or on a cron): its age is said, never a warning.
+    if (!every) {
+      out.push({ outline: name, lastToss, everyMs, status: "ok", detail: lastToss === null ? "EchoNet is on with no interval schedule, and hasn't tossed yet" : `tossed ${ago(now - lastToss)} ago (no interval schedule)` });
+      continue;
+    }
     if (lastToss === null) {
-      out.push({ outline: name, lastToss, everyMs: every.ms, status: "stale", detail: `EchoNet is on, and it has never tossed (every ${every.text}): is its outline host running?`, fix });
+      out.push({ outline: name, lastToss, everyMs, status: "stale", detail: `EchoNet is on, and it has never tossed (every ${every.text}): is its outline host running?`, fix });
       continue;
     }
     const age = now - lastToss;
     out.push(age <= 2 * every.ms
-      ? { outline: name, lastToss, everyMs: every.ms, status: "ok", detail: `tossed ${ago(age)} ago (every ${every.text})` }
-      : { outline: name, lastToss, everyMs: every.ms, status: "stale", detail: `last tossed ${ago(age)} ago, and it tosses every ${every.text}: its schedule isn't running (is its outline host?)`, fix });
+      ? { outline: name, lastToss, everyMs, status: "ok", detail: `tossed ${ago(age)} ago (every ${every.text})` }
+      : { outline: name, lastToss, everyMs, status: "stale", detail: `last tossed ${ago(age)} ago, and it tosses every ${every.text}: its schedule isn't running (is its outline host?)`, fix });
   }
   return out;
 }

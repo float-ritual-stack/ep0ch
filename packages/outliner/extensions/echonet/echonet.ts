@@ -586,7 +586,7 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>, ledge
       continue;
     }
     if (await tossSource(sub, link, link.origin, board, wanted, name, everyCopy, ledger)) read.push(link);
-    else say(`${node.id} (${name}): no area there named ${wanted.areas.join(" or ")}`);
+    else { if (board || exact) trouble = true; say(`${node.id} (${name}): no area there named ${wanted.areas.join(" or ")}`); }
   }
   if (!nodes.size) { trouble = true; log.push(`- ${name}: ${wanted.masks.map((mask) => mask.text).join(", ")} matches no node this toss`); }
   return read;
