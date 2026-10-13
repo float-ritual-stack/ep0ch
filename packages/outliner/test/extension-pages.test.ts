@@ -158,12 +158,12 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect((await children(gone.pages.notify!)).map((note) => note.id)).toEqual([start!.id]);
   // Installed again: the boards that went to Trash are written fresh; the note you kept isn't written twice.
   const back = await client.request<{ page?: string }>({ action: "extensions.install", extension: "notify", where: "outline" });
-  expect((await children(back.page!)).map((note) => note.text.split("\n")[0].replace(/-2\]$/, "]"))).toEqual([
+  expect((await children(back.page!)).map((note) => note.text.split("\n")[0])).toEqual([
     "Start here: your notifications on two boards", "Notifications by read state [page::notifications-state]", "Notifications by source [page::notifications-source]",
   ]);
   expect((await children(back.page!))[0]!.id).toBe(start!.id);
-  // Its address was taken by the board in Trash: the new one has the next, and nothing failed.
-  expect((await children(back.page!))[1]!.text).toBe("Notifications by read state [page::notifications-state-2]");
+  // The board in Trash gave its address up (PIE-312): the new one has it, and [[notifications-state]] leads to it.
+  expect(store.resolvePageAddress("notifications-state").block?.id).toBe((await children(back.page!))[1]!.id);
   expect((await list() as { pagesProblem?: string }).pagesProblem).toBeUndefined();
   await client.request({ action: "extensions.uninstall", extension: "notify", demo: "keep" });
   // The runbook's demo, unchanged: all of it goes, and its page with it.
