@@ -762,6 +762,17 @@ It is read at each write, so a change needs no restart. A stdio process or the m
 laptop's `claude-code` can't claim `loki` while the list says `claude-code@float-2=loki`). Older writes keep the actor id
 they were made with.
 
+**A path names the persona (PIE-804).** The gateway answers MCP at its resource path (`https://mcp.ep0ch.sh/mcp`) and at
+`/<name>/mcp` beside it: a connector added at `https://mcp.ep0ch.sh/gpty/mcp` writes as `gpty`, whatever the list says,
+recorded as `mcp:gpty/<client>` (any name; nothing to register, ADR 0003 §2). `/mcp` is as before. Each path is its own
+OAuth resource: its metadata at `/.well-known/oauth-protected-resource/<name>/mcp`, its own URL in a token's `aud`, so
+a client signs in at the path it was given. A named path does at most `propose`, whatever an outline's setting allows
+(`EP0CH_MCP_PATH_ACCESS=gpty=full,warp=read` changes it per path, read at each request); `none` and `read` still hold.
+The principal stays the client the token names: a dynamically registered client's id says nothing, so
+`EP0CH_MCP_CLIENT_NAMES=<client_id>=chatgpt` (same places as the persona list) gives it its name. Adding a client:
+its client id on `EP0CH_MCP_ALLOWED_CLIENTS` (the unit), its name on `EP0CH_MCP_CLIENT_NAMES`, a restart of ep0ch-mcp,
+and the connector added at `https://mcp.ep0ch.sh/<name>/mcp`.
+
 ### Agents make outlines of their own
 
 `outline_new` (stdio and the gateway, one tool path) makes a scratch outline for the fleeting things that don't belong in
