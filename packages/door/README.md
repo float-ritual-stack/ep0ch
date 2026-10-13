@@ -1770,9 +1770,9 @@ each is another float, and the one you were in stays open where it was. It works
 where it was, as a click away leaves it (PIE-812). A float's title drags it; dropped on a tile's header it docks into
 that tile's tabs, on the screen's outer edge as a column, on a dock's handle into the dock (the hint row says which
 before you let go). Its `×` (or `^W x`) closes it: written, it's saved first; still empty, it goes to the trash.
-`Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you left with
-nothing typed stays open, empty, until you come back to it (`e` or a click enters it); one you typed in is saved as
-you leave it.
+`Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you leave stays
+open as it was, typed in or not, until you come back to it (a click on it or the keys back put you in it, PIE-812);
+`ctrl+s` saves it.
 
 - **Elsewhere, or your way.** `note.opens opens=tab` makes them a new tab on the tile you're in, `drawer` a tab in
   your drawer (pulled up, your keys in it), `lands` where the screen's opens land (a reader beside it, the board's

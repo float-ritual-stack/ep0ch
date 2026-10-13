@@ -159,6 +159,11 @@ export interface SurfaceHost {
   gone?(id: string): void;
   /** This is the reader the person has focused (for the reader on its own, `NoteSurface.alone`); false: it isn't. */
   focused?: boolean;
+  /**
+   * The person is in this reader's edit, comment or panel: their keys type into it (the desk's entered session). False:
+   * one open here is left as it was (PIE-812), drawn away. Undefined: the host doesn't say (a reader on its own).
+   */
+  entered?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.run sets it), else the person's. */
   actor?: Actor;
   /**
@@ -2429,7 +2434,7 @@ export class NoteSurface {
       click: (x, y, host) => this.writeClick(d, x, y, host),
       press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
       wheel: dir => this.writeWheel(d, dir),
-      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host), host?.focused === false) : null),
+      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host), (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null),
       leave: async (host, actor) => {
         const r = await s.leave(actor);
         host.redraw();
