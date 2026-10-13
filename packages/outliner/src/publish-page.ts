@@ -682,6 +682,7 @@ export class PageMarginalia {
         const body = text(input.body).trim();
         if (!body) return refused(400, "a comment can't be emptied by an edit: change its words, or Cancel");
         const revision = Number(input.revision);
+        if (!Number.isSafeInteger(revision) || revision < 1) return refused(400, "say the revision the edit started from (the card's edit.revision)");
         const record = await this.host.request<AnnotationRecord>({ action: "annotations.get", annotationId: mark });
         if (!editableHere(record, share)) return refused(403, "this link edits only what was written through it");
         try {

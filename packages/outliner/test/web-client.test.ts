@@ -182,6 +182,7 @@ test("highlight, comment, an answered ask, reply and seen land in the outline, a
   const drawnComment = replied as unknown as { edit: { revision: number; words: string }; replies: { id: string; edit: { revision: number; words: string } }[] };
   expect(drawnComment.edit.words).toBe("Count them again in October.");
   expect((await write({ page: survey.id, action: "edit", mark: commented.thread, revision: drawnComment.edit.revision, body: "Count them again in late October." })).status).toBe(200);
+  expect((await write({ page: survey.id, action: "edit", mark: commented.thread, revision: "soon", body: "No revision." })).status).toBe(400);
   const stale = await write({ page: survey.id, action: "edit", mark: commented.thread, revision: drawnComment.edit.revision, body: "Lost words." });
   expect(stale.status).toBe(409);
   expect((await stale.json()).error).toContain("your words are still in the box");
