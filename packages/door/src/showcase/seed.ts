@@ -97,7 +97,9 @@ export const ECHO_NODELIST = [
   "The nodes this outline knows, written again by EchoNet's tosser at every toss.", "",
   "## kitchen@box-b", "- this node · access read", "- last toss: 2026-03-03T09:31:00Z", "- areas: plot.chat (Plot chat)", "- subscriptions: seed.swap from society@box-a", "",
   "## society@box-a", "- reachable · access propose · we read its seed.swap", "- last toss: 2026-03-03T09:30:00Z", "- areas: seed.swap (Seed swap)", "- subscriptions: plot.chat from kitchen@box-b", "",
-  "## attic@box-c", "- unreachable: no forward to box-c · reads our areas", "- last toss: unknown", "- areas: unknown", "- subscriptions: unknown",
+  "## attic@box-c", "- unreachable: no forward to box-c · reads our areas", "- last toss: unknown", "- areas: unknown", "- subscriptions: unknown", "",
+  // A machine that dials in (a laptop whose inbound ssh is off): never down, its last call and the netmail held for it.
+  "## shed@box-d", "- dials in · last call 2026-03-03 08:12 UTC · reads our areas", "- netmail held: 1 (its next call takes it)", "- last toss: 2026-03-03T08:12:00Z", "- areas: unknown", "- subscriptions: unknown",
 ].join("\n");
 export const ECHO_TOSSES = [
   "Toss 2026-03-02 09:30 UTC [type::toss] [node::kitchen@box-b] [at::2026-03-02T09:30:00Z] [copies::2] [updated::0] [skipped::0] [netmail-out::0] [netmail-in::0] [queued::0]",

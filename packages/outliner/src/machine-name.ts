@@ -8,7 +8,7 @@
 // (written by `ep0ch install --apply`; its first line is the name, the lines after it the names it had before), else
 // the host name as before.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { isMachineName, MACHINE_NAME_PATTERN, outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -85,5 +85,25 @@ export function writeMachineName(name: string, env: NodeJS.ProcessEnv = process.
   const temporary = `${file}.${process.pid}.tmp`;
   writeFileSync(temporary, [name, ...before].map((line) => `${line}\n`).join(""));
   renameSync(temporary, file);
+  return file;
+}
+
+/**
+ * Whether this machine dials in (EchoNet, PIE-562): it calls the other machines and is never called, because its
+ * inbound ssh is off or gated. `<outlines>/.host/dials-in` says so; `ep0ch install --apply --dials-in` writes it.
+ */
+export function dialsIn(outlines?: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return existsSync(outlineLayout(outlines ?? resolveOutlinesFolder(env)).dialsIn);
+}
+
+/** Says this machine dials in, or that it is called like any other (`on: false` takes the file away); answers the file. */
+export function writeDialsIn(on: boolean, env: NodeJS.ProcessEnv = process.env): string {
+  const file = outlineLayout(resolveOutlinesFolder(env)).dialsIn;
+  if (!on) {
+    rmSync(file, { force: true });
+    return file;
+  }
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, "This machine calls the others for EchoNet and is never called (ep0ch install --apply --no-dials-in undoes it).\n");
   return file;
 }

@@ -183,6 +183,11 @@ export interface Facts {
    * `--machine-name` (or the person, asked) gave this run; `suggested`: the short host name, offered when none is set.
    */
   machineName?: { file: string; configured: string | null; env?: string; suggested: string; chosen?: string };
+  /**
+   * Whether this machine dials in (EchoNet, `<outlines>/.host/dials-in`): it calls the others and is never called.
+   * `chosen`: what `--dials-in` or `--no-dials-in` asked for this run.
+   */
+  dialsIn?: { file: string; configured: boolean; chosen?: boolean };
   databases: DatabaseFacts[];
   /** The schema the checkout's code opens and each outline's (PIE-617); undefined when not looked for. */
   schema?: SchemaFacts;

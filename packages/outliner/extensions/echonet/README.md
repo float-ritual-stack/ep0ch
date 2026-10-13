@@ -71,7 +71,8 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
   (this one, the ones it reads, the ones that read it), reachable or not and why (another protocol says which machine
   to update and how), its access, areas and subscriptions, its last toss. Under it, a **toss log** per run
   (`[type::toss]` with `copies`, `waiting`, `updated`, `gone`, `skipped`, `netmail-out`, `netmail-in`, `queued`,
-  `undeliverable`) and the **ledger** (`[type::echo-ledger]`): each mark carried and where it went.
+  `held`, `undeliverable`) and the **ledger** (`[type::echo-ledger]`): each mark carried and where it went, and the
+  last call of each node that dials in.
 
 ## Offline, access and conflicts
 
@@ -106,11 +107,40 @@ that outline's own `extensions/`. It tosses every 30 minutes. From the shell:
 
 In the door, the EchoNet screen (`ep0ch --screen echonet`) reads the areas as message areas.
 
+### A machine that dials in
+
+A laptop whose inbound ssh is off (a work policy, or gated by hand) can still ssh out. Mark it as the one that calls,
+on it: `ep0ch install --apply --machine-name laptop --dials-in` (`<outlines>/.host/dials-in`; `--no-dials-in` undoes
+it). Then its toss, after its own subscriptions, **calls** each node on another machine that reads it or holds its
+copies (`float-hub@laptop` calls `pie@float-2`), through the relay and held to that node's access level, and does that
+node's toss for it:
+
+- its areas' new messages go into that node's subscriptions that name it (`[subscribe::float-hub@laptop]`, or a mask
+  that matches it), on the same source board, with the same `since`, `cap`, seen-by and markers that node's own toss
+  would write; they read `ext:echonet@float-hub@laptop`;
+- netmail both ways: comments written there on its copies come down to the originals here, and replies written here
+  go back up into their threads. (Its own comments on its copies of pie's notes go up by its own subscription, as
+  before.)
+- `call float-hub@laptop -> <time>` in that node's ledger, with `aka <old name> -> float-hub@laptop` for each name it
+  went by (it is never reached to be asked, so its old-name marks there stay one node's), and a toss log `Call from float-hub@laptop …
+  [call::pie@float-2]` under its nodelist.
+
+A call writes copies and the ledger, so it needs that node to grant `full` (`ep0ch mcp access full --ws pie` on
+float-2); otherwise its log says so and nothing is written.
+
+The node it calls learns from the `call` line that the machine dials in, and never ssh's to it again: its toss says
+`waiting for float-hub@laptop to call in (last call …)` as status, never an error, and the nodelist shows
+`- dials in · last call 2026-10-12 14:02 UTC` with `- netmail held: n`, the comments waiting there for the next call
+(the door's nodelist says `DIAL`, never `DOWN`). Nothing queues beyond those marks. `<outlines>/.remote/laptop.json`
+on float-2 can say it outright: `{ "dialsIn": true }` before the first call, `false` to call it again whatever the
+ledger learned. Both hosts need protocol 153, and each outline's echonet copy this version (`ep0ch ext add echonet
+--outline-folder <outlines>/<name>` again updates it).
+
 ### Troubleshooting: a node shows under two names
 
 The nodelist has `## float-hub@laptop` and `## float-hub@evans-MacBook-Pro.local`, or an original has two seen-by
 marks from one outline: that machine signs with its host name while this one reaches it as `laptop`. Name it as the
 others reach it, on that machine: `ep0ch install --apply --machine-name laptop` (from here, `ssh laptop ep0ch install
---apply --machine-name laptop`). Both hosts need this version (protocol 152). The next toss there signs as
+--apply --machine-name laptop`). Both hosts need the same version (protocol 152 or later, the same on both). The next toss there signs as
 `float-hub@laptop`; the next toss here learns the old name from it, lists it under `## float-hub@laptop` as
 `- also known as:`, and counts the old marks as that node's.
