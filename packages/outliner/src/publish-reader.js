@@ -924,12 +924,17 @@
       }
     }
     for (const node of marksOf(active || "")) node.classList.add("on");
-    // The foot of the note: the margin's setting, every current thread (the index), the Earlier shelf, the note's own
-    // comments, and any card that couldn't be placed. With the shelf, the index is every thread on the note.
+    // The margin's setting is a bar held at the bottom of the window (PIE-800), so a long page doesn't hide it at its
+    // foot: the last thing in the page, it sits there once the page is read to its end.
+    main.querySelector(":scope > .mg-margin-bar")?.remove();
+    if (threads.length) {
+      main.append(el("div", { class: "mg-margin-bar mg-ui" }, el("div", { class: "mg-setting", role: "group", "aria-label": "the margin" }, el("span", { class: "who", text: "margin" }),
+        ...MARGINS.map((value) => el("button", { type: "button", class: value === marginSetting ? "on" : "quiet", "aria-pressed": String(value === marginSetting), text: value, onclick: () => setMargin(value) })))));
+    }
+    // The foot of the note: every current thread (the index), the Earlier shelf, the note's own comments, and any card
+    // that couldn't be placed. With the shelf, the index is every thread on the note.
     const foot = el("div", { class: "mg-whole mg-ui" });
     if (threads.length) {
-      foot.append(el("div", { class: "mg-setting", role: "group", "aria-label": "the margin" }, el("span", { class: "who", text: "margin" }),
-        ...MARGINS.map((value) => el("button", { type: "button", class: value === marginSetting ? "on" : "quiet", "aria-pressed": String(value === marginSetting), text: value, onclick: () => setMargin(value) }))));
       if (rows.length) foot.append(el("h2", { text: `On this note · ${rows.length}` }), el("ul", { class: "mg-index" }, ...rows));
       if (shelf.length) foot.append(el("h2", { text: `Earlier · ${shelf.length}` }), el("ul", { class: "mg-index mg-shelf" }, ...shelf));
     }

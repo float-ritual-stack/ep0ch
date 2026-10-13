@@ -888,8 +888,9 @@ listener is untouched (below): read-only, marked notes only.
 - **Seen, Keep and TL;DR** (PIE-791), not Resolve: an open card's one row is Reply, Seen, Keep, TL;DR and ⋯ (Quote,
   Pick). Seen puts a thread on the foot's **Earlier** shelf (one line each, opened in place, with Back); a new reply
   brings it back. Keep keeps it. TL;DR asks @margin for a summary (or edits it: his words are the newest), which
-  becomes the card's face, the discussion folded under it. The foot's **margin** setting (this browser's own): off (no
-  cards, the marks stay), current (the default) or all (the seen ones as cards too). A highlight's card offers
+  becomes the card's face, the discussion folded under it. The **margin** setting (this browser's own), a bar held at
+  the bottom of the window so a long page never hides it (PIE-800): off (no cards, the marks stay), current (the
+  default) or all (the seen ones as cards too). A highlight's card offers
   Comment, Ask, Keep and Remove. Card words are drawn as the note's are (bold, links by title, page links). Define on
   words the note's glossary lacks asks @margin, and the answer is a card. "Comment on this note" comments on the whole
   note. An answer appears when it lands: the page waits on the threads route until what it draws changes (its rows,
@@ -921,6 +922,11 @@ listener is untouched (below): read-only, marked notes only.
   and its crumbs. `/` or ctrl+k opens the box, results come as you type (up/down choose, Enter opens, Esc closes), and
   on a phone the box is a sheet over the page. Inside a share link the search is the share's: its notes only, with no
   crumbs above a shared note. The public listener has none.
+- **A #tag opens the notes carrying it** (PIE-800). On a tailnet page or a share's, each `#tag` in a note is a link to
+  `<base>/search?q=%23tag`. A search that is one tag is the service's query for it (`blocks.query` with `#tag`, the atom
+  views use, so `#garden` finds `#garden/beds`), not a word search. Each row is the note's title, the line that carries
+  the tag and its crumbs. Inside a share it lists only the share's notes. On the public listener there's no search, so a
+  tag stays words.
 - **Completion in the comment and reply boxes** (PIE-789): `[[` a page, a Work ID or an alias (`pages.complete`), `((`
   a note (`tree.search`, as `((id))`), `#` a tag the outline already has (`properties.catalog`). The page sends the line
   being written and the cursor (`<base>/_marginalia/complete`); the outliner's own completion rules

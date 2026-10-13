@@ -11,9 +11,11 @@
 // notes inside it, and no crumbs above a shared note.
 import { readFileSync } from "node:fs";
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
+import { HASHTAG_VALUE_PATTERN } from "@ep0ch/outline-core/property-grammar";
+import { tagMatches } from "@ep0ch/outline-core/query-atoms";
 import { completionTargetAtCursor, hashtagAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "./completion";
 import { stripFragmentAnchors } from "./fragments";
-import { stripPropertyTokens } from "./properties";
+import { parsePropertyRecords, stripPropertyTokens } from "./properties";
 import { plainBody } from "./publish-marginalia";
 import type { GotoSearchCollection, PageAddressMatch, PropertyCatalogItem } from "./types";
 
@@ -40,6 +42,8 @@ export interface SearchHost {
   href(blockId: string): string;
   /** Whether a hit's crumbs may be said: inside a share of one note they'd name what's above it. */
   crumbs: boolean;
+  /** Each note's crumbs (its ancestors' titles, `A › B`), as `tree.search` says them: for a tag's notes (PIE-800). */
+  crumbsOf(ids: readonly string[]): Promise<Map<string, string>>;
 }
 
 /** One note a search found: its title, the line that matched (as words), where it sits, and where it opens. */
@@ -58,6 +62,8 @@ export interface SearchAnswer {
   truncated: boolean;
   /** The words the matching lines are marked by. */
   terms: string[];
+  /** A search for one tag: the notes carrying it (PIE-800), not the words. */
+  tag?: string;
 }
 
 /** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
@@ -86,8 +92,49 @@ export function matchingLine(title: string, snippet: string, terms: readonly str
   return `${from > 0 ? "…" : ""}${line.slice(from, from + LINE_CHARS).trim()}${from + LINE_CHARS < line.length ? "…" : ""}`;
 }
 
+/** A search for one tag (`#garden`, `#garden/beds`): the tag, else null (words are searched as words). */
+export function tagOf(query: string): string | null {
+  const match = TAG_QUERY.exec(query.trim());
+  return match && /\p{L}/u.test(match[1]!) ? match[1]! : null;
+}
+const TAG_QUERY = new RegExp(`^#(${HASHTAG_VALUE_PATTERN.source})$`, "u");
+
+/** At most this many notes carrying a tag are listed. */
+const TAG_LIMIT = 200;
+
+/**
+ * The notes carrying `tag` (PIE-800: a page's `#tag` links here), as the service's query answers `#tag` (the atom views
+ * use: a nested tag counts, `#garden` finds `#garden/beds`), as a page here may show them: each with the line that
+ * carries the tag, and its crumbs.
+ */
+async function tagNotes(host: SearchHost, tag: string): Promise<SearchAnswer> {
+  const query = `#${tag}`;
+  const found = await host.request<{ blocks: { id: string; title?: string; text?: string }[]; completeness: { kind: string } }>({
+    action: "blocks.query", query: { where: query, limit: TAG_LIMIT }, fields: ["title", "text"],
+  });
+  const shown = await host.shown(found.blocks.map((block) => block.id));
+  const blocks = found.blocks.filter((block) => shown.has(block.id));
+  const crumbs = host.crumbs ? await host.crumbsOf(blocks.map((block) => block.id)) : new Map<string, string>();
+  const hits = blocks.map((block) => {
+    const text = block.text ?? "";
+    // The first line after the title that carries it (the parser's own reading of a #tag: never one in code).
+    const at = parsePropertyRecords(text).find((record) => record.syntax === "hashtag" && record.line > 0 && tagMatches([record.value], tag))?.line;
+    const line = at === undefined ? "" : text.split(/\r?\n/)[at] ?? "";
+    return {
+      id: block.id,
+      title: titleWords(block.title ?? "") || "a note without words",
+      line: line ? matchingLine("", line, [query.toLowerCase()]) : "",
+      crumbs: crumbs.get(block.id) ?? "",
+      href: host.href(block.id),
+    };
+  });
+  return { query, hits, truncated: found.completeness.kind === "truncated", terms: [query.toLowerCase()], tag };
+}
+
 /** The outline's notes by words, as the power bar finds them (`tree.search`, from `near`), as a page here may show them. */
 export async function searchNotes(host: SearchHost, query: string, near?: string): Promise<SearchAnswer> {
+  const tag = tagOf(query);
+  if (tag) return tagNotes(host, tag);
   const wanted = query.trim().slice(0, 200);
   const terms = searchTextTerms(wanted).filter((term) => term.length >= 2);
   if (!wanted) return { query: wanted, hits: [], truncated: false, terms };
@@ -132,11 +179,12 @@ export function searchRowsHtml(answer: SearchAnswer): string {
 export function searchResultsHtml(answer: SearchAnswer, base: string, near?: string): string {
   const form = searchForm(base, { query: answer.query, ...(near ? { near } : {}), autofocus: !answer.query });
   if (!answer.query) return `<article>\n<h1>Search</h1>\n${form}\n<p class="dim">Words from a note's title or body; the nearest notes to where you were come first.</p>\n</article>\n`;
-  const said = answer.hits.length
-    ? `${answer.hits.length}${answer.truncated ? "+" : ""} ${answer.hits.length === 1 ? "note" : "notes"}`
-    : `Nothing matches “${escapeHtml(answer.query)}”. Fewer or shorter words find more.`;
+  const count = `${answer.hits.length}${answer.truncated ? "+" : ""} ${answer.hits.length === 1 ? "note" : "notes"}`;
+  const said = answer.tag
+    ? (answer.hits.length ? `${count} tagged #${escapeHtml(answer.tag)}` : `No note here is tagged #${escapeHtml(answer.tag)}.`)
+    : answer.hits.length ? count : `Nothing matches “${escapeHtml(answer.query)}”. Fewer or shorter words find more.`;
   const list = answer.hits.length ? `<ul class="kids found">\n${searchRowsHtml(answer)}\n</ul>\n` : "";
-  return `<article>\n<h1>Search</h1>\n${form}\n<p class="dim">${said}</p>\n</article>\n<section class="inside">${list}</section>\n`;
+  return `<article>\n<h1>${answer.tag ? `#${escapeHtml(answer.tag)}` : "Search"}</h1>\n${form}\n<p class="dim">${said}</p>\n</article>\n<section class="inside">${list}</section>\n`;
 }
 
 /** The search box and its results, dark, with targets a thumb can hit; on a phone, open, a sheet over the page. */
