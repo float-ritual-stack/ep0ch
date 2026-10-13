@@ -513,7 +513,10 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     const want = Object.fromEntries(entry.fields.map(([k, v]) => [key(k), v === UNSET ? null : v]));
     // At the revision the list was tuned at (or the one this session's own write left it at since): its line can't have moved.
     const seen = t.listSeen.get(target), mine = t.last.get(list.note);
-    const w = await writeLine(src.board, t, list.note, list.line, want, seen === undefined ? null : mine !== undefined && mine > seen ? mine : seen, actor);
+    // A list tuned while its reader re-read the note (its revision not known then) is held to this session's own last
+    // write, when there is one: an edit since that is refused as one since the tuning is (it was a flake under load).
+    const expected = seen === undefined ? mine ?? null : mine !== undefined && mine > seen ? mine : seen;
+    const w = await writeLine(src.board, t, list.note, list.line, want, expected, actor);
     if (w) done.push(w);
     t.markSaved(target, entry.fields);
     return { target, note: list.note, fields: Object.entries(want).map(([k, v]) => (v === null ? `${k} removed` : `${k}=${v}`)), created: false };

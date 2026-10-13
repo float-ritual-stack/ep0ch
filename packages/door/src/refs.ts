@@ -3,6 +3,7 @@
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import { tokensOf, type Source } from "./props";
+import { ticketKeyReferences, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import { emphasis } from "./inline";
 import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
@@ -102,6 +103,16 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
   if (!refs.text) return new Map();
   return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId), r])),
     c => changedSince(c.at, refs.ids))?.value ?? null;
+}
+
+const scopeBy = new WeakMap<object, Map<string, Cached<TicketPrefixes>>>();
+/**
+ * Which prefixes make a bare `LETTERS-digits` a Work ID link in this outline (#429): its configured prefix and the
+ * prefixes in use, as the service says them; null while asked (or when it couldn't be).
+ */
+export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes | null {
+  const c = ask(scopeBy, src, "scope", b => b.ticketPrefixes(), c => configAt > c.at || anyChangeSince(c.at));
+  return c?.value ?? null;
 }
 
 const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
@@ -269,6 +280,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // src/links.ts); drawn as a link, the id would be gone.
   const lines = text.split("\n"), typed = noteStructure(lines);
   const tags = tagsIn(noteText, src);
+  // A bare Work ID where the outline uses its prefix (#429): a link to its item, as `[[PIE-795]]` is; one the outline
+  // has no item for stays text.
+  const scope = src ? ticketPrefixesOf(src) : null;
   // A fence inside a callout or quote is code too (PIE-690): its lines stay as typed.
   for (const span of structuralLiteralLines(lines)) for (let j = span.start; j <= span.end; j++) if (typed[j]! < 0) typed[j] = span.start;
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
@@ -284,6 +298,11 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     // A resource token the service names reads as itself without its brackets, and shows its Resource.
     for (const t of resources) for (let at = line.indexOf(t.raw); at >= 0; at = line.indexOf(t.raw, at + t.raw.length))
       spans.push({ start: at, end: at + t.raw.length, draw: () => mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }) });
+    if (scope) for (const t of ticketKeyReferences(line, scope)) {
+      const r = pageOf(t.workId, src);
+      if (r?.status === "missing") continue;
+      spans.push({ start: t.start, end: t.end, draw: () => mark(pageView(t.workId, t.workId, r), { page: t.workId, label: t.workId }) });
+    }
     // A `#tag` the service reads as a tag (PIE-800): a link to the notes carrying it, where it starts a word.
     for (const tag of tags) for (const m of line.matchAll(tag.re)) {
       const start = m.index! + m[1]!.length;
