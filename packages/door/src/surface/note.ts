@@ -4173,8 +4173,11 @@ export class NoteSurface {
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | null> {
-    // An artifact's card (PIE-793) opens it running on its web page.
+    // An artifact's card (PIE-793) opens it running on its web page: as an element (with its line), or as one of the
+    // note's followable links (its path alone: the note's artifact line that names it).
     if (l.media && l.image && parseMediaLine(l.image.source)?.kind === "artifact") return this.openArtifact(l.image, host);
+    const named = l.media && !l.image && this.msg ? this.imagesIn(this.msg).find(x => x.path === l.media && x.spec.kind === "artifact") : undefined;
+    if (named) return this.openArtifact(named, host);
     if (l.media) return this.openOutside("viewer", l.media, host);
     // A resource token: its Resource's stored content, registered and fetched first if it must be (src/authored.ts).
     if (l.resource) {

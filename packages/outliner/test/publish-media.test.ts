@@ -153,6 +153,8 @@ test("an artifact line (PIE-793) runs inline: a sandboxed frame of its page from
   expect(frame.status).toBe(200);
   expect(frame.headers.get("content-security-policy")).toStartWith("sandbox allow-scripts");
   expect(await frame.text()).toContain("<title>Orbit lamp</title>");
+  const source = await get(`/p/${note.id}/artifact/1?view=source`);
+  expect(source.headers.get("content-type")).toStartWith("text/plain");
   const tide = await (await get(`/p/${note.id}/artifact/2`)).text();
   expect(tide).toContain('<pre class="mermaid">graph LR; ebb --&gt; flow</pre>');
   expect(await (await get(`/p/${note.id}/artifact/2?view=source`)).text()).toBe("graph LR; ebb --> flow");

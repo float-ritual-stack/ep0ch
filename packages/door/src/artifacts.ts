@@ -14,7 +14,8 @@ export interface ArtifactReader { scope: object; read(path: string): Promise<str
 
 /** How long a file's title is kept before it is read again (it may have been saved since). */
 const RECHECK_MS = 5000;
-interface Entry { text?: string; reason?: string; at: number; reading: boolean; changed?: () => void }
+/** A read file: its title as its text gives it (an HTML or SVG file's <title>, else its name), never the text itself. */
+interface Entry { title?: string; reason?: string; at: number; reading: boolean; changed?: () => void }
 const byScope = new WeakMap<object, Map<string, Entry>>();
 
 /**
@@ -34,12 +35,12 @@ export function artifactFacts(spec: Pick<MediaSpec, "path" | "alt">, reader?: Ar
     entry.reading = true;
     read.set(spec.path, entry);
     reader.read(spec.path).then(
-      text => { entry.text = text; delete entry.reason; },
-      (err: Error) => { delete entry.text; entry.reason = err?.message ?? String(err); },
+      text => { entry.title = artifactTitle({ path: spec.path }, text); delete entry.reason; },
+      (err: Error) => { delete entry.title; entry.reason = err?.message ?? String(err); },
     ).finally(() => { entry.reading = false; entry.at = Date.now(); entry.changed?.(); });
     e = entry;
   }
-  if (e.text !== undefined) return { kind, title: artifactTitle(spec, e.text), state: "ready" };
+  if (e.title !== undefined) return { kind, title: spec.alt || e.title, state: "ready" };
   if (e.reason !== undefined) return { kind, title: artifactTitle(spec), state: "missing", reason: e.reason };
   return { kind, title: artifactTitle(spec), state: "reading" };
 }

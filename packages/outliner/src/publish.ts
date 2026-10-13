@@ -1696,8 +1696,8 @@ export class Publisher {
    */
   private async artifactResponse(title: string, type: "html" | "react" | "svg" | "mermaid", path: string, text: string, view: string | null,
     sourceHref: string, failed: (body: string, status: number) => Response): Promise<Response> {
-    if (type === "html") return respond(text, "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
     if (view === "source") return respond(text, "text/plain; charset=utf-8");
+    if (type === "html") return respond(text, "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
     if (type === "svg") return respond(text, "image/svg+xml; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
     if (type === "mermaid") return respond(mermaidArtifactPage(title, text), "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
     return this.serveReact(title, text, extname(path).toLowerCase() === ".tsx" ? ".tsx" : ".jsx", sourceHref, failed);
@@ -2081,12 +2081,22 @@ export class Publisher {
     const policy = this.policy;
     const artifacts = new Map<string, string>();
     if (!linked.labelsOnly && policy) {
+      // Each file once a page, and only an HTML or SVG file without `[alt::]` read (for its <title>); never more than
+      // the page draws.
+      const titles = new Map<string, string | null>();
       for (const row of rows) {
         if (!/\[?artifact::/i.test(row.block.text ?? "")) continue;
         for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
-          if (spec.kind !== "artifact") continue;
-          const read = await this.readArtifact(spec, policy);
-          if (read) artifacts.set(`${row.block.id}:${line}`, artifactTitle(spec, read.text));
+          if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
+          const kind = artifactKind(spec.path), key = `${spec.path}\0${spec.alt ?? ""}`;
+          if (!titles.has(key)) {
+            const check = kind ? checkAttachment(spec.path, policy) : null;
+            const runs = !!check?.ok && (check.type === "html" || check.type === "react" || check.type === "svg" || check.type === "mermaid");
+            const read = runs && !spec.alt && (kind === "html" || kind === "svg") ? await this.readArtifact(spec, policy) : null;
+            titles.set(key, runs ? artifactTitle(spec, read?.text) : null);
+          }
+          const title = titles.get(key);
+          if (title) artifacts.set(`${row.block.id}:${line}`, title);
         }
       }
     }
