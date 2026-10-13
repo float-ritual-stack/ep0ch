@@ -8,6 +8,9 @@ import { areasIn, type Block, firstLine, isCopy, kindOf, parseMask, parseNode, p
 import { createOutlinerClient } from "./client";
 import { resolveClientPaths } from "./paths";
 
+/** How long a toss may take: echonet's deadline (extension.json, 4 minutes) and the minute it may wait for a toss already running. */
+const TOSS_TIMEOUT_MS = 5 * 60_000 + 30_000;
+
 const USAGE = `usage: ep0ch echo toss [--ws <outline>] [--json]
        ep0ch echo nodelist [--ws <outline>] [--json]
        ep0ch echo subscribe <node mask> <area> [--ws <outline>] [--under <id>] [--since all|<date>] [--cap <n>] [--title <words>]
@@ -22,7 +25,7 @@ const USAGE = `usage: ep0ch echo toss [--ws <outline>] [--json]
              and what its nodelist says the other nodes offer
   Install EchoNet in an outline first (off by default): ep0ch ext add echonet --outline-folder <outlines>/<name>`;
 
-interface Client { request<T>(input: Record<string, unknown>): Promise<T> }
+interface Client { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
 
 export async function runEchoCommand(args: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [operation, ...rest] = args;
@@ -62,9 +65,12 @@ export async function runEchoCommand(args: readonly string[], env: NodeJS.Proces
     const results: Array<{ node: string; ok: boolean; message: string }> = [];
     for (const node of nodes) {
       // One node failing (its toss stopped, its outline closed) doesn't keep the others from tossing.
+      // A toss takes what it takes (another machine slow to answer, a minute waiting on a toss already running): the
+      // request waits for its own answer, as long as the extension's deadline, and a terminal hears it's still going.
+      const slow = process.stderr.isTTY ? setTimeout(() => process.stderr.write(`${node}: still tossing (another machine can take a while to answer)…\n`), 3_000) : undefined;
       const run = await client(node).request<{ message?: string }>({
         action: "extensions.act", extension: "echonet", extensionAction: operation, mutation: { author: "user" },
-      }).catch((error: unknown) => ({ failed: error instanceof Error ? error.message : String(error) }));
+      }, TOSS_TIMEOUT_MS).catch((error: unknown) => ({ failed: error instanceof Error ? error.message : String(error) })).finally(() => clearTimeout(slow));
       if ("failed" in run) {
         results.push({ node, ok: false, message: `${node}: ${run.failed}` });
         continue;
