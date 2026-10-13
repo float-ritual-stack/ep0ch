@@ -87,17 +87,26 @@ A subagent writes as its session's persona; its call says which subagent.
 - **The mod passes the call.** Its `tool.call` hook on `mcp__ep0ch__*` sets the existing `call` argument from the
   Claude Code session (and subagent), so a session's writes are one call across reconnects.
 
-### 5. One tool set: `mcp__ep0ch__*`
+### 5. One set of tool definitions, registered by each surface
 
-- The mod registers no outline, workboard or door tools. What only it has today moves into the MCP server:
-  `outline_edit`, `outline_changes`, `outline_resolve`, `view_order`, `note_section` and `work_*` (under the same
-  access grant), and the opens.
+Amended 2026-10-13 with Evan, from first principles. The first version said the mod registers no tools and everything
+moves into the MCP server; that mixed up duplicate *code* (bad) with duplicate *surfaces* (fine), and turned a
+refactor into a risky rewrite. Evan: the MCP server "wraps the code used in the mods and bakes in the identity".
+
+- **Each tool is defined once:** its schema and a handler over the service, in one shared module. That is what exists
+  once, as AGENTS.md's "many clients, one set of parts" asks.
+- **Each surface registers those definitions with its own identity:** the Claude Code mod (the session, the folder's
+  outline, the persona from `.ep0ch`, the call), the MCP gateway (the OAuth principal), the stdio MCP server (its
+  environment). A tool missing on one surface is added to the shared module, so both get it.
+- **One surface per session is configuration:** a Claude Code session loads the mod's; claude.ai and Desktop chats
+  load the gateway. A test fails when a definition is on one surface and not the other, unless it is marked
+  surface-only (`door_*` needs a door, `outline_bind` a session).
 - **`open` routes; the agent doesn't.** One `open` tool sends a note where this agent's opens land: its door tile,
-  else the Outliner Detail beside it in Herdr, else the mod's pane. The stdio server offers it, and `door_*`, only
-  when its environment has a door or Herdr (`EP0CH_CONTROL`, `HERDR_PANE_ID`); a Herdr-only operation with no door
-  equivalent is `herdr_*` under the same rule. The gateway never lists them.
-- The mod keeps what is presentation: tool rows, references as links, the band and pane, the binding card, program
-  status, mentions ingest (now over MCP).
+  else the Outliner Detail beside it in Herdr, else the mod's pane. It and `door_*` are offered only where the
+  environment has a door or Herdr (`EP0CH_CONTROL`, `HERDR_PANE_ID`); the gateway never lists them.
+- **The mod also keeps what is about the session:** links in answers, Recent Mentions, the binding card, the
+  per-session `outline_bind`, guards on writes (`tool.call`), tool rows and program status. Only a mod can do these
+  (Claude Code mods reference); only MCP reaches claude.ai, Desktop chats and the Agent SDK.
 
 ### 6. One place decides whether an agent may write
 
@@ -131,9 +140,9 @@ To file on the workboard (project `ep0ch-door`), blockers first:
    subagent. Remove any refusal of a persona today (a persona claimed across principals is recorded, not refused).
 2. **Stdio serves what the gateway serves.** One outline set for both transports; netmail over ssh. Depends on 1
    for attribution.
-3. **One tool set.** Port the mod-only tools to MCP, add `open` / `door_*` / `herdr_*` to stdio, connect stdio from
-   the plugin manifest, delete the mod's tools. Fix the mod's `/resume` and `/branch` state reset and drop
-   `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` from the installer on the way. Depends on 2.
+3. **One set of tool definitions** (PIE-720, as amended in §5). Extract each tool's schema and handler into one
+   shared module; the mod and the MCP servers register from it with their own identity; fill the gaps there once.
+   Fix the mod's `/resume` and `/branch` state reset on the way.
 4. **Permissions and formatting.** Allow `mcp__ep0ch` wholesale; load the core tools and `outline_components`
    upfront (`isDeferred: false`); the note floor as context; a formatting lint in write receipts.
 5. **One band: inbox, questions, outbox, mentions.** Each a service query, so the door can show the same lists.
