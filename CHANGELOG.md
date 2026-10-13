@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The mod's text-replacing tools need the revision you read (PIE-631)
+
+- **Changed:** the Claude mod's `work_body` and `note_section` require `expectedRevision`. Without it they answer
+  "read it first with outline_read", and a note that changed since the read is refused, so a replacement built on an
+  old read no longer overwrites an edit made in between.
+- **Fixed:** references in Claude's replies use the one fence rule: a reference inside a four-backtick fence, or in
+  indented code, is no longer turned into a link, and `((id^fragment|label))` links to its note instead of a page of
+  that name.
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

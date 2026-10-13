@@ -929,9 +929,9 @@ describe('register', () => {
     expect(set.argv.slice(3, 7)).toEqual(['work', 'set', '--expected', '2'])
     expect(set.argv.slice(-4)).toEqual(['--', 'PIE-8/door', 'delivery-stage', 'complete'])
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__note_section', block: 'PIE-8', heading: '## Now', body: 'Updated.' })
+    await $.tool.call({ tool: 'mcp__pi-outliner__note_section', block: 'PIE-8', heading: '## Now', body: 'Updated.', expectedRevision: 3 })
     const section = session.runs.findLast(candidate => candidate.argv.includes('section'))!
-    expect(section.argv.slice(3, 6)).toEqual(['note', 'section', '--stdin'])
+    expect(section.argv.slice(3, 8)).toEqual(['note', 'section', '--stdin', '--expected', '3'])
     expect(section.argv.slice(-3)).toEqual(['--', 'PIE-8', '## Now'])
     expect(section.init?.stdin).toBe('Updated.')
   })

@@ -22,7 +22,7 @@ const ITEM = { type: 'string', description: 'The roadmap item: a Work ID (PIE-12
 const EXPECTED = {
   type: 'integer',
   minimum: 1,
-  description: 'The revision you read; the write is refused if the block changed since.',
+  description: 'The revision you read (outline_read returns it); the write is refused if the block changed since.',
 }
 
 function text(input: Record<string, unknown>, key: string): string | undefined {
@@ -33,6 +33,15 @@ function text(input: Record<string, unknown>, key: string): string | undefined {
 function expected(input: Record<string, unknown>): string[] {
   const value = input.expectedRevision
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? ['--expected', String(value)] : []
+}
+
+/**
+ * The revision a text-replacing tool was built on, required (PIE-631): replacement text from an older read, checked
+ * against the block as it is now, would overwrite an edit made in between. Missing, the reason and the next step.
+ */
+function readRevision(input: Record<string, unknown>, ref: string): string[] | string {
+  const args = expected(input)
+  return args.length ? args : `Read ${ref} first with outline_read and pass its revision as expectedRevision: this tool replaces text, so it is checked against the revision you read.`
 }
 
 /**
@@ -194,34 +203,39 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
   },
   {
     name: 'work_body',
-    example: {"ref": "PIE-123", "body": "Context and acceptance criteria."},
+    example: {"ref": "PIE-123", "body": "Context and acceptance criteria.", "expectedRevision": 4},
     aliases: { ref: ['item'] },
     description:
-      "Replace the body of the roadmap item (or any block) `ref` below its title and property lines, checked against its revision.",
-    inputSchema: schema({ ref: ITEM, body: { type: 'string' }, expectedRevision: EXPECTED }, ['ref', 'body']),
+      "Replace the body of the roadmap item (or any block) `ref` below its title and property lines, checked against the revision you read (outline_read).",
+    inputSchema: schema({ ref: ITEM, body: { type: 'string' }, expectedRevision: EXPECTED }, ['ref', 'body', 'expectedRevision']),
     command(input) {
       const item = text(input, 'ref')
       if (!item || typeof input.body !== 'string') return 'Give the ref and its new body.'
-      return { args: ['work', 'body', '--stdin', ...expected(input), '--', item], stdin: input.body }
+      const revision = readRevision(input, item)
+      if (typeof revision === 'string') return revision
+      return { args: ['work', 'body', '--stdin', ...revision, '--', item], stdin: input.body }
     },
   },
   {
     name: 'note_section',
-    example: {"ref": "PIE-123", "heading": "## Now", "body": "Updated text."},
+    example: {"ref": "PIE-123", "heading": "## Now", "body": "Updated text.", "expectedRevision": 4},
     aliases: { ref: ['item'] },
     description:
       'Replace one Markdown section of the note `ref`: the text under a heading up to the next heading of its level, as ' +
-      'Detail folds it. The heading stays; the replaced text is returned as "previous".',
+      'Detail folds it, checked against the revision you read (outline_read). The heading stays; the replaced text is ' +
+      'returned as "previous".',
     inputSchema: schema({
       ref: { type: 'string', description: 'The note: block UUID or Work ID' },
       heading: { type: 'string', description: 'Heading text, optionally with its ## level' },
       body: { type: 'string' },
       expectedRevision: EXPECTED,
-    }, ['ref', 'heading', 'body']),
+    }, ['ref', 'heading', 'body', 'expectedRevision']),
     command(input) {
       const [block, heading] = [text(input, 'ref'), text(input, 'heading')]
       if (!block || !heading || typeof input.body !== 'string') return 'Give the ref of the note, the heading and the new section text.'
-      return { args: ['note', 'section', '--stdin', ...expected(input), '--', block, heading], stdin: input.body }
+      const revision = readRevision(input, block)
+      if (typeof revision === 'string') return revision
+      return { args: ['note', 'section', '--stdin', ...revision, '--', block, heading], stdin: input.body }
     },
   },
 ]

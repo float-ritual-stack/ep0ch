@@ -423,6 +423,33 @@ test("a title that begins with -- is the title, from the CLI and from the work_c
   const id = created.json.workId as string;
   expect(await run("work_stage", { ref: id, stage: "doing", expectedRevision: 1 })).toMatchObject({ workStage: "doing" });
   expect(await run("work_set", { ref: id, key: "arc", value: "--arc-of-dashes" })).toMatchObject({ value: "--arc-of-dashes" });
-  await run("work_body", { ref: id, body: "## --flags heading\n\nFirst." });
-  expect(await run("note_section", { ref: id, heading: "## --flags heading", body: "Second." })).toMatchObject({ previous: expect.stringContaining("First.") });
+  const read = () => h.store.require(created.json.blockId).revision;
+  await run("work_body", { ref: id, body: "## --flags heading\n\nFirst.", expectedRevision: read() });
+  expect(await run("note_section", { ref: id, heading: "## --flags heading", body: "Second.", expectedRevision: read() })).toMatchObject({ previous: expect.stringContaining("First.") });
+});
+
+test("the mod's work_body and note_section replace text only on the revision the agent read (PIE-631)", async () => {
+  const h = await setup();
+  const { WORK_TOOLS } = await import("../../claude-mod/hooks/work-tools");
+  const created = await h.run(["work", "create", "--title=Fictional kettle timer", "--project", "demo", "--arc", "workflow", "--track", "workflow", "--priority", "low"]);
+  const id = created.json.workId as string;
+  const { withOptions } = await import("../../claude-mod/hooks/work-tools");
+  const tool = (name: string) => WORK_TOOLS.find(t => t.name === name)!;
+  const run = (c: { args: string[]; stdin?: string }) => h.run(withOptions(c.args, ["--author", "agent", "--actor", "test-agent"]), c.stdin);
+  // Without the revision it read, nothing runs: the agent is told to read it and pass the revision.
+  for (const name of ["work_body", "note_section"]) {
+    const refused = tool(name).command({ ref: id, heading: "## Plan", body: "Built from nothing." });
+    expect(refused).toContain("outline_read");
+    expect(refused).toContain("expectedRevision");
+    expect((tool(name).inputSchema as { required: string[] }).required).toContain("expectedRevision");
+  }
+  // The agent reads, the person edits in between, and the agent's replacement built on the old read is refused.
+  const seen = h.store.require(created.json.blockId);
+  await run(tool("work_body").command({ ref: id, body: "## Plan\n\nThe person's plan.", expectedRevision: seen.revision }) as { args: string[]; stdin?: string });
+  for (const [name, input] of [["work_body", { body: "## Plan\n\nStale." }], ["note_section", { heading: "## Plan", body: "Stale." }]] as const) {
+    const stale = await run(tool(name).command({ ref: id, ...input, expectedRevision: seen.revision }) as { args: string[]; stdin?: string });
+    expect(stale.exitCode).toBe(1);
+    expect(stale.error).toContain("read it again");
+  }
+  expect(h.store.require(created.json.blockId).text).toContain("The person's plan.");
 });
