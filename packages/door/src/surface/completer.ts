@@ -9,7 +9,7 @@
 //
 // Deep links (PIE-762): a reference is refined in place. `((Gree` lists the notes with each top note's `^anchors`
 // right under it; `^` or `#` typed in (or just after) a finished `((id))` opens it again as `((id^`, and the popup
-// searches inside that one note: its anchors first, then its headings, paragraphs and list items, each without an
+// searches inside that one note: its anchors first, then its headings, paragraphs, list items, quotes and callouts, each without an
 // anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
@@ -195,6 +195,8 @@ function newPageItem(query: string, have: readonly { address: string }[], prefix
 
 /** How many of the top notes a `((words` list shows the anchors of, and how many each. */
 const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
+/** The parts of the first note `((words` lists under it with no anchor yet (PIE-592), and how many. */
+const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4;
 /** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
 const NOTES_SEARCHED = 3;
 
@@ -216,8 +218,12 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
     context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
   }));
   const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
-  const theirs = anchored && top.length
-    ? await anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null;
+  // The first note's headings, quotes and callouts with no anchor yet (PIE-592): a part to embed, without visiting it
+  // first; choosing one adds its anchor, as a passage refined with ^ does.
+  const [theirs, parts] = anchored && top.length ? await Promise.all([
+    anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }),
+    anchors({ blockIds: top.slice(0, 1), fragmentQuery: "", mode: "passage", limit: COMPLETION_LIMIT, ...draft }),
+  ]) : [null, null];
   const items: CompletionItem[] = [], seen = new Set<string>();
   const add = (it: CompletionItem) => { if (!seen.has(it.insertion)) { seen.add(it.insertion); items.push(it); } };
   const lower = q.toLowerCase();
@@ -225,6 +231,7 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
   for (const n of notes) {
     add(n);
     for (const c of (theirs?.items ?? []).filter(c => c.blockId === n.blockId && c.fragmentId).slice(0, ANCHORS_PER_NOTE)) add(fragmentItem(c, false, true));
+    for (const c of (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.has(c.kind)).slice(0, PARTS_OF_TOP)) add(fragmentItem(c, false, true));
   }
   return {
     items, truncated: r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated" ? COMPLETION_LIMIT : null,
@@ -264,10 +271,10 @@ async function fragmentLookup(board: CompletionBoard, fragment: { blockQuery: st
  */
 function fragmentItem(c: FragmentCandidate, oneNote: boolean, under = false): CompletionItem {
   const id = c.fragmentId ?? c.anchor!.fragmentId;
-  const what = c.kind === "heading" ? `# ${c.label}` : c.label;
+  const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}` : c.label;
   const where = oneNote || under ? "" : `${c.title} » `;
   return {
-    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${where}${what} · adds ^${id}`,
+    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`,
     blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
     context: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
     ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),

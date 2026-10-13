@@ -498,6 +498,24 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.pop()!.items.some(x => x.newPage)).toBe(false);
   });
 
+  test("embedding a part without visiting it (PIE-592): !((words lists the top note's headings, quotes and callouts; choosing one anchors it there and embeds the whole callout", async () => {
+    const id = await create("Potting bench rules\nKeep it tidy.\n\n> Sweep the bench\n> before you leave.\n\n> [!warning] Glass\n> The cold frame lid is glass.\n> Lift it with two hands.\n\n## Tools");
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("!((Potting bench rul");
+    await until(() => !!e.pop() && !e.pop()!.loading && e.pop()!.items.some(i => i.blockId === id && i.fragmentId), "the bench's parts");
+    const rows = e.pop()!.items.filter(i => i.blockId === id).map(i => i.label.trim());
+    expect(rows).toEqual(["Potting bench rules", "> Sweep the bench before you leave. · adds ^sweep-the-bench", "[!] Glass · adds ^glass", "# Tools · adds ^tools"]);
+    const i = e.pop()!.items.findIndex(x => x.fragmentId === "glass");
+    while (e.pop()!.index < i) e.press(K("down"));
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the insertion");
+    expect(e.d.lines.at(-1)).toBe(`!((${id}^glass))`);
+    expect((await board.get(id))!.text).toContain("> Lift it with two hands. ^glass");
+    expect((await board.readFragment(id, "glass")).status).toBe("resolved");
+    // The embed carries the whole callout, as the reader draws it.
+    expect(JSON.stringify(await board.readTransclusions([{ blockId: id, fragmentId: "glass" }]))).toContain("> [!warning] Glass\\n> The cold frame lid is glass.\\n> Lift it with two hands.");
+  });
+
   test("(( is the one search: punctuation, word order and a typo don't hide a note, and the draft's note is near", async () => {
     const hats = await create("HOME-333 Fat cats in party hats");
     const now = await create("Claude - now\nWhat the agent is doing.");

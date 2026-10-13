@@ -159,9 +159,10 @@ export interface OutlinerRequestProblem {
 
 /**
  * What a fragment anchor names (`fragments.read`, `fragments.candidates`): a heading's section, a paragraph, a list
- * item, or (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`.
+ * item, (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`, or (PIE-592)
+ * a whole blockquote or callout, named by an anchor at the end of its last line.
  */
-export type FragmentKind = "heading" | "paragraph" | "list-item" | "component";
+export type FragmentKind = "heading" | "paragraph" | "list-item" | "component" | "quote" | "callout";
 
 /** One answer line on the socket. */
 export type OutlinerResponse =
