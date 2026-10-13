@@ -70,6 +70,12 @@ export function kittyHint(env = process.env): boolean | null {
 /** Query sent at startup; a `_G` reply before the DA1 reply means graphics work. */
 export const KITTY_QUERY = APC("i=31,s=1,v=1,a=q,t=d,f=24", "AAAA") + "\x1b[c";
 
+/**
+ * Uploads and placements go with `q=1`: the terminal's OKs are kept quiet, its errors are not. A terminal that lost an
+ * image (it restarted, a client reattached to it, it evicted the image) answers a placement of it with ENOENT; the
+ * terminal reader hands that to `forget` (PIE-795), and the next frame uploads it again. Deletions stay `q=2`: one of
+ * an image the terminal no longer has needs no answer.
+ */
 export class KittyLayer {
   private uploaded = new Map<string, number>();   // content hash → image id
   private placed = new Map<string, { id: number; pid: number; sig: string }>();
@@ -87,7 +93,7 @@ export class KittyLayer {
     const id = this.nextId++;
     // PNG files go as-is (f=100); our own rasters go as raw RGBA + zlib (o=z), small over SSH either way.
     const b64 = png ? img.png.toString("base64") : deflateSync(img.data).toString("base64");
-    const head0 = png ? `a=t,f=100,t=d,i=${id},q=2` : `a=t,f=32,o=z,t=d,i=${id},s=${img.width},v=${img.height},q=2`;
+    const head0 = png ? `a=t,f=100,t=d,i=${id},q=1` : `a=t,f=32,o=z,t=d,i=${id},s=${img.width},v=${img.height},q=1`;
     let out = "";
     for (let at = 0; at < b64.length; at += 4096) {
       const more = at + 4096 < b64.length ? 1 : 0;
@@ -120,10 +126,21 @@ export class KittyLayer {
       const pid = ++this.pidSeq;
       const crop = p.crop ? `,x=${p.crop.x},y=${p.crop.y},w=${p.crop.w},h=${p.crop.h}` : "";
       out += `\x1b7\x1b[${p.row + 1};${p.col + 1}H` +
-        APC(`a=p,i=${id},p=${pid},c=${p.cols},r=${p.rows}${crop},C=1,z=${p.z ?? 0},q=2`) + "\x1b8";
+        APC(`a=p,i=${id},p=${pid},c=${p.cols},r=${p.rows}${crop},C=1,z=${p.z ?? 0},q=1`) + "\x1b8";
       this.placed.set(key, { id, pid, sig });
     }
     if (out) this.write(out);
+  }
+
+  /**
+   * The terminal no longer has image `id` (it answered ENOENT): forget its upload and its placements, so the next
+   * `sync` uploads it again and places it afresh. False when the id isn't one this layer uploaded (another layer's).
+   */
+  forget(id: number): boolean {
+    let known = false;
+    for (const [hash, at] of this.uploaded) if (at === id) { this.uploaded.delete(hash); known = true; }
+    for (const [key, placed] of this.placed) if (placed.id === id) this.placed.delete(key);
+    return known;
   }
 
   /** Remove every placement but keep uploaded pixels for reuse. */

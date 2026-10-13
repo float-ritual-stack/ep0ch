@@ -15,7 +15,7 @@ import { NEW_NOTE_ACTIONS } from "./new-note";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable } from "./text";
-import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
+import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
@@ -468,6 +468,9 @@ export class App implements Ctx {
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.started = now();
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
+    // The door's own terminal: an image it lost is uploaded and placed again (PIE-795).
+    const decoder = (term as { decoder?: KeyDecoder }).decoder, painter = this.display;
+    if (decoder && painter instanceof Painter) decoder.kittyError = id => painter.imageLost(id);
     this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
     this.drawer = new AgentDrawer({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });

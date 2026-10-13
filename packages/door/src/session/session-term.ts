@@ -55,6 +55,8 @@ export class SessionClient {
     this.rows = new ClientRows(s => { if (!this.away && !this.behind) this.link.send({ t: "output", text: s }); }, this.info);
     this.painter = new Painter(this.rows);
     this.decoder = new KeyDecoder(this.info);
+    // An image its terminal lost (Tern restarted, the client came back): uploaded and placed again (PIE-795).
+    this.decoder.kittyError = id => this.painter.imageLost(id);
   }
   get watch() { return !!this.hello.watch; }
 }
