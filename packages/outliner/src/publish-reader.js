@@ -568,7 +568,7 @@
       el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
       verb(earlier ? "back" : "seen", earlier ? "Back" : "Seen"),
       verb(kept ? "unkeep" : "keep", kept ? "Unkeep" : "Keep"),
-      el("button", { type: "button", text: face ? "Edit TL;DR" : "TL;DR", onclick: () => (face ? editTldr(node, thread, face, row) : act("tldr", { thread: thread.id })) }),
+      el("button", { type: "button", text: "TL;DR", title: face ? "edit the TL;DR" : "ask @margin for a TL;DR", onclick: () => (face ? editTldr(node, thread, face, row) : act("tldr", { thread: thread.id })) }),
     ];
     // ⋯: the rest (Quote, and Pick for several), in the same row instead, so the row never wraps.
     const rest = quoteButtons(thread.id).slice(0, bare ? 1 : undefined);
@@ -831,9 +831,12 @@
     return true;
   }
 
+  /** A line's words with Blockdown's marks left out (`**`, `_`, code ticks, `[[ ]]`), for a one-line row. */
+  const lineWords = (text) => text.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[|\]\]/g, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+
   /** One line of the note's index of threads: what it is and its first words; tapping opens its card where it is. */
   function indexRow(thread, placed) {
-    const said = (thread.body || (thread.quote ? `“${thread.quote}”` : "")).replace(/\s+/g, " ").trim();
+    const said = lineWords(thread.body || (thread.quote ? `“${thread.quote}”` : ""));
     return el("li", {}, el("button", { type: "button", class: "quiet", onclick: () => { activate(thread.id); document.querySelector(`.mg-card.top[data-thread="${CSS.escape(thread.id)}"]`)?.scrollIntoView({ block: "center" }); } },
       el("span", { class: "k", text: `${thread.kind}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}${placed ? "" : thread.quote ? " · couldn't place" : ""}` }),
       el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said })));
@@ -852,22 +855,31 @@
     draw();
   }
 
+  /** The Earlier shelf's rows opened in place. */
+  const shelfOpen = new Set();
+
   /** One line of the Earlier shelf: what it was and its first words; tapping opens it in place, under the line. */
   function shelfRow(thread) {
-    const said = (thread.body || (thread.quote ? `“${thread.quote}”` : "")).replace(/\s+/g, " ").trim();
+    const said = lineWords(thread.body || (thread.quote ? `“${thread.quote}”` : ""));
     const item = el("li", { class: "earlier" });
-    const line = el("button", { type: "button", class: "quiet", "aria-expanded": "false", onclick: () => {
-      const open = item.querySelector(".mg-card");
-      if (open) { open.remove(); line.setAttribute("aria-expanded", "false"); return; }
+    const show = () => {
       const node = card(thread, true);
       node.classList.add("on", "inplace");
       item.append(node);
       line.setAttribute("aria-expanded", "true");
+    };
+    const line = el("button", { type: "button", class: "quiet", "aria-expanded": "false", onclick: () => {
+      const open = item.querySelector(".mg-card");
+      if (open) { open.remove(); shelfOpen.delete(thread.id); line.setAttribute("aria-expanded", "false"); return; }
+      shelfOpen.add(thread.id);
+      show();
       markRead(thread.id);
     } },
     el("span", { class: "k", text: `${thread.kind} · ${thread.lifecycle}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}` }),
     el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said }));
     item.append(line);
+    // Opened, it stays open while the page is drawn again (an answer landing, another card's action).
+    if (shelfOpen.has(thread.id)) show();
     return item;
   }
 

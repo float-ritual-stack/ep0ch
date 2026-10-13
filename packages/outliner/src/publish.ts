@@ -443,16 +443,16 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-card.top.on>.sum{display:none}
 .mg-card .sum{font-size:12px;color:var(--dim);margin-top:.25rem}
 .mg-card.top.on{border-left-color:#c9a24a;z-index:3}
-.mg-card .mg-row{gap:.35rem;flex-wrap:wrap;justify-content:flex-start}
-.mg-card.mg-ui .mg-row button{min-height:40px;min-width:0;padding:0 .5rem;font-size:14px;border:0;background:none;color:var(--link)}
+.mg-card .mg-row{gap:.15rem;flex-wrap:wrap;justify-content:flex-start}
+.mg-card.mg-ui .mg-row button{min-height:40px;min-width:0;padding:0 .38rem;font-size:14px;border:0;background:none;color:var(--link)}
 .mg-card.mg-ui .mg-row button.quiet{color:var(--dim)}
 .mg-card.mg-ui .mg-row button.on{color:#e0d2a8}
 .mg-card.mg-ui .mg-row button:active{background:#232321}
 .mg-whole ul.mg-index{list-style:none;margin:0 0 1rem;padding:0;border-top:1px solid var(--rule)}
 .mg-index li{border-bottom:1px solid var(--rule)}
-.mg-ui .mg-index button{display:block;width:100%;text-align:left;min-height:44px;height:auto;border:0;border-radius:0;background:none;padding:.4rem .3rem;line-height:1.4;color:var(--fg)}
-.mg-index .k{display:block;font-size:12px;color:var(--dim)}
-.mg-index .x{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mg-ui .mg-index li>button{display:block;width:100%;text-align:left;min-height:44px;height:auto;border:0;border-radius:0;background:none;padding:.4rem .3rem;line-height:1.4;color:var(--fg)}
+.mg-index li>button .k{display:block;font-size:12px;color:var(--dim)}
+.mg-index li>button .x{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mg-leader{display:none}
 /* Attention (PIE-791): a TL;DR is the card's face, the discussion folded behind it; kept and seen say so quietly. */
 .mg-card .tldr{border-left:2px solid #6b8f5e;padding-left:.45rem;margin:.25rem 0}
@@ -501,7 +501,7 @@ mark.ann.on{outline:1px solid #6a7180}
 #ep0ch-agent{position:fixed;top:.75rem;right:.75rem;left:auto;z-index:13;max-width:min(26rem,calc(100% - 1.5rem));background:#1d2026;color:var(--fg);border:1px solid #4a4f5a;border-radius:.5rem;padding:.45rem .8rem;font-size:14px}
 .ep0ch-pointed{outline:2px solid #6a7180;outline-offset:.25rem;background:#1b1d21}
 @media (min-width:65rem){
-  main.reader{max-width:62rem;display:grid;grid-template-columns:minmax(0,42rem) 17rem;column-gap:2.5rem;align-items:start;position:relative}
+  main.reader{max-width:62rem;display:grid;grid-template-columns:minmax(0,42rem) 18rem;column-gap:2.25rem;align-items:start;position:relative}
   main.reader>*{grid-column:1}
   main.reader>#mg-leader{display:block;grid-column:auto;grid-row:auto;position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2}
   #mg-leader path{fill:none;stroke:#6b5a30;stroke-width:1}
