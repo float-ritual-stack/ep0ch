@@ -1034,8 +1034,97 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const beside = !!m && !opts.fresh && at !== undefined && this.policyAt(at).opens === "beside";
     if (beside) this.readerBeside(opts.from!, by);
     if (m && at !== undefined && !beside && (opts.link || opts.reveal || opts.fresh)) { if (this.landFrom(at, m, opts, by)) return this.redraw(); }
-    else if (m && at !== undefined) this.follow(at, m, by);
+    else if (m && at !== undefined) { this.follow(at, m, by); this.followLink(at, m, by); }
+    // Which tile moved the current note last (PIE-814): a following reader's chip names it when it's out of sight.
+    this.currentBy = at;
     this.moveCurrent(m, opts, by);
+  }
+
+  /** The tile that moved the current note last (a tree's selection, a reader's open), if it's still here. */
+  private currentBy: number | undefined;
+
+  /**
+   * Tile `at`'s selection moved (the tree's row) and the current note with it: a reader its link previews into follows it
+   * too (PIE-814: `reader.follow source=<tile>` is that link), a held one included. A target link takes only opens.
+   */
+  private followLink(at: number, m: Msg, by: Actor) {
+    const to = this.layout.links.get(at);
+    if (to === undefined || to === at || this.layout.linkRoles.get(at) === "target" || !this.panes.has(to)) return;
+    const p = this.panes.get(to)!;
+    if (by.kind === "agent" && this.limitedFor(p)) return;
+    if (!(p instanceof ReaderPane) || p.msg?.id === m.id || p.editing) return;
+    this.openInto(to, m, by, true);
+  }
+
+  /** A tile `p` can follow (PIE-814): one with a selection (a tree, a links list) or another reader, here. */
+  private followable(id: number, p: ReaderPane): boolean {
+    const q = this.panes.get(id);
+    return !!q && q !== p && (!!kindOf(q)?.previews || (q instanceof ReaderPane && q.follows));
+  }
+  /** DeskApi.followSource: the tile reader `p` follows by a link (its preview role), and whether it's out of sight now. */
+  followSource(p: ReaderPane): { name: string; hidden: boolean } | null {
+    const id = this.idOf(p);
+    if (id === undefined) return null;
+    for (const [z, to] of this.layout.links) {
+      if (to !== id || z === id || this.layout.linkRoles.get(z) === "target" || !this.followable(z, p)) continue;
+      return { name: this.nameOf(z), hidden: !this.shownNow(this.panes.get(z)!) };
+    }
+    return null;
+  }
+  /** DeskApi.steering: the tile that moved the current note last, when it's out of sight now (a tree in a shut dock). */
+  steering(): { name: string; hidden: boolean } | null {
+    const at = this.currentBy, q = at === undefined ? undefined : this.panes.get(at);
+    return at !== undefined && q ? { name: this.nameOf(at), hidden: !this.shownNow(q) } : null;
+  }
+  /**
+   * DeskApi.followFrom (`reader.follow`, PIE-814): reader `p` follows tile `source` by a link with the preview role, the
+   * one link model (alt+l's), saved with the layout; null takes every such link into it away (it follows the current
+   * note, or nothing, as its mode says).
+   */
+  followFrom(p: ReaderPane, source: string | null, actor: Actor): void {
+    const id = this.idOf(p);
+    if (id === undefined) throw new ActionRefused("that reader isn't on this screen");
+    const why = source === null ? null : this.followRefusal(p, source, actor);
+    if (why) throw new ActionRefused(why);
+    const from = source === null ? undefined : this.tile(source);
+    // The new link first (a refusal leaves the old one), then the others into it let go.
+    if (from && this.layout.links.get(from.id) !== id) this.apply({ op: "link", tile: from.id, to: id, role: "preview" }, actor);
+    else if (from && this.layout.linkRoles.get(from.id) !== "preview") this.apply({ op: "link", tile: from.id, role: "preview" }, actor);
+    for (const [z, to] of [...this.layout.links]) if (to === id && z !== id && this.layout.linkRoles.get(z) !== "target" && z !== from?.id) this.apply({ op: "link", tile: z }, actor);
+    this.save(); this.redraw();
+  }
+  /** DeskApi.followRefusal: why reader `p` can't follow tile `source`, or null. */
+  followRefusal(p: ReaderPane, source: string, actor: Actor = USER): string | null {
+    const id = this.idOf(p);
+    if (id === undefined) return "that reader isn't on this screen";
+    let from: { id: number; name: string };
+    try { from = this.tile(source); } catch (e) { return (e as Error).message; }
+    if (!this.followable(from.id, p)) return `${from.name} has no selection to follow: a tree, a links tile or another reader can be followed`;
+    // The layout's own answer for the link (a locked screen relinks nothing), asked before anything changes.
+    return refusal(this.layout, { op: "link", tile: from.id, to: id, role: "preview" }, this.layoutCtx(actor));
+  }
+  /** DeskApi.askFollow: the person picks what reader `p` follows (its mode chip's click, `P`): a list picker of sources. */
+  askFollow(p: ReaderPane): void {
+    const id = this.idOf(p);
+    if (id === undefined) return;
+    const now = this.followSource(p)?.name;
+    const rows: { label: string; args: Record<string, unknown>; action?: string }[] = [
+      { label: `the current note${p.followMode === "follows" ? "  ·  now" : ""}`, args: { source: "current" } },
+      ...[...this.panes.keys()].filter(z => this.followable(z, p)).map(z => {
+        const name = this.nameOf(z), q = this.panes.get(z)!;
+        return { label: `${name} · ${kindOf(q)?.kind ?? "tile"}${this.shownNow(q) ? "" : " (out of sight)"}${name === now ? "  ·  now" : ""}`, args: { source: name } };
+      }),
+      { label: `nothing: held on its note${p.followMode === "held" && !now ? "  ·  now" : ""}`, args: { source: "none" } },
+      // Pinned to a page (PIE-705), where the note has one: its mode, through reader.mode.
+      ...(p.followMode === "pinned" || p.msg?.props.page ? [{ label: `pinned to [[${p.pinPage ?? p.msg?.props.page}]]${p.followMode === "pinned" ? "  ·  now" : ""}`, args: { mode: "pinned" }, action: "reader.mode" }] : []),
+    ];
+    const name = this.nameOf(id);
+    this.overlay(new ListPicker<{ label: string; args: Record<string, unknown>; action?: string }, Desk>({
+      name: "follow", items: () => rows, clickChooses: true,
+      row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
+      choose: (it, _i, d) => void d.run(it.action ?? "reader.follow", it.args, name),
+      frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 2), title: `what ${name} follows`, foot: "↑↓ pick · ⏎ or a click · esc" }),
+    }));
   }
 
   /** The previews following tile `at` (a preview with source=tile:<its name>) show `m`: but one the screen limits for an agent's opens. */
@@ -4318,8 +4407,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
   private savedAs: string | null = null;
-  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note) nor their ids. */
-  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "id" ? undefined : v)); }
+  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note, a reader's history) nor their ids. */
+  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "nav" || k === "id" ? undefined : v)); }
 
   /**
    * `layout.load`: lay this screen out as the screen named `name` (a screen note) or a built-in layout. Tiles with the same

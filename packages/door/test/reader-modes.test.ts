@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.close", {}, made().name);
   });
 
-  test("the mode chip is on the frame, says the mode, and a click on it switches the mode", async () => {
+  test("the mode chip is on the frame, says the mode, and a click on it picks the mode (PIE-814: a picker of what it follows)", async () => {
     await act("reader.mode", { mode: "follows" }, "follower");
     D().setCurrent(notes.plan, {});
     expect(pane("follower").msg?.id).toBe(notes.plan.id);
@@ -241,25 +241,30 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     const chips = () => D().headPresses as { id: number; row: number; from: number; to: number }[];
     const idOf = (name: string) => [...D().names].find(([, n]: any) => n === name)[0] as number;
     const chipOf = (name: string) => { render(); return chips().find(c => c.id === idOf(name))!; };
-    const c = chipOf("follower");
-    expect(c).toBeDefined();
-    mouse("down", c.from, c.row); mouse("up", c.from, c.row);
-    await until(() => tile("follower").mode === "held", "a click on follows holds");
+    /** A click on the chip, then the picker's row that reads `row` (↓ to it, ⏎). */
+    const pick = (row: RegExp) => {
+      const c = chipOf("follower");
+      mouse("down", c.from, c.row); mouse("up", c.from, c.row);
+      const p = D().overlays.top();
+      expect(p).toBeTruthy();
+      const at = (p.items as { label: string }[]).findIndex(x => row.test(x.label));
+      expect(at).toBeGreaterThanOrEqual(0);
+      for (let i = 0; i < at; i++) key({ kind: "down" });
+      key({ kind: "enter" });
+    };
+    expect(chipOf("follower")).toBeDefined();
+    pick(/^nothing/);
+    await until(() => tile("follower").mode === "held", "picking nothing holds it");
     expect(pane("follower").msg?.id).toBe(notes.plan.id);
     D().setCurrent(notes.shed, {});                          // the current note moves on while it's held
-    const h = chipOf("follower");
-    mouse("down", h.from, h.row); mouse("up", h.from, h.row);
-    await until(() => tile("follower").mode === "follows", "a click on held follows (the note has no page to pin)");
+    pick(/^the current note/);
+    await until(() => tile("follower").mode === "follows", "picking the current note follows it");
     expect(pane("follower").msg?.id).toBe(notes.plan.id);  // it keeps its note, now the current one: nothing jumps
     expect(D().current?.id).toBe(notes.plan.id);
-    // A held reader on a note with a page goes on to pinned.
+    // A note with a page: the picker offers pinning to it.
     await act("open", { id: notes.now.id }, "follower");
-    const p1 = chipOf("follower");
-    mouse("down", p1.from, p1.row); mouse("up", p1.from, p1.row);
-    await until(() => tile("follower").mode === "held", "held");
-    const p2 = chipOf("follower");
-    mouse("down", p2.from, p2.row); mouse("up", p2.from, p2.row);
-    await until(() => tile("follower").mode === "pinned", "a click on held pins it to the note's page");
+    pick(/^pinned to \[\[garden-now\]\]/);
+    await until(() => tile("follower").mode === "pinned", "picking the page pins it");
     expect(tile("follower").page).toBe("garden-now");
     await act("reader.mode", { mode: "follows" }, "follower");
   });

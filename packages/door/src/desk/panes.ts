@@ -93,6 +93,16 @@ export interface DeskApi {
   holdsKeys?(): boolean;
   /** Tile `p` is on screen now (not in a shut dock, not a hidden tab). */
   shownNow?(p: Pane): boolean;
+  /** The tile reader `p` follows by a link (PIE-814), and whether it's out of sight now; null when none. */
+  followSource?(p: ReaderPane): { name: string; hidden: boolean } | null;
+  /** The tile that moved the current note last, and whether it's out of sight now (a tree in a shut dock). */
+  steering?(): { name: string; hidden: boolean } | null;
+  /** Why reader `p` can't follow tile `source` (no such tile, itself, nothing to follow), or null. */
+  followRefusal?(p: ReaderPane, source: string, actor?: Actor): string | null;
+  /** Reader `p` follows tile `source` (a link with the preview role, saved with the layout); null: no tile. */
+  followFrom?(p: ReaderPane, source: string | null, actor: Actor): void;
+  /** The person picks what reader `p` follows: a picker of sources over the screen. */
+  askFollow?(p: ReaderPane): void;
   /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
   travelPeek?(p: Pane, dir: -1 | 1): string | null;
   /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
@@ -310,8 +320,11 @@ export class ReaderPane implements Pane {
   async setMode(mode: FollowMode | undefined, desk: DeskApi, page?: string): Promise<{ mode: FollowMode; page?: string; held: boolean }> {
     if (!this.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it has no mode to switch");
     if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
-    const next = mode ?? (this.followMode === "follows" ? "held" : "follows");
+    const next = mode ?? (this.followMode === "follows" && !desk.followSource?.(this) ? "held" : "follows");
     const gen = ++this.modeGen;
+    // A mode chosen is the reader's own way again: a tile it followed (reader.follow source=<tile>) lets go of it, once
+    // the mode is sure to be set.
+    const letGo = () => { if (desk.followSource?.(this)) desk.followFrom?.(this, null, USER); };
     if (next === "pinned") {
       const name = page ?? this.msg?.props.page;
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
@@ -319,9 +332,11 @@ export class ReaderPane implements Pane {
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
       if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
       if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
+      letGo();
       this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
       if (this.msg?.id !== r.block.id) this.show(r.block, desk);
     } else {
+      letGo();
       this.pinPage = null; this.pageNote = null;
       this.held = next === "held";
       // Held to follows keeps the note on screen: it becomes the current note (the others follow it), never a jump to
@@ -361,15 +376,25 @@ export class ReaderPane implements Pane {
    */
   headControls(room: number, desk: DeskApi) {
     if (!this.follows) return null;
-    const text = this.followMode === "pinned" ? `pinned [[${this.pinPage}]]` : this.followMode;
-    if (text.length > room && this.followMode === "pinned" && "pinned".length <= room) return [{ text: "pinned", sgr: fg(C.yellow), press: () => this.cycle(desk), chip: true as const }];
-    if (text.length > room) return null;
-    return [{ text, sgr: fg(this.followMode === "follows" ? C.grey : C.yellow), press: () => this.cycle(desk), chip: true as const }];
+    const press = () => this.pickSource(desk);
+    if (this.followMode === "pinned") {
+      const text = `pinned [[${this.pinPage}]]`;
+      if (text.length > room && "pinned".length <= room) return [{ text: "pinned", sgr: fg(C.yellow), press, chip: true as const }];
+      return text.length > room ? null : [{ text, sgr: fg(C.yellow), press, chip: true as const }];
+    }
+    // What it follows (PIE-814): a tile by its link, else the current note (naming the tile that moves it when that's
+    // out of sight, a tree in a shut dock), else nothing (held). Each shortened before it's dropped.
+    const tile = desk.followSource?.(this), steer = !tile && this.followMode === "follows" ? desk.steering?.() : null;
+    const away = (x: { hidden: boolean }) => (x.hidden ? " (docked)" : "");
+    const ways = tile ? [`follows · ${tile.name}${away(tile)}`, `follows · ${tile.name}`, "follows"]
+      : this.followMode === "follows" ? [...(steer?.hidden ? [`follows · current ← ${steer.name}${away(steer)}`] : []), "follows · current", "follows"]
+      : ["held"];
+    const text = ways.find(w => w.length <= room);
+    return text ? [{ text, sgr: fg(this.followMode === "follows" && !tile ? C.grey : C.yellow), press, chip: true as const }] : null;
   }
-  /** What a click on the chip does: follows to held, held to pinned (where the note has a page), pinned to follows. */
-  private cycle(desk: DeskApi) {
-    const next: FollowMode = this.followMode === "follows" ? "held" : this.followMode === "held" && this.msg?.props.page ? "pinned" : "follows";
-    runOwn(READER_ACTIONS, "reader.mode", { mode: next }, { pane: this, desk });
+  /** What a click on the chip does (and `P`): the picker of what it follows, through `reader.follow` (no source). */
+  private pickSource(desk: DeskApi) {
+    runOwn(READER_ACTIONS, "reader.follow", {}, { pane: this, desk });
   }
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
@@ -519,6 +544,7 @@ export class ReaderPane implements Pane {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
     if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
     if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.mode", {}, { pane: this, desk }); return true; }
+    if (this.follows && !this.editing && ch(k) === "P") { this.pickSource(desk); return true; }
     // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
     if (!this.editing && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }
     return this.surface.key(k, this.host(desk));
@@ -769,9 +795,36 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       return desk.revealInOutline(pane);
     },
   }),
+  "reader.follow": def({
+    summary: "what a reader (tile=<its name>) follows: source=current (the current note, as it changes), source=<tile> (a tile with a selection: the tree, a links tile, another reader; a link with the preview role, alt+l's, saved with the layout) or source=none (held on its note). Left out, the person picks from a list. Its mode chip names it: follows · current, follows · tree (docked), held",
+    keys: "P then ⏎ or a click (a row of the picker of sources); a click on the mode chip on the frame opens the picker too",
+    touches: "tile", replay: "safe", way: "an agent sets what a reader follows when the person isn't in it", says: r => (r.asked ? null : r.source === "current" ? "let the reader follow the current note" : r.source === "none" ? "held the reader on its note" : `let the reader follow ${r.source}`),
+    menu: { label: "follow…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
+    args: { source: { type: "string", optional: true, about: "current, none, or a tile's name (a tree, a links tile, a reader); left out, a picker (the person's)" } },
+    async run({ source }, { pane, desk }, actor) {
+      if (!pane.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it follows nothing");
+      if (source === undefined) {
+        if (actor.kind === "agent" || !desk.askFollow) throw new ActionRefused("name it: source=current, source=none or source=<tile>");
+        desk.askFollow(pane);
+        return { tile: desk.nameOfPane?.(pane), asked: true };
+      }
+      if (source === "current" || source === "none") {
+        await pane.setMode(source === "current" ? "follows" : "held", desk);
+        return { tile: desk.nameOfPane?.(pane), source };
+      }
+      if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
+      if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      // Checked before anything changes: a refused source leaves the reader as it was.
+      const why = desk.followRefusal?.(pane, source, actor);
+      if (why) throw new ActionRefused(why);
+      if (pane.followMode !== "held") await pane.setMode("held", desk);
+      desk.followFrom(pane, source, actor);
+      return { tile: desk.nameOfPane?.(pane), source };
+    },
+  }),
   "reader.mode": def({
     summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
-    keys: "p (follows and held), a click on the mode chip on the frame (follows, held, pinned)",
+    keys: "p (follows and held); the mode chip and P pick what it follows (reader.follow)",
     touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "let the reader follow the current note" : r.mode === "pinned" ? `pinned the reader to [[${r.page}]]` : "held the reader on its note"}`,
     menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "follow the current note" } : null) },
     args: {
