@@ -68,6 +68,9 @@ describe("dates and numbers on any property", () => {
     const answer = await query("type=follow-up due <= +30d");
     expect(names(answer)).not.toContain("Water the fern");
     expect(answer.hint).toContain("due: 1 note has a value that isn't a date: “someday”");
+    // A projected answer (ep0ch find, MCP outline_query) says it too.
+    const projected = await client.request<{ hint?: string }>({ action: "blocks.query", query: { where: "type=follow-up due <= +30d", limit: 50 }, fields: ["id"] });
+    expect(projected.hint).toContain("“someday”");
     // Only about the notes the question asks of: another kind of note's `due::Wed` is no concern of a follow-up query.
     await client.request<Block>({ action: "create", text: "Bin day [type::chore] [due::Wed]" });
     expect((await query("type=follow-up due <= +30d")).hint).not.toContain("Wed");

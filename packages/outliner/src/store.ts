@@ -3961,8 +3961,10 @@ export class OutlinerStore {
   /** `blocks.query` with a field projection: the same matches without unrequested payload. */
   queryProjectedBlocks(input: BlockSearchQuery, fields: unknown): ProjectedBlockCollection {
     const projection = normalizeBlockReadFields(fields);
-    const { blocks, completeness } = this.queryBlocks(input);
+    // What the question answers beside its rows (groups, facets, hint) rides along with projected rows too.
+    const { blocks, completeness, ...answer } = this.queryBlocks(input);
     return {
+      ...answer,
       blocks: blocks.map((block) => ({
         ...projectBlock(block, block.hasChildren, projection),
         depth: block.depth,
