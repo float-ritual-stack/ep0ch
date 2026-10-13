@@ -2737,8 +2737,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.headOut = "";
     const xNow = () => x;
     const put = (text: string, sgr: string, hit?: number) => {
-      if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + text.length), row: r.row });
-      this.headOut += sgr + text + RESET; x += text.length;
+      // In cells: a wide glyph in a title takes two (PIE-809).
+      const cells = width(text);
+      if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + cells), row: r.row });
+      this.headOut += sgr + text + RESET; x += cells;
     };
     // A held column of a flow (the river's p): it resists compression, and says so.
     const flow = chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
@@ -2765,20 +2767,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // [[claude-now]]`, else the kind's word: `column`.)
       const p = this.panes.get(id)!, name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
       const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
-      const word = rest === null ? own : rest || (kindOf(p)?.word ?? p.kind);
+      const kindWord = kindOf(p)?.word ?? p.kind;
+      const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
       const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
       // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
       // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
       // one has a short form, `pinned` for `pinned [[page]]`), then the kind's word, which is the first to give way.
-      const avail = max - xNow() - 10, full = (named.workId ? named.workId.length + 3 : 0) + named.title.length;
-      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, c.text.length), 0);
+      const avail = max - xNow() - 10, full = (named.workId ? width(named.workId) + 3 : 0) + width(named.title);
+      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
       // The kind whole (`card · preview · board`), else its first word (`card`), else none.
       const short = ` · ${kind.slice(3).split(" · ")[0]}`;
-      const said = full + chips + kind.length <= avail ? kind : full + chips + short.length <= avail ? short : "";
+      const said = full + chips + width(kind) <= avail ? kind : full + chips + width(short) <= avail ? short : "";
       const withKind = said !== "";
       const room = withKind ? full : Math.max(12, avail - chips);
       if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
-      put(headOf(named.title, Math.max(4, room - (named.workId ? named.workId.length + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
+      put(headOf(named.title, Math.max(4, room - (named.workId ? width(named.workId) + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
       if (withKind) put(said, fg(C.dark), id);
       return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
