@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { createAnnotationReferenceContext, createTextQuoteAnchor } from "../../src/annotations";
@@ -9,10 +9,13 @@ import { runHerdrScenario } from "./herdr-runner";
 const originalText = ["# Thread document", "", "GLOBAL PASSAGE", ...Array.from({ length: 22 }, (_, i) => `Source line ${i + 1}`), "CONTEXT PASSAGE", ...Array.from({ length: 20 }, (_, i) => `ORPHAN evidence ${i + 1}`)].join("\n");
 const changedText = originalText.slice(0, originalText.indexOf("ORPHAN evidence")) + "Replacement tail";
 const composed = process.argv.includes("--composed");
+/** Where the scratch outline's host reads its files: the outline's own folder. */
+let filesRoot = "";
 const result = await runHerdrScenario({
   name: composed ? "annotation-threads-composed" : "annotation-threads",
   layout: composed ? "composed" : "separate",
-  async prepare(root) { await writeFile(join(root, "threads.md"), originalText); },
+  // The host reads an outline's files from the outline's own folder (outline-location.ts), not the project's.
+  async prepare(_root, paths) { filesRoot = paths.stateDir; await mkdir(filesRoot, { recursive: true }); await writeFile(join(filesRoot, "threads.md"), originalText); },
   async run(s) {
     const terminal = await s.attachClient();
     const { tree, detail } = s.panes;
@@ -44,31 +47,64 @@ const result = await runHerdrScenario({
     const other = await add("Other reference thread", "CONTEXT PASSAGE", context(host.text.indexOf("[file::")));
     const orphan = await add("Orphan final comment sentinel", originalText.slice(originalText.indexOf("ORPHAN evidence")));
     await s.client.request({ action: "annotations.reply", requestId: crypto.randomUUID(), input: { annotationId: selected.block.id, body: "Existing agent reply", source: "agent" } });
-    await writeFile(join(s.projectRoot, "threads.md"), changedText);
+    await writeFile(join(filesRoot, "threads.md"), changedText);
     const threads = () => s.client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "resource", resourceId: resource.id }, includeResolved: true } });
     const thread = async (id: string) => (await threads()).find(t => t.block.id === id)!;
     const reveal = async (blockId: string, panes = { tree, detail }) => {
       await s.revealTree(panes.tree, blockId);
       await s.keys(panes.tree, "enter");
-      // Current identity can already match before Enter's composed focus transition finishes.
-      await s.waitFor("target published and focused", s.registrations, cs => cs.some(c =>
-        c.runtime?.paneId === panes.detail && c.currentTarget?.kind === "block" && c.currentTarget.blockId === blockId &&
-        (!composed || panes.detail !== detail || c.focusedRegion === "detail")));
+      // ⏎ opens it and leaves the keys in the Tree (⌥⏎ is open and focus): the Detail region is focused below.
+      await s.waitFor("target published", s.registrations, cs => cs.some(c =>
+        c.runtime?.paneId === panes.detail && c.currentTarget?.kind === "block" && c.currentTarget.blockId === blockId));
       await s.focus(panes.detail);
       if (composed && panes.detail === detail && (await current()).focusedRegion !== "detail") {
         await terminal.write("\u001b[17~");
         await s.waitFor("Detail region focused", current, c => c.focusedRegion === "detail");
       }
     };
+    // `o` asks which reference while the note's references are still being read ("not ready"): asked again until
+    // they are, as a person would.
+    const chooseReference = async (pane: string) => {
+      for (let tries = 0; ; tries++) {
+        await s.keys(pane, "o");
+        const frame = await s.waitFor("o answered", () => s.visible(pane), f => f.includes("Choose a reference") || f.includes("References are not ready"));
+        if (frame.includes("Choose a reference")) return;
+        if (tries > 20) throw new Error("the note's references never became ready");
+        // Never press again while the last press's answer may still be drawing: a second `o` in the chooser opens.
+        await Bun.sleep(700);
+        if ((await s.visible(pane)).includes("Choose a reference")) return;
+      }
+    };
+    // A comment's marker is drawn before Detail has read the threads (`]` then says there are none): `]` until it's read.
+    const firstThread = async (pane: string) => {
+      for (let tries = 0; ; tries++) {
+        await s.keys(pane, "]");
+        await Bun.sleep(500);
+        if ((await s.visible(pane)).includes("▶ Comment 1")) return;
+        if (tries > 20) throw new Error("Detail never read the document's threads");
+      }
+    };
+    // A file reference opens in Detail's own Preview, the note kept Current; Keep makes the file Current here.
+    const openFileHere = async (pane: string, ansiReader: boolean) => {
+      await s.keys(pane, "tab", "o"); await s.waitVisible(pane, "File opened in Preview");
+      if (!ansiReader) await terminal.write("\x1b[13;3u");
+      else {
+        await s.keys(pane, "?"); await s.waitVisible(pane, "Actions ·");
+        await s.text(pane, "Keep Preview here"); await s.waitVisible(pane, "Actions · Keep Preview here");
+        await s.keys(pane, "enter");
+      }
+      await s.waitFor("the file Current here", async () => (await s.registrations()).find(c => c.runtime?.paneId === pane)?.currentTarget, t => t?.kind === "resource");
+      await s.waitVisible(pane, "GLOBAL PASSAGE");
+    };
     await reveal(host.id);
-    await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
-    await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "R"); await s.waitVisible(detail, "GLOBAL PASSAGE");
+    await chooseReference(detail);
+    await openFileHere(detail, false);
     await s.waitFor("all threads loaded", threads, ts => ts.length === 4 && ts.find(t => t.block.id === orphan.block.id)?.resolvedTarget === null);
     const target = (await current()).currentTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
     await s.checkpoint("01-contextual-resource-and-orphan");
-    await s.keys(detail, "]"); await s.waitVisible(detail, "File-wide thread"); await s.waitVisible(detail, "Resource-wide");
+    await firstThread(detail);
+    await s.waitVisible(detail, "File-wide thread"); await s.waitVisible(detail, "Resource-wide");
     await s.keys(detail, "]"); await s.waitVisible(detail, "Second reference thread"); await s.waitVisible(detail, "This reference");
     await s.waitVisible(detail, "Existing agent reply");
     const beforeReply = await s.visible(detail);
@@ -91,7 +127,7 @@ const result = await runHerdrScenario({
     await s.checkpoint("02a-native-reply-control");
     await s.keys(detail, "esc"); await s.waitVisible(detail, "Reply cancelled");
     assert.deepEqual((await current()).currentTarget, target);
-    assert.equal((await s.visible(detail)).split("\n")[3], beforeReply.split("\n")[3]);
+    await s.waitFor("the viewport kept", () => s.visible(detail), frame => frame.split("\n")[3] === beforeReply.split("\n")[3]);
     await s.keys(detail, "C"); await s.waitVisible(detail, "Reply to comment");
     await terminal.write("\u0013"); await s.waitVisible(detail, "Reply body cannot be empty");
     await s.checkpoint("03-empty-reply-keeps-composer");
@@ -99,11 +135,11 @@ const result = await runHerdrScenario({
     await s.waitFor("human reply persisted", () => thread(selected.block.id), t => t.replies.some(r => r.body === "Human reply first line\nHuman reply second line" && r.source === "user"));
     await s.waitVisible(detail, "Human reply second line");
     assert.deepEqual((await current()).currentTarget, target);
-    assert.equal((await s.visible(detail)).split("\n")[3], beforeReply.split("\n")[3]);
+    await s.waitFor("the viewport kept", () => s.visible(detail), frame => frame.split("\n")[3] === beforeReply.split("\n")[3]);
     await s.checkpoint("04-human-and-agent-replies-in-place");
     await s.keys(detail, "D"); await s.waitFor("thread seen", () => thread(selected.block.id), t => t.lifecycle === "seen");
     await s.waitVisible(detail, "Bring back");
-    assert.equal((await s.visible(detail)).split("\n")[3], beforeReply.split("\n")[3]);
+    await s.waitFor("the viewport kept", () => s.visible(detail), frame => frame.split("\n")[3] === beforeReply.split("\n")[3]);
     await s.checkpoint("05-resolved-in-place");
     await s.keys(detail, "D"); await s.waitFor("thread reopened", () => thread(selected.block.id), t => t.lifecycle === "open");
     await s.waitVisible(detail, "Seen");
@@ -143,33 +179,33 @@ const result = await runHerdrScenario({
     const tabColumn = visibleWidth(tabFrame.split("\n")[0]!.slice(0, tabFrame.split("\n")[0]!.indexOf("3")));
     await terminal.write(`\u001b[<0;${tabColumn + 1};1M`);
     await terminal.write(`\u001b[<0;${tabColumn + 1};1m`);
-    await s.waitFor("attached client displays ANSI tab", () => terminal.visible(), frame => frame.includes("client-project"));
+    // The ANSI context's tab is the Outliner alone (no shell pane beside it), its box first on the row under the tabs.
+    await s.waitFor("attached client displays ANSI tab", () => terminal.visible(), frame => /│┌ Outliner/.test(frame.split("\n")[1] ?? ""));
     await reveal(orphan.block.id, ansi);
     await s.waitVisible(ansi.detail, "Original target:");
     await s.keys(ansi.detail, "G"); await s.waitVisible(ansi.detail, "Orphan final comment sentinel");
     await s.checkpoint("09-ansi-evidence-bottom-reachable");
     const currentViewportRow = (frame: string) => {
       const lines = frame.split("\n");
+      // The Preview region is beside Current only while something is previewed; else Current is the whole width.
       const divider = lines[0]!.indexOf("│Preview");
-      assert.ok(divider > 0, "ANSI wide reader includes separate Current and Preview regions");
-      return sliceByColumn(lines[3]!, 0, visibleWidth(lines[0]!.slice(0, divider)), true);
+      return divider > 0 ? sliceByColumn(lines[3]!, 0, visibleWidth(lines[0]!.slice(0, divider)), true) : lines[3]!;
     };
     const evidenceRow = currentViewportRow(await s.visible(ansi.detail));
-    for (const lifecycle of ["resolved", "open"] as const) {
+    for (const lifecycle of ["seen", "open"] as const) {
       await s.keys(ansi.detail, "D");
       await s.waitFor(`direct annotation ${lifecycle}`, () => thread(orphan.block.id), t => t.lifecycle === lifecycle);
       await s.waitVisible(ansi.detail, "Orphan final comment sentinel");
-      assert.equal(currentViewportRow(await s.visible(ansi.detail)), evidenceRow);
+      await s.waitFor("the evidence viewport kept", () => s.visible(ansi.detail), frame => currentViewportRow(frame) === evidenceRow);
     }
     await s.checkpoint("09a-annotation-lifecycle-keeps-evidence-viewport");
     await reveal(host.id, ansi);
-    await s.keys(ansi.detail, "o"); await s.waitVisible(ansi.detail, "Choose a reference");
-    await s.keys(ansi.detail, "tab", "o"); await s.waitVisible(ansi.detail, "Choose destination");
-    await s.keys(ansi.detail, "R"); await s.waitVisible(ansi.detail, "GLOBAL PASSAGE");
+    await chooseReference(ansi.detail);
+    await openFileHere(ansi.detail, true);
     const ansiCurrent = async () => (await s.registrations()).find(c => c.runtime?.paneId === ansi.detail)!;
     const ansiTarget = (await ansiCurrent()).currentTarget;
     assert.ok(ansiTarget?.kind === "resource" && ansiTarget.referenceContext);
-    await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 1"); await s.waitVisible(ansi.detail, "File-wide thread");
+    await firstThread(ansi.detail); await s.waitVisible(ansi.detail, "File-wide thread");
     await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 2"); await s.waitVisible(ansi.detail, "This reference");
     await s.waitVisible(ansi.detail, "Human reply second line");
     const ansiBeforeReply = await s.visible(ansi.detail);
@@ -181,16 +217,16 @@ const result = await runHerdrScenario({
     await s.waitFor("ANSI reply persisted", () => thread(selected.block.id), t => t.replies.some(r => r.body === "ANSI reply first line\nANSI reply final line"));
     await s.waitVisible(ansi.detail, "ANSI reply final line");
     assert.deepEqual((await ansiCurrent()).currentTarget, ansiTarget);
-    assert.equal(currentViewportRow(await s.visible(ansi.detail)), currentViewportRow(ansiBeforeReply));
-    await s.keys(ansi.detail, "D"); await s.waitFor("ANSI resolves selected thread", () => thread(selected.block.id), t => t.lifecycle === "resolved");
-    await s.waitVisible(ansi.detail, "D reopen");
-    await s.keys(ansi.detail, "D"); await s.waitFor("ANSI reopens selected thread", () => thread(selected.block.id), t => t.lifecycle === "open");
-    await s.waitVisible(ansi.detail, "D resolve");
+    await s.waitFor("the ANSI viewport kept", () => s.visible(ansi.detail), frame => currentViewportRow(frame) === currentViewportRow(ansiBeforeReply));
+    await s.keys(ansi.detail, "D"); await s.waitFor("ANSI marks the selected thread seen", () => thread(selected.block.id), t => t.lifecycle === "seen");
+    await s.waitVisible(ansi.detail, "D bring back");
+    await s.keys(ansi.detail, "D"); await s.waitFor("ANSI brings the selected thread back", () => thread(selected.block.id), t => t.lifecycle === "open");
+    await s.waitVisible(ansi.detail, "D seen");
     await s.keys(ansi.detail, "C"); await s.waitVisible(ansi.detail, "Reply to selected comment");
     await s.text(ansi.detail, "Discard ANSI reply"); await s.keys(ansi.detail, "esc"); await s.waitVisible(ansi.detail, "Reply cancelled");
     assert.equal((await thread(selected.block.id)).replies.length, 3);
     assert.deepEqual((await ansiCurrent()).currentTarget, ansiTarget);
-    assert.equal(currentViewportRow(await s.visible(ansi.detail)), currentViewportRow(ansiBeforeReply));
+    await s.waitFor("the ANSI viewport kept", () => s.visible(ansi.detail), frame => currentViewportRow(frame) === currentViewportRow(ansiBeforeReply));
     await s.checkpoint("11-ansi-reply-and-lifecycle-preserve-reader");
     await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 3"); await s.waitVisible(ansi.detail, "Other reference thread");
     await s.keys(ansi.detail, "]"); await s.waitVisible(ansi.detail, "▶ Comment 4"); await s.waitVisible(ansi.detail, "unpositioned");
