@@ -1808,8 +1808,12 @@ In Pi Detail, `[` and `]` select the previous or next comment in document order,
 then the unpositioned threads. Navigation wraps with an explicit status. The
 selected thread expands beside its passage or in **Unpositioned comments**;
 its pointer controls perform the same operations. `Shift+C` opens a multiline
-reply to that root thread. `Shift+D` resolves or reopens it. User and agent
-replies appear together. These actions retain the current document and reader
+reply to that root thread. `Shift+D` resolves or reopens it. `Shift+U` (or the
+Edit link on the comment or a reply) edits its posted words in the same composer
+(PIE-763): `annotations.update`, checked against the revision it started from,
+so an edit made meanwhile is refused and the text stays. It stays its author's,
+shown as edited (by whom, when that's someone else); its earlier words are its
+revisions. User and agent replies appear together. These actions retain the current document and reader
 viewport; explicit thread navigation scrolls its controls into view.
 
 Comments identify **Resource-wide**, **This reference**, or **Other reference**
@@ -2467,8 +2471,10 @@ bun run cli comment --id <block-uuid> --expected <revision> --whole --text 'Chec
 ```
 
 A comment is the person's unless `--author agent --actor <id>` says which agent
-wrote it. `bun run cli agent comment|reply|resolve-thread` do the same for an
-agent from JSON input, as the Claude mod's `outline_comment` tools do.
+wrote it. `bun run cli agent comment|reply|edit-comment|resolve-thread` do the same for an
+agent from JSON input, as the Claude mod's `outline_comment` tools do. `edit-comment` takes `mark` (a
+comment's or reply's id), `body`, and `observed` (its words as read) or `revision`: a comment changed since
+is refused (PIE-763).
 
 The public `createBlockComment` helper in `src/block-comments.ts` accepts request
 identity, a `BlockCommentInput`, author and provenance. Protocol80 adds the

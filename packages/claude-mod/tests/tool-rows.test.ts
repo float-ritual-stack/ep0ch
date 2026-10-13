@@ -106,6 +106,7 @@ describe('the formatter: one row per tool', () => {
     const reply = toolRowOf(done('outline_reply', { thread: THREAD, body: 'Scarlet emperor.' }))
     expect(words(reply)).toBe('💬 reply in thread 7a1e0c2d… · "Scarlet emperor."')
     expect(reply!.target!.ref).toBe(THREAD)
+    expect(words(toolRowOf(done('outline_reply', { edit: THREAD, observed: 'Scarlet.', body: 'Scarlet emperor.' })))).toBe('✎ edited thread 7a1e0c2d… · "Scarlet emperor."')
     expect(words(toolRowOf(done('outline_resolve_thread', { thread: THREAD, resolved: true })))).toBe('✓ resolved thread 7a1e0c2d…')
     expect(words(toolRowOf(done('outline_resolve_thread', { thread: THREAD, resolved: false })))).toBe('↺ reopened thread 7a1e0c2d…')
   })

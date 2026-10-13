@@ -29,6 +29,7 @@ export type PreviewRegionAction =
   | { type: "annotation.disclosure.toggle"; regionId: string }
   | { type: "annotation.thread.select"; annotationId: string }
   | { type: "annotation.thread.reply"; annotationId: string }
+  | { type: "annotation.thread.edit"; annotationId: string; replyId?: string }
   | { type: "annotation.thread.lifecycle"; annotationId: string }
   | { type: "annotation.thread.move"; delta: -1 | 1 }
   | { type: "callout.disclosure.toggle"; regionId: string }
@@ -84,6 +85,9 @@ export function previewRegionActionUri(action: PreviewRegionAction): string {
       return `${DETAIL_PREVIEW_SCHEME}//focus/${encodeURIComponent(action.regionId)}`;
     case "annotation.thread.move":
       return `${DETAIL_PREVIEW_SCHEME}//annotation-${action.delta === 1 ? "next" : "previous"}`;
+    case "annotation.thread.edit":
+      if (!action.annotationId.trim()) throw new Error("Annotation ID cannot be empty");
+      return `${DETAIL_PREVIEW_SCHEME}//annotation-thread-edit/${encodeURIComponent(action.annotationId)}${action.replyId ? `/${encodeURIComponent(action.replyId)}` : ""}`;
     case "annotation.thread.select":
     case "annotation.thread.reply":
     case "annotation.thread.lifecycle":
@@ -156,6 +160,11 @@ export function parsePreviewRegionActionUri(uri: string): PreviewRegionAction | 
     case "annotation-thread-lifecycle":
       if (!value) throw new Error("Invalid annotation thread URI");
       return { type: parsed.hostname.replaceAll("-", ".") as "annotation.thread.select" | "annotation.thread.reply" | "annotation.thread.lifecycle", annotationId: value };
+    case "annotation-thread-edit": {
+      const [mark, reply, ...rest] = encoded.split("/").map(part => decodeURIComponent(part));
+      if (!mark || rest.length) throw new Error("Invalid annotation thread URI");
+      return { type: "annotation.thread.edit", annotationId: mark, ...(reply ? { replyId: reply } : {}) };
+    }
     case "annotation-toggle":
       if (!value) throw new Error("Invalid Detail annotation region");
       return { type: "annotation.disclosure.toggle", regionId: value };

@@ -45,6 +45,7 @@ import type {
   AnnotationBatchReceipt,
   AnnotationCreateInput,
   AnnotationLifecycleInput,
+  AnnotationUpdateInput,
   AnnotationListQuery,
   AnnotationRecord,
   AnnotationPassageResolution,
@@ -1060,12 +1061,45 @@ export class AnnotationRepository {
       formatAnnotationBlock(
         { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source, ...(Object.keys(merged).length ? { properties: merged } : {}) },
         record.parentAnnotationId,
-        { lifecycle: record.lifecycle, promotedBlockIds: record.promotedBlockIds ?? [], allowLegacy: true },
+        { lifecycle: record.lifecycle, promotedBlockIds: record.promotedBlockIds ?? [], allowLegacy: true, ...(record.edited ? { edited: record.edited, editedBy: record.editedBy } : {}) },
       ),
       record.block.revision,
       mutation,
     );
-    return this.materialize(parseAnnotationBlockContent(updated), this.targetRow(annotationId));
+    return this.materialize(parseAnnotationBlockContent(updated), this.targetRow(record.parentAnnotationId ?? annotationId));
+  }
+
+  /**
+   * A posted comment's or reply's new words (PIE-763), if its block is still at `expectedRevision`: written through
+   * the one block format with its target, lifecycle, properties and promoted blocks kept, and `edited` stamped now.
+   * Its replies are its children and stay; its earlier words stay in the block's revisions.
+   */
+  update(input: AnnotationUpdateInput, mutation: MutationProvenance): AnnotationRecord {
+    if (!input || typeof input !== "object") throw new Error("annotations.update needs input: { annotationId, expectedRevision, body }");
+    const annotationId = text(input.annotationId, "Annotation ID");
+    const expectedRevision = input.expectedRevision;
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new Error("annotations.update needs expectedRevision: the revision of the comment the edit started from (annotations.list gives block.revision)");
+    if (typeof input.body !== "string") throw new Error("annotations.update needs body: the comment's new words");
+    const record = this.get(annotationId);
+    const body = input.body.trim();
+    // A highlight may take words (it becomes a comment); words once written can be changed, not emptied: Seen puts a thread away.
+    if (!body && (record.body || record.parentAnnotationId)) throw new Error(`a ${record.parentAnnotationId ? "reply" : "comment"} can't be emptied by an edit: change its words, or put the thread away with Seen`);
+    if (record.block.revision !== expectedRevision) {
+      throw new Error(`revision is stale: the ${record.parentAnnotationId ? "reply" : "comment"} changed since the edit started (it was at ${expectedRevision}, now ${record.block.revision}) · not saved · read it again and edit that`);
+    }
+    if (body === record.body) return record;
+    const updated = this.blocks.update(
+      annotationId,
+      formatAnnotationBlock(
+        { target: record.resolvedTarget ?? record.originalTarget, body, source: record.source, ...(record.properties && Object.keys(record.properties).length ? { properties: record.properties } : {}) },
+        record.parentAnnotationId,
+        { lifecycle: record.lifecycle, promotedBlockIds: record.promotedBlockIds ?? [], allowLegacy: true, edited: new Date().toISOString(), editedBy: mutation.author === "agent" ? mutation.actorId ?? "agent" : mutation.author },
+      ),
+      expectedRevision,
+      mutation,
+    );
+    // A reply is anchored through its thread's target.
+    return this.materialize(parseAnnotationBlockContent(updated), this.targetRow(record.parentAnnotationId ?? annotationId));
   }
 
   setLifecycle(input: AnnotationLifecycleInput, mutation: MutationProvenance): AnnotationRecord {
@@ -1085,7 +1119,7 @@ export class AnnotationRepository {
       formatAnnotationBlock(
         { target: record.resolvedTarget ?? record.originalTarget, body: record.body, source: record.source, ...(record.properties && Object.keys(record.properties).length ? { properties: record.properties } : {}) },
         undefined,
-        { lifecycle: input.lifecycle, promotedBlockIds, allowLegacy: true },
+        { lifecycle: input.lifecycle, promotedBlockIds, allowLegacy: true, ...(record.edited ? { edited: record.edited, editedBy: record.editedBy } : {}) },
       ),
       record.block.revision,
       mutation,
@@ -1681,6 +1715,7 @@ export class AnnotationRepository {
       properties: content.properties,
       ...(content.parentAnnotationId ? { parentAnnotationId: content.parentAnnotationId } : {}),
       quotedIn: this.quotedIn(content.block.id),
+      ...(content.edited ? { edited: content.edited, ...(content.editedBy ? { editedBy: content.editedBy } : {}) } : {}),
     };
   }
 

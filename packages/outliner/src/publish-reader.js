@@ -523,7 +523,7 @@
     const bare = thread.kind === "highlight" && !thread.body && !thread.replies.length;
     const earlier = isEarlier(thread), kept = thread.lifecycle === "kept";
     const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${earlier ? " earlier" : ""}${kept ? " kept" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
-    node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).join(" · ") }));
+    node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at), editedSaid(thread), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).join(" · ") }));
     if (thread.quote && !markOf(thread.id)) {
       // Drawn as the note's words are (a reference by its title, a link), from the server's renderer; else as typed.
       const said = el("div", { class: "q" }, "“");
@@ -544,9 +544,12 @@
     for (const reply of thread.replies) {
       if (face && reply.id === face.id) continue;
       const replyMarks = reply.marks || [];
+      // Each reply's own row: Edit (where this page may, PIE-763), Quote and Pick.
+      const replyRow = el("div", { class: "mg-row" });
+      replyRow.append(...(reply.edit && !readOnly ? [el("button", { type: "button", class: "quiet", text: "Edit", onclick: () => editIn(node, reply, replyRow) })] : []), ...quoteButtons(reply.id));
       discussion.append(el("div", { class: `reply${picked.has(reply.id) ? " picked" : ""}`, "data-reply": reply.id },
-        el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}${reply.tldr ? " · TL;DR" : ""}` }), words(reply, replyMarks), nest(replyMarks),
-        quotedLine(reply.quotedIn), el("div", { class: "mg-row" }, ...quoteButtons(reply.id))));
+        el("div", { class: "who", text: [`${reply.by} · ${when(reply.at)}`, editedSaid(reply), reply.tldr ? "TL;DR" : ""].filter(Boolean).join(" · ") }), words(reply, replyMarks), nest(replyMarks),
+        quotedLine(reply.quotedIn), replyRow));
     }
     const quotes = quotedLine(thread.quotedIn);
     if (quotes) node.append(quotes);
@@ -577,9 +580,10 @@
       verb(kept ? "unkeep" : "keep", kept ? "Unkeep" : "Keep"),
       el("button", { type: "button", text: "TL;DR", title: face ? "edit the TL;DR" : "ask @margin for a TL;DR", onclick: () => (face || !agent ? editTldr(node, thread, face || { body: "" }, row) : act("tldr", { thread: thread.id })) }),
     ];
-    // ⋯: the rest (Quote, and Pick for several), in the same row instead, so the row never wraps.
-    const rest = quoteButtons(thread.id).slice(0, bare ? 1 : undefined);
-    const more = el("button", { type: "button", class: "quiet", text: "⋯", "aria-label": "more: quote, pick", onclick: () => { row.replaceChildren(...rest, back); } });
+    // ⋯: the rest (Edit its words where this page may, PIE-763; Quote, and Pick for several), in the same row instead, so the row never wraps.
+    const edit = thread.edit ? [el("button", { type: "button", class: "quiet", text: "Edit", onclick: () => editIn(node, thread, row) })] : [];
+    const rest = [...edit, ...quoteButtons(thread.id).slice(0, bare ? 1 : undefined)];
+    const more = el("button", { type: "button", class: "quiet", text: "⋯", "aria-label": `more: ${thread.edit ? "edit, " : ""}quote, pick`, onclick: () => { row.replaceChildren(...rest, back); } });
     const back = el("button", { type: "button", class: "quiet", text: "‹", "aria-label": "back", onclick: () => { row.replaceChildren(...primary, more); } });
     row.append(...primary, more);
     node.append(row);
@@ -734,6 +738,31 @@
     node.scrollIntoView({ block: "center" });
   }
   window.addEventListener("hashchange", () => { arrived = false; arrive(); });
+
+  /** "edited", or who edited it when that isn't who wrote it (PIE-763). */
+  const editedSaid = (item) => (!item.edited ? "" : item.editedBy && item.editedBy !== item.by ? `edited by ${item.editedBy}` : "edited");
+
+  /**
+   * A posted comment's or reply's words edited in the box a reply is written in (PIE-763): its words as written, Save
+   * sends them with the revision the edit started from, so an edit made meanwhile is refused and the words stay here.
+   */
+  function editIn(node, item, row) {
+    if (!opening() || !item.edit) return;
+    const input = el("textarea", { class: "mg-in", "aria-label": "Edit the words" });
+    input.value = item.edit.words;
+    editor = input;
+    const why = el("p", { class: "why", hidden: "" });
+    const box = el("div", { class: "mg-reply mg-edit" }, input, why);
+    const done = () => { box.remove(); row.hidden = false; editor = null; doneWriting(); };
+    const cancel = el("button", { type: "button", class: "quiet", text: "Cancel", onclick: () => done() });
+    const save = el("button", { type: "button", text: "Save", onclick: () =>
+      submit(input, [save, cancel], why, { action: "edit", mark: item.id, revision: item.edit.revision, body: input.value }, (answer) => { say(answer.said || "edited"); done(); }) });
+    box.append(el("div", { class: "mg-row" }, cancel, save));
+    row.hidden = true;
+    row.after(box);
+    completing(input);
+    input.focus();
+  }
 
   function replyIn(node, thread, row) {
     if (!opening()) return;

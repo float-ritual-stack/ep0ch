@@ -457,6 +457,9 @@ const effects: DetailEffects = {
   async setAnnotationLifecycle(input) {
     return client.request<AnnotationRecord>({ action: "annotations.lifecycle", input, mutation: { author: "user", actorId: "detail" } });
   },
+  async updateAnnotation(input) {
+    return client.request<AnnotationRecord>({ action: "annotations.update", input, mutation: { author: "user", actorId: "detail" } });
+  },
   async internFilesystem(path) {
     return client.request<InternResourceReceipt>({
       action: "resources.intern-filesystem",
@@ -892,10 +895,13 @@ async function invokeReaderAction(actionId: string): Promise<void> {
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return; }
   if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport(controller)); return; }
-  if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+  if (active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.edit" || actionId.startsWith("detail.annotation.edit:") || actionId === "detail.annotation.lifecycle")) {
     const annotationId = inspection.state.selectedAnnotationId;
     if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return; }
-    await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(controller));
+    const type = actionId === "detail.annotation.reply" ? "annotation.thread.reply" : actionId.startsWith("detail.annotation.edit") ? "annotation.thread.edit" : "annotation.thread.lifecycle";
+    // An Edit link beside a reply names it: detail.annotation.edit:<reply id>.
+    const replyId = actionId.startsWith("detail.annotation.edit:") ? actionId.slice("detail.annotation.edit:".length) : undefined;
+    await readingSurface.activatePreviewAction(type === "annotation.thread.edit" ? {type, annotationId, ...(replyId ? {replyId} : {})} : {type, annotationId}, viewport(controller));
     return;
   }
   if (active === inspection && !actionId.startsWith("detail.checklist.") && actionKeymap.action(actionId).menuGroup === "Edit" && actionId !== "detail.annotation.previous" && actionId !== "detail.annotation.next") {

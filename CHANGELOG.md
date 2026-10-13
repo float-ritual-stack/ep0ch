@@ -21,6 +21,17 @@ are its record. The outliner's entries from then are kept below, under
   reopens it to to do. Approved counts as done in a step tally; rejected doesn't.
 - **For agents:** `checklist.query` (`statuses: ["approved"]`) tells them apart, and an approved step is the person's
   yes (the ep0ch-outline and daily-brief skills say so).
+
+### Edit a comment or reply after it's posted (PIE-763)
+
+- **Added:** a posted comment or reply can be edited in the same editor it was written in: in the door (`e` in the
+  thread list, `[Edit]` on an expanded thread and on each reply), in Detail (`Shift+U`, or the Edit link on a comment
+  or reply), and on the web pages (Edit in a card's ⋯ and on each reply). Agents edit with `outline_reply` and `edit`
+  (the mod and the MCP), `outliner agent edit-comment`, or the door's `comment.edit`.
+- The edit is checked against the revision it started from, so one made meanwhile is refused and your words are kept.
+  The comment stays its author's and says "edited" (or "edited by" whoever did); its earlier words are its revisions.
+  Below a share link, only what was written through that link can be edited.
+- **Fixed:** a click on a reply's `[Quote]` on an expanded thread quoted the whole thread.
 - **Run:** a protocol bump: `ep0ch install --apply` on each machine, then restart the publishers.
 
 ### The web client and the MCP gateway answer on a second domain (PIE-813)

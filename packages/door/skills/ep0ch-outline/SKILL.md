@@ -85,7 +85,10 @@ comment on the passage to change (`outline_comment` with the `quote`); the other
 changes only the thread, so a `propose` outline allows it. Check the thread's last comment before answering: nothing
 records whether a comment wants an answer. `outline_threads` with no note is the inbox (open threads anywhere,
 `lastFrom`, `mentions`, `since`): a scheduled check calls that. Each agent writes under its own name (the gateway's
-persona, the mod's `OUTLINER_ACTOR` or `EP0CH_AGENT`), so a thread shows who said what.
+persona, the mod's `OUTLINER_ACTOR` or `EP0CH_AGENT`), so a thread shows who said what. A comment or reply already posted
+(yours, or one the person asks you to fix) is edited in place, not answered with a correction: `outline_reply` with
+`edit` (its id) and `observed` (its words as you read them). A comment that changed since is refused; read it again.
+It stays its author's and says "edited by" you.
 
 On a page two agents work on, put the items that change (steps, outbox items) in child blocks, each with its own
 revision, so concurrent edits rarely collide.

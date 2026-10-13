@@ -959,6 +959,59 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("margin attention: a posted comment edited by keys (m, e) and a reply by a click on its [Edit], in the comment editor; both show as edited; an agent's edit is attributed, a stale one refused (PIE-763)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "margin-attention" }, as: "test-agent" });
+    await until(() => screen().includes("TL;DR Sewing") && screen().includes("Could we swap"), "the rota's margin", 8000);
+    const stage = () => S().stages.get(S().sel).top;
+    const cs = () => stage().pane("rota").surface.session;
+    const d = () => cs()?.composer;
+    const rota = seeded.notes.attention;
+    const thread = async (start: string) => (await board.comments(rota.id)).find(t => t.body.startsWith(start))!;
+    // The thread list an agent's thread.seen left open (the test before) is closed: the person opens their own.
+    if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // Keys: m lists the threads, j k to the question, e edits its words in the comment editor, ctrl+s saves.
+    ch("m");
+    await until(() => cs()?.mode === "threads", "the thread list");
+    for (let i = 0; i < 5 && !cs()!.threads[cs()!.sel]?.body.startsWith("Could we swap"); i++) press({ kind: "char", ch: "j" });
+    ch("e");
+    await until(() => cs()?.mode === "compose" && d()?.text === "Could we swap Thursdays in August?", "the comment's words in the editor");
+    expect(plain(sc.render(app).lines.join("\n"))).toMatch(/edit \S+'s comment · ctrl\+s saves/);
+    press({ kind: "end" }); press({ kind: "backspace" });
+    for (const c of ", from the 4th?") ch(c);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => cs()?.mode === "threads" && !cs()?.busy, "the edit saved", 8000);
+    const question = await thread("Could we swap");
+    expect([question.body, !!question.edited, question.replies.length]).toEqual(["Could we swap Thursdays in August, from the 4th?", true, 0]);
+    await until(() => screen().includes("· edited"), "the thread list marks it edited");
+    press({ kind: "esc" });
+    await until(() => !cs(), "the list closed");
+    // Mouse: the kept thread expanded, a click on its reply's [Edit] opens the same editor on the reply's words.
+    const oil = await thread("Which oil");
+    await stage().dispatch.press("thread.toggle", { thread: oil.id, expand: true }, "rota");
+    const rows = () => sc.render(app).lines.map(plain);
+    let r = rows(), y = r.findIndex(l => l.includes("└ ") && l.includes("[Edit]"));
+    expect(y, r.join("\n")).toBeGreaterThan(0);
+    const x = r[y]!.indexOf("[Edit]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => cs()?.mode === "compose" && d()?.text === "Sewing machine oil: thin, and it doesn't gum.", "the reply's words in the editor", 8000);
+    press({ kind: "end" });
+    for (const c of " Not 3-in-1.") ch(c);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !cs(), "back to reading once it's saved", 8000);
+    const reply = (await thread("Which oil")).replies.find(x => !x.tldr)!;
+    expect([reply.body, !!reply.edited]).toEqual(["Sewing machine oil: thin, and it doesn't gum. Not 3-in-1.", true]);
+    await until(() => rows().some(l => l.includes("└ ") && l.includes("· edited")), "the expanded reply marked edited");
+    // An agent's edit through act: saved at once, recorded as the agent; an edit on a revision that's moved on is refused.
+    expect(await app.act({ action: "comment.edit", tile: "rota", args: { thread: question.id, body: "Could we swap Thursdays in August?" }, as: "test-agent" })).toMatchObject({ sent: "edit" });
+    const back = await thread("Could we swap");
+    expect(back.body).toBe("Could we swap Thursdays in August?");
+    await expect(board.updateComment(question.id, question.revision!, "Lost words")).rejects.toThrow("revision is stale");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread; the question and a highlight quoted into one Inbox block (act, then the person's [Quote] and the power bar), each undone in one step", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "margin-replies" }, as: "test-agent" })).toMatchObject({ key: "margin-replies" });

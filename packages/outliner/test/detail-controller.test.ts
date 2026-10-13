@@ -44,6 +44,7 @@ import {
 import type {
   AnnotationRecord,
   AnnotationReconcileInput,
+  AnnotationUpdateInput,
   AnnotationResolutionEvent,
   AnnotationTarget,
   AnnotationThread,
@@ -493,6 +494,7 @@ function createHarness(
     },
     async replyAnnotation() { throw new Error("No reply handler configured"); },
     async setAnnotationLifecycle() { throw new Error("No lifecycle handler configured"); },
+    async updateAnnotation() { throw new Error("No edit handler configured"); },
     async internFilesystem(path) {
       calls.filesystemInterns.push(path);
       return {
@@ -1010,6 +1012,68 @@ describe("detail controller projection and deferred refresh", () => {
     expect(harness.controller.state.context.selected).toBe(source);
     expect(harness.calls.focuses).toBe(0);
     expect(harness.calls.updates).toEqual([]);
+  });
+
+  test("edit a posted comment or reply in the comment editor: its words, the revision, a stale refusal keeps the text (PIE-763)", async () => {
+    const text = "Title\nPhrase\nLast line";
+    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
+    const target = { representation: undefined as never, anchor: { kind: "text-quote" as const, start: 6, end: 12, exact: "Phrase", prefix: "", suffix: "" } };
+    let thread: AnnotationThread | undefined;
+    harness.effects.reconcileAnnotations = async input => {
+      thread ??= (() => {
+        const base = annotationRecord({ ...target, representation: input.newRepresentation }, { block: makeBlock({ id: "annotation-1", revision: 3 }), body: "First words" });
+        const reply = { ...annotationRecord({ ...target, representation: input.newRepresentation }, { block: makeBlock({ id: "reply-1", revision: 5 }), body: "Reply words" }), parentAnnotationId: "annotation-1" };
+        return { ...base, replies: [reply] };
+      })();
+      return { threads: [thread], changed: true };
+    };
+    harness.effects.getAnnotation = async () => thread!;
+    const updates: AnnotationUpdateInput[] = [];
+    let stale = true;
+    harness.effects.updateAnnotation = async input => {
+      updates.push(input);
+      if (stale) { stale = false; throw new Error("annotations.update: the comment's revision is stale"); }
+      const edited = (mark: AnnotationRecord) => ({ ...mark, edited: "2026-10-13T00:00:00.000Z", editedBy: "user", body: input.body,
+        block: { ...mark.block, revision: mark.block.revision + 1 } });
+      if (input.annotationId === "reply-1") thread = { ...thread!, replies: [edited(thread!.replies[0]!)] };
+      else thread = { ...edited(thread!), replies: thread!.replies };
+      return thread!;
+    };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "annotation.thread.move", delta: 1 }, viewport);
+
+    await harness.controller.dispatch({ type: "annotation.thread.edit" }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.buffer.text).toBe("First words");
+    expect(harness.controller.state.status).toBe("Edit the selected comment · Ctrl+S saves · Esc leaves it as it was");
+    await harness.controller.dispatch({ type: "buffer.insert", text: " and more" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.status).toContain("changed since your edit began");
+    expect(harness.controller.state.status).toContain("Esc");
+    expect(harness.controller.state.buffer.text).toBe("First words and more");
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(updates[1]).toEqual({ annotationId: "annotation-1", expectedRevision: 3, body: "First words and more" });
+    expect(harness.controller.state.status).toBe("Comment edited");
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.annotationEditDraft).toBeUndefined();
+    expect(harness.controller.state.annotationThreads[0]!.body).toBe("First words and more");
+    expect(harness.controller.state.annotationThreads[0]!.edited).toBeDefined();
+
+    await harness.controller.dispatch({ type: "annotation.thread.edit", annotationId: "annotation-1", replyId: "reply-1" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("Reply words");
+    expect(harness.controller.state.status).toContain("selected reply");
+    await harness.controller.dispatch({ type: "buffer.insert", text: "!" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(updates[2]).toEqual({ annotationId: "reply-1", expectedRevision: 5, body: "Reply words!" });
+    expect(harness.controller.state.status).toBe("Reply edited");
+    expect(harness.controller.state.annotationThreads[0]!.replies[0]!.body).toBe("Reply words!");
+
+    await harness.controller.dispatch({ type: "annotation.thread.edit" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.annotationEditDraft).toBeUndefined();
+    expect(updates).toHaveLength(3);
   });
 
   test("paints annotation enrichment that arrives after the primary document", async () => {

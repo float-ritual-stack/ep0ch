@@ -652,6 +652,10 @@ export interface AnnotationRecord {
   readonly properties?: Readonly<Record<string, readonly string[]>>;
   /** The live blocks quoting it (`marks.quote`): each holds `[from::((this mark))]`, in the order they were made. */
   readonly quotedIn?: readonly string[];
+  /** When its words were last edited after it was posted (`annotations.update`, an ISO time); absent when never. Its earlier words are its block's revisions (`block.revisions`). */
+  readonly edited?: string;
+  /** Who edited its words last: `user` (the person) or an agent's actor id. */
+  readonly editedBy?: string;
 }
 
 export interface AnnotationThread extends AnnotationRecord {
@@ -803,6 +807,13 @@ export interface MarkQuoteReceipt {
   readonly placement: NotePlacement;
   readonly marks: readonly string[];
   readonly undo?: string;
+}
+
+/** A posted comment's or reply's new words (`annotations.update`, PIE-763), checked against the revision the editor started from. */
+export interface AnnotationUpdateInput {
+  readonly annotationId: string;
+  readonly expectedRevision: number;
+  readonly body: string;
 }
 
 export interface AnnotationLifecycleInput {
@@ -2318,6 +2329,17 @@ export type OutlinerRequestAction =
       id: string;
       action: "annotations.lifecycle";
       input: AnnotationLifecycleInput;
+      mutation: MutationProvenance;
+    }
+  /**
+   * A posted comment's or reply's words changed (PIE-763), if its block is still at `expectedRevision`: its target,
+   * lifecycle, properties and replies kept, `edited` stamped, attributed to `mutation`. Its earlier words stay in the
+   * block's revisions (`block.revisions`).
+   */
+  | {
+      id: string;
+      action: "annotations.update";
+      input: AnnotationUpdateInput;
       mutation: MutationProvenance;
     }
   /**

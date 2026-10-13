@@ -334,7 +334,7 @@ comes back as the tool's error with the reason.
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |
 | `outline_create` | `parent` (a ref or `root`), `text`, `position?` | `id`, `ref`, `revision` |
 | `outline_comment` | `ref`, `body`, `quote` (with `start`/`prefix`/`suffix` when it repeats) or `whole: true`, `requestId?` | the `thread` id |
-| `outline_reply` | `thread`, `body` | the `reply` id |
+| `outline_reply` | `thread`, `body`; or `edit` (a posted comment's or reply's id), `observed` (its words as read), `body` | the `reply` id; an edit: the `mark`, its new `revision` and when it was `edited` (it stays its author's, shown as edited by you; a comment changed since you read it is refused) |
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_components` | `components?` (ids; all when left out) | `ep0ch library --brief` for this session's outline: per component its purpose, where it goes, each property as `key: values (default) — meaning`, a minimal example. Run from the bound folder, so the outline's own styles and types and its extensions' components appear |
 | `outline_bind` | `name`, `machine?` | Binds this session's outline, workboard and mention tools to the outline `name` for the rest of the session (`/outline <name> [machine]` is the same call). It beats `EP0CH_WS` and every folder; an outline that does not exist is refused with the ones that do. Every "not bound" refusal names this call with a real name |

@@ -238,7 +238,11 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
       if (!nonEmpty(args.body) && (args.whole === true || (args.body !== undefined && args.body !== ""))) return { error: "Give a non-empty comment (only a quote with no body is a highlight)." };
       return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "properties"]) };
     case "outline_reply":
-      if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply." };
+      if (nonEmpty(args.edit)) {
+        if (!nonEmpty(args.body) || typeof args.observed !== "string") return { error: "Give edit (a comment's or reply's id outline_threads returned), observed (its words as you read them) and the new, non-empty body." };
+        return { tool, input: pick(args, ["edit", "observed", "body"]) };
+      }
+      if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply, or edit: a comment's id to change its words." };
       return { tool, input: pick(args, ["thread", "body", "requestId"]) };
     case "outline_resolve_thread":
       if (!nonEmpty(args.thread) || typeof args.resolved !== "boolean") return { error: "Give the thread (an id outline_threads returned) and resolved: true or false." };
@@ -262,6 +266,7 @@ interface AgentTools {
   createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
   replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
+  editComment(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; mark: string; revision: number }>;
   resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
@@ -355,6 +360,18 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   };
   switch (write.tool) {
     case "outline_reply": {
+      if (write.input.edit !== undefined) {
+        // A posted comment's or reply's words changed (PIE-763): at full access, applied; else a reply proposing them.
+        const mark = String(write.input.edit), body = String(write.input.body);
+        const thread = (await board.comments(write.blockId)).find(t => t.id === mark || t.replies.some(r => r.id === mark));
+        if (!thread) throw new Error(`No comment or reply ${mark} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
+        if (kind !== "applied" || o.proposeOnly) {
+          const r = await tools.replyTo(client, { thread: thread.id, body: `Proposed edit of ((${mark})), from ${o.actor.actorId}:\n\n${body}` }, o.actor);
+          return { outcome: "proposed", uri: o.uri(write.blockId), said: `edit proposed, not applied: a reply in thread ${thread.id} (${r.reply}) gives the new words for its owner to take`, detail: r };
+        }
+        const r = await tools.editComment(client, { mark, body, observed: write.input.observed }, o.actor);
+        return { outcome: "applied", uri: o.uri(write.blockId), said: `edited ${mark === thread.id ? "the comment" : "a reply"} in thread ${thread.id} on ${o.uri(write.blockId)} (revision ${r.revision})`, detail: r };
+      }
       const missing = await threadGone();
       if (missing) {
         if (o.queued) return gone("Replied to", missing, String(write.input.body));
@@ -476,8 +493,8 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     },
     {
       name: "outline_reply",
-      description: `Reply in a comment thread of a note (the uri or ref is the note; thread is the id outline_threads returned). A requestId makes a retry return the same reply. A reply changes nothing but its thread, so propose access allows it. If the thread is gone by the time a queued reply lands, it becomes a comment on the whole note saying so. ${answer}`,
-      inputSchema: addressed({ ...threadWrite, body: { type: "string" }, requestId: { type: "string" } }, ["thread", "body"]),
+      description: `Reply in a comment thread of a note (the uri or ref is the note; thread is the id outline_threads returned). A requestId makes a retry return the same reply. A reply changes nothing but its thread, so propose access allows it. If the thread is gone by the time a queued reply lands, it becomes a comment on the whole note saying so. With edit (a posted comment's or reply's id, from outline_threads) instead of thread, it changes those words to body: give observed, its words as you read them, so an edit made meanwhile is refused. It stays its author's, shown as edited by you. At full access it's applied; at propose access it's a reply in the thread proposing the new words. ${answer}`,
+      inputSchema: addressed({ ...threadWrite, body: { type: "string" }, requestId: { type: "string" }, edit: { type: "string", description: "A posted comment's or reply's id: change its words instead of replying" }, observed: { type: "string", description: "With edit: its words as you read them" } }, ["body"]),
     },
     {
       name: "outline_resolve_thread",

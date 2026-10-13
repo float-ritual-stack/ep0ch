@@ -202,10 +202,16 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
   {
     name: 'outline_reply',
     example: {"thread": "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", "body": "Yes, checked today."},
-    description: 'Reply in a comment thread, as you. `thread` is the id outline_comment returned (or a thread you read).',
-    inputSchema: schema({ thread: { type: 'string' }, body: { type: 'string' }, requestId: { type: 'string' } }, ['thread', 'body']),
+    description: 'Reply in a comment thread, as you. `thread` is the id outline_comment returned (or a thread you read). ' +
+      'With `edit` (a posted comment\'s or reply\'s id) instead of `thread`, change its words to `body`: give `observed`, its words as you read them, ' +
+      'so an edit made meanwhile is refused, never overwritten. It stays its author\'s, shown as edited by you; its earlier words are kept in its revisions.',
+    inputSchema: schema({ thread: { type: 'string' }, body: { type: 'string' }, requestId: { type: 'string' }, edit: { type: 'string' }, observed: { type: 'string' } }, ['body']),
     command(input) {
-      if (!nonEmpty(input.thread) || !nonEmpty(input.body)) return 'Give the thread and a non-empty reply.'
+      if (nonEmpty(input.edit)) {
+        if (!nonEmpty(input.body) || typeof input.observed !== 'string') return 'Give edit (the comment or reply), observed (its words as you read them) and the new, non-empty body.'
+        return { operation: 'edit-comment', input: { mark: input.edit, ...inputOf(input, ['body', 'observed']) } }
+      }
+      if (!nonEmpty(input.thread) || !nonEmpty(input.body)) return 'Give the thread and a non-empty reply (or edit: a comment\'s id, to change its words).'
       return { operation: 'reply', input: inputOf(input, ['thread', 'body', 'requestId']) }
     },
   },

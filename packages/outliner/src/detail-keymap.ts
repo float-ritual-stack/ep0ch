@@ -301,6 +301,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.annotation.reply":
         await dispatch({ type: "annotation.thread.reply" });
         return true;
+      case "detail.annotation.edit":
+        await dispatch({ type: "annotation.thread.edit" });
+        return true;
       case "detail.annotation.lifecycle":
         await dispatch({ type: "annotation.thread.lifecycle" });
         return true;

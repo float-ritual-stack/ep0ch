@@ -119,6 +119,7 @@ import type {
   AnnotationBatchReceipt,
   AnnotationReplyInput,
   AnnotationLifecycleInput,
+  AnnotationUpdateInput,
   AnnotationRecord,
   AnnotationAnchor,
   AnnotationCreateInput,
@@ -367,6 +368,13 @@ export interface DetailAnnotationReplyDraft {
   returnMode: "preview" | "file" | "annotation";
 }
 
+/** Editing a posted comment or reply (PIE-763): the mark, the revision the edit began from, and where Esc returns. */
+export interface DetailAnnotationEditDraft {
+  annotationId: string;
+  revision: number;
+  returnMode: "preview" | "file" | "annotation";
+}
+
 export interface DetailAnnotationDraft {
   requestId: string;
   target: DetailAnnotationTarget;
@@ -580,6 +588,7 @@ export interface DetailState {
   attentionRevealSourceLine: number | null;
   annotationDraft?: DetailAnnotationDraft;
   annotationReplyDraft?: DetailAnnotationReplyDraft;
+  annotationEditDraft?: DetailAnnotationEditDraft;
   selectedAnnotationId?: string;
   completion: DetailCompletionState | null;
   status: string;
@@ -676,6 +685,7 @@ export interface DetailEffects {
   }): Promise<AnnotationBatchReceipt>;
   replyAnnotation(input: { requestId: string; input: AnnotationReplyInput }): Promise<AnnotationBatchReceipt>;
   setAnnotationLifecycle(input: AnnotationLifecycleInput): Promise<AnnotationRecord>;
+  updateAnnotation(input: AnnotationUpdateInput): Promise<AnnotationRecord>;
   internFilesystem(path: string): Promise<InternResourceReceipt>;
   lookupFilesystem(path: string): Promise<InternResourceReceipt["resource"] | null>;
   refreshResource(resourceId: string): Promise<ResourceDescription>;
@@ -741,6 +751,7 @@ export type DetailIntent =
   | { type: "annotation.thread.move"; delta: -1 | 1 }
   | { type: "annotation.thread.select"; annotationId: string }
   | { type: "annotation.thread.reply"; annotationId?: string }
+  | { type: "annotation.thread.edit"; annotationId?: string; replyId?: string }
   | { type: "annotation.thread.lifecycle"; annotationId?: string }
   | { type: "resource.refresh" }
   | { type: "resource.open-external" }
@@ -1352,7 +1363,7 @@ export function createDetailController(
         state.referencedFile !== fileAtStart || !sameNavigationTarget(state.target, targetAtStart) ||
         (sameAnnotationThreads(state.annotationThreads, threads) &&
           sameAnnotationReferences(state.annotationReferences, references))) return;
-      if (isBufferMode() && !state.annotationReplyDraft) {
+      if (isBufferMode() && !state.annotationReplyDraft && !state.annotationEditDraft) {
         state.refreshPending = true;
         return;
       }
@@ -2897,6 +2908,39 @@ export function createDetailController(
     state.status = "Reply to selected comment · Ctrl+S saves · Esc cancels";
   };
 
+  const beginAnnotationEdit = (annotationId?: string, replyId?: string): void => {
+    if (isBufferMode() || state.busy) return;
+    if (annotationId && !selectAnnotationThread(annotationId, false)) return;
+    const thread = selectedAnnotationThread(state);
+    if (!thread) {
+      state.status = "Select a comment with [ or ] before editing it";
+      return;
+    }
+    const mark = replyId ? thread.replies.find(reply => reply.block.id === replyId) : thread;
+    const noun = replyId ? "reply" : "comment";
+    if (!mark) {
+      state.status = "That reply is no longer in this thread";
+      return;
+    }
+    if (!mark.body.trim()) {
+      state.status = "A highlight has no words to edit";
+      return;
+    }
+    state.annotationEditDraft = {
+      annotationId: mark.block.id, revision: mark.block.revision,
+      returnMode: state.mode as "preview" | "file" | "annotation",
+    };
+    state.annotationDraft = undefined;
+    state.buffer = new TextBuffer(mark.body);
+    state.buffer.row = state.buffer.lines.length - 1;
+    state.buffer.moveEnd();
+    state.editorVisualOffset = 0;
+    state.editorViewportManual = false;
+    state.completion = null;
+    state.mode = "comment";
+    state.status = `Edit the selected ${noun} · Ctrl+S saves · Esc leaves it as it was`;
+  };
+
   const changeAnnotationLifecycle = async (annotationId?: string): Promise<void> => {
     if (isBufferMode() || state.busy) return;
     if (annotationId && !selectAnnotationThread(annotationId, false)) return;
@@ -2930,6 +2974,12 @@ export function createDetailController(
         retentionNotice=`Writing retained locally; the service did not acknowledge it · ${errorMessage(error)}`;
       }
       state.recoveryAccepted=false;
+    }
+    if (state.annotationEditDraft) {
+      state.mode = state.annotationEditDraft.returnMode;
+      state.annotationEditDraft = undefined;
+      state.status = "Edit cancelled · the comment is as it was";
+      return;
     }
     if (state.annotationReplyDraft) {
       state.mode = state.annotationReplyDraft.returnMode;
@@ -3015,6 +3065,17 @@ export function createDetailController(
           await loadCurrentTarget(true);
           state.status = "Filesystem Resource saved";
         }
+      } else if (state.mode === "comment" && state.annotationEditDraft) {
+        const draft = state.annotationEditDraft;
+        const body = state.buffer.text.trim();
+        if (!body) throw new Error("A comment cannot be edited down to nothing");
+        const isReply = state.annotationThreads.some(thread => thread.replies.some(reply => reply.block.id === draft.annotationId));
+        await effects.updateAnnotation({ annotationId: draft.annotationId, expectedRevision: draft.revision, body });
+        state.mode = draft.returnMode;
+        state.annotationEditDraft = undefined;
+        await loadAnnotations();
+        state.status = isReply ? "Reply edited" : "Comment edited";
+        return;
       } else if (state.mode === "comment" && state.annotationReplyDraft) {
         const draft = state.annotationReplyDraft;
         const body = state.buffer.text.trim();
@@ -3068,8 +3129,12 @@ export function createDetailController(
     } catch (error) {
       state.status = written ? `Saved; display refresh failed · ${errorMessage(error)}` : errorMessage(error);
       // A comment or reply that didn't land stays open with its text (PIE-761): said, with what to do next.
-      if (!written && state.mode === "comment" && (state.annotationDraft || state.annotationReplyDraft) && state.buffer.text.trim()) {
-        state.status = `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
+      if (!written && state.mode === "comment" && (state.annotationDraft || state.annotationReplyDraft || state.annotationEditDraft) && state.buffer.text.trim()) {
+        state.status = state.annotationEditDraft
+          ? /revision is stale/i.test(errorMessage(error))
+            ? "Not saved · this changed since your edit began · your text stays here; Esc leaves it, then edit again to start from the new words"
+            : `Not saved · ${errorMessage(error)} · your text stays here; save tries again`
+          : `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
       }
       if (!written && state.mode === "edit" && state.context.selected && effects.recovery) {
         try {
@@ -3227,6 +3292,10 @@ export function createDetailController(
       case "annotation.thread.reply":
         if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
         beginAnnotationReply(intent.annotationId);
+        break;
+      case "annotation.thread.edit":
+        if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
+        beginAnnotationEdit(intent.annotationId, intent.replyId);
         break;
       case "annotation.thread.lifecycle":
         if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
@@ -3681,6 +3750,7 @@ export function createDetailController(
             break;
           case "annotation.thread.select":
           case "annotation.thread.reply":
+          case "annotation.thread.edit":
           case "annotation.thread.lifecycle":
           case "annotation.thread.move":
             await dispatch(intent.action, viewport);
