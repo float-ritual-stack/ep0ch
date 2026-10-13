@@ -62,6 +62,20 @@ describe("semantic backlink relation", () => {
     expect(result.sources[0]!.occurrences[0]!.snippet).toContain("((Target decision))");
     expect(result.sources[0]!.occurrences[0]!.snippet).not.toContain(target.id);
   });
+  test("a page link holding another links both pages, counted by brackets (PIE-592)", () => {
+    const workspace = store();
+    const day = workspace.create("2026-10-06 [page::2026-10-06]");
+    const thoughts = workspace.create("[[2026-10-06]] - editor thoughts [page::[[2026-10-06]] - editor thoughts]");
+    const source = workspace.create("Morning\nSee [[[[2026-10-06]] - editor thoughts]] before PIE-002.");
+
+    const toThoughts = workspace.queryBacklinks({ targetBlockId: thoughts.id, limit: 10 });
+    expect(toThoughts.sources.map((s) => s.blockId)).toEqual([source.id]);
+    // The day is linked from the note that holds it nested, and from the thoughts page's own title.
+    const toDay = workspace.queryBacklinks({ targetBlockId: day.id, limit: 10 });
+    expect(toDay.sources.map((s) => s.blockId).sort()).toEqual([source.id, thoughts.id].sort());
+    expect(workspace.resolvePageAddress("[[2026-10-06]] - editor thoughts")).toMatchObject({ status: "resolved", block: { id: thoughts.id } });
+  });
+
   test("keeps duplicate titled labels attached to their canonical targets", () => {
     const workspace = store();
     const first = workspace.create("First target");

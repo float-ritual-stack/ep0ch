@@ -3256,6 +3256,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Back (alt+←), as the reader's history goes.
     press({ kind: "alt-left" });
     await until(() => reader().msg?.id === guide, "back on the guide");
+    // A page link holding another (PIE-592): the next link, one link read without its inner brackets.
+    reader().surface.selectLink(1);
+    await until(() => screen().includes("link 2026-03-12 - seed swap notes ◌"), "the nested link selected whole, missing");
     // ctrl+n in the reader: a note under the guide, its edit open with the keys; ⏎ on [page::x] titles it, ctrl+s saves.
     press({ kind: "char", ch: "n", ctrl: true });
     // It opens in a detail beside the reader (as O opens one); this stage's reader follows what's current, so it shows it too.
@@ -3270,6 +3273,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (const c of "Swapped borlotti for chard.") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "s", ctrl: true });
     await reads(async () => (await board.get(id))!.text === "2026-03-12 [page::2026-03-12]\nSwapped borlotti for chard.", "the new note saved");
+    // The day the nested link holds lists the guide among its backlinks.
+    expect((await board.backlinks(id)).sources.map(b => b.blockId)).toContain(guide);
+    expect((await board.resolvePage("[[2026-03-12]] - seed swap notes")).status).toBe("missing");
     // An agent: note.new and page.create through act, attributed, the person's keys and reader untouched.
     const before = reader().msg?.id;
     const made = await app.act({ action: "note.new", args: { text: "[page::2026-03-13]" }, as: "test-agent" }) as any;

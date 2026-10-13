@@ -29,6 +29,11 @@ are its record. The outliner's entries from then are kept below, under
   ("the note opened as the current one instead"); it opens beside the edit now.
 - **Added:** `[[` and a name no page has yet offers `new page · <name>` last: choosing it makes the page and links it.
 - **Fixed:** a `` `[[` `` quoted in a code span earlier on the line no longer opens the completion popup as you type.
+- **Fixed:** a page link can hold another: `[[[[2026-10-06]] - editor thoughts]]` is one link to the page
+  "[[2026-10-06]] - editor thoughts", read as "2026-10-06 - editor thoughts", and the 2026-10-06 page lists the note
+  among its backlinks too. Brackets are counted (outline-core's `pageLinkSpans`), never matched by the first `]]`,
+  which made a page called "[[2026-10-06" before.
+- **Run:** the protocol changed: `ep0ch install --apply` on each machine (the outline host and the doors together).
 
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 

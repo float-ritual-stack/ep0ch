@@ -133,7 +133,75 @@ export const embedPattern = () => new RegExp(EMBED_PATTERN_SOURCE, "g");
 // ── page links ───────────────────────────────────────────────────────────────────────────────────────────────
 
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
-const PAGE_ADDRESS_PATTERN = /\[\[([^\]\r\n]+)\]\]/g;
+
+/** A `[[…]]` as the bracket count finds it: its offsets and how many page links hold it (0, the outermost). */
+export interface PageLinkSpan {
+  start: number;
+  end: number;
+  depth: number;
+}
+
+/**
+ * Every `[[…]]` in `text`, found by counting brackets, not by a pattern (PIE-592): `[[[[2026-10-06]] - thoughts]]` is a
+ * page link whose address holds another, so both are spans (the outer at depth 0, the inner at 1). A link is one line:
+ * a `[[` left open at a line's end makes nothing, and the links it held stand alone. In order of where each starts.
+ */
+export function pageLinkSpans(text: string): PageLinkSpan[] {
+  const spans: PageLinkSpan[] = [];
+  if (!text.includes("[[")) return spans;
+  const open: number[] = [];
+  for (let at = 0; at < text.length;) {
+    const ch = text[at];
+    if (ch === "\n" || ch === "\r") { open.length = 0; at += 1; continue; }
+    if (ch === "[" && text[at + 1] === "[") { open.push(at); at += 2; continue; }
+    if (ch === "]" && text[at + 1] === "]" && open.length) {
+      const start = open.pop()!;
+      spans.push({ start, end: at + 2, depth: open.length });
+      at += 2;
+      continue;
+    }
+    at += 1;
+  }
+  return spans.sort((a, b) => a.start - b.start);
+}
+
+/** The outermost `[[…]]` of `text` (`pageLinkSpans` at depth 0): what a page link takes whole. */
+export function pageLinkRanges(text: string): SourceRange[] {
+  return pageLinkSpans(text).filter(span => span.depth === 0).map(({ start, end }) => ({ start, end }));
+}
+
+/** Where `authored` (a page link's inside) puts its label's `|`: the first one outside the page links it holds, or -1. */
+export function labelBar(authored: string): number {
+  let depth = 0;
+  for (let at = 0; at < authored.length; at += 1) {
+    if (authored.startsWith("[[", at)) { depth += 1; at += 1; }
+    else if (authored.startsWith("]]", at) && depth) { depth -= 1; at += 1; }
+    else if (authored[at] === "|" && !depth) return at;
+  }
+  return -1;
+}
+
+/** Whether every `]` in `address` closes a `[[` it holds (`[[2026-10-06]] - thoughts`); a stray `]` can't be in one. */
+function bracketsClose(address: string): boolean {
+  if (!address.includes("]")) return true;
+  let depth = 0;
+  for (let at = 0; at < address.length; at += 1) {
+    if (address.startsWith("[[", at)) { depth += 1; at += 1; }
+    else if (address[at] === "]") {
+      if (!depth || address[at + 1] !== "]") return false;
+      depth -= 1; at += 1;
+    }
+  }
+  return true;
+}
+
+/**
+ * A page address as a reader shows it: the page links it holds without their brackets (`[[2026-10-06]] - thoughts`
+ * reads "2026-10-06 - thoughts").
+ */
+export function pageAddressText(address: string): string {
+  return address.includes("[[") ? address.replace(/\[\[|\]\]/g, "") : address;
+}
 
 export const PAGE_ADDRESS_MAX_LENGTH = 512;
 
@@ -144,6 +212,8 @@ export interface NormalizedPageAddress {
 
 export interface PageAddressReference extends NormalizedPageAddress {
   label?: string;
+  /** Held by another page link of the scan (`[[[[2026-10-06]] - thoughts]]`'s inner one): a link, never drawn alone. */
+  nested?: true;
   start: number;
   end: number;
 }
@@ -158,8 +228,8 @@ export function normalizePageAddress(input: string): NormalizedPageAddress {
   if (CONTROL_PATTERN.test(displayAddress)) {
     throw new Error("Page address contains control characters");
   }
-  if (displayAddress.includes("]")) {
-    throw new Error("Page address cannot contain ]");
+  if (!bracketsClose(displayAddress)) {
+    throw new Error("Page address cannot contain ] except to close a [[page]] it holds");
   }
   // Upper-then-lower performs stable caseless canonicalization for forms such as ß and final sigma.
   const normalizedAddress = displayAddress
@@ -179,20 +249,23 @@ export function tryNormalizePageAddress(input: string): NormalizedPageAddress | 
 }
 
 /**
- * Every page link in `text`, in order: `[[address]]` or `[[address|label]]`. A blank label (`[[Garden| ]]`) or an
- * address no page can have makes no link: it stays visible as text.
+ * Every page link in `text`, in order: `[[address]]` or `[[address|label]]`. Brackets are counted (PIE-592): a link
+ * whose address holds another (`[[[[2026-10-06]] - thoughts]]`) is a link to the page "[[2026-10-06]] - thoughts",
+ * and the link it holds is one too (`nested`: the 2026-10-06 page is linked from here as well). A blank label
+ * (`[[Garden| ]]`) or an address no page can have makes no link: it stays visible as text.
  */
 export function pageAddressReferences(text: string, code?: CodeScope): PageAddressReference[] {
   const references: PageAddressReference[] = [];
-  for (const match of text.matchAll(PAGE_ADDRESS_PATTERN)) {
-    const authored = match[1]!;
-    const separator = authored.indexOf("|");
+  for (const span of pageLinkSpans(text)) {
+    const authored = text.slice(span.start + 2, span.end - 2);
+    const separator = labelBar(authored);
     const target = separator < 0 ? authored : authored.slice(0, separator);
     const label = separator < 0 ? undefined : authored.slice(separator + 1).trim();
     if (separator >= 0 && !label) continue;
     const address = tryNormalizePageAddress(target);
     if (!address) continue;
-    references.push({ ...address, ...(label ? { label } : {}), start: match.index, end: match.index + match[0].length });
+    const nested = references.some(outer => outer.start < span.start && span.end <= outer.end);
+    references.push({ ...address, ...(label ? { label } : {}), ...(nested ? { nested: true as const } : {}), start: span.start, end: span.end });
   }
   return outsideCode(text, references, code);
 }
@@ -253,7 +326,8 @@ export function linkOccurrences(text: string, code?: CodeScope): LinkOccurrence[
   }
   const envelopes = blockReferenceEnvelopeRanges(text);
   for (const page of pageAddressReferences(text, [])) {
-    if (markdown.some(range => overlaps(page, range)) || envelopes.some(range => overlaps(page, range))) continue;
+    // A page link an address holds is drawn as part of the one holding it.
+    if (page.nested || markdown.some(range => overlaps(page, range)) || envelopes.some(range => overlaps(page, range))) continue;
     out.push({ kind: "page", ...page });
   }
   return outsideCode(text, out, code).sort((a, b) => a.start - b.start);

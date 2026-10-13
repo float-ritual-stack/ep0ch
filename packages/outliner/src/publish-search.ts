@@ -71,7 +71,7 @@ export interface SearchAnswer {
 /** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
 export const summaryWords = (raw: string, titleOf: (blockId: string) => string | undefined = () => undefined) =>
   plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf)
-    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
+    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[|\]\]/g, "")
     .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 
 const titleWords = (title: string) => plainBody(title).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();

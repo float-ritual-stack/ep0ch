@@ -1,6 +1,6 @@
 import {Lexer, type Token} from "marked";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
-import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
+import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -74,11 +74,17 @@ function markdownLinkRanges(text: string): TextRange[] {
   return ranges;
 }
 
+/** Where page-link syntax is: each `[[…]]` whole, its brackets counted (outline-core), and a `[[` left open to its line's end. */
 export function pageSyntaxRanges(text: string): TextRange[] {
-  return [...text.matchAll(/\[\[[^\r\n]*?(?:\]\]|(?=\r?$))/gm)].map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
+  const ranges: TextRange[] = pageLinkRanges(text);
+  for (let at = text.indexOf("[["); at >= 0; at = text.indexOf("[[", at + 2)) {
+    const inside = ranges.find((range) => range.start <= at && at < range.end);
+    if (inside) { at = inside.end - 2; continue; }
+    const lineEnd = text.slice(at).search(/\r?\n|$/);
+    ranges.push({ start: at, end: at + lineEnd });
+    at += Math.max(0, lineEnd - 2);
+  }
+  return ranges;
 }
 
 export function propertyReferenceOccurrences(

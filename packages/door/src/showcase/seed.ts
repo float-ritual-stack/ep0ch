@@ -439,6 +439,8 @@ export const NEW_NOTES = [
   "",
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
+  "A page link can hold another: [[[[2026-03-12]] - seed swap notes]] is one link to the page \"[[2026-03-12]] - seed swap notes\" (the brackets are counted, never matched by the first `]]`), and the 2026-03-12 page lists this note among its backlinks too.",
+  "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
 ].join("\n");
 
