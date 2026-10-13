@@ -499,7 +499,7 @@ test("one node, one name: a machine given a name keeps its marks made under its 
 }, 90_000);
 
 test("a machine that dials in: never called, it delivers into the subscriptions that read it and carries their netmail both ways", async () => {
-  const { root, outlines, toss, act, create, get, threads, where, comment, board, access } = await setup(["cafe"]);
+  const { root, outlines, machine: hostForm, toss, act, create, get, threads, where, comment, board, access } = await setup(["cafe"]);
   const far = await farMachine(root, outlines);
   const farOutlines = join(root, "far", "outlines");
   // box-b's inbound ssh is off; it still calls out, to box-a, where it reads the cafe's outlines folder.
@@ -543,8 +543,10 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   expect(waiting).toContain("held 1");
   expect(waiting).not.toContain("unreachable");
   let nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
-  expect(nodelist).toMatch(/## field@box-b\n- dials in · last call \d{4}-\d\d-\d\d \d\d:\d\d UTC · we read its field\.\*, reads our areas\n- netmail held: 1 \(its next call takes it\)/);
+  expect(nodelist).toMatch(/## field@box-b\n- dials in · last call \d{4}-\d\d-\d\d \d\d:\d\d UTC · we read its field\.\*, reads our areas\n- also known as: field@\S+\n- netmail held: 1 \(its next call takes it\)/);
   expect(nodelist).not.toContain("unreachable");
+  // Its call said the name it went by before it was named, so its old marks here are this node's.
+  expect(nodelist).toContain(`- also known as: field@${hostForm}`);
   expect(readFileSync(sshLog, "utf8").split("\n").filter((line) => line.includes("box-b")).length).toBe(before);
 
   // Netmail both ways on its call: the cafe's comment goes down to the original, a comment on its copy of the

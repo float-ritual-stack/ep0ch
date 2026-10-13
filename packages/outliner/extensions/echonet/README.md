@@ -121,7 +121,8 @@ node's toss for it:
 - netmail both ways: comments written there on its copies come down to the originals here, and replies written here
   go back up into their threads. (Its own comments on its copies of pie's notes go up by its own subscription, as
   before.)
-- `call float-hub@laptop -> <time>` in that node's ledger, and a toss log `Call from float-hub@laptop …
+- `call float-hub@laptop -> <time>` in that node's ledger, with `aka <old name> -> float-hub@laptop` for each name it
+  went by (it is never reached to be asked, so its old-name marks there stay one node's), and a toss log `Call from float-hub@laptop …
   [call::pie@float-2]` under its nodelist.
 
 A call writes copies and the ledger, so it needs that node to grant `full` (`ep0ch mcp access full --ws pie` on

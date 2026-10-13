@@ -168,7 +168,11 @@ function knownMachines(named: readonly string[]): string[] {
 
 /** Each node's last call here (`call <node> -> <time>` in this node's ledger), read once a run. */
 let calls = new Map<string, string>();
-const callsIn = (ledger: Ledger) => new Map([...ledger.lines].filter(([key]) => key.startsWith("call ")).map(([key, at]) => [key.slice(5), at]));
+/** The calls a ledger records, and the old names each caller said it went by (learned as `aliasOf`). */
+function callsIn(ledger: Ledger): Map<string, string> {
+  for (const [key, to] of ledger.lines) if (key.startsWith("aka ") && !isSelf(to)) aliasOf.set(key.slice(4), to);
+  return new Map([...ledger.lines].filter(([key]) => key.startsWith("call ")).map(([key, at]) => [key.slice(5), at]));
+}
 
 /** What `<outlines>/.remote/<machine>.json` says of a machine's dialing in: true, false, or nothing. */
 function dialsInSetting(machine: string): boolean | undefined {
@@ -367,12 +371,13 @@ interface Ledger { block?: Block; lines: Map<string, string>; before: Map<string
 /**
  * `out <local mark> -> <node>/<mark>` and `in …` per carried mark (netmail is never carried twice), `tries <mark> -> n`
  * for netmail waiting on an original that is gone, `undeliverable <mark> -> <note>` once it gave up, `seen <copy> ->
- * <node>/<original>` once its seen-by mark is there, and `call <node> -> <time>`: a node that dials in, its last call.
+ * <node>/<original>` once its seen-by mark is there, `call <node> -> <time>`: a node that dials in, its last call, and
+ * `aka <old name> -> <node>`: the names it went by, which its call says since it is never reached to be asked.
  */
 function readLedger(block: Block | undefined): Ledger {
   const lines = new Map<string, string>();
   for (const line of block?.text.split("\n").slice(1) ?? []) {
-    const match = line.match(/^- (out|in|tries|undeliverable|seen|call) (\S+) -> (\S+)$/);
+    const match = line.match(/^- (out|in|tries|undeliverable|seen|call|aka) (\S+) -> (\S+)$/);
     if (match) lines.set(`${match[1]} ${match[2]}`, match[3]!);
   }
   return { block, lines, before: new Map(lines) };
@@ -893,6 +898,8 @@ async function callNode(link: Link, origin: Link): Promise<void> {
   callLog.push("## netmail");
   await netmailFor(home, [origin]);
   ledger.lines.set(`call ${self.id}`, now);
+  // It is never reached to be asked what it went by: its call says, so marks under an old name stay its own there.
+  for (const machine of address.aliases ?? []) ledger.lines.set(`aka ${nodeOf(self.outline, machine).id}`, self.id);
   await saveLedger(home);
   const c = home.counts;
   await link.call({ action: "create", parentId: nodelist.id, text: [
