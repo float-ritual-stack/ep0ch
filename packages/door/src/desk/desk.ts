@@ -2761,9 +2761,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.putMarks(id, put, xNow, r.row);
       this.putStatus(id, put);
       // Its kind's word as its title says it (detail, `preview · board`), after its own name when it has one.
-      // (A title that is the note's own, a river column's, says the kind's word instead: `column`.)
-      const p = this.panes.get(id)!, name = this.nameOf(id), own = p.title();
-      const word = visibleText(own).startsWith(subject(m)) ? kindOf(p)?.word ?? p.kind : own;
+      // (A title that starts with the note's own, a river column's or a pinned page's, says what follows it, `pinned
+      // [[claude-now]]`, else the kind's word: `column`.)
+      const p = this.panes.get(id)!, name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
+      const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
+      const word = rest === null ? own : rest || (kindOf(p)?.word ?? p.kind);
       const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
       // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
       // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
