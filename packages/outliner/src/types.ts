@@ -1222,6 +1222,8 @@ export interface NoteAddress {
   machine: string;
   /** Names this machine went by before it was given one (its host name's): older URIs and EchoNet marks still say them. */
   aliases?: string[];
+  /** This machine dials in (EchoNet): it calls the other machines and is never called (`<outlines>/.host/dials-in`). */
+  dialsIn?: boolean;
   blockId?: string;
   /** `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. */
   uri?: string;

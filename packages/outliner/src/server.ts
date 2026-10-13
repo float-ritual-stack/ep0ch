@@ -137,7 +137,7 @@ import {
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
-import { localMachineAliases, localMachineName } from "./machine-name";
+import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
@@ -3735,7 +3735,7 @@ export class OutlinerServer {
     const outline = this.outline?.name;
     const machine = localMachineName(this.outlinesFolder);
     const aliases = localMachineAliases(this.outlinesFolder);
-    if (blockId === undefined) return { ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}) };
+    if (blockId === undefined) return { ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}), ...(dialsIn(this.outlinesFolder) ? { dialsIn: true } : {}) };
     const block = this.store.require(blockId);
     if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
     const published = await this.inServicePublisher().published(block.id);

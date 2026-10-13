@@ -14,11 +14,11 @@ import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
-import { writeMachineName } from "@ep0ch/outliner/machine-name";
+import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>]";
+export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -232,6 +232,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`this machine is ${name} (${f.machineName?.file})`);
       return;
     }
+    case "dials": {
+      try { writeDialsIn(step.dialsIn === true, { ...env, EP0CH_OUTLINES: f.host.folder }); }
+      catch (e) { throw new StepFailed(`setting whether this machine dials in failed: ${(e as Error).message}`, step.dialsIn ? `touch ${f.dialsIn?.file}` : `rm ${f.dialsIn?.file}`); }
+      say(step.dialsIn ? `this machine dials in (${f.dialsIn?.file})` : "this machine is called like any other");
+      return;
+    }
     case "link": {
       const dir = f.linkDirs.find(d => step.commands[0]?.endsWith(`${d.dir}/ep0ch`))?.dir;
       if (!dir) throw new StepFailed("no link directory chosen", "rerun ep0ch install to see the plan");
@@ -406,8 +412,10 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   const machineName = at < 0 ? undefined : args[at]!.includes("=") ? args[at]!.slice("--machine-name=".length) : args[at + 1];
   const rest = at < 0 ? args : args.filter((_, i) => i !== at && !(i === at + 1 && !args[at]!.includes("=")));
   if (at >= 0 && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
-  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--backups"].includes(a));
-  if (unknown.length || (args[0] === "doctor" && (args.includes("--apply") || at >= 0)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+  // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
+  const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
+  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--backups", "--dials-in", "--no-dials-in"].includes(a));
+  if (unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
@@ -423,14 +431,14 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(rest, io, env, json, progress, status, machineName); }
+  try { return await setup(rest, io, env, json, progress, status, machineName, dials); }
   finally {
     progress.close();
     if (io.terminal) process.off("SIGINT", interrupted);
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
@@ -449,6 +457,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     const chosen = machineName ?? asked;
     if (chosen) facts.machineName.chosen = chosen;
   }
+  if (facts.dialsIn && dials !== undefined) facts.dialsIn.chosen = dials;
   const options: PlanOptions = { now: io.now ?? new Date(), backupDir: backupDirOf(facts.home) };
   const plan = buildPlan(facts, options);
   if (!apply) {

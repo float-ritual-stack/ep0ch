@@ -10,7 +10,8 @@
 //   ssh -S <ctl> -O check|exit -- <machine>       whether that process runs; ending it
 //
 // Every call is appended to FAKE_SSH_LOG (one JSON argv per line). FAKE_SSH_DOWN=1: every connection fails, as an
-// unreachable machine's does (exit 255).
+// unreachable machine's does (exit 255). FAKE_SSH_REFUSE=<machine>[,<machine>]: connections to those machines fail
+// the same way, while the others work (a laptop whose inbound ssh is off, which still calls out).
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,7 +60,7 @@ if (argv[0] === "--serve") {
   if (op === "exit") { process.kill(pid, "SIGTERM"); for (let i = 0; i < 50 && alive(pid); i++) await Bun.sleep(20); console.error("Exit request sent."); }
   else console.error(`Master running (pid=${pid})`);
   process.exit(0);
-} else if (process.env.FAKE_SSH_DOWN === "1") {
+} else if (process.env.FAKE_SSH_DOWN === "1" || (!!machine && (process.env.FAKE_SSH_REFUSE ?? "").split(",").includes(machine))) {
   console.error(`ssh: connect to host ${machine} port 22: Connection refused`);
   process.exit(255);
 } else if (argv.includes("-L")) {

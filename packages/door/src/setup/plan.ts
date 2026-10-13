@@ -13,7 +13,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
+export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -34,6 +34,8 @@ export interface Step {
   migrate?: Migration;
   /** name: the machine name it writes. */
   machineName?: string;
+  /** dials: whether this machine dials in from now on. */
+  dialsIn?: boolean;
 }
 
 export interface Migration {
@@ -498,6 +500,23 @@ export function nameStep(f: Facts): Step | null {
   return { id: "name", title, status: "do", why, commands: [`echo ${name} > ${m.file}`], machineName: name };
 }
 
+/**
+ * Whether this machine dials in (EchoNet): it calls the other machines and is never called, its inbound ssh off or
+ * gated (`<outlines>/.host/dials-in`). Said only when it does, or when `--dials-in`/`--no-dials-in` changes it.
+ */
+export function dialsStep(f: Facts): Step | null {
+  const d = f.dialsIn;
+  if (!d || (d.chosen === undefined && !d.configured)) return null;
+  const title = "Dial in";
+  const on = d.chosen ?? d.configured;
+  if (on === d.configured) {
+    return { id: "dials", title, status: "skip", why: on ? `this machine dials in (${d.file}): it calls the others and is never called; \`ep0ch install --apply --no-dials-in\` to be called again` : "this machine is called like any other", commands: [] };
+  }
+  return on
+    ? { id: "dials", title, status: "do", why: "this machine calls the others and is never called: EchoNet tosses both ways from here, and each machine it calls learns it at the first call", commands: [`touch ${d.file}`], dialsIn: true }
+    : { id: "dials", title, status: "do", why: "this machine is called like any other again; a machine that learned it dials in keeps waiting for its call until its own `.remote/<this machine>.json` says `\"dialsIn\": false`", commands: [`rm ${d.file}`], dialsIn: false };
+}
+
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   let repo = repoStep(f);
   // The outlines' schema against the code the checkout ends on: one that can't be migrated holds the update back, so
@@ -512,6 +531,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   if (repo.status === "manual" && schema?.status === "manual" && plugin.status === "do") plugin = { ...plugin, status: "manual", why: `held back with the checkout (${plugin.why})`, commands: [] };
   const link = linkStep(f);
   const name = nameStep(f);
+  const dials = dialsStep(f);
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   let host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
@@ -529,5 +549,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
   }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }

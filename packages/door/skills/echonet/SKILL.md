@@ -91,6 +91,12 @@ offered across machines needs a level set; `propose` is the usual one.
 - Another machine is reached through the shared ssh forward (`<outlines>/.remote/<ssh-name>.sock`). If that machine's
   own `ep0ch status` isn't the host to reach (an old `ep0ch` on its login PATH, a second host), name its outlines
   folder: `<outlines>/.remote/<ssh-name>.json` with `{ "outlines": "/abs/path/to/outlines" }`.
+- **A machine that dials in** (a laptop whose inbound ssh is off or gated, which can still ssh out): on it,
+  `ep0ch install --apply --machine-name <ssh-name> --dials-in`. Its toss then calls each node on another machine that
+  reads it and does that node's toss for it (its areas into their subscriptions, netmail both ways), and needs that
+  node to grant `full` (`ep0ch mcp access full --ws <node's outline>` there). The other machine never ssh's to it once
+  it has called; to say so before the first call, `"dialsIn": true` in its `<outlines>/.remote/<ssh-name>.json`
+  (`false` calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines.
 
 ## Checking a toss
 
@@ -98,7 +104,8 @@ offered across machines needs a level set; `propose` is the usual one.
 2. The last toss log (`outline_find` with `query: "type=toss"`; its `[at::]` says when): each node with a board, or
    named outright, has a line saying what it saw, copied, held back, refused or couldn't reach; the netmail lines say
    what went out, came in or queued and why. A `*` mask's nodes without a matching area aren't said.
-3. The nodelist: `## <node>` sections, `- reachable · access <level>` or `- unreachable: <why>`.
+3. The nodelist: `## <node>` sections, `- reachable · access <level>`, `- unreachable: <why>`, or `- dials in · last
+   call <when>` with `- netmail held: n` (a node that calls; never down).
 4. In the offering outline: `ep0ch echo areas --ws <origin>` lists its areas; a seen-by mark on an original says it
    reached a node.
 
@@ -113,6 +120,8 @@ offered across machines needs a level set; `propose` is the usual one.
 | `grants read; netmail needs propose` | copies come, marks queue | `ep0ch mcp access propose --ws <origin>` if they want marks to travel |
 | `unreachable: …` (ssh, no host answers, a timeout) | that machine is off, asleep or its host is down | nothing: netmail queues and the next toss delivers. Check `ssh <machine> ep0ch status` |
 | `protocol mismatch: … update <machine> (…)` | the two hosts run different versions | run the command it names on that machine (`ep0ch install --apply`) |
+| `waiting for <node> to call in (last call …)`, `held n` | that machine dials in: it's never called from here | nothing: its next toss calls and carries both ways. No call for long: on that machine, `ep0ch echo toss --ws <its outline>` and read its log's `## calls` |
+| on the machine that dials in, `grants propose, and a call delivers only with full` | the node it calls lets it mark but not write copies | there: `ep0ch mcp access full --ws <outline>` |
 | `couldn't be listed` for a machine | a `*` mask couldn't ask that machine | as unreachable; or name the outline outright |
 | `[waiting::n]` on a board | the cap held back n | wait for the next tosses, or raise `[cap::]` |
 | an undeliverable note | the original was trashed or deleted upstream | read it; the comment stays on the copy. Restore the original there if it was a mistake (new comments go; that one stays) |

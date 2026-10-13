@@ -236,6 +236,11 @@ export function outlineLayout(outlines: string) {
      * `ep0ch://` URIs and EchoNet call the machine, so other machines' ssh name for it and its own agree.
      */
     machineName: join(root, ".host", "machine-name"),
+    /**
+     * Present when this machine dials in (EchoNet): it calls the other machines and is never called, its inbound ssh
+     * being off or gated. `ep0ch install --apply --dials-in` writes it.
+     */
+    dialsIn: join(root, ".host", "dials-in"),
     deleted: join(root, ".deleted"),
     /** Where an archived outline waits: `.archive/<name>/` holds `<name>.sqlite` and its folder `<name>/`. */
     archive: join(root, ".archive"),
@@ -248,7 +253,8 @@ export function outlineLayout(outlines: string) {
     /**
      * A machine's forward: the local end of its host socket, the ssh control socket of the connection holding it, and
      * the machine's file (`{ "outlines": "/abs/folder" }`: its outlines folder there, so its host socket is known
-     * without asking its `ep0ch`; a second node on one machine, or a machine whose login `ep0ch` is another one).
+     * without asking its `ep0ch`; a second node on one machine, or a machine whose login `ep0ch` is another one;
+     * `"dialsIn": true` when that machine calls this one and is never called, as EchoNet reads it).
      */
     remote: (machine: string) => ({
       socket: join(root, ".remote", `${machine}.sock`), control: join(root, ".remote", `${machine}.ctl`), config: join(root, ".remote", `${machine}.json`),

@@ -104,7 +104,7 @@ ${MCP_USAGE}
                                    with the command that fixes each. Read-only; --backups also restores each newest
                                    snapshot into a temp folder and runs integrity_check
 ${BACKUP_USAGE}
-  ep0ch install [--apply] [--json] [--machine-name <name>]
+  ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
                                    up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
                                    ep0ch checkout (fast-forward only, bun install when needed), links ep0ch on
@@ -112,7 +112,9 @@ ${BACKUP_USAGE}
                                    current. Units, Herdr's config and its plugin link are said, never edited.
                                    It names this machine once (~/outlines/.host/machine-name: what ep0ch://
                                    links and EchoNet call it; give it the ssh name other machines use for it):
-                                   asked at a terminal, the short host name otherwise; --machine-name renames
+                                   asked at a terminal, the short host name otherwise; --machine-name renames.
+                                   --dials-in: this machine calls the others for EchoNet and is never called
+                                   (its inbound ssh off or gated; ~/outlines/.host/dials-in); --no-dials-in undoes
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)

@@ -305,8 +305,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     folds: ["outline", "children", "◂", "▾"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
-    // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node.
-    echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", "last tosses"],
+    // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node and the one that dials in.
+    echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.

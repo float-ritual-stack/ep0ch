@@ -116,13 +116,15 @@ export function statusRefusal(machine: string, r: { code: number; out: string; e
 
 /**
  * The machine's host socket as its file in `.remote/` names it (`<machine>.json`, `{ "outlines": "/abs/folder" }`):
- * that folder's `.host/host.sock`. Undefined when there's no file; a file that doesn't say an absolute folder throws.
+ * that folder's `.host/host.sock`. Undefined when there's no file or it names no folder (`{ "dialsIn": true }` alone);
+ * a file that isn't JSON, or names a folder that isn't absolute, throws.
  */
 export function configuredRemoteSocket(p: ForwardPaths, io: Pick<MachineIO, "read">): string | undefined {
   const text = io.read(p.config);
   if (text === null) return undefined;
-  let outlines: unknown;
-  try { outlines = (JSON.parse(text) as { outlines?: unknown }).outlines; } catch { outlines = undefined; }
+  let outlines: unknown, read = true;
+  try { outlines = (JSON.parse(text) as { outlines?: unknown }).outlines; } catch { read = false; }
+  if (read && outlines === undefined) return undefined;
   if (typeof outlines !== "string" || !outlines.startsWith("/") || outlines.includes(":")) {
     throw new Error(`${p.config} should be { "outlines": "/absolute/folder/on/${p.machine}" } (no ":" in it)`);
   }

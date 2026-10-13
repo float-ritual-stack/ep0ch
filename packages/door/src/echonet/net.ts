@@ -225,12 +225,16 @@ export function headerOf(msg: Message, of: number, area: Area): string[] {
   ];
 }
 
-/** A node as the nodelist knows it: whether it answered, its access, last toss, areas and subscriptions. */
-export interface NodeEntry { node: string; self: boolean; reachable: boolean | null; why: string; access: string; roles: string; lastToss: number | null; areas: string[]; subscriptions: string[] }
+/**
+ * A node as the nodelist knows it: whether it answered, its access, last toss, areas and subscriptions. `dialsIn`: it
+ * calls and is never called (its last call is its last toss), `held` the netmail waiting here for its call.
+ */
+export interface NodeEntry { node: string; self: boolean; reachable: boolean | null; dialsIn: boolean; held: number; why: string; access: string; roles: string; lastToss: number | null; areas: string[]; subscriptions: string[] }
 
 /**
  * The nodes in a nodelist's text, as the tosser writes it: a `## <node>` heading each, then `- <state> · access <level>
- * · <roles>`, `- last toss: …`, `- areas: <tag> (<name>); …`, `- subscriptions: …`. A line it doesn't know is skipped.
+ * · <roles>` (a node that dials in: `- dials in · last call <when> · <roles>` and `- netmail held: n`), `- last toss: …`,
+ * `- areas: <tag> (<name>); …`, `- subscriptions: …`. A line it doesn't know is skipped.
  */
 export function nodesOf(text: string): NodeEntry[] {
   const out: NodeEntry[] = [];
@@ -238,12 +242,13 @@ export function nodesOf(text: string): NodeEntry[] {
   const tags = (v: string) => (/^(none|unknown)$/.test(v.trim()) ? [] : v.split(";").map(x => x.trim().split(/\s+/)[0]!).filter(Boolean));
   for (const line of text.split("\n")) {
     const head = /^##\s+(\S+)/.exec(line);
-    if (head) { out.push(at = { node: head[1]!, self: false, reachable: null, why: "", access: "unknown", roles: "", lastToss: null, areas: [], subscriptions: [] }); continue; }
+    if (head) { out.push(at = { node: head[1]!, self: false, reachable: null, dialsIn: false, held: 0, why: "", access: "unknown", roles: "", lastToss: null, areas: [], subscriptions: [] }); continue; }
     const item = /^\s*-\s+(.*)$/.exec(line)?.[1];
     if (!at || item === undefined) continue;
-    const field = /^(last toss|areas|subscriptions):\s*(.*)$/.exec(item);
+    const field = /^(last toss|areas|subscriptions|netmail held):\s*(.*)$/.exec(item);
     if (field) {
-      if (field[1] === "last toss") { const t = Date.parse(field[2]!); at.lastToss = Number.isFinite(t) ? t : null; }
+      if (field[1] === "netmail held") at.held = Number.parseInt(field[2]!, 10) || 0;
+      else if (field[1] === "last toss") { const t = Date.parse(field[2]!); at.lastToss = Number.isFinite(t) ? t : null; }
       else if (field[1] === "areas") at.areas = tags(field[2]!);
       else at.subscriptions = tags(field[2]!);
       continue;
@@ -252,8 +257,10 @@ export function nodesOf(text: string): NodeEntry[] {
     at.self = state === "this node";
     at.reachable = state === "this node" || state === "reachable" ? true : state.startsWith("unreachable") ? false : null;
     at.why = state.startsWith("unreachable:") ? state.slice("unreachable:".length).trim() : "";
-    at.access = /^access\s+(\S+)/.exec(rest[0] ?? "")?.[1] ?? "unknown";
-    at.roles = rest.slice(1).join(", ");
+    at.dialsIn = state === "dials in";
+    const access = rest.find(part => part.startsWith("access "));
+    at.access = /^access\s+(\S+)/.exec(access ?? "")?.[1] ?? "unknown";
+    at.roles = rest.filter(part => part !== access && !part.startsWith("last call ")).join(", ");
   }
   return out;
 }
@@ -280,8 +287,10 @@ export function nodelistLines(title: string, nodes: readonly NodeEntry[], tosses
     "|08;",
     `|08;  #  ${"node".padEnd(nodeW)}  status  last toss         access   areas`,
     ...nodes.map((n, i) => {
-      const status = n.self ? "|15HOME " : n.reachable === null ? "|08?    " : n.reachable ? "|10UP   " : "|12DOWN ";
-      return `|08,|15${String(i + 1).padStart(2)}|08,|11${n.node.padEnd(nodeW)}|08,${status}|08,|07${(n.lastToss ? bbsDate(n.lastToss) : "never").padEnd(16)}|08,|05${n.access.padEnd(7)}|08,|03${n.areas.map(a => a.toUpperCase()).join(" ") || "-"}${n.why ? ` |08; ${n.why}` : ""}`;
+      // A node that dials in is never down: it calls when it can, and what waits for it is held.
+      const status = n.self ? "|15HOME " : n.dialsIn ? "|11DIAL " : n.reachable === null ? "|08?    " : n.reachable ? "|10UP   " : "|12DOWN ";
+      const why = n.dialsIn ? (n.held ? `${n.held} netmail held for its call` : "") : n.why;
+      return `|08,|15${String(i + 1).padStart(2)}|08,|11${n.node.padEnd(nodeW)}|08,${status}|08,|07${(n.lastToss ? bbsDate(n.lastToss) : "never").padEnd(16)}|08,|05${n.access.padEnd(7)}|08,|03${n.areas.map(a => a.toUpperCase()).join(" ") || "-"}${why ? ` |08; ${why}` : ""}`;
     }),
     ...(nodes.length ? [] : ["|08;  (no nodes in it yet: the tosser writes them at its next toss)"]),
     ...(tosses.length ? ["|08;", "|08;S last tosses", ...tosses.map(t => t.failed ? `|08;  ${t.at ? bbsDate(t.at) : "?"} |07${t.node} |12stopped |08(its log says why)` : `|08;  ${t.at ? bbsDate(t.at) : "?"} |07${t.node} |08copies |07${t.copies}|08 newer |07${t.updated}|08 netmail |07${t.netmailOut}|08 out |07${t.netmailIn}|08 in${t.queued ? ` |14${t.queued} queued` : ""}`)] : []),

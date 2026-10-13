@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "echonet",
-  "version": 4,
+  "version": 5,
   "name": "EchoNet",
   "description": "This outline as a node on a FidoNet-style network of outlines: named views and tagged notes as areas, subscriptions by node mask that copy them in (copies that drift, never a sync), netmail both ways on marks, seen-by marks, a nodelist and a toss log.",
   "run": ["bun", "echonet.ts"],

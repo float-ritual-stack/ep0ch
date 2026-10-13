@@ -17,8 +17,8 @@ import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
-import { configuredMachineName, hostMachineName, isLocalMachine, localMachineAliases, writeMachineName } from "@ep0ch/outliner/machine-name";
-import { backupName, buildPlan, checkoutStep, nameStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { configuredMachineName, dialsIn, hostMachineName, isLocalMachine, localMachineAliases, writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
+import { backupName, buildPlan, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -313,6 +313,24 @@ describe("this machine's name (EchoNet and ep0ch:// links)", () => {
       expect(await setupCommand(args, { out: () => {}, err: line => err.push(line) })).toBe(2);
       expect(err.join("\n")).toMatch(/--machine-name/);
     }
+  });
+  test("--dials-in: a machine that calls and is never called, said once it does; --no-dials-in undoes it", async () => {
+    const dials = (d: Partial<NonNullable<Facts["dialsIn"]>>) => laptop({ dialsIn: { file: "/home/wren/outlines/.host/dials-in", configured: false, ...d } });
+    expect(dialsStep(dials({}))).toBeNull();
+    expect(dialsStep(dials({ chosen: true }))).toMatchObject({ status: "do", dialsIn: true, commands: ["touch /home/wren/outlines/.host/dials-in"] });
+    expect(dialsStep(dials({ configured: true }))).toMatchObject({ status: "skip", why: expect.stringContaining("--no-dials-in") });
+    expect(dialsStep(dials({ configured: true, chosen: false }))).toMatchObject({ status: "do", dialsIn: false, commands: ["rm /home/wren/outlines/.host/dials-in"] });
+    expect(buildPlan(dials({ chosen: true }), opts()).steps.map(step => step.id)).toEqual(["backup", "repo", "plugin", "link", "dials", "host", "session"]);
+    for (const args of [["doctor", "--dials-in"], ["install", "--dials-in", "--no-dials-in"]]) expect(await setupCommand(args, { out: () => {}, err: () => {} })).toBe(2);
+    const outlines = mkdtempSync(join(tmpdir(), "dials-in-"));
+    try {
+      const env = { EP0CH_OUTLINES: outlines };
+      expect(dialsIn(undefined, env)).toBe(false);
+      writeDialsIn(true, env);
+      expect(dialsIn(undefined, env)).toBe(true);
+      writeDialsIn(false, env);
+      expect(dialsIn(undefined, env)).toBe(false);
+    } finally { rmSync(outlines, { recursive: true, force: true }); }
   });
   test("the file it writes is the name every client reads; the host name's form is still this machine", () => {
     const outlines = mkdtempSync(join(tmpdir(), "machine-name-"));

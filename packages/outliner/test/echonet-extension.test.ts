@@ -498,6 +498,86 @@ test("one node, one name: a machine given a name keeps its marks made under its 
   expect((await threads("cafe", copy.id)).map((thread) => thread.body)).toEqual(["which week, roughly?"]);
 }, 90_000);
 
+test("a machine that dials in: never called, it delivers into the subscriptions that read it and carries their netmail both ways", async () => {
+  const { root, outlines, toss, create, threads, where, comment, board, access } = await setup(["cafe"]);
+  const far = await farMachine(root, outlines);
+  const farOutlines = join(root, "far", "outlines");
+  // box-b's inbound ssh is off; it still calls out, to box-a, where it reads the cafe's outlines folder.
+  const sshLog = join(root, "ssh.log");
+  Object.assign(process.env, { FAKE_SSH_REFUSE: "box-b", FAKE_SSH_LOG: sshLog });
+  cleanups.push(() => { delete process.env.FAKE_SSH_REFUSE; delete process.env.FAKE_SSH_LOG; });
+  writeFileSync(outlineLayout(outlines).machineName, "box-a\n");
+  writeFileSync(outlineLayout(farOutlines).machineName, "box-b\n");
+  writeFileSync(outlineLayout(farOutlines).dialsIn, "");
+  mkdirSync(join(farOutlines, ".remote"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(farOutlines, ".remote", "box-a.json"), JSON.stringify({ outlines }));
+  await send(far.socket, { action: "outlines.create", name: "field" });
+  await far.call("field", { action: "mcp.access.configure", level: "propose" });
+  await access("cafe", "full");
+  await far.call("field", { action: "extensions.list", reload: true });
+  const farToss = async () => (await far.call<{ message: string }>("field", { action: "extensions.act", extension: "echonet", extensionAction: "toss", mutation: { author: "user" } })).message;
+  const hedge = await far.create("field", "Field: the hedge by the gate flowers late [echo::field.notes]");
+  const espresso = await create("cafe", "Cafe: the espresso timer drifts [echo::cafe.notes]");
+  const sub = await create("cafe", "Field notes from the box [subscribe::field@box-b] [echo::field.*] [since::all]");
+  await far.create("field", "Cafe notes [subscribe::cafe@box-a] [echo::cafe.*] [since::all]");
+
+  const lastLog = async (outline: string) => (await where(outline, "type=toss")).sort((a, b) => a.createdAt!.localeCompare(b.createdAt!)).at(-1)!.text;
+  // Before box-b has called, the cafe tries it like any machine, and can't reach it.
+  expect(await toss("cafe")).toContain("copies 0");
+  expect(await lastLog("cafe")).toContain("- field@box-b (Field notes from the box): unreachable (");
+  // Its toss calls: its areas into the cafe's subscription, attributed to it, and the cafe's into its own.
+  const call = await farToss();
+  expect(call).toStartWith("field@box-b tossed: copies 1,");
+  expect(call).toContain("called cafe@box-a (1 copied there");
+  const copy = (await board("cafe", sub, "field@box-b")).copies[0]!;
+  expect(copy.text).toContain(`[from::field@box-b/${hedge.id}] [echo::field.notes]`);
+  expect(copy.actorId).toBe("ext:echonet@field@box-b");
+  expect((await far.threads("field", hedge.id)).map((thread) => thread.body)).toEqual(["also in: cafe@box-a (Field notes from the box)"]);
+  const ledger = (await where("cafe", "type=echo-ledger"))[0]!.text;
+  expect(ledger).toMatch(/^- call field@box-b -> \d{4}-/m);
+
+  // Learned: the cafe never calls box-b again; it waits, never down, and holds the netmail for it.
+  const before = readFileSync(sshLog, "utf8").split("\n").filter((line) => line.includes("box-b")).length;
+  const mark = await comment("cafe", copy, "which week, roughly?", "flowers late");
+  const waiting = await toss("cafe");
+  expect(waiting).toContain("held 1");
+  expect(waiting).not.toContain("unreachable");
+  let nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
+  expect(nodelist).toMatch(/## field@box-b\n- dials in · last call \d{4}-\d\d-\d\d \d\d:\d\d UTC · we read its field\.\*, reads our areas\n- netmail held: 1 \(its next call takes it\)/);
+  expect(nodelist).not.toContain("unreachable");
+  expect(readFileSync(sshLog, "utf8").split("\n").filter((line) => line.includes("box-b")).length).toBe(before);
+
+  // Netmail both ways on its call: the cafe's comment goes down to the original, a comment on its copy of the
+  // cafe's note goes up (its own toss, reaching out), and a reply written at the original comes back to the cafe.
+  const farCopy = (await far.where("field", "from"))[0]!;
+  expect(farCopy.text).toContain(`[from::cafe@box-a/${espresso.id}]`);
+  await far.call("field", { action: "annotations.batch", requestId: crypto.randomUUID(), author: "user",
+    operations: [{ operationId: "c", type: "block-comment", input: { blockId: farCopy.id, expectedRevision: farCopy.revision, body: "decaf too?", source: "user" } }] });
+  expect(await farToss()).toContain("netmail out 1");
+  const there = (await far.threads("field", hedge.id)).find((thread) => thread.properties?.["netmail-from"])!;
+  expect([there.body, there.properties?.["netmail-from"]]).toEqual(["which week, roughly?", [`cafe@box-a/${mark.id}`]]);
+  expect((await threads("cafe", espresso.id)).map((thread) => thread.body)).toContain("decaf too?");
+  await far.call("field", { action: "annotations.reply", requestId: crypto.randomUUID(), author: "user", input: { annotationId: there.block.id, body: "the third week of June", source: "user" } });
+  expect(await farToss()).toContain("netmail 0 to here, 1 to there");
+  expect((await threads("cafe", copy.id)).find((thread) => thread.block.id === mark.id)!.replies.map((r) => r.body)).toEqual(["the third week of June"]);
+  await toss("cafe");
+  nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
+  expect(nodelist).toContain("- netmail held: 0\n");
+  // The call's own log is under the cafe's nodelist.
+  const list = (await where("cafe", "type=nodelist"))[0]!;
+  const logs = (await send<Block[]>(socket(outlines), { outline: "cafe", action: "children", parentId: list.id })).filter((block) => block.text.startsWith("Call from field@box-b"));
+  expect(logs.map((block) => block.text.split("\n")[0]!.replace(/\[(at|gone|skipped|updated|waiting|queued|undeliverable)::[^\]]*\] ?/g, "").replace(/ \d.* UTC/, "").trim())).toEqual([
+    "Call from field@box-b [type::toss] [node::field@box-b] [call::cafe@box-a] [copies::1] [netmail-out::0] [netmail-in::0]",
+    "Call from field@box-b [type::toss] [node::field@box-b] [call::cafe@box-a] [copies::0] [netmail-out::1] [netmail-in::0]",
+    "Call from field@box-b [type::toss] [node::field@box-b] [call::cafe@box-a] [copies::0] [netmail-out::0] [netmail-in::1]",
+  ]);
+
+  // Said outright on this side, the cafe calls it again (and finds it refused).
+  writeFileSync(join(outlines, ".remote", "box-b.json"), JSON.stringify({ outlines: farOutlines, dialsIn: false }));
+  await toss("cafe");
+  expect((await where("cafe", "type=nodelist"))[0]!.text).toMatch(/## field@box-b\n- unreachable: /);
+}, 120_000);
+
 test("ep0ch echo: subscribe writes a subscription, toss runs the tosser, areas reads what an outline offers and reads", async () => {
   const { outlines, machine, create, where, access } = await setup(["shack", "cafe"]);
   await access("shack", "read");
