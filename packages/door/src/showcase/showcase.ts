@@ -507,6 +507,18 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · questions", panes: [r] }, show, [[r, n.society]]); },
   },
   {
+    key: "dates", need: "ask about dates and numbers on any property: what's due in three days, what's done waiting, which window today is inside, grouped by the week",
+    part: "typed comparisons in the views' grammar (PIE-769): key < <= > >= a bound on any property, a date when the bound reads as one (today, tomorrow, -7d, +3d, 2026-10-20, Oct 20, 10/20, 20 Oct), else a number, else text; key=<date> is that day, or a span holding it; one reader of dates as people write them (outline-core dates.ts) for the evaluator, sorts, date groups (<key>:day|week|month|year) and the save warning; the service says which values it couldn't read (the answer's hint)",
+    files: "outline-core src/dates.ts, outliner src/block-query.ts (compare), src/question-answer.ts (date groups, questionValueWarning), src/query-watches.ts (the day turning), outline-core src/reference-warnings.ts (dateWarnings)",
+    aside: "the calendar note asks four questions of made-up dates written four ways, seeded relative to today; the lanes are saved views on the Plot calendar board ([query::type=plot-date due <= +3d] [sort::due] [direction::asc]); \"after the frost\" isn't a date, so it matches nothing and the figures say so under them; a release window 2026-10-20..2026-10-24 is = today while today is inside it, <= today once it has begun, >= today until it's over; at midnight every watched answer is asked again, so tomorrow's lanes fill themselves",
+    stage(n, show) {
+      // The calendar note held in its reader while a lane's selection moves (the lanes' previews go to the current note).
+      const r = new ReaderPane(true);
+      const lanes = n.datesBoard ? [columnsOf<number>([], { key: "lanes", source: `hub:${n.datesBoard.id}` })] : [];
+      return deskOf({ title: "showcase · dates", panes: [r], names: ["calendar"], layout: ([a]) => lanes.length ? splitOf("row", [leaf(a!), ...lanes], [0.5, 0.5]) : leaf(a!) }, show, [], d => { if (n.dates) r.hold(n.dates, d); });
+    },
+  },
+  {
     key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
     aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; the note is never written; two readers of one note, each with its own tab and density",
     // Two readers on one note: each keeps its own tab and density.

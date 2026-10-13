@@ -142,12 +142,30 @@ function typedClauses(expression: QueryExpression | undefined, now: number): { k
   }
 }
 
+/**
+ * The question with each date or number comparison loosened to "has the key" (`type=plot-date due <= +3d` becomes
+ * `type=plot-date due`): the notes it holds for are the ones a warning is about, never every note with the key.
+ */
+export function loosenTyped(expression: QueryExpression, now = Date.now()): QueryExpression {
+  const wall = wallClock(now);
+  switch (expression.kind) {
+    case "compare":
+    case "property":
+      return typedClauses(expression, wall).length ? { kind: "property", key: expression.key } : expression;
+    case "not": return { kind: "not", operand: loosenTyped(expression.operand, now) };
+    case "and":
+    case "or": return { kind: expression.kind, operands: expression.operands.map(operand => loosenTyped(operand, now)) };
+    default: return expression;
+  }
+}
+
 const QUOTED_MAX = 3;
 
 /**
  * What a question compared as dates or numbers and couldn't read (PIE-769: capture is more reliable than
  * interpretation, so such a note is never refused; it just doesn't match, and the answer says so): "due: 2 notes have a
- * value that isn't a date: “Ocotber 20”, “soon”". `valuesOf` gives every active note's values for a key, with its id.
+ * value that isn't a date: “Ocotber 20”, “soon”". `valuesOf` gives the values for a key of the notes the question
+ * loosened (`loosenTyped`) holds for, with their ids.
  */
 export function questionValueWarning(query: NormalizedBlockSearchQuery, valuesOf: (key: string) => readonly { id: string; value: string }[], now = Date.now()): string | undefined {
   const wall = wallClock(now);

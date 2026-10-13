@@ -82,6 +82,8 @@ export const SEED = {
   echoSub: "Seed swap",
   echoPosted: "Compost bins arrive Thursday",
   nodelist: "EchoNet nodelist",
+  dates: "Plot calendar",
+  datesBoard: "Plot calendar board",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -741,6 +743,49 @@ function societyText(linkedBack: readonly Msg[]): string {
   ].join("\n").trimEnd();
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The day `n` days from the seeding day on the machine's clock, written the ways people write one (PIE-769). */
+export function seedDay(n: number, now = new Date()): { iso: string; short: string; slashed: string; dayFirst: string } {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
+  const [y, m, dd] = [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+  return { iso: `${y}-${String(m).padStart(2, "0")}-${String(dd).padStart(2, "0")}`, short: `${MONTH_NAMES[m - 1]} ${dd}`, slashed: `${m}/${dd}`, dayFirst: `${dd} ${MONTH_NAMES[m - 1]}` };
+}
+
+/**
+ * The plot's dates (PIE-769), children of the calendar note: due days written four ways and one that isn't a date,
+ * days to wait until, and windows (spans). Relative to the day the showcase is seeded, so the answers are live.
+ */
+export const PLOT_DATES = (now = new Date()): { title: string; props: string }[] => [
+  { title: "Order the seed potatoes", props: `[due::${seedDay(-1, now).iso}]` },
+  { title: "Collect the manure delivery", props: `[due::${seedDay(1, now).short}]` },
+  { title: "Pay the plot rent", props: `[due::${seedDay(3, now).slashed}]` },
+  { title: "Prune the gooseberries", props: `[due::${seedDay(10, now).dayFirst}]` },
+  { title: "Lift the dahlias", props: "[due::after the frost]" },
+  { title: "Ask the committee about the shed again", props: `[wait-until::${seedDay(0, now).iso}]` },
+  { title: "Chase the water board", props: `[wait-until::${seedDay(4, now).iso}]` },
+  { title: "Seed swap", props: `[window::${seedDay(-1, now).iso}..${seedDay(2, now).iso}]` },
+  { title: "Bulb sale", props: `[window::${seedDay(6, now).iso}..${seedDay(9, now).iso}]` },
+];
+
+/** The calendar note: live figures asking dates of any property, as the views ask them. */
+const PLOT_DATES_NOTE = [
+  `${SEED.dates} [page::${SEED.dates}]`,
+  "",
+  "Dates on any property, written however people write them: 2026-10-20, Oct 20, 10/20, 20 Oct, or a span 2026-10-20..2026-10-24. Asked the way the views ask: `due <= +3d`, `wait-until <= today`, `window = today`. Nothing here knows these keys; tomorrow the answers move on their own.",
+  "",
+  ...fig("table", ["title: Due in three days, overdue too", 'query: "type=plot-date due <= +3d"', "sort: due", "direction: asc", "columns: [title, due]"]),
+  ...fig("table", ["title: Done waiting", 'query: "type=plot-date wait-until <= today"', "columns: [title, wait-until]"]),
+  ...fig("table", ["title: In its window today", 'query: "type=plot-date window = today"', "columns: [title, window]"]),
+  ...fig("tabs", ["title: By the week it's due", 'query: "type=plot-date due"', "group: due:week", "sort: due", "direction: asc", "columns: [title, due]"]),
+].join("\n").trimEnd();
+
+/** The calendar's board: a lane per question, each a saved view. */
+export const PLOT_DATE_LANES = [
+  "Due in three days [type::virtual-branch] [query::type=plot-date due <= +3d] [sort::due] [direction::asc] [summary-properties::due]",
+  "Waiting until today [type::virtual-branch] [query::type=plot-date wait-until <= today] [summary-properties::wait-until]",
+  "Window open today [type::virtual-branch] [query::type=plot-date window = today] [summary-properties::window]",
+];
+
 /** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
 const PLOT_JOBS_NOTE = [
   `${SEED.plotJobs} [page::${SEED.plotJobs}]`,
@@ -1153,6 +1198,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
+  notes.dates = await make(notes.root.id, PLOT_DATES_NOTE);
+  for (const d of PLOT_DATES()) await make(notes.dates.id, `${d.title} [type::plot-date] ${d.props}`);
+  notes.datesBoard = await make(notes.root.id, `${SEED.datesBoard}\nThe plot calendar's questions, a lane each: saved views over dates.`);
+  for (const lane of PLOT_DATE_LANES) await make(notes.datesBoard.id, lane);
   // The society page and the notes that mention it (PIE-745): its page first, so their [[links]] resolve; then its text
   // once they're there, linking back to the first few.
   notes.society = await make(notes.root.id, `${SEED.society} [page::${SEED.society}]`);

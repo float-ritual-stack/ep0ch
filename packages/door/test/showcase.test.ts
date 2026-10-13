@@ -15,7 +15,7 @@ import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
 import { spanBg } from "../src/surface/margin";
-import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedDay, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { subject } from "../src/board";
@@ -335,6 +335,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     // The society page: one question as a list, tabs by crop and a rank by season.
     questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],
+    // The plot calendar's dates, written four ways, asked as any property (PIE-769); the lanes are saved views.
+    dates: ["Plot calendar", "DUE IN THREE DAYS", "DONE WAITING", "IN ITS WINDOW TODAY", "Due in th"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
@@ -1274,6 +1276,29 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       expect(rows()).not.toContain("Garlic in before the first frost");
       for (let i = 0; (await tabs()).includes("garlic 1"); i++) { if (i > 80) throw new Error("the garlic tab is still there"); await Bun.sleep(100); }
     } finally { watched.changed = changed; }
+  }, 30_000);
+
+  test("dates (PIE-769): due <= +3d, wait-until <= today and a window holding today answer on the calendar and in its lanes, in calendar order; a value that isn't a date is said, and a write moves a lane", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "dates" }, as: "test-agent" })).toMatchObject({ key: "dates" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "dates")).top; };
+    const lane = (name: string) => ((stage().pane(name) as any)?.items ?? []).map((m: any) => m.text.split(" [")[0]);
+    await until(() => lane("Due-in-three-days").length === 3, "the due lane", 8000);
+    // Sorted by due, written three ways: yesterday's ISO date, tomorrow's "Oct 14", the day after next's "10/16".
+    expect(lane("Due-in-three-days")).toEqual(["Order the seed potatoes", "Collect the manure delivery", "Pay the plot rent"]);
+    expect(lane("Waiting-until-today")).toEqual(["Ask the committee about the shed again"]);
+    expect(lane("Window-open-today")).toEqual(["Seed swap"]);
+    // The calendar's figures: grouped by the week it's due, and the date nobody can read said under the first.
+    const figures = async () => ((await app.act({ action: "figures", tile: "calendar", as: "test-agent" })) as any).figures;
+    for (let i = 0; !(await figures()).find((f: any) => f.kind === "tabs")?.tabs?.length; i++) { if (i > 80) throw new Error("no week tabs"); await Bun.sleep(100); }
+    expect((await figures()).find((f: any) => f.kind === "tabs").tabs.map((t: any) => t.count).reduce((a: number, b: number) => a + b, 0)).toBe(5);
+    await until(() => plain(screen()).includes("after the frost"), "the unreadable date said", 8000);
+    // An agent sets a wait to today: the lane fills on its own (a watched answer changed), the note is the agent's write.
+    const water = (await board.queryNotes('title~"Chase the water board"')).notes[0]!;
+    const { revision, tokens } = await board.propertyTokens(water.id, "wait-until");
+    await board.patchProperties(water.id, revision, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: seedDay(0).short }], { kind: "agent", id: "test-agent" });
+    await until(() => lane("Waiting-until-today").length === 2, "the water board in the waiting lane", 8000);
+    expect(lane("Waiting-until-today")).toContain("Chase the water board");
   }, 30_000);
 
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {

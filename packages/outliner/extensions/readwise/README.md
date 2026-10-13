@@ -149,8 +149,10 @@ Why `tags` and `book-tags` are apart: `tags=moss` should mean a highlight you ta
 book somebody tagged. The book's tags are `tags` on the book block itself and `book-tags` on each highlight. The
 document's note (`document_note`) stays in the book block's body.
 
-Dates are days, and the grammar compares a property for equality only (ranges are for `created` and `updated`, which
-are when the block was written, not when you highlighted), so "from 2024" is `highlighted-year=2024`.
+Dates are days, and the grammar compares any property's dates (PIE-769), so "since March" is
+`highlighted >= 2024-03-01` (`created` and `updated` are when the block was written, not when you highlighted).
+`highlighted-year` and `highlighted-month` stay as conveniences: "from 2024" is `highlighted-year=2024`, and
+`group=highlighted:month` groups by month without them.
 
 ### Reader documents
 
@@ -177,6 +179,7 @@ All highlights by an author:   readwise.highlight AND author="Ann Example"
 Highlights with a tag:         readwise.highlight AND tags=moss
 Favourites:                    readwise.highlight AND favorite=true
 Highlights from 2024:          readwise.highlight AND highlighted-year=2024       (one month: highlighted-month=2024-03)
+Highlighted this week:         readwise.highlight AND highlighted >= -7d
 One book's highlights:         readwise.highlight AND readwise.book=8
 Highlights from tagged books:  readwise.highlight AND book-tags=fiction
 Grouped by author:             where=readwise.highlight  group=author

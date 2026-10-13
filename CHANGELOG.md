@@ -10,6 +10,27 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Dates and numbers on any property (PIE-769)
+
+- **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),
+  `wait-until <= today`, `sent >= -7d`, `rating > 3`, `stage >= beta`. A date bound compares dates, a number compares
+  numbers, anything else compares text. It works everywhere the views' grammar does: saved views and board lanes,
+  live figures, `ep0ch find --query`, MCP `outline_query`, the web pages and the Pi tools.
+- **Added:** dates as people write them, read by one reader in outline-core (`dates.ts`): `2026-10-20`, `Oct 20`,
+  `October 20, 2026`, `20 Oct`, `10/20`, `10/20/26`, with a time after (`2026-10-20 4:23 PM`). A span
+  `2026-10-20..2026-10-24` answers `release-window = today` while today is inside it. `due=today` and
+  `due="Oct 20"` find the day however it was written.
+- **Added:** a date bucket on any property: `group: due:week` (day, week, month or year), soonest first. Sorting by a
+  date property orders by date, not by how it's spelled.
+- **Added:** a value a comparison can't read (`[due::someday]`) never matches and is never refused: the answer says
+  which (`due: 1 note has a value that isn't a date: “someday”`), under a figure, in `ep0ch find` and over MCP. A
+  save of a value shaped like a date that isn't one (`[due::Oct 32]`) keeps the text and says so.
+- **Added:** a watched question is asked again when the host's day turns, so a `wait-until <= today` lane on
+  Welcome or a board fills itself in the morning.
+- **Changed:** `key=<date>` clauses go through the query evaluator (they find the same text as before, plus the same
+  day written another way).
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL changes: clients and the host update together).
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

@@ -140,5 +140,5 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
 ## Known gaps
 
 - The change feed keeps a short window. Record the checkpoint every time; fall back as step 2 says.
-- The service sorts `blocks.query` by created or updated only; the door orders briefs by `brief-date`.
+- The door orders briefs by `brief-date` itself; the service could (`sort: brief-date`, or `brief-date = today`) since PIE-769.
 - The door lands on the brief after logon only with `EP0CH_LANDING=brief`; the default is the main menu.

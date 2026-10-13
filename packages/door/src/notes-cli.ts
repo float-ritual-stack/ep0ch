@@ -44,7 +44,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    --query takes the saved views' grammar, evaluated by the outline
                                    ("type=chore area=garden", OR, NOT, ( ), created/updated ranges such as
-                                   "updated >= -7d"); --view the members of a saved view (type::virtual-branch),
+                                   "updated >= -7d", and any property compared as a date, number or text:
+                                   "due <= +3d", "wait-until <= today", "rating > 3"); --view the members of a saved view (type::virtual-branch),
                                    in its order; --under the notes under that one (itself included). They
                                    combine with each other and with words (then every word, any order: the
                                    service's text filter), in outline order, at most 1000. The date flags only

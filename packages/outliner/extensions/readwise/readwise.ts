@@ -265,9 +265,9 @@ async function send(blockId: string): Promise<void> {
 // because a query reads one block's own properties, not its parent's): `author`, `title`, `category`, `source`, `url`,
 // `book-tags` and `readwise.book`. Highlight tags stay `tags`; the book's own tags are `tags` on the book block and
 // `book-tags` on each highlight, so `tags=moss` means a highlight you tagged moss, never one that merely sits in a
-// book someone tagged. Empty values are left out. Dates are the day (`2026-09-30`); the query grammar compares a
-// property for equality only (ranges are for `created` and `updated`), so `highlighted-year` and `highlighted-month`
-// are the buckets "from 2024" asks for (and `group=highlighted-year` groups by).
+// book someone tagged. Empty values are left out. Dates are the day (`2026-09-30`), which the query grammar
+// compares (`highlighted >= -7d`, PIE-769); `highlighted-year` and `highlighted-month` stay as the buckets "from 2024"
+// asks for in one clause (`group=highlighted:month` groups by month without them).
 
 type Entry = [key: string, value: string | number | null | undefined];
 const day = (date: string | null | undefined) => (date && /^\d{4}-\d{2}-\d{2}/.test(date) ? date.slice(0, 10) : null);

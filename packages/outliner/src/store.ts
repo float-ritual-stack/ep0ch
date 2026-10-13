@@ -24,7 +24,7 @@ import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./re
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
-import { questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
+import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
 import { linkTargetFacets } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
@@ -3718,18 +3718,30 @@ export class OutlinerStore {
       const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key).map(record => record.value);
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key));
-      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.activeValuesOf(graph, key, scope))].filter(Boolean).join(" · ");
+      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");
       if (hint) answer.hint = hint;
     }
     return answer;
   }
 
-  /** Every active block's values for `key` in `scope`: what a date or number comparison warns it couldn't read. */
-  private activeValuesOf(graph: LoadedGraph, key: string, scope: PropertyQueryScope): { id: string; value: string }[] {
+  /**
+   * The values for `key` of the active blocks the question holds for with its date and number comparisons loosened to
+   * "has the key" (`loosenTyped`): what such a comparison warns it couldn't read, about the notes it was asking of.
+   */
+  private loosenedValuesOf(graph: LoadedGraph, query: NormalizedBlockSearchQuery, key: string, scope: PropertyQueryScope): { id: string; value: string }[] {
+    const relations = this.queryRelations(graph);
+    const loose = query.predicate ? compileQueryExpression(loosenTyped(query.predicate), Date.now(), relations) : null;
     const out: { id: string; value: string }[] = [];
     for (const [id, records] of graph.propertyRecordsByBlock) {
-      if (graph.byId.get(id)?.effectiveDeletedRootId) continue;
-      for (const record of records) if (record.key === key && (scope === "all" || record.scope === scope)) out.push({ id, value: record.value });
+      const block = graph.byId.get(id);
+      if (!block || block.effectiveDeletedRootId) continue;
+      const values = records.filter(record => record.key === key && (scope === "all" || record.scope === scope));
+      if (!values.length) continue;
+      if (query.filters?.length && !matchesFilters(records, query.filters, scope)) continue;
+      if (query.subtreeRootId && !relations.within(id, query.subtreeRootId)) continue;
+      const children = () => (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId).map(child => child.properties);
+      if (loose && !loose({ ...block, childProperties: children }, records, scope)) continue;
+      for (const record of values) out.push({ id, value: record.value });
     }
     return out;
   }

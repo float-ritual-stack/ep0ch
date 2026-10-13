@@ -68,6 +68,9 @@ describe("dates and numbers on any property", () => {
     const answer = await query("type=follow-up due <= +30d");
     expect(names(answer)).not.toContain("Water the fern");
     expect(answer.hint).toContain("due: 1 note has a value that isn't a date: “someday”");
+    // Only about the notes the question asks of: another kind of note's `due::Wed` is no concern of a follow-up query.
+    await client.request<Block>({ action: "create", text: "Bin day [type::chore] [due::Wed]" });
+    expect((await query("type=follow-up due <= +30d")).hint).not.toContain("Wed");
   });
 
   test("waiting until a day surfaces itself on that day", async () => {

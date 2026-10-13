@@ -1481,7 +1481,7 @@ children is a board; `g` picks one. The last board per outline is remembered.
 
 A lane's query is usually a list of property clauses that must all hold, so a card moves by patching the
 properties the target lane names. Nothing else on the card changes. When the query also has an OR or NOT
-group, parentheses or a `created`/`updated` range (services with PIE-398), its plain top-level clauses are
+group, parentheses, a `created`/`updated` range or a comparison like `due <= +3d` (services with PIE-398, PIE-769), its plain top-level clauses are
 still what a move patches, and everything else must already hold for the card: on a lane
 `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=doing` a card in either project
 moves by patching `work-stage` alone, and any other card is refused with the term it doesn't meet. The
@@ -2293,10 +2293,12 @@ Bodies render with `src/doc.ts`:
     the `[ ]` position, or a click on its `≡ cozy` footer control, steps through them (`figure.density`); the
     YAML value is only where it starts.
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
-    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges, the atoms), sent to the
+    in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges, comparisons on any property such
+    as `due <= +3d` or `wait-until <= today`, the atoms), sent to the
     service as `blocks.query` `where` (PIE-398), with `this` the note the figure sits in (`links:this`). Both are
     watched reads: the service says when the answer changed (`queries.changed`), and nothing is asked on paint. A
-    `rank` or `tabs` figure's `group:` is the service's grouping, every match counted (PIE-745). `done:` and `now:` are queries in the
+    `rank` or `tabs` figure's `group:` is the service's grouping, every match counted (PIE-745), by a property or a
+    date bucket of one (`group: due:week`). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
     properties only; there is no `author=` pseudo-key.
 - Long callout titles keep a short head on the border and flow the rest into the box (a nested one too). A
