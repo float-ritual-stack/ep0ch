@@ -104,7 +104,12 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     await expect(act("reader.follow", { source: "nowhere" }, "b")).rejects.toThrow();
     await expect(act("reader.mode", { mode: "pinned" }, "b")).rejects.toThrow(/no page to pin/);
     expect(D().followSource(r("b"))?.name).toBe("tree");
+    // A locked screen relinks nothing: refused before anything changes.
     await act("reader.follow", { source: "current" }, "b");
+    await mine("layout.lock", { on: true }, "b");
+    await expect(mine("reader.follow", { source: "tree" }, "b")).rejects.toThrow(/lock/);
+    expect(r("b").followMode).toBe("follows");
+    await mine("layout.lock", { on: false }, "b");
     await expect(act("reader.follow", {}, "b")).rejects.toThrow(/source=current, source=none or source=<tile>/);
   });
 

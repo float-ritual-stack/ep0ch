@@ -1084,20 +1084,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   followFrom(p: ReaderPane, source: string | null, actor: Actor): void {
     const id = this.idOf(p);
     if (id === undefined) throw new ActionRefused("that reader isn't on this screen");
-    const why = source === null ? null : this.followRefusal(p, source);
+    const why = source === null ? null : this.followRefusal(p, source, actor);
     if (why) throw new ActionRefused(why);
     const from = source === null ? undefined : this.tile(source);
-    for (const [z, to] of [...this.layout.links]) if (to === id && z !== id && this.layout.linkRoles.get(z) !== "target" && z !== from?.id) this.apply({ op: "link", tile: z }, actor);
+    // The new link first (a refusal leaves the old one), then the others into it let go.
     if (from && this.layout.links.get(from.id) !== id) this.apply({ op: "link", tile: from.id, to: id, role: "preview" }, actor);
     else if (from && this.layout.linkRoles.get(from.id) !== "preview") this.apply({ op: "link", tile: from.id, role: "preview" }, actor);
+    for (const [z, to] of [...this.layout.links]) if (to === id && z !== id && this.layout.linkRoles.get(z) !== "target" && z !== from?.id) this.apply({ op: "link", tile: z }, actor);
     this.save(); this.redraw();
   }
   /** DeskApi.followRefusal: why reader `p` can't follow tile `source`, or null. */
-  followRefusal(p: ReaderPane, source: string): string | null {
-    if (this.idOf(p) === undefined) return "that reader isn't on this screen";
+  followRefusal(p: ReaderPane, source: string, actor: Actor = USER): string | null {
+    const id = this.idOf(p);
+    if (id === undefined) return "that reader isn't on this screen";
     let from: { id: number; name: string };
     try { from = this.tile(source); } catch (e) { return (e as Error).message; }
-    return this.followable(from.id, p) ? null : `${from.name} has no selection to follow: a tree, a links tile or another reader can be followed`;
+    if (!this.followable(from.id, p)) return `${from.name} has no selection to follow: a tree, a links tile or another reader can be followed`;
+    // The layout's own answer for the link (a locked screen relinks nothing), asked before anything changes.
+    return refusal(this.layout, { op: "link", tile: from.id, to: id, role: "preview" }, this.layoutCtx(actor));
   }
   /** DeskApi.askFollow: the person picks what reader `p` follows (its mode chip's click, `P`): a list picker of sources. */
   askFollow(p: ReaderPane): void {

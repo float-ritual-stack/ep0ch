@@ -98,7 +98,7 @@ export interface DeskApi {
   /** The tile that moved the current note last, and whether it's out of sight now (a tree in a shut dock). */
   steering?(): { name: string; hidden: boolean } | null;
   /** Why reader `p` can't follow tile `source` (no such tile, itself, nothing to follow), or null. */
-  followRefusal?(p: ReaderPane, source: string): string | null;
+  followRefusal?(p: ReaderPane, source: string, actor?: Actor): string | null;
   /** Reader `p` follows tile `source` (a link with the preview role, saved with the layout); null: no tile. */
   followFrom?(p: ReaderPane, source: string | null, actor: Actor): void;
   /** The person picks what reader `p` follows: a picker of sources over the screen. */
@@ -815,7 +815,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
       if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
       // Checked before anything changes: a refused source leaves the reader as it was.
-      const why = desk.followRefusal?.(pane, source);
+      const why = desk.followRefusal?.(pane, source, actor);
       if (why) throw new ActionRefused(why);
       if (pane.followMode !== "held") await pane.setMode("held", desk);
       desk.followFrom(pane, source, actor);
