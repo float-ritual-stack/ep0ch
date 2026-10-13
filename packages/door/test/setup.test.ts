@@ -17,7 +17,8 @@ import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
-import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { configuredMachineName, hostMachineName, isLocalMachine, localMachineAliases, writeMachineName } from "@ep0ch/outliner/machine-name";
+import { backupName, buildPlan, checkoutStep, nameStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -291,6 +292,46 @@ describe("the plan", () => {
     const f = { ...float2(), host: host({ folder: "/home/evan/outlines", socket: "/home/evan/outlines/.host/host.sock", running: false, outlines: [], unit: null }) };
     expect(buildPlan(f, opts()).steps[4]).toMatchObject({ status: "manual", title: "Start the outline host" });
     expect(buildPlan(f, opts()).notes.join("\n")).toContain("ExecStart=bun /home/evan/projects/ep0ch/packages/outliner/src/host-main.ts");
+  });
+});
+
+describe("this machine's name (EchoNet and ep0ch:// links)", () => {
+  const named = (m: Partial<NonNullable<Facts["machineName"]>>) => laptop({ machineName: { file: "/home/wren/outlines/.host/machine-name", configured: null, suggested: "wrens-air", ...m } });
+  test("unnamed: the short host name is written, and how to give the ssh name instead is said; named, it is left alone", () => {
+    expect(nameStep(named({}))).toMatchObject({ status: "do", machineName: "wrens-air", commands: ["echo wrens-air > /home/wren/outlines/.host/machine-name"],
+      why: expect.stringContaining("ep0ch install --apply --machine-name <that name>") });
+    expect(nameStep(named({ chosen: "laptop" }))).toMatchObject({ status: "do", machineName: "laptop" });
+    expect(nameStep(named({ configured: "laptop" }))).toMatchObject({ status: "skip", why: expect.stringContaining("named laptop") });
+    expect(nameStep(named({ configured: "laptop", chosen: "laptop" }))!.status).toBe("skip");
+    expect(nameStep(named({ configured: "laptop", chosen: "attic" }))).toMatchObject({ status: "do", machineName: "attic", why: expect.stringContaining("renamed from laptop to attic") });
+    expect(nameStep(named({ env: "box-c" }))).toMatchObject({ status: "skip", why: "EP0CH_MACHINE_NAME names it box-c" });
+    expect(buildPlan(named({}), opts()).steps.map(step => step.id)).toEqual(["backup", "repo", "plugin", "link", "name", "host", "session"]);
+  });
+  test("--machine-name with no name, or not a machine name, is refused before anything is looked at", async () => {
+    for (const args of [["install", "--apply", "--machine-name"], ["install", "--machine-name", "-o"], ["install", "--machine-name=bad name"], ["doctor", "--machine-name", "box-a"]]) {
+      const err: string[] = [];
+      expect(await setupCommand(args, { out: () => {}, err: line => err.push(line) })).toBe(2);
+      expect(err.join("\n")).toMatch(/--machine-name/);
+    }
+  });
+  test("the file it writes is the name every client reads; the host name's form is still this machine", () => {
+    const outlines = mkdtempSync(join(tmpdir(), "machine-name-"));
+    try {
+      const env = { EP0CH_OUTLINES: outlines };
+      expect(configuredMachineName(env)).toBeUndefined();
+      writeMachineName("box-a", env);
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-a\n");
+      expect(configuredMachineName(env)).toBe("box-a");
+      expect(configuredMachineName({ ...env, EP0CH_MACHINE_NAME: "box-c" })).toBe("box-c");
+      expect(() => writeMachineName("-o ProxyCommand", env)).toThrow("isn't a machine name");
+      // Renamed, the name it had is still this machine's: old links and marks say it.
+      writeMachineName("box-c", env);
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-c\nbox-a\n");
+      expect(localMachineAliases(undefined, env)).toEqual(["box-a", hostMachineName()]);
+      writeMachineName("box-a", env);
+      expect(readFileSync(join(outlines, ".host", "machine-name"), "utf8")).toBe("box-a\nbox-c\n");
+      expect([isLocalMachine("box-a", env), isLocalMachine(hostMachineName(), env), isLocalMachine("box-b", env)]).toEqual([true, true, false]);
+    } finally { rmSync(outlines, { recursive: true, force: true }); }
   });
 });
 

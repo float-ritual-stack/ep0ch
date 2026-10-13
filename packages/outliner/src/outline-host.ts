@@ -12,7 +12,7 @@ import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
 import { DOT_EP0CH, formatDotEp0ch, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { grantOf } from "./extension-grants";
 import { forwardFor } from "./machine-forward";
-import { canonicalLocalMachineName } from "./machine-name";
+import { localMachineName } from "./machine-name";
 import { scrubCredentials } from "./resource-extensions";
 import { OutlinerServer } from "./server";
 import { MCP_ACCESS_METADATA_KEY, OutlinerStore, readOutlineAbout } from "./store";
@@ -669,7 +669,7 @@ export class OutlineHost {
     try {
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.startHosted();
@@ -737,7 +737,7 @@ export class OutlineHost {
     // Starting the forward can take a while: an extension that gave up meanwhile sends nothing.
     if (socket.destroyed) return;
     const relayed = {
-      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${canonicalLocalMachineName()}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
+      extension: grant.extensionId, node: `${grant.outline ?? "unknown"}@${localMachineName(this.outlinesFolder)}`, label: grant.label, writes: grant.writes, protocol: PROTOCOL,
       // A trigger's call keeps its mark there, so what it writes sets no rule off on that machine either (PIE-786).
       ...(grant.trigger ? { trigger: grant.trigger } : {}),
     };
@@ -761,8 +761,8 @@ export class OutlineHost {
       this.relayProtocols.set(machine, { protocol: theirs, at: Date.now() });
     }
     if (theirs === PROTOCOL) return;
-    const older = theirs < PROTOCOL ? machine : canonicalLocalMachineName();
-    throw new Error(`protocol mismatch: ${machine} speaks protocol ${theirs < 0 ? "an unknown one" : theirs} and ${canonicalLocalMachineName()} ${PROTOCOL}; ` +
+    const older = theirs < PROTOCOL ? machine : localMachineName(this.outlinesFolder);
+    throw new Error(`protocol mismatch: ${machine} speaks protocol ${theirs < 0 ? "an unknown one" : theirs} and ${localMachineName(this.outlinesFolder)} ${PROTOCOL}; ` +
       `update ${older} (\`ssh ${older} ep0ch install --apply\`)`);
   }
 
@@ -783,8 +783,8 @@ export class OutlineHost {
       const theirs = (request.relayed as { protocol?: unknown } | null)?.protocol;
       if (theirs !== PROTOCOL) {
         const node = String((request.relayed as { node?: unknown } | null)?.node ?? "the other node");
-        const older = typeof theirs === "number" && theirs > PROTOCOL ? canonicalLocalMachineName() : node.split("@").at(-1);
-        fail(new Error(`protocol mismatch: ${canonicalLocalMachineName()} speaks protocol ${PROTOCOL} and ${node} ${typeof theirs === "number" ? theirs : "an older one"}; ` +
+        const older = typeof theirs === "number" && theirs > PROTOCOL ? localMachineName(this.outlinesFolder) : node.split("@").at(-1);
+        fail(new Error(`protocol mismatch: ${localMachineName(this.outlinesFolder)} speaks protocol ${PROTOCOL} and ${node} ${typeof theirs === "number" ? theirs : "an older one"}; ` +
           `update ${older} (\`ssh ${older} ep0ch install --apply\`)`));
         return;
       }

@@ -13,7 +13,7 @@ import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door 
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
-import { canonicalLocalMachineName, findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
+import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
@@ -24,7 +24,8 @@ import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
-import { parseEp0chBlockUri, sameMachine } from "@ep0ch/outline-core/addressable-resource";
+import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
 colourOnlyToATerminal();
@@ -103,12 +104,15 @@ ${MCP_USAGE}
                                    with the command that fixes each. Read-only; --backups also restores each newest
                                    snapshot into a temp folder and runs integrity_check
 ${BACKUP_USAGE}
-  ep0ch install [--apply] [--json]
+  ep0ch install [--apply] [--json] [--machine-name <name>]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
                                    up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
                                    ep0ch checkout (fast-forward only, bun install when needed), links ep0ch on
                                    PATH and restarts the outline host through its unit; each step is skipped when
-                                   current. Units, Herdr's config and its plugin link are said, never edited
+                                   current. Units, Herdr's config and its plugin link are said, never edited.
+                                   It names this machine once (~/outlines/.host/machine-name: what ep0ch://
+                                   links and EchoNet call it; give it the ssh name other machines use for it):
+                                   asked at a terminal, the short host name otherwise; --machine-name renames
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
@@ -173,7 +177,20 @@ if (remote) {
 }
 if (args[0] === "doctor" || args[0] === "install") {
   const { setupCommand } = await import("./setup/apply");
-  process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
+  // This machine's name, asked once at a terminal (install --apply, when none is set): Enter takes the suggestion.
+  const ask = process.stdin.isTTY && process.stdout.isTTY ? async (suggested: string) => {
+    const { createInterface } = await import("node:readline/promises");
+    const { isMachineName } = await import("@ep0ch/outline-core/outline-location");
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      for (;;) {
+        const answer = (await rl.question(`This machine's name (what other machines' ep0ch and EchoNet call it: the ssh name they reach it by) [${suggested}]: `)).trim() || suggested;
+        if (isMachineName(answer)) return answer;
+        console.error("  a machine name is letters, digits, . _ and -, up to 32");
+      }
+    } finally { rl.close(); }
+  } : undefined;
+  process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout, ...(ask ? { ask } : {}) }));
 }
 if (args[0] === "backup") { const { backupCommand } = await import("./backup/cli"); process.exit(await backupCommand(args)); }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
@@ -230,7 +247,7 @@ if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
   try {
     const uri = parseEp0chBlockUri(args[1]);
-    const local = sameMachine(uri.machine, canonicalLocalMachineName());
+    const local = isLocalMachine(uri.machine);
     if (!process.env.EP0CH_CONTROL) process.env.EP0CH_CONTROL = join(placeOf({ outline: uri.outline, ...(local ? {} : { machine: uri.machine }) }).dir, "door.sock");
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);
@@ -242,7 +259,7 @@ const screenAt = args.indexOf("--screen");
 if (screenAt >= 0 && args[screenAt + 2]?.startsWith("ep0ch://")) {
   try {
     const uri = parseEp0chBlockUri(args[screenAt + 2]!);
-    const local = sameMachine(uri.machine, canonicalLocalMachineName());
+    const local = isLocalMachine(uri.machine);
     args = screenUriArgs(args, uri, { local, socket: !!process.env.EP0CH_SOCKET?.trim() });
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);

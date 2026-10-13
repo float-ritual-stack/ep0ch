@@ -317,7 +317,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
   }, 120_000);
 
   test("one outline, one identity: the copy carries its source's instance id, and the machine's own name and the ssh name reach the same outline", async () => {
-    // A stand-in for the laptop's forward whose host names itself differently from the ssh name.
+    // A stand-in for the laptop's forward whose host names itself (its ping's machine) differently from the ssh name.
     const proxy = join(dir, "named.sock");
     const server: Server = createServer(c => {
       const up = connect(far.sock);
@@ -328,7 +328,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
         for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
           const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
           const msg = JSON.parse(line);
-          if (msg.result?.location) msg.result.location.hostname = "Evans-MacBook-Pro.local";
+          if (msg.result?.location) Object.assign(msg.result.location, { hostname: "Evans-MacBook-Pro.local", machine: "Evans-MacBook-Pro.local" });
           c.write(JSON.stringify(msg) + "\n");
         }
       });

@@ -575,7 +575,7 @@ export class SocketBoard implements Board {
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo & { replaced?: boolean }> {
-    const r = await this.request<{ protocolVersion: number; outlineInstanceId?: string; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
+    const r = await this.request<{ protocolVersion: number; outlineInstanceId?: string; location: { hostname: string; machine?: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
     if (this.outline && r.outline?.name && r.outline.name !== this.outline)
       throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
     // One check: the service speaks this checkout's protocol. Older or newer, it is refused, never worked around.
@@ -586,6 +586,7 @@ export class SocketBoard implements Board {
     this.outlineInstanceId = r.outlineInstanceId ?? null;
     return {
       host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null,
+      ...(r.location.machine ? { machine: r.location.machine } : {}),
       ...(this.outlineInstanceId ? { outlineInstanceId: this.outlineInstanceId } : {}),
       ...(previous && this.outlineInstanceId && previous !== this.outlineInstanceId ? { replaced: true } : {}),
       // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).

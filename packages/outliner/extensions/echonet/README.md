@@ -85,6 +85,12 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
   an outline whose owner never set a level is open to the host's extensions; on another machine it is `none`, and only
   outlines that set a level are listed to a `*` mask. What a node writes on another machine reads
   `ext:echonet@<its node>`.
+- **One name per machine.** A node's machine is the name its person gave it: `<outlines>/.host/machine-name`
+  (`ep0ch install --apply` asks once, or `--machine-name <name>`; `EP0CH_MACHINE_NAME` overrides it), else its host
+  name. Give it the ssh name other machines reach it by. A machine named after its marks were made under its host
+  name keeps them: each host says the names it went by (`notes.address`'s `aliases`), so a seen-by mark or netmail
+  under the old name is the same node's (never counted twice, never sent again), and the nodelist lists them under
+  the node as `- also known as:`.
 - **A conflict is a note, never an overwrite**: a newer original is a marker on the copy; netmail on words the
   original no longer has lands on the whole note and quotes them.
 
@@ -99,3 +105,12 @@ that outline's own `extensions/`. It tosses every 30 minutes. From the shell:
 - `ep0ch echo areas [--ws <outline>]`: what the outline offers, what it reads, and what the other nodes offer.
 
 In the door, the EchoNet screen (`ep0ch --screen echonet`) reads the areas as message areas.
+
+### Troubleshooting: a node shows under two names
+
+The nodelist has `## float-hub@laptop` and `## float-hub@evans-MacBook-Pro.local`, or an original has two seen-by
+marks from one outline: that machine signs with its host name while this one reaches it as `laptop`. Name it as the
+others reach it, on that machine: `ep0ch install --apply --machine-name laptop` (from here, `ssh laptop ep0ch install
+--apply --machine-name laptop`). Both hosts need this version (protocol 152). The next toss there signs as
+`float-hub@laptop`; the next toss here learns the old name from it, lists it under `## float-hub@laptop` as
+`- also known as:`, and counts the old marks as that node's.

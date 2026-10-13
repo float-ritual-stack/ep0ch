@@ -52,6 +52,8 @@ export interface Caller {
 
 export interface BoardInfo {
   host: string; workspace: string; protocol: number; blocks: number | null;
+  /** The machine's name in `ep0ch://` URIs, as its host says (the name its person gave it); absent from an older one. */
+  machine?: string;
   /** The outline's name when the service is an outline host (PIE-457); absent from a single-outline service. */
   outline?: string;
   /** Stable identity of the outline database instance; changes on restore/reset/import/recreate. */

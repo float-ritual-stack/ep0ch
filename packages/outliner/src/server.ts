@@ -137,7 +137,7 @@ import {
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
-import { canonicalLocalMachineName } from "./machine-name";
+import { localMachineAliases, localMachineName } from "./machine-name";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
@@ -398,6 +398,8 @@ export class OutlinerServer {
   private pagesSaid = "";
   /** The extension ids the registry had at its last change. */
   private knownExtensions = new Set<string>();
+  /** The host's outlines folder, when hosted: this machine's name is read from it. */
+  private readonly outlinesFolder?: string;
   private readonly turns = new Turns();
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
@@ -408,6 +410,8 @@ export class OutlinerServer {
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
     options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean;
+      /** The host's outlines folder: where this machine's own name is kept (`.host/machine-name`). */
+      outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
       scheduleTickMs?: number; scheduleNow?: () => number;
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
@@ -416,6 +420,7 @@ export class OutlinerServer {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
     this.readOnly = options.readOnly === true;
+    this.outlinesFolder = options.outlinesFolder;
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
@@ -2147,7 +2152,7 @@ export class OutlinerServer {
             status: "ready",
             protocolVersion: PROTOCOL,
             outlineInstanceId: this.store.outlineInstanceId,
-            location: { hostname: this.hostname, workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
+            location: { hostname: this.hostname, machine: localMachineName(this.outlinesFolder), workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
             ...(this.outline ? { outline: { ...this.outline } } : {}),
             ...(this.host ? { host: this.host() } : {}),
           };
@@ -3728,13 +3733,14 @@ export class OutlinerServer {
   /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */
   private async noteAddress(blockId: string | undefined): Promise<NoteAddress> {
     const outline = this.outline?.name;
-    const machine = canonicalLocalMachineName();
-    if (blockId === undefined) return { ...(outline ? { outline } : {}), machine };
+    const machine = localMachineName(this.outlinesFolder);
+    const aliases = localMachineAliases(this.outlinesFolder);
+    if (blockId === undefined) return { ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}) };
     const block = this.store.require(blockId);
     if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
     const published = await this.inServicePublisher().published(block.id);
     return {
-      ...(outline ? { outline } : {}), machine, blockId: block.id,
+      ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}), blockId: block.id,
       ...(outline ? { uri: formatEp0chBlockUri({ outline, machine, blockId: block.id }) } : {}),
       ...(published ? { published } : {}),
     };
