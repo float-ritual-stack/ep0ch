@@ -32,7 +32,7 @@ import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { SHELL_IDLE_MS } from "./whereabouts";
-import type { Actor, OutlineEvent } from "./socket";
+import { authorName, type Actor, type OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1011,8 +1011,8 @@ export class MessageList extends BbsList {
       const n = start + i;
       this.ptr.row(lines.length, n, w);
       const num = (m.props["work-id"] ?? String(n + 1)).padStart(7).slice(-7);
-      const row = ` ${num}  ${pad(m.author ?? "?", 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
-      lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(m.author ?? "?", 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
+      const row = ` ${num}  ${pad(authorName(m.author), 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
+      lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · ", ["|15Q|08 back", char("q")]]));
@@ -1116,7 +1116,7 @@ export class MessageReader implements Screen {
       paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${m.props["work-id"] ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
       paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
-      paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${replies === null ? "…" : replies}`),
+      paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
         ? paint(`|09Subj: |14✎ edit? ${subject(m).slice(0, Math.max(1, w - 14))} |06⏎ opens it`)
@@ -1483,7 +1483,7 @@ export class Stats implements Screen {
     hm.lines.forEach((l, i) => lines.push(`${fg(C.dark)}${(hm.labels[i] ?? "").padEnd(6)}${RESET}${l}`));
     lines.push("");
     const authors = new Map<string, number>();
-    for (const m of this.msgs) authors.set(m.author ?? "?", (authors.get(m.author ?? "?") ?? 0) + 1);
+    for (const m of this.msgs) authors.set(authorName(m.author), (authors.get(authorName(m.author)) ?? 0) + 1);
     lines.push(paint("|11  top posters"));
     const max = Math.max(...authors.values());
     for (const [a, n] of [...authors].sort((x, y) => y[1] - x[1]).slice(0, 8)) {

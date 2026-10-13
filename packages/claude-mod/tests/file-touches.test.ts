@@ -164,8 +164,8 @@ describe('each touch, recorded in the session\'s outline', () => {
     await s.clock.settle()
     const opens = s.runs.filter(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'open')
     expect(opens.map(r => r.argv.slice(2))).toEqual([
-      [`file:${FILE}`, '--as', 'claude-code', '--json'],
-      [`file:${FILE}`, 'diff=true', '--as', 'claude-code', '--json'],
+      [`file:${FILE}`, '--as', 'claude-code@garden-host', '--json'],
+      [`file:${FILE}`, 'diff=true', '--as', 'claude-code@garden-host', '--json'],
     ])
     expect(opens[0]!.init?.env).toMatchObject({ EP0CH_CONTROL: '/state/sessions/local/garden/door.sock' })
     expect(s.toasts).toEqual([])

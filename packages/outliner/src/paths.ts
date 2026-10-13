@@ -6,6 +6,7 @@ import {
   formatDotEp0ch,
   type LocationReader,
   nearestDotEp0ch,
+  parseDotEp0ch,
   outlineLayout,
   outlinesFolder,
   whichOutline,
@@ -98,6 +99,11 @@ export function boundFolderOf(folder: string): { folder: string; configPath: str
   return dot ? { folder: dot.folder, configPath: dot.file, outline: dot.name, ...(dot.machine ? { machine: dot.machine } : {}) } : undefined;
 }
 
+/** The `agent` a `.ep0ch`'s text names, or undefined (none, or a file that doesn't parse). */
+function agentOf(text: string | undefined, file: string): string | undefined {
+  try { return text === undefined ? undefined : parseDotEp0ch(text, file).agent; } catch { return undefined; }
+}
+
 /**
  * Names `folder`'s outline (and its machine, when it is on another one): writes `<folder>/.ep0ch`. Refuses (code
  * EEXIST) to replace one that names another outline unless `replace` (the outline switcher). Written beside and
@@ -106,8 +112,9 @@ export function boundFolderOf(folder: string): { folder: string; configPath: str
 export function writeDotEp0ch(folderInput: string, name: string, options: { replace?: boolean; machine?: string } = {}): string {
   const folder = resolve(folderInput);
   const file = join(folder, DOT_EP0CH);
-  const text = formatDotEp0ch(name, options.machine);
   const current = diskReader.readFile(file);
+  // The folder's persona stays with the folder when the outline it names changes.
+  const text = formatDotEp0ch(name, options.machine, agentOf(current, file));
   if (current === text) return file;
   if (current !== undefined && !options.replace) {
     const error = new Error(`${file} already names an outline; it was left as it is`) as NodeJS.ErrnoException;

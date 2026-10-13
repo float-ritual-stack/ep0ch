@@ -27,6 +27,7 @@ import { parsePropertyRecords } from "./properties";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { MutationProvenance } from "./types";
+import { actorName } from "@ep0ch/outline-core/attribution";
 
 /** A door's lease on the live draft it holds, when it doesn't say (ms). */
 export const DRAFT_HOLD_DEFAULT_LEASE_MS = 15_000;
@@ -406,7 +407,7 @@ export const DRAFT_PROPOSAL_APPLIES = "proposal-applies";
  * own controls by the status.
  */
 function proposalHeader(proposal: DraftProposal, status: DraftProposalStatus, applies: boolean): string {
-  const who = proposal.actor?.actorId ? `@${proposal.actor.actorId}` : proposal.actor?.author === "agent" ? "an agent" : "someone";
+  const who = proposal.actor?.actorId ? `@${actorName(proposal.actor.actorId)}` : proposal.actor?.author === "agent" ? "an agent" : "someone";
   const changes = proposalChanges(proposal);
   const count = changes > 1 ? ` (${changes} changes)` : "";
   const reason = typeof proposal.reason === "string" ? proposal.reason : "it couldn't be placed";

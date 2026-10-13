@@ -511,6 +511,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // A persona within its principal is said with it (PIE-679).
     await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Seeds ordered.", requestId: "showcase-persona" } }, { level: "full", actor: actorOf({ sub: "stdio", clientId: "claude-code" }, { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki" }, "float-2"), uri: id => id });
     await until(() => String((app as any).message).startsWith("loki (claude-code@float-2) commented on"), "the persona said with its principal", 8000);
+    // A folder's .ep0ch names who works in it (ADR 0003): a stdio write from there carries that persona, recorded, never refused.
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const folder = mkdtempSync(`${tmpdir()}/showcase-persona-`);
+    try {
+      writeFileSync(`${folder}/.ep0ch`, 'ws = "showcase"\nagent = "testbot"\n');
+      await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Beds weeded.", requestId: "showcase-folder-persona" } }, { level: "full", actor: actorOf({ sub: "stdio", clientId: "claude-code", folder }, {}, "float-2"), uri: id => id });
+      await until(() => String((app as any).message).startsWith("testbot (claude-code@float-2) commented on"), "the folder's persona said with its principal", 8000);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {

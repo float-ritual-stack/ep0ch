@@ -18,7 +18,7 @@ import {
 } from "@ep0ch/outline-core/style-cascade";
 import { outlineList, type ListSource } from "./outline-lists";
 import { liveTokensInLine, withoutTokens } from "@ep0ch/outline-core/heading-styles";
-import { USER, type Actor, type PropertyToken, type PropertyPatch } from "./socket";
+import { authorName, USER, type Actor, type PropertyToken, type PropertyPatch } from "./socket";
 import type { Msg } from "./board";
 
 type StyleBoard = { styleSheets?: () => Promise<{ sheets: StyleSheet[]; problems: string[] }> };
@@ -182,7 +182,7 @@ export class Tuning {
     const at = this.history.findLastIndex(mine);
     if (at < 0) return null;
     const s = this.history[at]!, later = this.history.slice(at + 1);
-    const who = (a: Actor) => (a.kind === "user" ? "by you" : `by ${a.kind === "agent" ? a.id : "someone"}`);
+    const who = (a: Actor) => (a.kind === "user" ? "by you" : `by ${a.kind === "agent" ? authorName(a.id) : "someone"}`);
     if (s.kind === "nudge") {
       const again = later.find(x => x.kind === "write" || (x.target === s.target && x.field === s.field));
       if (again) throw new Error(`${s.field} was changed again since (${who(again.by)}): it's theirs to take back`);

@@ -45,11 +45,11 @@ import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
+import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy, type EditFrame } from "./editor";
@@ -1069,7 +1069,7 @@ export class NoteSurface {
    */
   private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
     // The Work ID heads the title line (PIE-809), not this one.
-    const meta = [m.author ?? "?", bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
+    const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
@@ -1272,7 +1272,7 @@ export class NoteSurface {
     head.push(...unsentHead.lines,
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
-      ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
+      ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
@@ -3582,7 +3582,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${c.author}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` });
     }
     return out;
   }
@@ -5827,7 +5827,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
-  const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const title = ` ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
   const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
@@ -5851,7 +5851,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   quotedIn(c.quotedIn, "");
   for (const r of c.replies) {
     // Each reply is a mark too: its own [Quote].
-    const head = "└ " + printable(r.author) + " · " + ago(r.at), q = "[Quote]", on = cur === controlKey(c.id, "quote", r.id);
+    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at), q = "[Quote]", on = cur === controlKey(c.id, "quote", r.id);
     const fits = 2 + width(head) + 1 + q.length <= W - 1;
     if (fits) controls.push({ thread: c.id, control: "quote", value: r.id, row: lines.length, from: 2 + width(head) + 1, to: 2 + width(head) + 1 + q.length, label: "Quote the reply" });
     lines.push(edge + "│ " + fg(C.cyan) + head + RESET + (fits ? " " + (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET : ""));

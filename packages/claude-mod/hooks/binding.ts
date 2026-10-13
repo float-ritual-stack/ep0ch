@@ -44,7 +44,7 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
   return {
     inDoor: w.inDoor,
     ...(reach ? { reach } : {}),
-    here: { machine: str(w.here?.machine), folder: str(w.here?.folder) },
+    here: { machine: str(w.here?.machine), folder: str(w.here?.folder), persona: personaOf(w.here?.persona) },
     herdr: herdr ? { pane: str(herdr.pane)!, label: str(herdr.label), agent: herdr.agent === true } : null,
     door: door ? {
       answers: door.answers === true,
@@ -56,6 +56,13 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
       stale: typeof door.stale === 'string' && door.stale.trim() !== '',
     } : null,
   }
+}
+
+/** `where`'s persona, checked: a name as an actor id holds one, and where it came from. */
+function personaOf(p: any): WhereFacts['here']['persona'] {
+  const name = str(p?.name)
+  if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name) || !['OUTLINER_ACTOR', 'EP0CH_AGENT', 'file'].includes(p.source)) return null
+  return { name, source: p.source, file: str(p.file) }
 }
 
 /** A path with HOME written `~`. */
@@ -211,11 +218,26 @@ export function cardLines(f: BindingFacts, compact = false): CardLine[] {
   if (mismatch) lines.push({ label: 'careful', text: mismatch, tone: 'warn' })
   if (compact) return lines
   lines.push({ label: 'Claude', text: `runs on ${here ?? 'this machine'} in ${short(f.cwd, f.home)}` })
+  const who = writesAs(f)
+  if (who) lines.push(who)
   lines.push({ label: 'door', text: doorWords(f) })
   const away = doorMachine(f)
   if (door?.outline && away) lines.push({ label: '', text: `the ${door.outline} door's outline is on ${away}${door.host && door.host !== away ? ` (${door.host})` : ''}`, tone: 'dim' })
   lines.push({ label: 'tools', text: 'one set, from the ep0ch Claude mod', tone: 'dim' })
   return lines
+}
+
+/**
+ * Who this session's writes say they are (ADR 0003): the persona, from where, on this client's principal; with none,
+ * the principal alone and the `.ep0ch` line that names one.
+ */
+function writesAs(f: BindingFacts): CardLine | null {
+  const here = f.where?.here
+  const principal = `claude-code@${here?.machine ?? 'this machine'}`
+  const p = here?.persona
+  if (p) return { label: 'writes as', text: `${p.name} (${principal}) · from ${p.source === 'file' ? `agent in ${short(p.file ?? '.ep0ch', f.home)}` : p.source}` }
+  if (!f.where) return null
+  return { label: 'writes as', text: `${principal}, no persona · agent = "<name>" in the folder's .ep0ch names one`, tone: 'dim' }
 }
 
 /** The status line: `outline: <name> @ <machine> · <via>`. */

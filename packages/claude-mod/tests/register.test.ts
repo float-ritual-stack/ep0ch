@@ -502,7 +502,7 @@ describe('register', () => {
   describe("a Claude that does not descend from a tile reaches its folder's door (PIE-715)", () => {
     const SOCK = '/state/sessions/local/garden/door.sock'
     const whereJson = (reach: object, door: object | null) => JSON.stringify({
-      inDoor: false, reach, here: { machine: 'garden-host', folder: WORKSPACE }, herdr: { pane: 'w1:p2P', label: null, agent: false }, door,
+      inDoor: false, reach, here: { machine: 'garden-host', folder: WORKSPACE, persona: null }, herdr: { pane: 'w1:p2P', label: null, agent: false }, door,
     })
     const FOLDER = whereJson(
       { rule: 'folder', text: "reached garden's door session by folder; you are not in a tile of it, so your keys are not the person's" },
@@ -759,7 +759,7 @@ describe('register', () => {
       const opened = doorOpenOf(session.runs)!
       // From its own tile, never a reader by name (door-control asks again naming none when the door lacks the tile).
       expect(opened.argv.slice(-8)).toEqual([
-        'door-open', BLOCK, '--control', DOOR.EP0CH_CONTROL, '--actor', 'claude-code', '--from', 'claude',
+        'door-open', BLOCK, '--control', DOOR.EP0CH_CONTROL, '--actor', 'claude-code@garden-host', '--from', 'claude',
       ])
       expect(opened.argv).not.toContain('--reader')
       expect(opened.init?.cwd).toBe(WORKSPACE)
@@ -794,7 +794,8 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
       const opened = doorOpenOf(session.runs)!
-      expect(opened.argv[opened.argv.indexOf('--actor') + 1]).toBe('garden-agent')
+      // The door acts as the same actor id the outline writes carry: one agent, one id.
+      expect(opened.argv[opened.argv.indexOf('--actor') + 1]).toBe('garden-agent/claude-code@garden-host')
     })
 
     test('with no door answering (it quit), show falls back to the Outliner Detail beside Claude in Herdr', async ($, on) => {
@@ -837,7 +838,7 @@ describe('register', () => {
 
       const opened = doorOpenOf(session.runs)!
       expect(opened.argv.slice(-8)).toEqual([
-        'door-open', BLOCK, '--control', DOOR.EP0CH_CONTROL, '--actor', 'claude-code', '--from', 't21',
+        'door-open', BLOCK, '--control', DOOR.EP0CH_CONTROL, '--actor', 'claude-code@garden-host', '--from', 't21',
       ])
       expect(herdrOpens(session.runs, 'ensure-detail')).toEqual([])
       expect(session.toasts).toEqual([])
@@ -885,9 +886,22 @@ describe('register', () => {
 
       await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
       const opened = doorOpenOf(session.runs)!
-      expect(opened.argv).toContain('door-claude')
+      expect(opened.argv).toContain('door-claude/claude-code@garden-host')
       expect(session.toasts).toEqual([])
     })
+  })
+
+  test("the folder's .ep0ch agent is the persona every write carries, outline and door alike (ADR 0003)", async ($, on) => {
+    const persona = { name: 'testbot', source: 'file', file: `${WORKSPACE}/.ep0ch` }
+    const session = sessionIn(on, WORKSPACE, run =>
+      run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
+        : run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),
+    )
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    await session.begin(() => $.session.start(START))
+    await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
+    const run = session.runs.find(candidate => candidate.argv.includes('work'))!
+    expect(run.argv[run.argv.indexOf('--actor') + 1]).toBe('testbot/claude-code@garden-host')
   })
 
   test('a workboard tool runs the installed CLI in the workspace as this Claude session', async ($, on) => {

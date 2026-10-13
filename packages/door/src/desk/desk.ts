@@ -19,7 +19,7 @@ import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
-import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
+import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
@@ -4649,7 +4649,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const t = this.tile(sel);
       const p = this.panes.get(t.id);
       if (!(p instanceof PtyPane) || !p.nvim) throw new ActionRefused(`${t.name} isn't an nvim tile the door is connected to; line= marks a line there`);
-      const extmark = await p.nvim.mark(m.line, `${reason} · by ${by}`, p.file);
+      const extmark = await p.nvim.mark(m.line, `${reason} · by ${authorName(by)}`, p.file);
       const mark = this.marksStore.add({ tile: t.name, line: m.line, file: p.file, extmark, reason, by });
       this.redraw();
       return { mark };

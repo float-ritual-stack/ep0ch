@@ -16,6 +16,7 @@ import { reachControl } from "./control";
 import type { AgentLevel } from "./surface/agent-level";
 import type { DoorReach } from "@ep0ch/outline-core/door-reach";
 import { resolveDoor, type DoorResolution } from "./door-resolve";
+import { sessionPersona, type SessionPersona } from "@ep0ch/outline-core/outline-location";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
@@ -32,8 +33,11 @@ export interface Where {
   /** The nest with the outer layers the environment shows and the nest lacks (a shell ssh'd straight in). */
   nest: string;
   layers: WhereLayer[];
-  /** Where this process runs: its machine (hostname) and folder (PIE-546: the Claude mod's binding card says it). */
-  here: { machine: string | null; folder: string | null };
+  /**
+   * Where this process runs: its machine (hostname) and folder (PIE-546: the Claude mod's binding card says it), and the
+   * persona an agent here writes as (ADR 0003: OUTLINER_ACTOR, EP0CH_AGENT, the folder's `.ep0ch` `agent`), with where it came from.
+   */
+  here: { machine: string | null; folder: string | null; persona: SessionPersona | null };
   /** The innermost Herdr pane this runs in: its id, its label when Herdr says, and whether it is the door agent's own pane. */
   herdr: { pane: string; label: string | null; agent: boolean } | null;
   door: null | {
@@ -77,6 +81,8 @@ export interface WhereDeps {
   /** This machine's name, and this process's folder (left out: not known). */
   hostname?(): string;
   cwd?(): string;
+  /** The persona this process writes as (outline-core's sessionPersona); left out: none. */
+  persona?(): SessionPersona | undefined;
 }
 
 /** `peek` on a control socket; null when nothing answers in `timeoutMs`. Reads only. */
@@ -122,6 +128,7 @@ export const realDeps = (): WhereDeps => {
     herdr: bin ? herdrRunner(bin, 3000) : null,
     alive, ttyExists: t => existsSync(`/dev/${t}`), ancestors: procAncestors,
     hostname, cwd: () => process.cwd(),
+    persona: () => sessionPersona({ env: process.env, folder: process.cwd(), fs: { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync } }),
   };
 };
 
@@ -263,7 +270,7 @@ export async function where(d: WhereDeps): Promise<Where> {
     : keysOf(peek, desk, door, agentPane, paneList, env);
   const reach = { rule: (via ? via.rule : inDoor ? "control" : "none") as DoorResolution["rule"], text: via ? via.text : inDoor ? "reached the door on EP0CH_CONTROL" : "no door to reach" };
   const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null, via);
-  const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null };
+  const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null, persona: d.persona?.() ?? null };
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
   const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null, agent: agentPane !== null } : null;
@@ -338,6 +345,7 @@ export function formatWhere(w: Where): string {
     out.push(`agents may: ${[ag.default ? `the screen is ${words[ag.default]}` : null, ...ag.tiles.map(t => `${t.tile} is ${words[t.level]}${t.by !== "tile" ? ` (from ${t.by})` : ""}`)].filter(Boolean).join("; ")} · tile.agent policy=free tile=<tile> frees one (the person's command)`);
   }
   if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
+  if (w.here.persona) out.push(`an agent here writes as ${w.here.persona.name} (${w.here.persona.source === "file" ? `agent in ${w.here.persona.file}` : w.here.persona.source})`);
   return out.join("\n");
 }
 
