@@ -20,6 +20,7 @@ import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
 import { headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -92,7 +93,7 @@ export interface DocEnv {
    */
   after?: (line: number, width: number) => string[];
   /**
-   * A list item's step box (`[ ]`, `[x]`, `[~]`, `[!]`) on body line `line`: the text to draw in its place
+   * A list item's step box (`[ ]`, `[x]`, `[~]`, `[!]`, `[✓]`, `[✗]`: outline-core's checklist-marks.ts) on body line `line`: the text to draw in its place
    * (the reader tags it, so `[ ]` stops on it and a click opens its status choice, PIE-472), or null to
    * leave it as text. The reader offers it only where the service reads a checklist step. Without it (a
    * draft's preview) boxes are text.
@@ -877,7 +878,7 @@ interface Disclosure { folded: boolean; selected: boolean; hidden: number }
 const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidden === 1 ? "" : "s"} folded` + RESET;
 
 /** A list item's step box at the start of its text. */
-const BOX = /^\[[ xX~!]\](?=\s|$)/;
+const BOX = new RegExp(`^${STEP_BOX}(?=\\s|$)`);
 
 /**
  * The style a heading or rule line draws with: the one it names, else its level's (or every rule's) default, with the

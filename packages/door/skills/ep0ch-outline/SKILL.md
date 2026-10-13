@@ -116,6 +116,13 @@ revision, so concurrent edits rarely collide.
 - **Soft links resolve by context.** A ticket key, a date or `PR#12` under `[project::garden-club]` means that
   project's. Don't wrap every key in `[[…]]`; when a token is ambiguous, ask instead of guessing.
 - **Reuse their keys and values.** A new key is a decision; an existing one is a convention.
+- **A step's box is their answer.** Checklist items have six states (outline-core `checklist-marks.ts`): `[ ]` to
+  do, `[x]` done, `[~]` waiting, `[!]` problem, `[✓]` approved and `[✗]` rejected (`[+]` and `[-]` read the same).
+  **`[✓]` approved is the person's yes**: a "Needs you" item, a draft or a proposal they approved is a go, act on it.
+  **`[✗]` rejected is their no**: don't do it, and don't ask again unless something changed. `[x]` on a question is
+  "done" (seen, handled), not a yes; when the answer matters, ask for Approve or Reject. Read them with
+  `checklist.query` (`statuses: ["approved"]`), never by matching `[x]` yourself. Approved counts as done in a tally;
+  rejected is closed, not done.
 - **Readable.** Short sections, bold leads, one fact per bullet, a summary callout on long notes, history
   labelled as history. Fictional example of the shape:
 

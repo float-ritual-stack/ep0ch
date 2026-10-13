@@ -20,6 +20,11 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const AGENT = "fixture-agent-472";
+/** `until` for an answer that takes a request. */
+const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
+  const end = Date.now() + ms;
+  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+};
 
 describe.skipIf(!outliner)("steps and transclusions, against a scratch outline", () => {
   const scratch = new Scratch();
@@ -176,6 +181,45 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     expect(await textOf(n.plan.id)).toContain("- [ ] Ring the plot office");
   }, 30_000);
 
+  test("Approve and Reject (PIE-811): + in the choice approves, a click on Reject rejects, each written as its mark; [+] typed reads as approved; space reopens", async () => {
+    const note = await create(["Shed roof build log", "## Needs you", "- [ ] felt from the merchant ^t-felt01", "- [ ] patch the gutter until spring", "- [+] paint it green"].join("\n"));
+    const { s, host, draw } = reader();
+    s.show(await board.get(note.id), host);
+    await settle(draw, t => t.includes("felt from the merchant"), "the note");
+    // `[+]` is the keyboard's approved: the service reads it so.
+    await untilAsync(async () => { draw(); return ((await s.act("tasks", {}, host, { kind: "user" })) as any).steps.length === 3; }, "the steps");
+    expect(((await s.act("tasks", {}, host, { kind: "user" })) as any).steps.map((t: any) => t.status)).toEqual(["todo", "todo", "approved"]);
+    // By keys: [ ] to the felt, ⏎, and the choice lists Approve and Reject with their keys; + approves it.
+    for (let i = 0; i < 20 && !(s.describe().elements?.current?.label ?? "").includes("felt from"); i++) { s.key(char("]"), host); draw(); }
+    s.key({ kind: "enter" }, host);
+    const menu = draw().join("\n");
+    expect(menu).toContain("[✓] Approve");
+    expect(menu).toContain("[✗] Reject");
+    s.key(char("+"), host);
+    await until(() => s.picker === null, "the approval to land");
+    expect(await textOf(note.id)).toContain("- [✓] felt from the merchant ^t-felt01");
+    expect(flashes.at(-1)).toBe('set "felt from the merchant" to do → approved');
+    // By mouse: a click on the gutter's box, then on Reject.
+    const click = (x: number, y: number) => { s.press(x, y, host); s.release(x, y, host); };
+    let lines = draw();
+    const y = lines.findIndex(l => l.includes("patch the gutter"));
+    click(lines[y]!.indexOf("[ ]") + 1, y);
+    lines = draw();
+    const reject = lines.findIndex(l => l.includes("[✗] Reject"));
+    expect(lines[reject]).toContain(" - ");
+    click(4, reject);
+    await untilAsync(async () => (await textOf(note.id)).includes("[✗] patch the gutter"), "the rejection to land");
+    expect(await textOf(note.id)).toMatch(/- \[✗\] patch the gutter until spring \^t-[0-9a-f]{6,}/);
+    // An agent reads the person's answers; space on the approved step reopens it.
+    const statuses = async () => { draw(); return ((await s.act("tasks", {}, host, { kind: "agent", id: AGENT })) as any).steps.map((t: any) => t.status).join(" "); };
+    await untilAsync(async () => (await statuses()) === "approved rejected approved", "the agent to read both answers");
+    await expect(s.act("task.status", { n: "1", to: "maybe" }, host, { kind: "agent", id: AGENT })).rejects.toThrow(/approved or rejected/);
+    await settle(draw, t => t.includes("[✓] felt from"), "the approval drawn");
+    for (let i = 0; i < 20 && !(s.describe().elements?.current?.label ?? "").includes("felt from"); i++) { s.key(char("["), host); draw(); }
+    s.key(char(" "), host);
+    await untilAsync(async () => (await textOf(note.id)).includes("- [ ] felt from"), "space to reopen it");
+  }, 30_000);
+
   test("an agent's change is recorded as its own, said on screen, and moves nobody's position or scroll", async () => {
     const { s, host, draw } = reader();
     s.show(await board.get(n.plan.id), host);
@@ -199,7 +243,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     expect(await s.act("task.undo", {}, host, agent)).toMatchObject({ status: "waiting", recordedAs: { author: "agent", actorId: AGENT } });
     // Names that don't resolve are refused with the list; an agent can't open the person's status choice.
     await expect(s.act("task.status", { id: "t-nothere", to: "done" }, host, agent)).rejects.toThrow("no step ^t-nothere is drawn");
-    await expect(s.act("task.status", { n: 1, to: "maybe" }, host, agent)).rejects.toThrow("to is done, todo, waiting or problem");
+    await expect(s.act("task.status", { n: 1, to: "maybe" }, host, agent)).rejects.toThrow("to is done, todo, waiting, problem, approved or rejected");
     await expect(s.act("task.menu", { n: 1 }, host, agent)).rejects.toThrow("the status choice is the person's");
     // Copy step link: the person's goes to their clipboard; the link names the step's note and id.
     const link = await s.act("task.link", { id: "t-d4e5f6" }, host, { kind: "user" }) as any;

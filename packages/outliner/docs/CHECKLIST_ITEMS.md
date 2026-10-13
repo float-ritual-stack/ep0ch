@@ -22,8 +22,12 @@ Then:
 - Ask about ownership
 ```
 
-The shared status vocabulary is `todo` (`[ ]`), `done` (`[x]`, also read as
-`[X]`), `waiting` (`[~]`) and `problem` (`[!]`). Only actual Markdown list
+The shared status vocabulary (outline-core `checklist-marks.ts`, one grammar for
+the service, Detail, the door and the web pages) is `todo` (`[ ]`), `done`
+(`[x]`, also read as `[X]`), `waiting` (`[~]`), `problem` (`[!]`), `approved`
+(`[✓]`, also read as `[+]`) and `rejected` (`[✗]`, also read as `[-]`). A status
+change writes the canonical mark. Approved is the person's yes and counts as done;
+rejected is their no, closed but not done. Only actual Markdown list
 items with these leading marks are tasks. Unmarked items, legends and code
 examples remain ordinary content. “Next:” prose never overrides the mark.
 

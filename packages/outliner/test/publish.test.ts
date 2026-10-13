@@ -416,8 +416,9 @@ test("read as HTML, links to published notes open their HTML; anchors are left o
   expect(markdown).toContain("keep ^this-in-code");
   const html = await (await get("/p/walk?view=html")).text();
   expect(html).toContain('<a href="/p/census?view=html">the census</a>');
-  expect(html).toContain("<input checked");
-  expect(html).toContain("input[type=checkbox]:checked{");
+  // A step's box is drawn as its state (PIE-811): on the owner's own page, a button that opens its choices.
+  expect(html).toMatch(/<button type="button" class="step s-done"[^>]*data-step-id="count"[^>]*data-glyph="✔"><\/button> Count the hawk-moths/);
+  expect(html).toMatch(/<button type="button" class="step s-todo"[^>]*data-glyph="☐"><\/button> Check the lilac/);
   expect(html).not.toContain("prefers-color-scheme");
 });
 

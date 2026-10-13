@@ -1018,6 +1018,70 @@
     activate(active === id ? null : id);
     if (active) document.querySelector(`.mg-card.top[data-thread="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" });
   });
+  // ---- Steps (PIE-811): a checklist step's box opens its choices; the one chosen lands as the step's new status
+  // (`checklist.update`, checked against the step as this page drew it), then the note is drawn again. The keys are the
+  // door's: x done, o to do, + approve, - reject, w waiting, ! problem; arrows move, Esc closes.
+
+  const STEP_CHOICES = [["done", "Mark done", "x"], ["todo", "Mark to do", "o"], ["approved", "Approve", "+"], ["rejected", "Reject", "-"], ["waiting", "Mark waiting", "w"], ["problem", "Mark problem", "!"]];
+  let stepMenu = null;
+  function closeStepMenu(back) {
+    if (!stepMenu) return;
+    const { node, box } = stepMenu;
+    stepMenu = null;
+    node.remove();
+    if (back && box.isConnected) box.focus();
+  }
+  function openStepMenu(box) {
+    closeStepMenu();
+    if (readOnly) { say(readOnly); return; }
+    const items = STEP_CHOICES.map(([status, label, key]) => el("button", {
+      type: "button", role: "menuitem", "data-status": status, "aria-keyshortcuts": key, text: `${label}  ${key}`,
+      ...(box.dataset.stepStatus === status ? { "aria-current": "true" } : {}), onclick: () => setStep(box, status),
+    }));
+    const node = el("div", { class: "step-menu mg-ui", role: "menu", "aria-label": "the step's status" }, ...items);
+    node.addEventListener("keydown", (event) => {
+      const at = items.indexOf(document.activeElement);
+      if (event.key === "Escape") { event.preventDefault(); closeStepMenu(true); return; }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+        return;
+      }
+      const chosen = STEP_CHOICES.find(([, , key]) => key === event.key);
+      if (chosen) { event.preventDefault(); setStep(box, chosen[0]); }
+    });
+    document.body.append(node);
+    const rect = box.getBoundingClientRect(), room = document.documentElement.clientWidth;
+    node.style.left = `${window.scrollX + Math.max(8, Math.min(rect.left, room - node.offsetWidth - 8))}px`;
+    node.style.top = `${window.scrollY + rect.bottom + 4}px`;
+    stepMenu = { node, box };
+    (items.find((item) => item.dataset.status !== box.dataset.stepStatus) || items[0]).focus();
+  }
+  async function setStep(box, status) {
+    sending += 1;
+    try {
+      const answer = await send({
+        action: "step", status, block: box.dataset.stepBlock, evidence: box.dataset.stepEvidence,
+        ...(box.dataset.stepId ? { itemId: box.dataset.stepId } : { start: Number(box.dataset.stepStart), revision: Number(box.dataset.stepRevision) }),
+      });
+      closeStepMenu(false);
+      say(answer.said);
+    } catch (error) {
+      // Said, and the note drawn again: the reader chooses again on the step as it is now.
+      closeStepMenu(false);
+      say(error.message);
+    } finally {
+      sending -= 1;
+      behind = true;
+      doneWriting();
+    }
+  }
+  document.addEventListener("click", (event) => {
+    const box = event.target instanceof Element ? event.target.closest("button.step[data-step-block]") : null;
+    if (box) { event.preventDefault(); if (stepMenu?.box === box) closeStepMenu(true); else openStepMenu(box); return; }
+    if (stepMenu && !(event.target instanceof Element && event.target.closest(".step-menu"))) closeStepMenu(false);
+  });
+
   // Tapping words marked in a card opens that mark's card, in the nest under them.
   document.addEventListener("click", (event) => {
     const mark = event.target instanceof Element ? event.target.closest("mark.ann[data-sub]") : null;

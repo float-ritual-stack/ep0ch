@@ -281,7 +281,9 @@ export type CreatePlan =
     }
   | { kind: "refused"; reason: string };
 
-export type StepStatus = "todo" | "done" | "waiting" | "problem";
+/** A step's status: outline-core's checklist grammar (checklist-marks.ts, PIE-811). */
+export type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
+import type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 /** One checklist step as `checklist.query` reads it. */
 export interface ChecklistStep {
   itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;

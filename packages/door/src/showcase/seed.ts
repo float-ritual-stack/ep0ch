@@ -58,6 +58,7 @@ export const SEED = {
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",
   remoteWrites: "Remote writes and the netmail queue",
+  buildLog: "Shed roof build log",
   overscroll: "The long row of runner beans",
   labels: "Jar labels",
   logBeans: "Bean row log",
@@ -1025,6 +1026,24 @@ const RULES_NOTE = [
   "Close the cold frame tonight!!!",
 ].join("\n");
 
+/**
+ * A build log whose decisions are steps the person answers from their box (PIE-811): approved is their yes, rejected
+ * their no, each written as the mark it's drawn with; an agent reads them with `tasks` or `checklist.query`.
+ */
+const BUILD_LOG = [
+  `${SEED.buildLog} [page::${SEED.buildLog}]`,
+  "> [!summary] The felt is on. Two calls are yours: Approve or Reject each from its box (⏎ or a click, then + or -).",
+  "## Needs you",
+  "- [ ] felt from the merchant, not the DIY shop ^t-b1d001",
+  "- [ ] patch the gutter until spring, or replace it now ^t-b1d002",
+  "## Decided",
+  "- [✓] screws, not nails, for the battens",
+  "- [✗] paint it green this year",
+  "## Done",
+  "- [x] measure the roof",
+  "- [~] the merchant's delivery slot",
+].join("\n");
+
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
@@ -1198,6 +1217,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     resourceThread = (await board.commentOnResource("showcase-resource", note.resource!, note.revision!, "Netting goes on before the first leaves show, or the pigeons get there first.", { quote: quoted, start: note.text.indexOf(quoted) }, SEED_AGENT)).id;
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
+  notes.buildLog = await make(notes.root.id, BUILD_LOG);
   const race = await seedRace(board, await make(notes.root.id, RACE));
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.

@@ -4,16 +4,16 @@ import { fragmentAnchors } from "./fragments";
 import { markdownListItems } from "./markdown-structure";
 import { matchesFilters, parsePropertyRecords } from "./properties";
 import type { ChecklistIdentityChange, ChecklistItem, ChecklistQuery, ChecklistStatus, ChecklistUpdateInput, PropertyRecord } from "./types";
+import { boxStatus, CHECKLIST_MARKS, CHECKLIST_STATUSES, isChecklistStatus, STEP_BOX_CHARS } from "@ep0ch/outline-core/checklist-marks";
 
-export const CHECKLIST_MARKS: Readonly<Record<ChecklistStatus, string>> = {
-  todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]",
-};
+// The box grammar is outline-core's (checklist-marks.ts, PIE-811): read here, written back canonical.
+export { CHECKLIST_MARKS };
 
 function requireStatus(value: unknown): asserts value is ChecklistStatus {
-  if (typeof value !== "string" || !Object.hasOwn(CHECKLIST_MARKS, value)) {
-    throw new Error("Checklist status must be todo, done, waiting or problem");
-  }
+  if (!isChecklistStatus(value)) throw new Error(`Checklist status must be ${CHECKLIST_STATUSES.join(", ")}`);
 }
+
+const STEP_MARK = new RegExp(`^([ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+)\\[([${STEP_BOX_CHARS}])\\](?=[ \\t\\r\\n]|$)`);
 
 /** Parse actual Markdown list nodes, never legends, fences or checkbox-shaped prose. */
 export function checklistItems(text: string, properties = parsePropertyRecords(text)): ChecklistItem[] {
@@ -25,10 +25,9 @@ export function checklistItems(text: string, properties = parsePropertyRecords(t
   const items: ChecklistItem[] = [];
   for (const list of lists) {
     const source = text.slice(list.span.start, list.span.end);
-    const mark = /^([ \t]*(?:[-+*]|\d+[.)])[ \t]+)\[([ xX~!])\](?=[ \t\r\n]|$)/.exec(source);
+    const mark = STEP_MARK.exec(source);
     if (!mark) continue;
-    const status: ChecklistStatus = mark[2]!.toLowerCase() === "x" ? "done"
-      : mark[2] === "~" ? "waiting" : mark[2] === "!" ? "problem" : "todo";
+    const status = boxStatus(mark[2]!)!;
     const anchor = anchorByLine.get(list.span.startLine);
     // A nested plain list also owns its properties; do not leak them into an ancestor task.
     const children = lists.filter(child => child.parentStart === list.span.start);

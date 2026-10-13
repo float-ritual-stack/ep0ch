@@ -1,0 +1,85 @@
+// A checklist step's box on a page (PIE-811): drawn as its state (☐, ✔, ✓ approved, ✗ rejected, ~ waiting, ! problem)
+// rather than Markdown's disabled checkbox, which knows only `[ ]` and `[x]`. On the owner's tailnet page it's a button:
+// a tap opens the step's choices (Approve, Reject, Mark done, Mark to do, waiting, problem), and the choice lands as one
+// `checklist.update` through the page's write route, checked against the step as the page drew it. A share link's and a
+// public page's boxes are the same glyphs, read-only.
+//
+// It rides through the Markdown renderer as a private-use sentinel the length of the box it replaces (three characters),
+// so offsets other parts place by (decorations, components) still land; `drawSteps` puts the control in its place.
+import { checklistItems } from "./checklist-items";
+import { statusWord, stepClosed, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+
+const MARK = "", BASE = 0xE400;
+const SENTINEL = /([-])([-])/g;
+/** At most this many steps on one page: two private-use characters each. */
+export const MAX_PUBLISHED_STEPS = 256 * 256;
+
+/** A step as a page drew it: the note it's in, the revision read, and how `checklist.update` addresses it. */
+export interface PublishedStep { block: string; revision: number; start: number; itemId?: string; evidence: string; status: ChecklistStatus }
+
+/** How each state is drawn on a page, and said. */
+export const STEP_GLYPHS: Readonly<Record<ChecklistStatus, string>> = {
+  todo: "☐", done: "✔", waiting: "~", problem: "!", approved: "✓", rejected: "✗",
+};
+
+/**
+ * `text` (a block's own text, as stored) with each step's box replaced by its sentinel; `steps` collects each step,
+ * numbered page-wide. Only the block's own steps: a step an embed brings stays Markdown.
+ */
+export function placeStepSentinels(text: string, block: { id: string; revision: number }, steps: PublishedStep[]): string {
+  const items = checklistItems(text);
+  if (!items.length) return text;
+  let out = text;
+  const placed: { at: number; index: number }[] = [];
+  for (const item of items) {
+    if (steps.length >= MAX_PUBLISHED_STEPS) break;
+    placed.push({ at: item.markerStart, index: steps.length });
+    steps.push({ block: block.id, revision: block.revision, start: item.span.start, ...(item.itemId && item.identity === "unique" ? { itemId: item.itemId } : {}), evidence: item.evidence, status: item.status });
+  }
+  for (const { at, index } of placed.reverse()) {
+    const sentinel = `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}`;
+    out = `${out.slice(0, at)}${sentinel}${out.slice(at + 3)}`;
+  }
+  return out;
+}
+
+const attr = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/** The page's HTML with each step's sentinel as its box: a button on a page that may write (`writable`), else a glyph. */
+export function drawSteps(html: string, steps: readonly PublishedStep[], writable: boolean): string {
+  if (!steps.length) return html;
+  return html.replace(SENTINEL, (_, high: string, low: string) => {
+    const index = ((high.charCodeAt(0) - BASE) << 8) + low.charCodeAt(0) - BASE;
+    const step = steps[index];
+    if (!step) return "";
+    const said = `${statusWord(step.status)}${stepClosed(step.status) ? "" : " (open)"}`;
+    const glyph = STEP_GLYPHS[step.status];
+    // The glyph is drawn by the style (`data-glyph`), so it's never part of words selected across the step.
+    if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${attr(said)}" data-glyph="${glyph}"></span>`;
+    return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${attr(`${said}: change`)}"`
+      + ` data-step-block="${attr(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
+      + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"></button>`;
+  });
+}
+
+/** How a page draws a box: one square cell whatever it holds, its state in a muted colour (dark, nothing bright). */
+export const STEP_STYLE = `
+.step{display:inline-block;width:1.15em;height:1.15em;line-height:1.1em;margin:0 .4em 0 0;padding:0;vertical-align:-.12em;text-align:center;font:inherit;font-size:.95em;color:var(--dim);background:none;border:1px solid var(--rule);border-radius:.2em}
+.step::before{content:attr(data-glyph)}
+button.step{cursor:pointer}
+button.step:focus-visible{outline:1px solid var(--link);outline-offset:1px}
+.step.s-done{color:var(--link);border-color:var(--link)}
+.step.s-approved{color:#8fc98f;border-color:#5f8f5f}
+.step.s-rejected{color:#d08a7a;border-color:#8f5f55}
+.step.s-waiting{color:#d6c27a}
+.step.s-problem{color:#d08a7a}
+li:has(> .step:first-child),li:has(> p:first-child > .step:first-child){list-style:none}
+`;
+
+/** The choices' menu, on a tailnet page only (the reader script opens it): above the page, a thumb's targets. */
+export const STEP_MENU_STYLE = `
+.step-menu{position:absolute;z-index:30;display:flex;flex-direction:column;gap:.25rem;min-width:11rem;padding:.35rem;background:#1b1a18;border:1px solid var(--rule);border-radius:.4rem}
+.step-menu button{text-align:left;white-space:pre}
+.step-menu button:focus-visible{outline:1px solid var(--link)}
+.step-menu button[aria-current=true]{color:var(--dim)}
+`;

@@ -32,6 +32,7 @@ import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
@@ -3019,7 +3020,7 @@ export class NoteSurface {
     if (isUp(k) || isDown(k)) { void this.runKey("scroll", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
-    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: e.task.step.status === "done" ? "todo" : "done" }, host, true); return true; } }
+    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
     // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
     if (k.kind === "char" && k.ctrl && k.ch === "z") {
       const at = this.msg?.id ?? "";
@@ -4387,8 +4388,8 @@ export class NoteSurface {
     if (!e.task) return;
     this.setElem(e);
     this.reveal = true;
-    // Mark done first, as Detail's menu; on a done step, Mark to do.
-    this.picker = { key: e.key, list: this.choices(e.task.step.status === "done" ? 1 : 0), note: "", busy: false };
+    // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
   }
 
   /**
@@ -6592,7 +6593,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (e.kind === "figure" && e.link?.figure) {
         return surface.runFigureControl(e.link.figure, host, actor);
       }
-      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
+      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
       if (e.link?.ext && (e.kind === "control" || e.kind === "resource")) {
@@ -7622,13 +7623,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "task.status": def({
-    summary: "set a checklist step's status (done, todo, waiting, problem) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
-    keys: "[ ] to a step, then ⏎ or a click on its box and x o w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
+    summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
+    keys: "[ ] to a step, then ⏎ or a click on its box and x o + - w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
     touches: "draft", draft: "write", replay: "ask",
-    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting or problem" } },
+    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     async run({ to, ...which }, { surface, host }, actor) {
       const status = parseStatus(to);
-      if (!status) throw new ActionRefused(`to is done, todo, waiting or problem, not ${JSON.stringify(to)}`);
+      if (!status) throw new ActionRefused(`to is done, todo, waiting, problem, approved or rejected, not ${JSON.stringify(to)}`);
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, status, host, actor);
     },

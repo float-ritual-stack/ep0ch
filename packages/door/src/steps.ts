@@ -7,15 +7,22 @@ import type { Msg } from "./board";
 import type { Source } from "./props";
 import { changeClock, changedSince } from "./refs";
 import type { Actor, ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
+import { boxStatus, CHECKLIST_MARKS, STEP_BOX, statusWord } from "@ep0ch/outline-core/checklist-marks";
 
-/** The status marks, as the service writes them (pi-herdr-outliner CHECKLIST_MARKS). */
-export const STEP_MARKS: Readonly<Record<StepStatus, string>> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
+/** The status marks, as the service writes them: outline-core's grammar (checklist-marks.ts). */
+export const STEP_MARKS = CHECKLIST_MARKS;
+export { statusWord };
+/** A step's first line up to its box: list mark, box and the space after. */
+const STEP_LEAD = new RegExp(`^\\s*(?:[-+*]|\\d+[.)])\\s+${STEP_BOX}\\s*`);
+const BOX_AT = new RegExp(STEP_BOX);
 
 /** One choice in the status menu: Detail's CHECKLIST_CHOICES, in its order, with the door's key for each. */
 export type StepChoice = StepStatus | "copy-link" | "address";
 export const STEP_CHOICES: readonly { id: StepChoice; label: string; key: string }[] = [
   { id: "done", label: `${STEP_MARKS.done} Mark done`, key: "x" },
   { id: "todo", label: `${STEP_MARKS.todo} Mark to do`, key: "o" },
+  { id: "approved", label: `${STEP_MARKS.approved} Approve`, key: "+" },
+  { id: "rejected", label: `${STEP_MARKS.rejected} Reject`, key: "-" },
   { id: "waiting", label: `${STEP_MARKS.waiting} Mark waiting`, key: "w" },
   { id: "problem", label: `${STEP_MARKS.problem} Mark problem`, key: "!" },
   { id: "copy-link", label: "Copy step link", key: "y" },
@@ -25,23 +32,25 @@ export const STEP_CHOICES: readonly { id: StepChoice; label: string; key: string
 /** What a choice asks of the service. */
 export const changeOf = (c: StepChoice): StepChange => (c === "copy-link" || c === "address" ? { kind: "ensure-id" } : { kind: "status", status: c });
 
-/** `done`, `waiting`, `to do`: how the status reads in a flash or a reply. */
-export const statusWord = (s: StepStatus) => (s === "todo" ? "to do" : s);
-
-/** A status an agent or a person typed: done, todo (to-do, open), waiting, problem; x ~ ! and space as the marks. */
+/**
+ * A status an agent or a person typed: done, todo (to-do, open), waiting, problem, approved (approve, yes), rejected
+ * (reject, no); or a box's mark (`x`, `~`, `!`, `✓` or `+`, `✗` or `-`, space), with or without its brackets.
+ */
 export function parseStatus(v: string): StepStatus | null {
   const s = v.trim().toLowerCase();
-  if (s === "done" || s === "x" || s === "[x]") return "done";
-  if (s === "todo" || s === "to-do" || s === "to do" || s === "open" || s === "[ ]") return "todo";
-  if (s === "waiting" || s === "wait" || s === "~" || s === "[~]") return "waiting";
-  if (s === "problem" || s === "!" || s === "[!]") return "problem";
-  return null;
+  if (s === "done") return "done";
+  if (s === "todo" || s === "to-do" || s === "to do" || s === "open") return "todo";
+  if (s === "waiting" || s === "wait") return "waiting";
+  if (s === "problem") return "problem";
+  if (s === "approved" || s === "approve" || s === "yes") return "approved";
+  if (s === "rejected" || s === "reject" || s === "no") return "rejected";
+  return v === " " || v === "[ ]" ? "todo" : boxStatus(s);
 }
 
 /** A step's first line without its list mark, box or anchor: how it's named in a flash, `peek` and the menu. */
 export function stepTitle(step: Pick<ChecklistStep, "text">): string {
   const first = step.text.split("\n", 1)[0] ?? "";
-  return first.replace(/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX~!]\]\s*/, "").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trim();
+  return first.replace(STEP_LEAD, "").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trim();
 }
 
 /** A step's link, as Detail's Copy step link writes it. */
@@ -108,7 +117,7 @@ export function stepChanged(board: object, blockId: string, before: ChecklistSte
  * the same but for its box (a status change) and its anchor (a first change gives it an id).
  */
 export function stepStillOn(step: ChecklistStep, text: string, line: number): boolean {
-  const plain = (l: string) => l.replace(/\[[ xX~!]\]/, "[ ]").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trimEnd();
+  const plain = (l: string) => l.replace(BOX_AT, "[ ]").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trimEnd();
   const now = text.split("\n")[line];
   return now !== undefined && plain(now) === plain(step.text.split("\n", 1)[0] ?? "");
 }
