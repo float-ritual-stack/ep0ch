@@ -4,9 +4,11 @@
 import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
 import { pageTitleLine } from "@ep0ch/outline-core/page-title";
+import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
+import type { LinkTarget } from "./refs";
 import { whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
@@ -50,7 +52,7 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
-export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy";
+export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow";
 
 export class Draft {
   lines: string[];
@@ -120,6 +122,17 @@ export class Draft {
   }
 
   get text() { return this.lines.join("\n"); }
+
+  /**
+   * The link the cursor is on (PIE-592): a `((reference))`, an embed, a `[[page]]` or a Markdown link, as outline-core's
+   * scan finds it in the whole text (one in code is text), the cursor anywhere in it or just after it. Null on none.
+   */
+  linkAtCursor(): LinkOccurrence | null { return this.linkAt(this.row, this.col); }
+  /** The link at line `row`, column `col` (from 0), as `linkAtCursor` finds one. */
+  linkAt(row: number, col: number): LinkOccurrence | null {
+    const at = this.offsetOf(row, col);
+    return linkOccurrences(this.text).find(l => l.start <= at && at <= l.end) ?? null;
+  }
   get dirty() { return this.text !== this.original; }
   /** The text the draft started from (a kept edit keeps it: "add them" and the comparison read its own changes from it). */
   get started() { return this.original; }
@@ -342,6 +355,12 @@ export class Draft {
       if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
+      // ctrl+l follows the link the cursor is on (PIE-592): it opens beside the edit, which stays open.
+      if (k.ch === "l") {
+        if (this.linkAtCursor()) return "follow";
+        this.note = "no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit";
+        return "keep";
+      }
       // ctrl+z undoes; ctrl+y and ctrl+shift+z (the Kitty keyboard protocol tells shift apart) redo.
       if (k.ch === "z" || k.ch === "y") {
         const name = k.ch === "y" || k.shift ? "draft.redo" : "draft.undo";
@@ -795,7 +814,11 @@ export class Draft {
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
-  frame: { row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[] } | null = null;
+  frame: {
+    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[];
+    /** The preview's links, where they're drawn (PIE-592): a click on one follows it. */
+    links?: { row: number; from: number; to: number; target: LinkTarget }[];
+  } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   layout(w: number): VRow[] {

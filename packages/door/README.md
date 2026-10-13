@@ -1615,7 +1615,8 @@ The board's new-card composer is the same control too.
 | `Alt+Enter` | a plain new line, no list continuation |
 | `Tab`, `Shift+Tab` | indent or outdent the line (or every line a selection touches, nesting kept): an item goes under the item above it, lined up with its text, and back out to its parent's level. Inside a draft `Tab` never moves focus; `Esc` (or `Ctrl+S`) is how you leave |
 | `↑ ↓`, `PgUp PgDn` | move by the rows drawn: a wrapped line is several rows, the column kept |
-| `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer |
+| `Ctrl+P`, or a click on `[preview]` | a live preview of the Markdown under the draft, drawn by the readers' own renderer; a click on a link in it opens it beside the edit, as `Ctrl+L` does |
+| `Ctrl+L`, or an alt- or ctrl-click on a link | open the link the cursor is on (a `[[page]]`, a `((reference))` or embed, a `[text](url)`) beside the draft (`edit.follow`, PIE-592): a detail opens to its right, the draft stays open as it is and the keys stay in it. The next link opened from the same draft lands in that detail. The hint row says `ctrl+l open link` while the cursor is on one. In an edit or a comment; a new card has no reader beside it to open one in |
 | the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) and copies it when the button comes up (copy on select, as in a reader); a double click selects the word, a triple click the line, a shift+click from the cursor |
 | `Shift+←→↑↓`, `Shift+Home`, `Shift+End` | select from the cursor as it moves |
@@ -1666,6 +1667,8 @@ The board's new-card composer is the same control too.
   tile, or the keys coming back by any way, puts you straight back in it at the same place: no `e`. Leaving it
   is yours: `Ctrl+S` saves (a refused save keeps the text, and says why), `Esc` closes (twice when typed in: put
   aside as unsent, `e` brings it back), and opening another note in that tile goes by the draft session's rules.
+  A note opened into a reader that holds an edit or a comment (the links tile's `⏎`, a link followed in it, PIE-592)
+  opens in a detail beside it instead, and the next one in the same detail: the edit is never in the way of reading.
   An edit an agent opened that you're in is left by a click away as before (`session.leave`: an unchanged one
   closes, a changed one saves). A board's new card is kept as unsent by a click outside its composer
   (`composer.leave`). An agent never saves, closes or moves your draft.
@@ -1688,7 +1691,11 @@ The board's new-card composer is the same control too.
   `[file::path]`. Choosing checks the target still answers first (a fragment with `fragments.read`). A
   heading without an anchor is offered with the anchor it would get: in the note being edited it's added
   in the draft; in another note the service adds it when chosen (`fragments.ensure`, recorded as yours or
-  the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
+  the agent's, and refused if that note changed since it was offered). `[[` and a name no page has yet ends the list
+  with `new page · <name>` (PIE-592): choosing it makes the page where new notes go (`pages.follow`, as yours or the
+  agent's), links it, and says so; `Ctrl+L` then opens it beside the draft. Alone on the list it's taken only on purpose
+  (`↓` to it, or a click), so `Enter` after `[[a name` still ends the line. A name in the outline's Work ID prefix isn't
+  offered (Work IDs are the workboard's to give). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents.
 - **Agents edit above while you type** (the outliner's PIE-501, `draft.patch`). An open draft is held on

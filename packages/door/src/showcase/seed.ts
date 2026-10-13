@@ -229,6 +229,7 @@ const WHITEBOARD = [
   "    - [ ] buy the oven cleaner",
   "Press e to edit; type [[ for a page, (( for a block, [file:: for a file; ctrl+t puts in notes or files another program picks (tv ep0ch).",
   "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
+  `In an edit, ctrl+l opens the link the cursor is on beside it, and the edit stays open: [[${SEED.shed}]]. So does an alt- or ctrl-click on one, or a click on one in the preview. In \`[[\`, a name no page has yet is offered as a new page.`,
 ].join("\n");
 
 // A labelled block ref inside italics (PIE-541): the link keeps its colour inside the emphasis.

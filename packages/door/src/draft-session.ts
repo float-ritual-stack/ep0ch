@@ -75,7 +75,7 @@ export interface SessionEnv {
 export type Ended = "written" | "closed" | "aside";
 
 /** What a key in a draft asks its host to run as an action (the key path is the action path, PIE-506). */
-export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy";
+export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy" | "follow";
 
 /**
  * What leaving a draft by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as unsent (with

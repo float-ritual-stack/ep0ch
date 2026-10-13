@@ -165,6 +165,8 @@ export interface CommentEnv {
   external(d: Draft): void;
   /** Insert from a picker at the comment's cursor (ctrl+t), as the edit does: its host's `draft.pick`. */
   pick?(): void;
+  /** Open the link at the comment's cursor beside it (ctrl+l, PIE-592), as the edit does: its host's `edit.follow`. */
+  follow?(): void;
   /** The composer's reference completion, when the connection can look references up. */
   complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
@@ -239,7 +241,7 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
-    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true });
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true, follow: true });
     return `j k thread · PgUp PgDn or wheel scroll · r reply · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 
@@ -269,6 +271,7 @@ export class CommentSession {
           if (cmd === "save") void this.send(env);
           else if (cmd === "editor") env.external(d);
           else if (cmd === "pick") env.pick?.();
+          else if (cmd === "follow") env.follow?.();
           else if (cmd === "reload") void this.relocate(env);
           else if (cmd === "close" || cmd === "discard") {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
@@ -471,7 +474,7 @@ export class CommentSession {
    * its keys on the title row ("comment · ctrl+s saves · esc cancels"; the reader's header names the note), the state,
    * and the quote where the passage isn't right beside it (popup, split). `preview`: the reader's renderer (ctrl+p).
    */
-  composerFrame(preview?: (text: string, w: number) => string[]): EditFrame | null {
+  composerFrame(preview?: EditFrame["preview"]): EditFrame | null {
     const d = this.composer, t = this.target;
     if (this.mode !== "compose" || !d || !t) return null;
     const w = 60;
@@ -485,12 +488,12 @@ export class CommentSession {
     return {
       title: `${what} · ctrl+s saves · esc cancels`,
       status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-      context, by: writtenBy(d, "send"), preview, pick: true, place: this.place,
+      context, by: writtenBy(d, "send"), preview, pick: true, follow: true, place: this.place,
     };
   }
 
   /** The passage picker and the thread list, drawn in place of the note (the composer is drawn in it: composerFrame). */
-  render(w: number, h: number, title: string, preview?: (text: string, w: number) => string[]): string[] {
+  render(w: number, h: number, title: string, preview?: EditFrame["preview"]): string[] {
     const status = (s: string, colour: number) => fg(colour) + pad(s, w) + RESET;
     const state = this.busy ? status(this.busy, C.grey)
       : this.error ? status(`! ${this.error}`, C.lred)

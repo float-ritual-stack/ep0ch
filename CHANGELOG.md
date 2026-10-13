@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Writing papercuts from sysops-log (PIE-592)
+
+- **Added:** links work from an edit. `Ctrl+L` (or an alt- or ctrl-click) on a `[[page]]`, `((reference))` or
+  `[text](url)` in an edit or a comment opens it in a detail beside the draft; a click on a link in the draft's preview
+  (`Ctrl+P`) does the same. The draft stays open and keeps your keys, and the next link opens in the same detail.
+- **Fixed:** the links tile's `⏎` (and any open) into a reader that holds an edit opened nothing visible
+  ("the note opened as the current one instead"); it opens beside the edit now.
+- **Added:** `[[` and a name no page has yet offers `new page · <name>` last: choosing it makes the page and links it.
+- **Fixed:** a `` `[[` `` quoted in a code span earlier on the line no longer opens the completion popup as you type.
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

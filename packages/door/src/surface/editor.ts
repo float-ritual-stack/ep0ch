@@ -7,7 +7,8 @@ import { basename, dirname, join } from "node:path";
 import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
-import { C, fg, pad, RESET, visible } from "../style";
+import { C, fg, pad, RESET, visible, type LinkRange } from "../style";
+import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileProgram } from "../term";
 import { agentLabel } from "./actions";
@@ -26,7 +27,12 @@ export interface EditFrame {
    * The host's reader renderer for a live preview of the draft (`draftPreview` in the note surface: the
    * same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
    */
-  preview?: (text: string, w: number) => string[];
+  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[] };
+  /**
+   * The host follows a link: ctrl+l on the one the cursor is on, a click on one in the preview (PIE-592). Without it
+   * the preview's links are only drawn.
+   */
+  follow?: boolean;
   /** The host can insert from a picker (ctrl+t, src/pick.ts): the frame offers it as a control too. */
   pick?: boolean;
   /** Where a comment's composer sits (PIE-770, src/surface/composer.ts): a chip that switches it (ctrl+o), its name the label. */
@@ -68,7 +74,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
   d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls };
-  const below = ph ? previewRows(d, f.preview!, w, ph) : [];
+  const below = ph ? previewRows(d, f.preview!, w, ph, top.length + room) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
   if (f.away) {
@@ -93,17 +99,24 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
-const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[] }>();
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[] }>();
 
-/** The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. */
-function previewRows(d: Draft, render: (text: string, w: number) => string[], w: number, h: number): string[] {
+/**
+ * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
+ * the frame where they're drawn (from row `row`), so a click on one follows it (PIE-592).
+ */
+function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: number, h: number, row: number): string[] {
   // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
   // or after a moment, for link titles that arrived since.
   const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
-  const body = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 ? hit.body : render(text, pw);
-  if (body !== hit?.body) previewCache.set(d, { text, w: pw, at: now, body });
-  const room = Math.max(0, h - 1);
+  let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 ? hit : null;
+  if (!shown) { const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r; shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links }; previewCache.set(d, shown); }
+  const room = Math.max(0, h - 1), body = shown.body;
   const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
+  if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
+    const target = shown.links[r.n];
+    return target && r.line >= at && r.line < at + room ? [{ row: row + 1 + r.line - at, from: 1 + r.from, to: 1 + r.to, target }] : [];
+  });
   return [rule(w, "preview · ctrl+p hides"), ...body.slice(at, at + room).map(l => " " + l)];
 }
 
@@ -113,12 +126,20 @@ function previewRows(d: Draft, render: (text: string, w: number) => string[], w:
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void }): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
   // Without `on` it's a press: a control is hit, and its click (the release) runs it.
   if (ctl && !on) return true;
+  // A link in the preview (PIE-592): its click follows it, beside the edit.
+  const link = !extend && !ctl ? f.links?.find(l => l.row === y && x >= l.from && x < l.to) : undefined;
+  if (link) { if (on) on.follow?.(link.target); return true; }
+  // An alt- or ctrl-click on a link in the text follows it too (ctrl+l's mouse way); the cursor goes there first.
+  if (!extend && mods & (8 | 16) && on?.follow && y >= f.row && y < f.row + f.rows) {
+    const p = d.posAt(x - f.col, y - f.row), follow = on.follow;
+    if (d.linkAt(p.row, p.col)) { void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1 }, d, actor).then(() => follow()); return true; }
+  }
   if (ctl?.action === "pick") { on?.pick?.(); return true; }
   if (ctl?.action === "copy") { on?.copy?.(); return true; }
   if (ctl?.action === "place") { on?.place?.(); return true; }
@@ -131,12 +152,12 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 }
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
-export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean }): string {
+export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
   const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${o.move ? " · ctrl+g move" : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${o.follow && d.linkAtCursor() ? " · ctrl+l open link" : ""}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${o.move ? " · ctrl+g move" : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

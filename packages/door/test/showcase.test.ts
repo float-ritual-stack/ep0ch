@@ -474,6 +474,42 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 20_000);
 
+  test("links from an edit (PIE-592): ctrl+l opens the link beside the edit, which stays open with the keys; a click on a link in its preview reuses that detail", async () => {
+    ch("5"); press({ kind: "enter" });
+    const desk = () => S().stages.get(4).top;
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
+    const editor = () => [...desk().panes.values()].find((p: any) => p.editing) as any;
+    const d = editor().surface.draft;
+    // The cursor on the [[Bike shed]] link, as a click there puts it.
+    d.row = d.lines.findIndex((l: string) => l.includes(`[[${SEED.shed}]]`)); d.col = d.lines[d.row].indexOf("[[") + 3;
+    const before = desk().all().length, focus = desk().focus;
+    press({ kind: "char", ch: "l", ctrl: true });
+    const shed = () => [...desk().panes.values()].find((p: any) => !p.editing && p.msg?.id === seeded.notes.shed.id) as any;
+    await until(() => !!shed(), "the shed opened beside the edit", 5000);
+    expect(desk().all().length).toBe(before + 1);
+    expect(desk().focus).toBe(focus);                                     // the keys stayed in the edit
+    expect(editor().surface.draft).toBe(d);
+    press({ kind: "end" }); ch("x");
+    expect(d.lines[d.row].endsWith("x")).toBe(true);                      // still typing in it
+    press({ kind: "char", ch: "z", ctrl: true });
+    // The preview's link: a click on it opens in the same detail, not one more.
+    press({ kind: "char", ch: "p", ctrl: true });
+    const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("preview · ctrl+p hides"));
+    const y = rows.findIndex((l, i) => i > rule && l.includes(`open: ${SEED.shed}.`)), x = rows[y]!.indexOf(`open: ${SEED.shed}.`) + 8;
+    expect(y).toBeGreaterThan(rule);
+    // The detail beside moved on to another note meanwhile: the click brings the shed back into it.
+    const beside = shed(), nb = (await board.get(seeded.notes.notebook.id))!;
+    beside.hold(nb, desk());
+    await until(() => beside.msg?.id === nb.id, "the detail on the notebook");
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => beside.msg?.id === seeded.notes.shed.id, "the preview's link followed into the same detail", 5000);
+    expect(desk().all().length).toBe(before + 1);
+    expect(desk().focus).toBe(focus);
+    press({ kind: "char", ch: "p", ctrl: true });
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
   test("agents: act shows a section, never while the person is in one, and reaches the section's own actions", async () => {
     ch("1"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
