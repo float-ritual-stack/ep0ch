@@ -59,8 +59,8 @@ export function fenceEnd(lines: readonly string[], start: number, fence: CodeFen
     const line = lines[i]!;
     if (closesCodeFence(line, fence)) return { end: i, closed: true };
     const other = codeFenceOpen(line);
+    if (other && other.char === fence.char && other.length >= fence.length && other.info !== "" && stop >= 0) return { end: stop - 1, closed: false };
     if (stop < 0 && (/^[ \t]*\r?$/.test(line) || other)) stop = i;
-    if (other && other.char === fence.char && other.length >= fence.length && other.info !== "") return { end: stop - 1, closed: false };
   }
   return { end: stop >= 0 ? stop - 1 : lines.length - 1, closed: false };
 }
@@ -87,9 +87,10 @@ function listMarker(line: string): ListContainer | null {
  * One deviation (Blockdown, PIE-669): an unclosed fence ends at its paragraph, the line before the first blank line or
  * fence opener after it (or at the end of the list item it is in, if that comes first), never at the end of the note. What follows
  * is read as it would be without the fence, so a half-typed or half-streamed fence can't turn the rest of a note into
- * code. Only a fence with no blank line before the note's end runs to the end. A line that opens another fence like it
- * with an info string (```` ```ts ```` in a ```` ``` ```` fence) also says it was never closed: typed above a code
- * block, a fence doesn't pair with that block's closing line.
+ * code. Only a fence with no blank line before the note's end runs to the end. A line past its first paragraph that
+ * opens another fence like it with an info string (```` ```ts ```` in a ```` ``` ```` fence) also says it was never
+ * closed: a fence left open far above a code block doesn't pair with that block's closing line and shift every fence
+ * after it. Right under the opener such a line is the code's own (CommonMark).
  */
 export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]; indented: number[] } {
   const fences: CodeFenceBlock[] = [], indented: number[] = [];
@@ -103,9 +104,8 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
     if (active) {
       const fence = active.block.fence;
       // Never closed: it ends at its paragraph (`stop`), and the scan goes on from there as if it weren't there. A fence
-      // is known never closed at the note's end, at the end of the list item it is in, or at a line that opens another
-      // fence like it with an info string (```` ```ts ````): in a fence that line would close it and leave its own code
-      // outside.
+      // is known never closed at the note's end, at the end of the list item it is in, or at a line past its paragraph
+      // that opens another fence like it with an info string (```` ```ts ````).
       const giveUp = (atLeast: number) => {
         const end = active!.stop >= 0 ? active!.stop - 1 : atLeast;
         active!.block.end = Math.min(active!.block.end, end);
@@ -127,8 +127,11 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
           continue;
         }
         const other = codeFenceOpen(line, active.contentIndent);
+        // Another opener like it with an info string, past its first paragraph, says it was never closed; right under
+        // it (```` ```text ```` then ```` ```md ````) it is the code's own line, as CommonMark reads it.
+        const reopens = !!other && other.char === fence.char && other.length >= fence.length && other.info !== "" &&
+          active.stop >= 0 && active.stop < i;
         if (active.stop < 0 && (other || /^[ \t]*\r?$/.test(line))) active.stop = i;
-        const reopens = !!other && other.char === fence.char && other.length >= fence.length && other.info !== "";
         if (reopens || i === lines.length - 1) {
           const end = giveUp(i);
           if (end < i) i = end;

@@ -76,6 +76,17 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
   });
 
+  test("no seeded note leaves a construct open but the half-written one, so no reader shows a ⚠ by accident (PIE-669)", async () => {
+    const { syntaxWarnings } = await import("@ep0ch/outline-core/syntax-warnings");
+    const open: string[] = [];
+    for (const [name, m] of Object.entries(seeded.notes)) {
+      const text = (await board.get(m.id))?.text ?? "";
+      if (name !== "halfWritten") open.push(...syntaxWarnings(text).map(w => `${name}: ${w.message}`));
+    }
+    expect(open).toEqual([]);
+    expect(syntaxWarnings(seeded.notes.halfWritten.text).map(w => w.kind)).toEqual(["fence", "page-link"]);
+  });
+
   test("the remote writes note (PIE-615): a remote client's patch at propose is a proposal under it, its comment a thread, the note unchanged", async () => {
     const note = seeded.notes.remoteWrites;
     const now = (await board.get(note.id))!;
@@ -655,6 +666,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Drawn as the note, not as code: the link drawn as a link (its brackets gone).
     expect(screen()).toContain("After the code, the Bike shed page and this tag still count.");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // The section's reader back on its own note, for the tests after.
+    await app.act({ action: "open", tile: "reader", args: { id: seeded.notes.notebook.id }, as: "test-agent" });
   }, 40_000);
 
   test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {

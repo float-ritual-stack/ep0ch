@@ -25,8 +25,8 @@ are its record. The outliner's entries from then are kept below, under
 ### A half-written note never loses what follows it (PIE-669)
 
 - **Fixed:** an unclosed code fence no longer turns the rest of the note into code: it ends at its paragraph (the next
-  blank line), and what follows is read as before: its properties, links and tags count. A fence typed above an
-  existing code block no longer pairs with that block's closing line.
+  blank line), and what follows is read as before: its properties, links and tags count. A fence left open above a
+  later code block no longer pairs with that block's closing line and shifts every fence after it.
 - **Fixed:** a half-typed `[[`, `((` or `[key::` stays text on its own line: it no longer swallows the next link or
   property on that line (`[[Gard and [[Beds]]` links Beds; `[due:: friday [owner::Ilse]` reads `owner`), and an
   unclosed `((` no longer hides the tags after it.

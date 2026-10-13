@@ -3,6 +3,10 @@
 // note at every place a person could be typing, and what the service reads on every other line is checked against
 // the note as it was: an inline construct costs only its own line, a fence only its own paragraph.
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { OutlinerStore } from "../src/store";
 import { parsePropertyRecords } from "../src/properties";
 import { blockReferenceOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
@@ -148,4 +152,18 @@ test("the published page draws a fence left open as code to its paragraph's end,
   const html = renderMarkdownHtml("Seed swap\n\n```ts\nconst a = 1\n\nBring envelopes");
   expect(html).toContain("const a = 1");
   expect(html).toContain("<p>Bring envelopes</p>");
+});
+
+test("a new outline's own notes leave no construct open, so its first reader shows no ⚠", () => {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-partial-safe-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  try {
+    const all = (store as unknown as { database: { query(sql: string): { all(): { id: string; text: string }[] } } }).database
+      .query("SELECT id, text FROM blocks WHERE effective_deleted_root_id IS NULL").all();
+    expect(all.length).toBeGreaterThan(10);
+    expect(all.flatMap(b => syntaxWarnings(b.text).map(w => `${b.text.split("\n")[0]}: ${w.message}`))).toEqual([]);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

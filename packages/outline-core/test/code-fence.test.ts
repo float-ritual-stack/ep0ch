@@ -87,7 +87,10 @@ test("a component's YAML and a fence inside a quote are literal; an unclosed com
 test("an unclosed fence ends at its paragraph, in a list item too, and a fence typed above a code block doesn't pair with it (PIE-669)", () => {
   expect(codeFenceLines(["t", "```js", "a", "", "b [k::v]"])).toEqual([-1, 1, 1, -1, -1]);
   expect(codeFenceLines(["- ```ts", "  x", "", "  [status::draft]", "Outside"])).toEqual([0, 0, -1, -1, -1]);
-  expect(codeFenceLines(["t", "```", "```ts", "x", "```", "after"])).toEqual([-1, 1, 2, 2, 2, -1]);
+  // Left open past a paragraph above a code block, it doesn't pair with that block's closing line…
+  expect(codeFenceLines(["t", "```", "", "```ts", "x", "```", "after"])).toEqual([-1, 1, -1, 3, 3, 3, -1]);
+  // …but right under the opener, a fence line is the code's own (CommonMark).
+  expect(codeFenceLines(["```text", "```md [type::x]", "```", "after"])).toEqual([0, 0, 0, -1]);
   // Closed, a fence holds its blank lines as before.
   expect(codeFenceLines(["```", "a", "", "b", "```", "c"])).toEqual([0, 0, 0, 0, 0, -1]);
   // Linear: thousands of fences typed one under another read at once.

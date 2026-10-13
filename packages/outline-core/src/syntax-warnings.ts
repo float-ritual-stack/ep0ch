@@ -6,6 +6,7 @@
 
 import { codeBlocks } from "./code-fence";
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
+import { LINK_BLOCK_KINDS } from "./link-blocks";
 import { pageAddressReferences } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, propertyTokenMatches } from "./property-grammar";
@@ -51,8 +52,8 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
     if (link) { at = link.end - 2; continue; }
     if (offsetInRanges(at, code)) continue;
     const lineEnd = text.indexOf("\n", at) < 0 ? text.length : text.indexOf("\n", at);
-    // `[[[` reads its link from the last two brackets.
-    if (text[at + 2] === "[") continue;
+    // `[[[` reads its link from the last two brackets; `[[ ` and a blank is prose about the syntax, not a link begun.
+    if (text[at + 2] === "[" || text[at + 2] === " ") continue;
     const close = text.indexOf("]]", at);
     if (close >= 0 && close < lineEnd && !text.slice(at + 2, close).includes("[[")) continue; // a link no page can have: not unclosed
     const line = lineOf(at), next = text.indexOf("[[", at + 2);
@@ -77,7 +78,8 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) covered.add(j);
   lines.forEach((raw, i) => {
     const open = COMPONENT_OPEN.exec(raw.replace(/\r$/, ""));
-    if (!open || covered.has(i)) return;
+    // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts).
+    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!)) return;
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
 
