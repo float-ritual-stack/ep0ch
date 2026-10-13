@@ -12,7 +12,8 @@
 #             TEST_EACH_JOBS (default 8) files at once, under a `timeout` of EP0CH_BOX_MAX, and the dir is removed on
 #             exit, Ctrl-C and TERM (a run whose ssh dies is killed by the timeout, and its dir with it).
 #
-#   package   door, outliner, outline-core, claude-mod or all: `bun run test` in each (claude-mod's needs a
+#   package   door, outliner, outline-core, claude-mod or all: `bun run check` (tsc, its tests included) then
+#             `bun run test` in each (claude-mod's needs a
 #             logged-in claude, which boxd injects). The door's files run in parallel (`--parallel`): one per vCPU
 #             on boxd, TEST_EACH_JOBS on float-box.
 #   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
@@ -122,6 +123,8 @@ if [ $target = float-box ]; then
     # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):
     # the parity parts take minutes each, and one after another they were most of a 30-minute run (PIE-760).
     par=""; [ "$p" = door ] && par=" --parallel=$jobs"
+    # The types first: `bun test` runs what tsc would refuse, so a green run once left main failing its check.
+    if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && nice -n 10 bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
     run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && nice -n 10 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
   done
   [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
@@ -215,6 +218,7 @@ inbox "$box" "cd ep0ch && git fetch -q origin && git cat-file -e $sha^{commit}" 
 run="set -o pipefail; cd ~/ep0ch && git checkout -q --detach $sha && bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
 for p in "${pkgs[@]}"; do
   par=""; [ "$p" = door ] && par=" --parallel=\$(nproc)"
+  if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
   run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && timeout 3000 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
 done
 [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
