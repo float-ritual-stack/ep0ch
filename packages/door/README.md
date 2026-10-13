@@ -2207,8 +2207,9 @@ Bodies render with `src/doc.ts`:
 - **The title leads the header** (PIE-657). A reader's header is the breadcrumb (a dim eyebrow), the title (the one bold
   line, in the theme's heading colour, a Work ID first in the accent: `HOME-042 · <title>` (PIE-809), said once; off the
   header's surface; a clear step down in a tile without the keys), one dim line (author, day, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
-  line) and one blank row. The tile's frame bar says only `detail` while the header is on screen, and the title again when
-  the tile is too short for it. With Kitty's text sizing (OSC 66; asked at start-up with two probes, a space at scale 2 then at scale 3, and only a cursor that moved by the scale both times counts; `EP0CH_SIZED=1|0` overrides) and a
+  line) and one blank row. The tile's top border is the note's title too (PIE-809: where the eye lands, always in the same place), Work ID first,
+  then, dim, what the tile is (`4 HOME-042 · <title> · detail · held → detail2`); the kind's word gives way first where
+  the border is short, and a spine says the same title. With Kitty's text sizing (OSC 66; asked at start-up with two probes, a space at scale 2 then at scale 3, and only a cursor that moved by the scale both times counts; `EP0CH_SIZED=1|0` overrides) and a
   title that fits twice over, the title is drawn at double height: the canvas still holds it as one bold row with a blank
   row under it, so layout, selection, copy, clicks and `peek` are unchanged, and the sized text is painted over those two
   rows (`src/text-sizing.ts`) only while they are as drawn. Inside Herdr, tmux or screen the door never asks (a multiplexer can answer the probe and still not draw the sizing: spaced-out letters and a blank row), so it is bold on one row with no blank row; `EP0CH_SIZED=1` forces it there.

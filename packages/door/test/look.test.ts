@@ -359,7 +359,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await until(() => d.lines().some(l => /╭─.*tune/.test(l)), "the inspector's frame round, at rest", 5000);
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
       // The header's surface is under its crumbs and meta lines; the title stands on the ground, off the band (PIE-809).
-      const titleRow = d.lines().findIndex(l => l.includes("Bean row"));
+      const titleRow = d.lines().findIndex(l => l.includes("Bean row") && !/[┌╔╭─═]{2}/.test(l));
       expect(raw()[titleRow - 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
       expect(raw()[titleRow + 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
       expect(raw()[titleRow]).not.toContain(bgRgb(surfaceMix("blue", 0.6)!));
