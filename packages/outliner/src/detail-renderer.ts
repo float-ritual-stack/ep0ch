@@ -1,3 +1,5 @@
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { getProperty } from "./properties";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
 import type {DetailReadPreviewDocument} from './detail-pi-preview';
@@ -106,8 +108,11 @@ function renderDetailTitle(
   linksEnabled: boolean,
   focused: boolean | undefined,
 ): string {
-  const safe = sanitizeDynamicText(detailTitle(state));
-  const fitted = fitToWidth(safe, width);
+  // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
+  const workId = state.context.selected ? getProperty(state.context.selected.properties ?? [], "work-id") : undefined;
+  const named = workIdTitle(sanitizeDynamicText(detailTitle(state)), workId ? sanitizeDynamicText(workId) : null);
+  const lead = named.workId ? `${named.workId} · ` : "";
+  const fitted = fitToWidth(named.title, Math.max(1, width - visibleWidth(lead)));
   const blockTarget = detailBlockTarget(state);
   const resource = state.resource;
   const linked = linksEnabled && state.context.selected && blockTarget
@@ -122,7 +127,8 @@ function renderDetailTitle(
       ? hyperlink(fitted, outlinerLinkUri("resource", resource.id))
       : fitted;
   const style = focused === false ? "\x1b[2;37m" : "\x1b[1;97m";
-  return `${style}${linked}\x1b[0m`;
+  const accent = focused === false ? "\x1b[2;36m" : "\x1b[1;96m";
+  return `${named.workId ? `${accent}${named.workId}\x1b[0m\x1b[2m · \x1b[0m` : ""}${style}${linked}\x1b[0m`;
 }
 
 function fitLinkedAncestors(state: Readonly<DetailState>, width: number): string {
@@ -176,7 +182,8 @@ function renderDetailMetadata(
     );
   }
   const keys = options.propertyKeys ?? DEFAULT_PROPERTY_SUMMARY_KEYS;
-  const segments = propertySummarySegments(state.context.selected?.properties ?? [], keys);
+  // The Work ID heads the title (PIE-809), not this line.
+  const segments = propertySummarySegments(state.context.selected?.properties ?? [], keys.filter((key) => key !== "work-id"));
   while (
     segments.length > 1 &&
     visibleWidth(segments.map((segment) => segment.plain).join(" · ")) > width

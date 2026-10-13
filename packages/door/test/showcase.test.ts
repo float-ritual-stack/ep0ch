@@ -2962,8 +2962,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const readers = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes; };
     // Each reader's rows start with the breadcrumb, then the title, the dim byline under it; the title is data too.
     const rows = raw().map(plain);
-    const at = rows.findIndex(l => /│A title you can find/.test(l));
+    // A note with a Work ID shows it first on the title line (PIE-809), and not on the byline.
+    const at = rows.findIndex(l => /│HOME-042 · A title you can find/.test(l));
     expect(at).toBeGreaterThan(0);
+    expect(rows[at + 1]).not.toContain("HOME-042");
     expect(rows[at - 1]).toMatch(/│(…|top level|Kitchen sink|# )/);   // the breadcrumb, once its ancestors are read
     // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
     expect(rows[at + 1]).toMatch(/i \d+ properties/);
@@ -2978,6 +2980,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const shades = [...row.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m(?:\x1b\[1m)?A title you can find/g)].map(x => +x[1]! + +x[2]! + +x[3]!);
     expect(shades.length).toBe(2);
     expect(shades[0]).toBeGreaterThan(shades[1]! + 100);
+    // The Work ID is in the accent, bold, ahead of the title.
+    const colour = (word: string) => new RegExp(`\\x1b\\[(38;[\\d;]+)m(?:\\x1b\\[1m)?${word}`).exec(row)?.[1];
+    expect(colour("HOME-042")).toBeDefined();
+    expect(colour("HOME-042")).not.toBe(colour("A title you can find"));
   });
 
   test("wrapping links (title section): a link that wraps keeps its colour and its click on every row, in the narrow reader too", async () => {

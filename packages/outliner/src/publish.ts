@@ -17,7 +17,8 @@ import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { getProperty, parsePropertyRecords, stripPropertyTokens } from "./properties";
+import { getProperty, parseProperties, parsePropertyRecords, stripPropertyTokens } from "./properties";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import {
   canonicalPublishRoots,
   checkAttachment,
@@ -366,6 +367,14 @@ const markdownRenderer: Marked = new Marked({
 let activeCallouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY;
 
 /** Markdown as the page's HTML; `callouts` are the outline's types (the built-ins when none are given). */
+/**
+ * A page's title heading in the accent where it starts with a Work ID (PIE-809: `HOME-011 · <title>`, as
+ * renderSubtreeMarkdown heads a note that has one): the Work ID in its own span, the page's first heading only.
+ */
+export function accentWorkId(html: string): string {
+  return html.replace(/(<h1\b[^>]*>(?:<a\b[^>]*><\/a>)?)([A-Za-z][A-Za-z0-9]*-\d+)( · )/, `$1<span class="wid">$2</span>$3`);
+}
+
 export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
   const before = activeCallouts;
   activeCallouts = callouts;
@@ -398,6 +407,7 @@ ${CALLOUT_STYLE}${COMPONENT_STYLE}${FIGURE_STYLE}${MARGINALIA_STYLE}${MEDIA_STYL
  */
 const BROWSE_STYLE = `
 main.browse{max-width:42rem;padding:1rem 1rem 6rem}
+h1 .wid{color:var(--link);white-space:nowrap}
 nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
@@ -942,7 +952,7 @@ export class Publisher {
     };
     const { markdown, marks, components } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
     const text = format === "markdown" ? markdown
-      : htmlViewLinks(drawMarginalia(drawComponents(renderMarkdownHtml(markdown, await this.callouts()), components), marks), index, base ?? "");
+      : htmlViewLinks(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(markdown, await this.callouts())), components), marks), index, base ?? "");
     return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
   }
 
@@ -1453,7 +1463,7 @@ export class Publisher {
       const browse = audience === "tailnet";
       const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
-      const article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.anchors), rendered.index, base);
+      const article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
@@ -1475,7 +1485,7 @@ export class Publisher {
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, ...(share ? { share } : {}) });
-      article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.anchors), rendered.index, base);
+      article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, true), rendered.anchors), rendered.index, base);
     }
     const listedHere = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     // The outline's own views (Trash, Bookmarks) aren't notes to browse: Bookmarks is a quiet link at the top level's
@@ -2715,10 +2725,13 @@ export function renderSubtreeMarkdown(
   };
   const rootText = marked(root, publishedText(decoratedText(root.text ?? "", decorations.get(root.id), under.get(root.id), drawn.get(root.id)), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
+  // A note with a Work ID heads its title with it (PIE-809: `HOME-011 · <title>`), once; `accentWorkId` colours it.
+  const workId = getProperty(parseProperties(root.text ?? ""), "work-id");
+  const headed = (title: string) => { const named = workIdTitle(title, workId); return named.workId ? `${named.workId} · ${named.title}` : title; };
   const lines = (/^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
-    : first.startsWith(">") ? [`# ${root.id}`, "", first, ...rest]
-      : [`# ${first.trim() || root.id}`, ...rest]);
+    : first.startsWith(">") ? [`# ${headed(root.id)}`, "", first, ...rest]
+      : [`# ${headed(first.trim() || root.id)}`, ...rest]);
   lines[0] = anchored(root, lines[0]!);
   const listed: string[] = [];
   for (const { block, locked } of rows) {

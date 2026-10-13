@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { scratchOutline } from "./scratch-outline";
-import { assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderMarkdownHtml, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
+import { accentWorkId, assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderMarkdownHtml, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
 import { drawAnchors, placeAnchor } from "../src/publish-anchors";
 import { canonicalPublishRoots, checkAttachment, type AttachmentPolicy } from "../src/publish-attachments";
 import { OutlinerServer } from "../src/server";
@@ -432,6 +432,20 @@ test("a [publish::false] branch is left out whatever order the service lists blo
   const subtree: ProjectedBlockCollection = { blocks: [root, invoice, orphan, draft, beds], completeness: { kind: "complete" }, fields: ["text", "parent", "properties"] };
   const markdown = renderSubtreeMarkdown(subtree, { entries: [], truncated: false, builtAt: "" });
   expect(markdown).toBe("# Moth garden plan\n\n- Beds\n");
+});
+
+test("a note with a Work ID is headed by it, once, in the accent (PIE-809)", () => {
+  const block = (id: string, text: string) => ({ id, parentId: null, depth: 0, text, properties: [] }) as unknown as ProjectedVisibleBlock;
+  const page = (text: string) => {
+    const subtree: ProjectedBlockCollection = { blocks: [block("root-0042", text)], completeness: { kind: "complete" }, fields: ["text", "parent", "properties"] };
+    return renderSubtreeMarkdown(subtree, { entries: [], truncated: false, builtAt: "" });
+  };
+  expect(page("Rehang the shed door [work-id::HOME-042]")).toStartWith("# HOME-042 · Rehang the shed door");
+  expect(page("HOME-042 — Rehang the shed door [work-id::HOME-042]")).toStartWith("# HOME-042 · Rehang the shed door");
+  expect(page("Rehang the shed door")).toStartWith("# Rehang the shed door");
+  const html = accentWorkId(renderMarkdownHtml(page("Rehang the shed door [work-id::HOME-042]")));
+  expect(html).toContain('<span class="wid">HOME-042</span> · Rehang the shed door');
+  expect(accentWorkId(renderMarkdownHtml(page("Rehang the shed door")))).not.toContain('class="wid"');
 });
 
 test("an attached html file runs sandboxed, without the host's origin", async () => {

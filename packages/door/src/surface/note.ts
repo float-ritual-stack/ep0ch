@@ -28,6 +28,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
@@ -282,7 +283,7 @@ export interface HeaderInfo {
   properties: number;
 }
 
-/** How much of the theme's brightest the title keeps in a tile that doesn't have the keys: a clear step down (not further: the night theme's text must keep 4.5:1), never brighter than the theme allows. */
+/** How much of the heading colour the title keeps in a tile that doesn't have the keys: a clear step down (not further: the night theme's text must keep 4.5:1), never brighter than the theme allows. */
 const TITLE_UNFOCUSED = 0.7;
 
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
@@ -1060,7 +1061,8 @@ export class NoteSurface {
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
   private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
-    const meta = [m.author ?? "?", bbsDate(m.updatedAt), m.props["work-id"]].filter(Boolean).join(" · ");
+    // The Work ID heads the title line (PIE-809), not this one.
+    const meta = [m.author ?? "?", bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
@@ -1078,9 +1080,14 @@ export class NoteSurface {
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), at double height where the terminal has
     // Kitty's text sizing and the title fits that wide; then one dim line holding everything else, its links kept.
-    const title = subject(m), focused = host?.focused !== false;
+    // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
+    const named = workIdTitle(subject(m), m.props["work-id"]), focused = host?.focused !== false;
+    const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
     const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && width(title) * 2 <= w;
-    const ink = (focused ? fg(C.white) : fgRgb(theme().palette[C.white]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
+    // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
+    // body; the note's top heading is drawn as its headings are.
+    const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
+    const accent = fg(focused ? C.lcyan : C.cyan) + BOLD;
     const lead = `${fg(C.dark)}${meta}`;
     // The summary's values follow the byline on the same line; its links shift by what comes before them.
     const before = `${meta}${count && !this.panel ? ` · i ${count} propert${count === 1 ? "y" : "ies"}` : ""}${summary ? " · " : ""}`;
@@ -1092,7 +1099,7 @@ export class NoteSurface {
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
     const first = this.printed ? 1 : big ? 3 : 2;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = ink + pad(title, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = (named.workId ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${named.title}`, w) : ink + pad(title, w)) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
     return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
@@ -1105,11 +1112,11 @@ export class NoteSurface {
    */
   stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
     const src = this.use(host);
-    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src, false);
+    const { rows, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src, false);
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    this.headerSurface(lines, lines.length, w, shade);
+    this.headerSurface(lines, lines.length, w, shade, title ? [title.row] : []);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
   }
 
@@ -1118,12 +1125,14 @@ export class NoteSurface {
    * over the ground, or over the backdrop's colours (cells); a backdrop Kitty draws shows only through cells on the
    * default background, so there the surface yields to it. Capped dark either way (theme.ts surfaceMix).
    */
-  private headerSurface(lines: string[], rows: number, w: number, shade: { placements: Placement[]; grid: CellGrid | null }) {
+  private headerSurface(lines: string[], rows: number, w: number, shade: { placements: Placement[]; grid: CellGrid | null }, plain: readonly number[] = []) {
     const v = this.lastLook?.values, role = v?.["header.bg"] ?? "none", share = (v?.["header.bg.opacity"] ?? 0) / 100;
     const own = role !== "none" && share > 0 && !shade.placements.length;
     if (!own && !shade.grid) return;
     const ground = own ? surfaceMix(role, share) : null;
     for (let r = 0; r < rows; r++) {
+      // The title's own rows stand on the ground, not the band's tint (PIE-809): the crumbs and meta lines stay on it.
+      if (plain.includes(r) && !shade.grid?.[r]) continue;
       const under = shade.grid?.[r];
       const row = under ? (own ? under.map(c => surfaceMix(role, share, c) ?? c) : under) : ground ? [ground] : null;
       if (row?.length) lines[r] = overColours(lines[r]!, w, row);
@@ -1448,7 +1457,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade);
+    this.headerSurface(lines, headerRows, w, shade, title ? (title.big ? [title.row, title.row + 1] : [title.row]) : []);
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.

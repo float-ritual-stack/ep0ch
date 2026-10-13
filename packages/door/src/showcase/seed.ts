@@ -353,9 +353,9 @@ export const artifactsText = (dir = "artifacts") => [
  * properties give the byline's meta line something to hold (the summary values are links).
  */
 export const titleText = (whiteboardId = "00000000-0000-4000-8000-000000000000") => [
-  `${SEED.title} [type::roadmap-item] [work-stage::doing] [priority::high] [track::allotment]`,
+  `${SEED.title} [type::roadmap-item] [work-id::${WORK_PREFIX}-042] [work-stage::doing] [priority::high] [track::allotment]`,
   "",
-  "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bright, bold line (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and one dim line under it holds the author, the day, the work id, the property count and the summary values, which are still links. The tile's frame bar says only `detail`: the title is not written twice.",
+  "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bold line in the heading colour (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and its Work ID first in the accent (PIE-809), and one dim line under it holds the author, the day, the property count and the summary values, which are still links. The tile's frame bar says only `detail`: the title is not written twice.",
   "",
   "Before:",
   "",
