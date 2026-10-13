@@ -196,7 +196,7 @@ function newPageItem(query: string, have: readonly { address: string }[], prefix
 /** How many of the top notes a `((words` list shows the anchors of, and how many each. */
 const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
 /** The parts of the first note `((words` lists under it with no anchor yet (PIE-592), and how many. */
-const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4;
+const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4, PASSAGES_ASKED = 100;
 /** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
 const NOTES_SEARCHED = 3;
 
@@ -222,7 +222,8 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
   // first; choosing one adds its anchor, as a passage refined with ^ does.
   const [theirs, parts] = anchored && top.length ? await Promise.all([
     anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }),
-    anchors({ blockIds: top.slice(0, 1), fragmentQuery: "", mode: "passage", limit: COMPLETION_LIMIT, ...draft }),
+    // Its anchors and paragraphs come first in that list: asked for the most the service gives, so they don't hide them.
+    anchors({ blockIds: top.slice(0, 1), fragmentQuery: "", mode: "passage", limit: PASSAGES_ASKED, ...draft }),
   ]) : [null, null];
   const items: CompletionItem[] = [], seen = new Set<string>();
   const add = (it: CompletionItem) => { if (!seen.has(it.insertion)) { seen.add(it.insertion); items.push(it); } };

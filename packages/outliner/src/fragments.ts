@@ -208,7 +208,7 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
     // An anchor alone on the line after a component's `::` is the component's (PIE-580).
     const component = !content && componentsByEnd(lines, components).get(lineIndex - 1);
     // One at the end of a quote's last line is the whole quote's or callout's (PIE-592).
-    const quote = !component && !item ? note.quotes.find(q => q.endLine === lineIndex) : undefined;
+    const quote = !component ? note.quotes.find(q => q.endLine === lineIndex) : undefined;
     const quoted = quote ? quoteFragment(lines, quote) : null;
     anchors.push({
       id: match[1]!,
@@ -374,7 +374,8 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   const out: FragmentCandidate[] = [];
   for (const q of note.quotes) {
     for (let l = q.startLine; l <= q.endLine; l++) quoted.add(l);
-    if (lines.slice(q.startLine, q.endLine + 1).some(l => fragmentAnchorMatch(l))) continue;
+    // Anchored already on its last line (its own anchor); one on an earlier line is that line's, not the quote's.
+    if (fragmentAnchorMatch(lines[q.endLine] ?? "")) continue;
     out.push({ ...quoteFragment(lines, q), lineIndex: q.endLine });
   }
   const skip = (i: number) => note.codeLines.has(i) || component.has(i) || quoted.has(i);

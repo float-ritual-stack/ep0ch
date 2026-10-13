@@ -250,4 +250,13 @@ describe("quotes and callouts (PIE-592): one passage each, embedded whole", () =
     const whole = resolveFragmentSlice(callout.text, "the-latch-sticks");
     expect(whole.status === "resolved" && whole.slice.text).toBe("> The latch sticks in the rain.\n> Lift it before you pull.");
   });
+  test("a quote ending in a list item is still the whole quote's; an anchor mid-quote leaves the whole quote offered", () => {
+    const listed = "Note\n\n> Intro\n> - Last item";
+    const at = ensureFragmentAnchor(listed, 3);
+    expect(fragmentAnchors(at.text).map(a => a.kind)).toEqual(["quote"]);
+    const r = resolveFragmentSlice(at.text, at.fragmentId);
+    expect(r.status === "resolved" && r.slice.text).toBe("> Intro\n> - Last item");
+    const mid = "Note\n\n> First paragraph ^first\n>\n> Second paragraph";
+    expect(fragmentCandidates(mid, "", "passage").map(c => [c.kind, c.lineIndex])).toContainEqual(["quote", 4]);
+  });
 });
