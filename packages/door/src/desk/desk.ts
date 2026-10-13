@@ -10,6 +10,7 @@
 import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -2751,6 +2752,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (st) put(` ${st.glyph}`, on ? selected(focused, "idleRow") + st.sgr : st.sgr, t);
         put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
+    } else if (this.noteOf(id)) {
+      // A reader showing a note (PIE-809): its border is the note's title, Work ID first in the accent, the place the eye
+      // lands; what the tile is (its number, its kind or name, its mode, its links, how far down) follows, dim, and gives
+      // way first where the border is short. The title keeps most of the room, but never all of it.
+      const m = this.noteOf(id)!, named = workIdTitle(subject(m), m.props["work-id"]);
+      if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
+      this.putMarks(id, put, xNow, r.row);
+      this.putStatus(id, put);
+      const room = Math.max(12, Math.floor((max - xNow()) * 0.7));
+      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
+      put(headOf(named.title, Math.max(4, room - (named.workId ? named.workId.length + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
+      const p = this.panes.get(id)!;
+      put(` · ${this.plainName(id) ? p.title() : this.nameOf(id)}`, fg(C.dark), id);
+      return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as its number, then its title.
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
@@ -2826,6 +2841,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
+  /** The note a reader tile shows, when its border is that note's title (PIE-809): a block, not a file or a Resource. */
+  private noteOf(id: number): Msg | null {
+    const p = this.panes.get(id);
+    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") ? p.msg : null;
+  }
   private plainName(id: number) {
     const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
     // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.

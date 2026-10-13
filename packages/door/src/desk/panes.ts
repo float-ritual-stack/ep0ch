@@ -1,4 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
+import { headedTitle } from "../board";
 import type { Look, TileLooks } from "../look";
 import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { RowView, type RowPress } from "../scroll";
@@ -487,7 +488,8 @@ export class ReaderPane implements Pane {
   spine() {
     const s = this.surface, hold = s.draft ? "✎" : s.session ? "¶" : s.panel ? "≡" : "";
     const marks = [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET, ...(this.newComments() ? [fg(C.yellow) + "■" + RESET] : [])];
-    return { title: this.msg ? subject(this.msg) : this.title(), marks };
+    // The same title as its border (PIE-809): the Work ID first.
+    return { title: this.msg ? headedTitle(this.msg) : this.title(), marks };
   }
 
   /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited. */
