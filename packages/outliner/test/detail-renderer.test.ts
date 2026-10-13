@@ -771,3 +771,16 @@ test("compact Detail keeps one hint row: a status while it lasts, then the gener
   const flashing = renderDetailFooter(state({status: "Keymap and bars reloaded"}), 60, "preview", "", undefined, "compact", hints);
   expect(flashing.map(line => stripTerminalSequences(line))).toEqual(["Keymap and bars reloaded"]);
 });
+
+test("a note with a Work ID heads its title with it, once, and the metadata line doesn't repeat it (PIE-809)", () => {
+  const selected = block("HOME-042 — Rehang the shed door", [{ key: "work-id", value: "HOME-042" }, { key: "work-stage", value: "doing" }] as Block["properties"]);
+  const lines = renderDetailHeader(state({ context: { selected, ancestors: [], children: [] } }), 80, { propertyKeys: ["work-id", "work-stage"] });
+  const head = stripTerminalSequences(lines[0]!);
+  expect(head).toContain("HOME-042 · Rehang the shed door");
+  expect(head.match(/HOME-042/g)).toHaveLength(1);
+  expect(lines[0]).toContain("\x1b[1;96mHOME-042");
+  expect(stripTerminalSequences(lines[1]!)).not.toContain("HOME-042");
+  const plain = stripTerminalSequences(renderDetailHeader(state({ context: { selected: block("Rehang the shed door"), ancestors: [], children: [] } }), 80)[0]!);
+  expect(plain).toContain("Rehang the shed door");
+  expect(plain).not.toContain(" · Rehang");
+});
