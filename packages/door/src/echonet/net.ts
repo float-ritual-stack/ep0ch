@@ -18,7 +18,7 @@
 // in the door, and unread is the read marks' `unread:me`. A tag's value can be a list (`[echo::a, b]`), which a query's
 // `echo=<name>` wouldn't match, so the tagged notes are the `echo` question's, filtered here.
 import { subject, type Msg } from "../board";
-import { bbsDate } from "../text";
+import { ago, bbsDate } from "../text";
 
 export const NODELIST = "nodelist";
 export const TOSS = "toss";
@@ -278,9 +278,11 @@ export function nodelistLines(title: string, nodes: readonly NodeEntry[], tosses
   const dayNo = Math.floor((day.getTime() - start.getTime()) / 86_400_000);
   const when = day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const nodeW = Math.min(28, Math.max(8, ...nodes.map(n => n.node.length)));
+  const self = nodes.find(n => n.self);
   return [
     `|08;A |15EchoNet Nodelist |08for ${when} -- Day number ${dayNo}`,
-    `|08;A |07${title}`,
+    // The heartbeat: a toss that moved nothing writes no log, so how long since this node last tossed is said here.
+    `|08;A |07${title}${self?.lastToss ? ` |08· tossed ${ago(self.lastToss, now)} ago` : ""}`,
     "|08;",
     `|08;  #  ${"node".padEnd(nodeW)}  status  last toss         held     areas`,
     ...nodes.map((n, i) => {

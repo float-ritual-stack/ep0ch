@@ -7,16 +7,21 @@ import { parseArgs } from "node:util";
 import { areasIn, type Block, firstLine, isCopy, kindOf, parseMask, parseNode, prop, trashed, values } from "../extensions/echonet/shapes";
 import { createOutlinerClient } from "./client";
 import { resolveClientPaths } from "./paths";
+import { tossHealth } from "./echo-health";
 
 /** How long a toss may take: echonet's deadline (extension.json, 4 minutes) and the minute it may wait for a toss already running. */
 const TOSS_TIMEOUT_MS = 5 * 60_000 + 30_000;
 
 const USAGE = `usage: ep0ch echo toss [--ws <outline>] [--json]
+       ep0ch echo status [--ws <outline>] [--json]   when each outline's tosser last ran, and whether that's too long ago
        ep0ch echo nodelist [--ws <outline>] [--json]
        ep0ch echo subscribe <node mask> <area> [--ws <outline>] [--under <id>] [--since all|<date>] [--cap <n>] [--title <words>]
        ep0ch echo areas [--ws <outline>] [--json]
-  toss       copies new echomail in, carries netmail both ways, writes the nodelist and a toss log: in --ws, or in
-             every outline on this host that has the echonet extension in its own extensions/ folder
+  toss       copies new echomail in, carries netmail both ways, writes the nodelist, and a toss log when anything
+             moved or went wrong: in --ws, or in every outline on this host that has the echonet extension in its
+             own extensions/ folder
+  status     each such outline: "tossed 4 min ago (every 30m)", or how long it hasn't and the command that tosses
+             now (exit 1 when one is older than twice its schedule)
   nodelist   writes the nodelist again and prints it
   subscribe  writes a subscription: <node mask> is outline@machine (* for any part: *@float-2, rexall-*@laptop,
              *@*) or @<page> (a page listing nodes); <area> a name or a mask (ep0ch.*). It reads from now unless
@@ -29,7 +34,7 @@ interface Client { request<T>(input: Record<string, unknown>, timeoutMs?: number
 
 export async function runEchoCommand(args: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [operation, ...rest] = args;
-  if (operation !== "toss" && operation !== "nodelist" && operation !== "subscribe" && operation !== "areas") {
+  if (operation !== "toss" && operation !== "nodelist" && operation !== "subscribe" && operation !== "areas" && operation !== "status") {
     console.error(USAGE);
     return operation === undefined || operation === "help" || operation === "--help" ? 0 : 2;
   }
@@ -52,6 +57,14 @@ export async function runEchoCommand(args: readonly string[], env: NodeJS.Proces
     if (operation === "subscribe") return await subscribe(client(here()), positionals, flags);
     if (positionals.length) throw new Error(USAGE);
     if (operation === "areas") return await areas(client(here()), here(), flags.json === true);
+    if (operation === "status") {
+      // A toss that moved nothing writes no log: when each tosser last ran is the bulletin it writes every toss.
+      const health = tossHealth(paths.outlinesFolder).filter((h) => !outlineName || h.outline === outlineName);
+      if (flags.json) console.log(JSON.stringify(health));
+      else if (!health.length) console.log(`No outline${outlineName ? ` named ${outlineName}` : ""} here has EchoNet in its own folder: ep0ch ext add echonet --outline-folder <outlines>/<name>`);
+      else for (const h of health) (h.status === "ok" ? console.log : console.error)(`${h.outline}: ${h.detail}${h.fix ? `\n  ${h.fix}` : ""}`);
+      return health.every((h) => h.status === "ok") ? 0 : 1;
+    }
 
     let nodes: string[];
     if (outlineName) nodes = [outlineName];

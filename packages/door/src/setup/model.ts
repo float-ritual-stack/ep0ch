@@ -5,6 +5,7 @@
 // The stack is one checkout (the ep0ch repo: packages/outliner is the Herdr plugin and the outline host,
 // packages/door is `ep0ch`, the Claude mod is in it too) and one outline host serving `<outlines>/<name>.sqlite`
 // by name (PIE-530).
+import type { TossHealth } from "@ep0ch/outliner/echo-health";
 import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
@@ -188,6 +189,8 @@ export interface Facts {
    * `chosen`: what `--dials-in` or `--no-dials-in` asked for this run.
    */
   dialsIn?: { file: string; configured: boolean; chosen?: boolean };
+  /** Each outline with EchoNet in its own folder: when its tosser last ran (its bulletin), against its schedule. */
+  echonet?: TossHealth[];
   databases: DatabaseFacts[];
   /** The schema the checkout's code opens and each outline's (PIE-617); undefined when not looked for. */
   schema?: SchemaFacts;

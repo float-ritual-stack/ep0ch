@@ -2,11 +2,12 @@
 // attic), the repo's extensions/echonet copied into its user folder, areas and subscriptions between them, and tosses
 // driven by hand; and a second machine through the fake ssh. Every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { tossHealth } from "../src/echo-health";
 import { OutlineHost } from "../src/outline-host";
 import type { Block } from "../src/types";
 
@@ -230,6 +231,52 @@ test("an area is a named view: its query, its children and the notes tagged with
   expect(shackList.text).toContain(`## cafe@${machine}`);
   expect(shackList.text).toContain("reads our areas");
 }, 60_000);
+
+test("a toss that moved nothing writes no log; its nodelist's last toss and its bulletin say it ran (PIE-798)", async () => {
+  const { machine, outlines, toss, create, where, board } = await setup(["shack", "cafe"]);
+  await create("shack", "Plot 1: the beans are up [echo::plot]");
+  const sub = await create("cafe", `Plot [subscribe::shack@${machine}] [echo::plot] [since::all]`);
+  await toss("shack");
+  expect(await toss("cafe")).toContain("copies 1");
+  const logs = async () => (await where("cafe", "type=toss")).length;
+  const before = await logs();
+  const lastToss = async () => (await where("cafe", "type=nodelist"))[0]!.text.match(/\[last-toss::([^\]]+)\]/)![1]!;
+  const was = await lastToss();
+  await Bun.sleep(5);
+  // Nothing new: a toss, no log; the nodelist's last toss moves, and so does the bulletin beside the outline.
+  expect(await toss("cafe")).toEndWith("copies 0, waiting 0, newer 0, gone 0, skipped 0, seen-by 0, netmail out 0, in 0, queued 0, undeliverable 0 · nothing moved, so no log (the nodelist's last toss says when)");
+  expect(await logs()).toBe(before);
+  expect(await lastToss()).not.toBe(was);
+  expect(tossHealth(outlines).map((h) => h.outline)).toEqual([]);   // EchoNet here is the host's, not in an outline's folder
+  // Something moved: a log again.
+  await create("shack", "Plot 2: slugs on the lettuce [echo::plot]");
+  await toss("shack");
+  expect(await toss("cafe")).toContain("copies 1");
+  expect(await logs()).toBe(before + 1);
+  expect((await board("cafe", sub, `shack@${machine}`)).copies).toHaveLength(2);
+}, 60_000);
+
+test("echo status: when each outline's tosser last ran, from its bulletin, and a warning with the command when it's late", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "echo-health-")));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  for (const name of ["pie", "gurgle", "attic"]) {
+    mkdirSync(join(root, name, "extensions", "echonet"), { recursive: true });
+    cpSync(join(EXTENSION, "extension.json"), join(root, name, "extensions", "echonet", "extension.json"));
+  }
+  mkdirSync(join(root, "plain"));                     // no EchoNet: not said
+  const now = Date.now();
+  for (const [name, minutes] of [["pie", 4], ["gurgle", 75]] as const) {
+    mkdirSync(join(root, name, "echonet"), { recursive: true });
+    writeFileSync(join(root, name, "echonet", "bulletin.json"), "{}");
+    utimesSync(join(root, name, "echonet", "bulletin.json"), new Date(now - minutes * 60_000), new Date(now - minutes * 60_000));
+  }
+  const health = tossHealth(root, now);
+  expect(health.map((h) => [h.outline, h.status, h.detail, h.fix])).toEqual([
+    ["attic", "stale", "EchoNet is on, and it has never tossed (every 30m): is its outline host running?", "ep0ch echo toss --ws attic"],
+    ["gurgle", "stale", "last tossed 75 min ago, and it tosses every 30m: its schedule isn't running (is its outline host?)", "ep0ch echo toss --ws gurgle"],
+    ["pie", "ok", "tossed 4 min ago (every 30m)", undefined],
+  ]);
+});
 
 test("a subscription takes what's new from its first toss, at most its cap a toss, and says how many wait", async () => {
   const { machine, toss, create, get, board, where, call } = await setup(["shack", "cafe"]);
