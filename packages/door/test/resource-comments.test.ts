@@ -145,10 +145,11 @@ describe("C on a selection in a Resource, against the source", () => {
 // placed) leave it unplaced: "couldn't place", never someone else's line.
 test("a comment whose offsets aren't its quote's words in the note has no place", () => {
   const text = "08:29 Jo Bell: Bring the twine for the pea poles.\n08:30 Jo Bell: Mulch the rhubarb.";
-  const at = (quote: string, start: number) => ({ quote, start, end: start + quote.length });
+  type Placed = { quote: string; start: number | null; end: number | null };
+  const at = (quote: string, start: number): Placed => ({ quote, start, end: start + quote.length });
   const own = at("Bring the twine for the pea poles.", text.indexOf("Bring"));
   const stale = at("Bring the twine for the bean poles.", text.indexOf("Bring"));
-  const across = { quote: "pea poles. 08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
+  const across: Placed = { quote: "pea poles. 08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
   expect(onTheirWords([own, stale, across], text)).toEqual([own, { ...stale, start: null, end: null }, across]);
   expect(onTheirWords([stale], undefined)).toEqual([stale]);
   // A quote kept as written, across a line: its own words still.
