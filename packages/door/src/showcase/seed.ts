@@ -59,6 +59,7 @@ export const SEED = {
   settings: "Compost bay jobs get a badge",
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
+  halfWritten: "A note left half-written",
   labels: "Jar labels",
   logBeans: "Bean row log",
   logCompost: "Compost bay log",
@@ -227,7 +228,7 @@ const WHITEBOARD = [
   "- Saturday",
   "  - clean the oven, then the fridge shelves nobody has touched since the spring clean",
   "    - [ ] buy the oven cleaner",
-  "Press e to edit; type [[ for a page, (( for a block, [file:: for a file; ctrl+t puts in notes or files another program picks (tv ep0ch).",
+  "Press e to edit; type `[[` for a page, `((` for a block, `[file::` for a file; ctrl+t puts in notes or files another program picks (tv ep0ch).",
   "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
   `In an edit, ctrl+l opens the link the cursor is on beside it, and the edit stays open: [[${SEED.shed}]]. So does an alt- or ctrl-click on one, or a click on one in the preview. In \`[[\`, a name no page has yet is offered as a new page.`,
 ].join("\n");
@@ -442,6 +443,20 @@ export const NEW_NOTES = [
   "A page link can hold another: [[[[2026-03-12]] - seed swap notes]] is one link to the page \"[[2026-03-12]] - seed swap notes\" (the brackets are counted, never matched by the first `]]`), and the 2026-03-12 page lists this note among its backlinks too.",
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
+].join("\n");
+
+/**
+ * A half-written note (PIE-669): a fence and a page link left open. Each costs only itself: the fence its paragraph,
+ * the link its line; the link and tag after the fence still count, and the reader says both, with how to close them.
+ */
+export const HALF_WRITTEN = [
+  SEED.halfWritten,
+  "Typed in a hurry: the fence below was never closed, and neither was the link on the last line.",
+  "```ts",
+  "const jars = 12",
+  "",
+  `After the code, the [[${SEED.shed}]] page and this tag still count. #seed-jars`,
+  "Ask about [[Seed tr",
 ].join("\n");
 
 /**
@@ -1228,6 +1243,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.looksLab = await make(notes.root.id, LOOKS_LAB);
   notes.spacingLab = await make(notes.root.id, SPACING_LAB);
   notes.overscroll = await make(notes.root.id, OVERSCROLL);
+  notes.halfWritten = await make(notes.root.id, HALF_WRITTEN);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

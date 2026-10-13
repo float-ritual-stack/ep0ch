@@ -2,6 +2,7 @@
 // `referenceWarnings`. A save never waits on this and is never refused by it; the warning follows the save.
 
 import { describeReferenceWarnings, referenceWarnings, type ReferenceLookups, type ReferenceWarning } from "@ep0ch/outline-core/reference-warnings";
+import { describeSyntaxWarnings, syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import type { SocketBoard } from "./socket";
 
 export type ReferenceBoard = Pick<SocketBoard, "resolveReferences" | "searchBlocks" | "get">;
@@ -21,7 +22,12 @@ export async function savedReferenceWarnings(board: ReferenceBoard, text: string
   try { return await referenceWarnings(text, boardReferenceLookups(board, near, self)); } catch { return []; }
 }
 
-/** The same, said in one line ("" when there's nothing to say). */
+/**
+ * The same, said in one line, with each construct the text left open (PIE-669: an unclosed fence, `[[`, `[key::`,
+ * component or literal region, and what is read instead); "" when there's nothing to say.
+ */
 export async function savedReferenceWarning(board: ReferenceBoard, text: string, near?: string, self = near): Promise<string> {
-  return describeReferenceWarnings(await savedReferenceWarnings(board, text, near, self));
+  const references = describeReferenceWarnings(await savedReferenceWarnings(board, text, near, self));
+  const open = describeSyntaxWarnings(syntaxWarnings(text));
+  return references && open ? `${references} · ${open}` : references || (open ? `saved; ${open}` : "");
 }

@@ -14,6 +14,7 @@
  * anchor other notes link to.
  */
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
+import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
@@ -497,10 +498,15 @@ export function shortDiff(before: string, after: string, max = 40): string {
 }
 
 /**
- * The references `text` kept that lead nowhere, each with what it may have meant (PIE-761): said after the write,
- * never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
+ * The references `text` kept that lead nowhere, each with what it may have meant (PIE-761), then each construct it
+ * left open (PIE-669: an unclosed fence, `[[`, `[key::`, component or literal region, and what is read instead): said
+ * after the write, never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
  */
 export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
+  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message)];
+}
+
+async function referenceOnlyWarnings(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
   try {
     const warnings = await referenceWarnings(text, {
       resolve: async t => (await client.request<ResolvedBlockReferences>({ action: "references.resolve", text: t })).references,

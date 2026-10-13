@@ -76,6 +76,17 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
   });
 
+  test("no seeded note leaves a construct open but the half-written one, so no reader shows a ⚠ by accident (PIE-669)", async () => {
+    const { syntaxWarnings } = await import("@ep0ch/outline-core/syntax-warnings");
+    const open: string[] = [];
+    for (const [name, m] of Object.entries(seeded.notes)) {
+      const text = (await board.get(m.id))?.text ?? "";
+      if (name !== "halfWritten") open.push(...syntaxWarnings(text).map(w => `${name}: ${w.message}`));
+    }
+    expect(open).toEqual([]);
+    expect(syntaxWarnings(seeded.notes.halfWritten.text).map(w => w.kind)).toEqual(["fence", "page-link"]);
+  });
+
   test("the remote writes note (PIE-615): a remote client's patch at propose is a proposal under it, its comment a thread, the note unchanged", async () => {
     const note = seeded.notes.remoteWrites;
     const now = (await board.get(note.id))!;
@@ -698,6 +709,49 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => copies().length > 0, "the drag copied");
     expect(copies()).toEqual([osc52("- Broad beans\n- Runner beans")]);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  // PIE-669, the human workflow: a person opens a half-written note, types a fence mid-note and leaves it open, saves;
+  // nothing after it is lost or read as code, and the reader says each construct left open, with how to close it.
+  test("a half-written note: a fence typed and left open mid-note costs only its paragraph, the save keeps the rest, the reader says each open construct", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "note" }, as: "test-agent" });
+    await until(() => marks.note!.every(m => screen().includes(m)), "the note section");
+    const stage = () => S().stages.get(S().sel).top;
+    const note = seeded.notes.halfWritten.id;
+    await app.act({ action: "open", tile: "reader", args: { id: note }, as: "test-agent" });
+    await until(() => screen().includes("⚠ the ``` on line 3 isn't closed: lines 3–4 are code"), "the open fence said", 8000);
+    expect(screen()).toContain("⚠ the [[Seed tr on line 7 isn't closed with ]]");
+    // What follows the fence's paragraph is the note, as the service reads it.
+    expect((await board.get(note))!.properties).toContainEqual({ key: "tag", value: "seed-jars" });
+    // The person's keys: into the stage, e then ⏎ opens the edit; down to the line after the blank one, a fence typed
+    // and left open on a paragraph of its own, then ctrl+s.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    await until(() => stage().describe().focusName === "reader", "the reader has the keys");
+    ch("e"); press({ kind: "enter" });
+    const draft = () => stage().pane("reader").surface.draft;
+    await until(() => !!draft()?.text, "the edit open", 8000);
+    // A click at the start of the line after the blank one puts the cursor there (the person's mouse).
+    const rows = () => sc.render(app).lines.map(plain);
+    const at = () => { const r = rows(); const y = r.findIndex(l => l.includes("After the code, the") && l.indexOf("After the code, the") > 50); return { y, x: y >= 0 ? r[y]!.indexOf("After the code, the") : -1 }; };
+    await until(() => at().y > 0, "the line in the edit", 8000);
+    const line = at();
+    press({ kind: "mouse", action: "down", button: 0, x: line.x, y: line.y }); press({ kind: "mouse", action: "up", button: 0, x: line.x, y: line.y });
+    for (const c of "~~~") ch(c);
+    press({ kind: "enter" }); press({ kind: "enter" });
+    expect(draft()!.text.split("\n").slice(4, 8)).toEqual(["", "~~~", "", "After the code, the [[Bike shed]] page and this tag still count. #seed-jars"]);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !draft(), "saved, the person reading", 8000);
+    const saved = (await board.get(note))!;
+    expect(saved.text.split("\n")).toContain("~~~");
+    expect(saved.properties).toContainEqual({ key: "tag", value: "seed-jars" });
+    await until(() => screen().includes("⚠ the ~~~ on line 6 isn't closed: it holds no code yet"), "the new open fence said", 8000);
+    // Drawn as the note, not as code: the link drawn as a link (its brackets gone).
+    expect(screen()).toContain("After the code, the Bike shed page and this tag still count.");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // The section's reader back on its own note, for the tests after.
+    await app.act({ action: "open", tile: "reader", args: { id: seeded.notes.notebook.id }, as: "test-agent" });
   }, 40_000);
 
   test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {

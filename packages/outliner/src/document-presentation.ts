@@ -1,5 +1,6 @@
 import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type MappedDocument, type ObservedDocument} from './document-provenance';
 import {closesCodeFence, codeFenceOpen, type CodeFence} from '@ep0ch/outline-core/code-fence';
+import {noteCodeFences} from '@ep0ch/outline-core/component-block';
 import {isLiteralMarkerLine, literalMarkerLineStarts, scanLiteralRegions, type SourceRange} from '@ep0ch/outline-core/code-ranges';
 import {sanitizedTextParts} from './terminal';
 
@@ -102,7 +103,13 @@ export function presentReaderHeadings(document: MappedDocument): MappedDocument 
   const literal = literalMarkerPresentation(document);
   const markerStarts = literal.markerStarts;
   let titlePending = true;
+  // An unquoted fence left open ends at its paragraph (PIE-669, outline-core's codeBlocks): the reader closes it there,
+  // so Markdown doesn't draw the rest of the note as code.
+  const unclosed = new Map(noteCodeFences(document.text.split('\n')).filter(block => !block.closed)
+    .map(block => [block.end, block.fence.char.repeat(block.fence.length)]));
+  let lineIndex = -1;
   for (const sourceLine of document.text.split(/(?<=\n)/)) {
+    lineIndex++;
     const newlineLength = sourceLine.endsWith('\r\n') ? 2 : sourceLine.endsWith('\n') ? 1 : 0;
     const line = sourceLine.slice(0, sourceLine.length - newlineLength);
     const end = offset + sourceLine.length;
@@ -129,6 +136,11 @@ export function presentReaderHeadings(document: MappedDocument): MappedDocument 
           generatedDocument(`## ${'›'.repeat(heading[2]!.length - 2)} `, 'reader heading depth'),
           sliceDocument(document, offset + titleStart, end));
       } else appendLine();
+    }
+    const closing = unclosed.get(lineIndex);
+    if (closing !== undefined && fence) {
+      parts.push(generatedDocument(`${newlineLength ? '' : '\n'}${closing}\n`, 'closing an unclosed fence at its paragraph'));
+      fence = null;
     }
     offset = end;
   }

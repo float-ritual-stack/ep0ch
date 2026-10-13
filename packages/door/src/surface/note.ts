@@ -17,6 +17,7 @@ import { subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
+import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, type CommentEnv } from "../comment";
@@ -1277,7 +1278,8 @@ export class NoteSurface {
     // Back and forward (PIE-453): the reader's last row, while it has somewhere to go.
     const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
     if (foot) h -= 1;
-    const unterminated = m.text.includes("<!--") ? literalLines(m.text).unterminated : null;
+    // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
+    const open = syntaxWarnings(m.text);
     this.lookAt(m, w, host);
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
@@ -1294,8 +1296,9 @@ export class NoteSurface {
     // [diff] [open copy] [dismiss] [take it back]; an old one on an older revision folds into one dim line.
     const unsentHead = this.unsentHead(m, w, head.length);
     head.push(...unsentHead.lines,
-      // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
-      ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
+      // An opener without a closer (a literal region, PIE-422; a fence, `[[`, `[key::` or component, PIE-669): said.
+      ...open.slice(0, OPEN_SHOWN).map(o => fg(C.yellow) + pad(`⚠ ${o.message}`, w) + RESET),
+      ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
@@ -6045,6 +6048,8 @@ function proposalTarget(id: string | undefined, surface: NoteSurface): string {
 
 /** What a reader showing a trashed note says under its header (the river's column says it too). */
 export const IN_TRASH = "■ in the Trash · still readable here";
+/** How many open constructs a reader says by name above the note; the rest are counted. */
+const OPEN_SHOWN = 3;
 
 
 // ── the actions ──────────────────────────────────────────────────────────────

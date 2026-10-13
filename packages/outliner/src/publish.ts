@@ -1,3 +1,4 @@
+import { closeOpenFences } from "@ep0ch/outline-core/component-block";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
@@ -379,7 +380,8 @@ export function accentWorkId(html: string): string {
 export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
   const before = activeCallouts;
   activeCallouts = callouts;
-  try { return markdownRenderer.parse(markdown, { async: false }) as string; } finally { activeCallouts = before; }
+  // A fence left open ends at its paragraph, as the service reads it (PIE-669), not at the page's end.
+  try { return markdownRenderer.parse(closeOpenFences(markdown), { async: false }) as string; } finally { activeCallouts = before; }
 }
 
 const PAGE_STYLE = `

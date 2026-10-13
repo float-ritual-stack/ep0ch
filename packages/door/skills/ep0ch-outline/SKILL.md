@@ -105,6 +105,10 @@ revision, so concurrent edits rarely collide.
   proposal they can apply or dismiss when a span is gone, changed or ambiguous, when the note is open in a draft,
   or when `prose` refuses.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
+- A write's `warnings` are answers too: a `((` that leads nowhere (with a did-you-mean), and each construct you
+  left open (an unclosed fence, `[[`, `[key::`, `::component` or `<!-- literal -->`, on its line, with how to close
+  it). The text was saved as you wrote it, and an open construct costs only itself (a fence its paragraph); fix it
+  in the next write.
 
 ## How they write
 
