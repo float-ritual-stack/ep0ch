@@ -377,7 +377,12 @@ test("a packet is imported only onto what the receiver publishes; a bulletin onl
       { kind: "netmail", original: kept.id, key: `cafe@${machine}/00000000-0000-4000-8000-0000000000bb`, body: "let me in", properties: {}, author: "user" },
     ],
   };
+  // Handing it over writes no note: it is a file in the shack's inbound until the shack's own tosser runs.
+  const sequence = () => send<unknown>(sock, { outline: "shack", action: "changes.since", sequence: Number.MAX_SAFE_INTEGER });
+  const before = JSON.stringify(await sequence());
   await send(sock, { outline: "shack", action: "echonet.put", from: `cafe@${machine}`, packet });
+  expect(await threads("shack", offered.id)).toEqual([]);
+  expect(JSON.stringify(await sequence())).toBe(before);
   expect(await toss("shack")).toContain("in 1,");
   expect((await threads("shack", offered.id)).map((thread) => thread.body)).toEqual(["is it the bearing?"]);
   expect(await threads("shack", kept.id)).toEqual([]);
