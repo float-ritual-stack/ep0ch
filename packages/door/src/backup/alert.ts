@@ -195,7 +195,7 @@ export function alertMark(a: Alert | null, now: number): { text: string; say: st
   }
   if (!a.incidents.length) {
     // Backed up, the long way round: a status, not a problem (the work VPN keeps the laptop off the bucket).
-    if (a.route) return { text: `↪ backup`, say: `repository unreachable (work VPN?): sent through ${a.route.via} since ${hhmm(a.route.since)}`, status: true };
+    if (a.route) return { text: `→ backup`, say: `repository unreachable (work VPN?): sent through ${a.route.via} since ${hhmm(a.route.since)}`, status: true };
     return null;
   }
   const first = a.incidents[0]!;

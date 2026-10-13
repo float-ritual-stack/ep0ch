@@ -127,7 +127,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     expect(drilled.detail).toContain("through hub-box");
     expect(drilled.detail).toContain("orchard ok");
     // Status, not a problem: the status bar's mark is quiet, and doctor's verdict says the route.
-    expect(alertMark(readAlert(laptop.state), t)).toMatchObject({ text: "↪ backup", status: true, say: expect.stringContaining("repository unreachable (work VPN?): sent through hub-box") });
+    expect(alertMark(readAlert(laptop.state), t)).toMatchObject({ text: "→ backup", status: true, say: expect.stringContaining("repository unreachable (work VPN?): sent through hub-box") });
     expect(statusLines(laptop).join("\n")).toContain("✓ all backed up · repository unreachable (work VPN?): sent through hub-box");
     // The hub out of reach too: the drill waits, said, and the last one stands; it isn't an incident.
     const down = laptopWith({ FAKE_SSH_DOWN: "1" });
