@@ -4,8 +4,9 @@
 // id (`data-ann`), so the page's reader script (publish-reader.js, PIE-774) can hang its thread on it.
 //
 // The marks ride through the Markdown renderer as private-use sentinels placed around each passage in the block's
-// published text, then become tags once the HTML is rendered. A passage whose words fall across markup (a link, a
-// half of a bold run) is left unmarked; its aside still follows its paragraph.
+// published text, then become tags once the HTML is rendered. A passage whose words fall across markup (half of a bold
+// run, the end of a link) is marked in pieces, one `<mark>` per run of its text, each with the same id; one whose ends
+// fall inside a tag (a link's address) is left unmarked, and its aside still follows its paragraph.
 
 import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -128,6 +129,22 @@ function balanced(fragment: string): boolean {
   return stack.length === 0;
 }
 
+/** The runs of text (words, not only spaces) between `from` and `to`, each as [start, end), tags left out. */
+function textRuns(html: string, from: number, to: number): Array<[number, number]> {
+  const runs: Array<[number, number]> = [];
+  let at = from;
+  while (at < to) {
+    const tag = html.indexOf("<", at);
+    const end = tag < 0 || tag > to ? to : tag;
+    if (/[^\s\uE000-\uE1FF]/.test(html.slice(at, end))) runs.push([at, end]);
+    if (end === to) break;
+    const close = html.indexOf(">", end);
+    if (close < 0) break;
+    at = close + 1;
+  }
+  return runs;
+}
+
 const BLOCK_END = /<\/(?:p|h[1-6]|li|blockquote|td|th|pre)>|<(?:ul|ol)>/g;
 
 /**
@@ -144,12 +161,15 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
   for (const [index, open] of opens) {
     const mark = marks[index], close = closes.get(index);
     if (!mark || close === undefined || close < open) continue;
-    const drawn = inText(html, open) && inText(html, close) && balanced(html.slice(open + 2, close).replace(SENTINEL, ""));
-    if (drawn) {
+    if (inText(html, open) && inText(html, close)) {
       const tags = mark.tags.length ? ` data-tags="${escapeHtml(mark.tags.join(" "))}"` : "";
-      edits.push({ at: open, remove: 0, order: 0,
-        insert: `<mark class="ann ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>` });
-      edits.push({ at: close, remove: 0, order: 0, insert: "</mark>" });
+      const tag = `<mark class="ann ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>`;
+      // Whole when it nests; else each run of its text between tags is marked on its own, so the HTML stays well formed.
+      const runs = balanced(html.slice(open + 2, close).replace(SENTINEL, "")) ? [[open, close]] : textRuns(html, open + 2, close);
+      for (const [from, to] of runs) {
+        edits.push({ at: from, remove: 0, order: 0, insert: tag });
+        edits.push({ at: to, remove: 0, order: 0, insert: "</mark>" });
+      }
     }
     if (!mark.body) continue;
     BLOCK_END.lastIndex = close;
@@ -170,9 +190,12 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
 
 /** Dark-first: tone backgrounds capped dark, text left in the page's colour. */
 export const MARGINALIA_STYLE = `
-mark.ann{color:inherit;border-radius:.15em;padding:0 .1em;background:#2a2d33}
-.ann-warn{background:#392e18}.ann-good{background:#173026}.ann-bad{background:#3a2025}
-.ann-accent{background:#282139}.ann-dim{background:#1e1f22}.ann-default{background:#2a2d33}
+mark.ann{color:inherit;border-radius:.15em;padding:0;background:#2a2d33}
+mark.ann.ann-warn,mark.ann.ann-default[data-kind=highlight]{background:rgba(222,176,60,.28)}
+mark.ann.ann-good{background:rgba(110,190,140,.22)}mark.ann.ann-bad{background:rgba(220,110,100,.24)}
+mark.ann.ann-accent{background:rgba(150,130,230,.24)}mark.ann.ann-dim{background:#26272a}
+mark.ann.ann-default:not([data-kind=highlight]){background:#26282c;box-shadow:inset 0 -1px #8a7440}
+mark.ann.on{box-shadow:inset 0 -2px #c9a24a}
 aside.margin-note{margin:.35rem 0 .75rem;padding:.35rem .6rem;border-left:3px solid var(--rule);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;white-space:pre-line}
 aside.margin-note .kind{color:var(--dim);text-transform:capitalize}
 aside.margin-note .replies{color:var(--dim)}

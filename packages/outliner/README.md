@@ -878,8 +878,13 @@ listener is untouched (below): read-only, marked notes only.
 - **Marginalia on the page** (PIE-774). Select words: a toolbar along the bottom offers Highlight, Comment, Ask
   (`@margin`), Copy (the words as a Blockdown quote with a `((reference))` and the page's link), and the outline's
   other passage actions (Explain, Define). Comment and Ask open a sheet to write in; a refusal keeps the text and says
-  why. Threads are cards beside the text when the window is wide and under their passage when it's narrow, with Reply
-  and Resolve; a bare highlight opens its card when its words are tapped. "Comment on this note" comments on the whole
+  why. Threads are cards beside their words when the window is wide (65rem and up) and under their paragraph when it's
+  narrow. A card at rest is short (two lines of the words it's on, three of what it says, how many replies); tapping
+  it or its words opens it, with Reply, Resolve, Quote and Pick, and on a wide page a line from the words to it. The
+  open card stays level with its words and the others move aside. A highlight is a tinted mark at once; tapping it
+  opens its card: Comment, Ask, Remove, Quote. Words that fall across markup (half a bold run, a link) are marked in
+  pieces. A thread the page didn't mark is placed by its words in the page; failing that its card is at the foot,
+  under "Couldn't place". The foot's "On this note" lists every thread. "Comment on this note" comments on the whole
   note. An answer appears when it lands: the page waits on the threads route until what it draws changes (its rows,
   its folder's children, its threads), so a busy outline elsewhere doesn't wake it; idle, about three requests a
   minute.

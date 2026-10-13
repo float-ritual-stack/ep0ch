@@ -434,7 +434,26 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-card .q{color:var(--dim);font-style:italic}
 .mg-card .reply{border-top:1px solid var(--rule);margin-top:.5rem;padding-top:.45rem}
 .mg-card.bare{display:none}
-.mg-card.bare.open{display:block}
+.mg-card.bare.open,.mg-card.bare.on{display:block}
+/* A card at rest is short: who, two lines of the words it's on, three of what it says, how many replies. Open, all of it. */
+.mg-card.top:not(.on){cursor:pointer;padding:.45rem .65rem}
+.mg-card.top:not(.on)>.q,.mg-card.top:not(.on)>.b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.mg-card.top:not(.on)>.b{-webkit-line-clamp:3}
+.mg-card.top:not(.on)>.reply,.mg-card.top:not(.on)>.mg-row,.mg-card.top:not(.on)>.mg-nest,.mg-card.top:not(.on)>.quoted{display:none}
+.mg-card.top.on>.sum{display:none}
+.mg-card .sum{font-size:12px;color:var(--dim);margin-top:.25rem}
+.mg-card.top.on{border-left-color:#c9a24a;z-index:3}
+.mg-card .mg-row{gap:.35rem;flex-wrap:wrap;justify-content:flex-start}
+.mg-card.mg-ui .mg-row button{min-height:40px;min-width:0;padding:0 .5rem;font-size:14px;border:0;background:none;color:var(--link)}
+.mg-card.mg-ui .mg-row button.quiet{color:var(--dim)}
+.mg-card.mg-ui .mg-row button.on{color:#e0d2a8}
+.mg-card.mg-ui .mg-row button:active{background:#232321}
+.mg-whole ul.mg-index{list-style:none;margin:0 0 1rem;padding:0;border-top:1px solid var(--rule)}
+.mg-index li{border-bottom:1px solid var(--rule)}
+.mg-ui .mg-index button{display:block;width:100%;text-align:left;min-height:44px;height:auto;border:0;border-radius:0;background:none;padding:.4rem .3rem;line-height:1.4;color:var(--fg)}
+.mg-index .k{display:block;font-size:12px;color:var(--dim)}
+.mg-index .x{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mg-leader{display:none}
 .mg-card.on{border-color:#5a6170}
 /* A card's own words select like a note's (highlight, comment, ask on them); its controls don't. */
 .mg-card .b{user-select:text;-webkit-user-select:text}
@@ -462,9 +481,12 @@ mark.ann.on{outline:1px solid #6a7180}
 #mg-margin{display:none}
 #ep0ch-agent{position:fixed;top:.75rem;right:.75rem;left:auto;z-index:13;max-width:min(26rem,calc(100% - 1.5rem));background:#1d2026;color:var(--fg);border:1px solid #4a4f5a;border-radius:.5rem;padding:.45rem .8rem;font-size:14px}
 .ep0ch-pointed{outline:2px solid #6a7180;outline-offset:.25rem;background:#1b1d21}
-@media (min-width:75rem){
-  main.reader{max-width:68rem;display:grid;grid-template-columns:minmax(0,42rem) 20rem;column-gap:3rem;align-items:start}
+@media (min-width:65rem){
+  main.reader{max-width:62rem;display:grid;grid-template-columns:minmax(0,42rem) 17rem;column-gap:2.5rem;align-items:start;position:relative}
   main.reader>*{grid-column:1}
+  main.reader>#mg-leader{display:block;grid-column:auto;grid-row:auto;position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2}
+  #mg-leader path{fill:none;stroke:#6b5a30;stroke-width:1}
+  #mg-leader circle{fill:#c9a24a}
   main.reader>#mg-margin{display:block;grid-column:2;grid-row:1 / span 20;position:relative;align-self:stretch}
   #mg-margin .mg-card{position:absolute;left:0;right:0;margin:0}
 }
