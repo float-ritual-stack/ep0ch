@@ -254,7 +254,7 @@ export function pageView(address: string, label: string | undefined, r: PageReso
 function tagsIn(noteText: string, src: Source | null | undefined): { raw: string; value: string; re: RegExp }[] {
   const parsed = src ? tokensOf(noteText, src) : null;
   if (parsed?.state !== "ready") return [];
-  const values = [...new Set(parsed.tokens.filter(t => t.syntax === "hashtag").map(t => t.value))];
+  const values = [...new Set((parsed.tokens ?? []).filter(t => t.syntax === "hashtag").map(t => t.value))];
   const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   // At a word's start, and not the head of a longer tag (`#bike` in `#bikes`, `#garden` in `#garden/beds`).
   return values.map(value => ({ raw: `#${value}`, value, re: new RegExp(`(^|[\\s(])#${esc(value)}(?![\\p{L}\\p{M}\\p{N}_/-])`, "gu") }));

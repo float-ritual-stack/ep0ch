@@ -1127,6 +1127,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await person("element.open", { n: tagElem("compost").n });
     await until(() => list()?.query === "#compost" && list()?.cards?.length === 2, "the compost list", 5000);
     expect(tiles().filter(t => t.kind === "query")).toHaveLength(1);
+    // An agent opening a tag there is answered the notes; the person's list keeps its tag and selection.
+    const sel = list().selected?.id;
+    const out = await app.act({ action: "element.open", tile: "detail", args: { n: tagElem("frost-jobs").n }, as: "test-agent" }).catch((e: Error) => ({ refused: e.message })) as any;
+    expect(out.refused).toBeUndefined();
+    expect(list().query).toBe("#compost");
+    expect(list().selected?.id).toBe(sel);
+    // The list saves with the screen as written: its query and its home.
+    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail"`);
     expect(S().focus).toBe("index");
   }, 30_000);
 

@@ -1458,7 +1458,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * atom views use) in a query tile whose home is `r` (PIE-794: its selection previews, ⏎ replaces `r`'s note, alt+⏎ a
    * new detail beside `r`): the one already listing for `r`, asked the new tag, else one opened below `r` with a preview
    * following its selection beside it, as `b` opens the links tile (tile.open, the layout's rules: a locked screen says
-   * so). The person's keys go to the list; an agent's stay where they are.
+   * so). The person's keys go to the list; an agent's stay where they are, and an agent never retargets the person's list
+   * (it is answered the notes instead).
    */
   async openTag(r: Pane, tag: string, actor: Actor): Promise<Record<string, unknown>> {
     const rid = this.idOf(r);
@@ -1466,6 +1467,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const home = this.nameOf(rid), query = `#${tag}`;
     let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && p.home === home; });
     const opened = id === undefined;
+    // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
+    if (!opened && actor.kind === "agent") {
+      const r = await this.ctx.board.queryNotes(query, 200);
+      return { tile: this.nameOf(id!), query, opened: false, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })), ...(r.truncated ? { truncated: true } : {}) };
+    }
     if (id === undefined) {
       const list = await this.openTile({ kind: "query", query, source: `tile:${home}` }, home, "down", actor);
       await this.openTile({ kind: "preview", source: `tile:${list.tile}` }, list.tile, "right", actor);

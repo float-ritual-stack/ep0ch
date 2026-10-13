@@ -5,7 +5,7 @@ import { presentLinks, type LinkTarget } from "../src/refs";
 import { tokensFor } from "../src/props";
 
 test("a tag the service reads is a link where it stands; #bike in #bikes and a tag in code are text", async () => {
-  const text = "Shed jobs #bike\nOil the #bikes and the #bike chain; `#bike` is code; #bike/locks are nested";
+  const text = "Shed jobs #bike\nOil the #bikes and the #bike chain; `some #bike` is code; #bike/locks are nested";
   const tokens = [{ key: "tag", value: "bike", syntax: "hashtag" }, { key: "tag", value: "bikes", syntax: "hashtag" }, { key: "tag", value: "bike/locks", syntax: "hashtag" }];
   const board = { propertyRecords: async () => tokens.map((t, i) => ({ ...t, raw: `#${t.value}`, start: 0, end: 0, line: 0, column: 0, placement: "inline", ordinal: i, scope: "block" })) };
   const src = { board: board as never, redraw() {} };

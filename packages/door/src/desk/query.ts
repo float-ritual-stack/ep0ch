@@ -261,7 +261,7 @@ export class QueryPane implements Pane {
     return true;
   }
 
-  spec() { return this.query !== null ? { query: this.query, ...(this.home ? { source: `tile:${this.home}` } : {}) } : { view: this.view }; }
+  spec() { return { ...(this.query !== null ? { query: this.query } : { view: this.view }), ...(this.home ? { source: `tile:${this.home}` } : {}) }; }
   describe() {
     const brief = (m: Msg | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
     return { ...(this.query !== null ? { query: this.query, ...(this.home ? { home: this.home } : {}), cards: (this.items ?? []).map(m => ({ id: m.id, title: subject(m) })) } : { view: this.view }), lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
