@@ -4163,7 +4163,7 @@ export class NoteSurface {
     const address = await host.ctx.board.noteAddress(ref.block).catch((e: Error) => { throw new ActionRefused(`couldn't ask where its page is: ${e.message}`); });
     const page = address.page;
     if (!page) {
-      const why = "it has no web page yet: the outline's publisher isn't running, or wasn't told where it is opened (its `publish serve` takes --url https://<this machine>.<tailnet>.ts.net/pub, or OUTLINER_PUBLISH_URL)";
+      const why = `it has no web page yet: the outline's publisher isn't running, or wasn't told where it is opened. Its path is ${artifactPagePath(ref.block, ref.line)} below the web client; set EP0CH_WEB_URL (the signed-in origin, e.g. https://my.ep0ch.sh) or OUTLINER_PUBLISH_URL (the tailnet listener's URL) for its \`publish serve\``;
       host.ctx.flash(why);
       throw new ActionRefused(why);
     }

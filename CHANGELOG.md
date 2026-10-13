@@ -18,7 +18,10 @@ are its record. The outliner's entries from then are kept below, under
   "open full page" under it. `[height::N]`, `[size::]`, `[align::]` and `[alt::]` go beside it. Drop a downloaded
   artifact in `~/outlines/<name>/artifacts/` and point at it (`[artifact::artifacts/fidget.jsx]`).
 - **New:** in the door the line is a card (its kind, its title, `[open ↗]`); ⏎ or a click opens it running in the
-  browser. That needs the publisher started with `--url` (or `OUTLINER_PUBLISH_URL`): where its tailnet listener is opened.
+  browser, on the signed-in web client (`EP0CH_WEB_URL`, my.ep0ch.sh) when the publisher has one, else its tailnet
+  listener (`--url`, `OUTLINER_PUBLISH_URL`); with neither the door names the path and the variable to set.
+- **Changed:** a publisher with a sign-in origin (`EP0CH_WEB_URL`) gives notes' web links on it (`notes.address`), the
+  address used on every device, instead of the tailnet's.
 - **Changed:** a React artifact's page is dark until it draws, and its error box is dark.
 - **Run:** `ep0ch install --apply` (PROTOCOL 156; every block's properties are parsed again on the host's next open).
 

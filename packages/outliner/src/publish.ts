@@ -2239,7 +2239,7 @@ export class Publisher {
   }
 }
 
-function normalizeBasePath(value: string | undefined): string {
+export function normalizeBasePath(value: string | undefined): string {
   const trimmed = (value ?? "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
   if (!/^\/[A-Za-z0-9._~@/-]*$/.test(trimmed) || trimmed.split("/").some((segment) => segment === "..")) {

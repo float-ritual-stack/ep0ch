@@ -228,7 +228,8 @@ if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.a
  * `tailscale funnel`; `--public-url` (or OUTLINER_PUBLIC_URL) is where anyone opens it, and
  * `--public-bind` (or OUTLINER_PUBLIC_BIND, default 127.0.0.1) the one address it listens on. `--url` (or
  * OUTLINER_PUBLISH_URL) is the full URL the tailnet listener is opened at (`https://host.ts.net/pub`): the publisher
- * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767).
+ * tells the service both URLs, so `notes.address` gives a published note's web URL (PIE-767). With a sign-in origin
+ * (`--signin-url`, EP0CH_WEB_URL) that origin and the base path are the URL told instead: where the owner opens it.
  * `--signin-port` adds the signed-in web client (web-signin.ts) for `--signin-url` (or EP0CH_WEB_URL), its public origin:
  * the same web client, every route behind a Clerk sign-in (EP0CH_WEB_CLIENT_ID, EP0CH_WEB_ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS).
  * `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves the door in the browser (publish-door.ts) on the tailnet listener
@@ -270,9 +271,13 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     const signinUrl = values["signin-url"] ?? process.env.EP0CH_WEB_URL;
     if (signinPort !== undefined && !signinUrl) throw new Error("--signin-port needs --signin-url (or EP0CH_WEB_URL): the public origin it is opened at, e.g. --signin-url https://my.ep0ch.sh");
     const publicUrl = values["public-url"] ?? process.env.OUTLINER_PUBLIC_URL;
-    const { checkPublicBind, publisherUrl } = await import("./publish");
-    const rawPublishUrl = values.url ?? process.env.OUTLINER_PUBLISH_URL;
-    const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
+    const { checkPublicBind, normalizeBasePath, publisherUrl } = await import("./publish");
+    // Where the owner opens the web client: the signed-in origin when there is one (EP0CH_WEB_URL, the address used on every
+    // device, PIE-793), else the tailnet listener's (--url, OUTLINER_PUBLISH_URL). The service builds notes' web links from it.
+    const rawPublishUrl = signinUrl
+      ? `${URL.canParse(signinUrl) ? new URL(signinUrl).origin : signinUrl}${normalizeBasePath(values["base-path"])}`
+      : values.url ?? process.env.OUTLINER_PUBLISH_URL;
+    const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, signinUrl ? (values["signin-url"] ? "--signin-url" : "EP0CH_WEB_URL") : values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
     const { Publisher, servePublisher, renderIndexText } = await import("./publish");
     // The door in the browser (publish-door.ts): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the tailnet

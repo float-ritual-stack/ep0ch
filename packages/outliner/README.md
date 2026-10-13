@@ -1193,7 +1193,7 @@ as an attachment's: a relative one is the outline's own folder
 dropping a downloaded artifact in `~/outlines/<name>/artifacts/` and pointing at
 it works; one outside the roots, hidden, missing or climbing out with `..` is a
 card with its file's name, never its path. The door draws the line as a card that
-opens this page (`notes.address` gives it once the publisher is told `--url`).
+opens this page (`notes.address` gives it once the publisher knows where it is opened: the signed-in origin, `EP0CH_WEB_URL`, when set, else `--url`).
 
 - **HTML** runs as authored in the sandbox; scripts and styles from CDNs such as
   cdnjs load as they do on claude.ai.

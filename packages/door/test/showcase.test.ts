@@ -2981,7 +2981,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
     expect(list.map((x: any) => [x.n, x.kind, x.path])).toEqual([[1, "artifact", "artifacts/pulse-pad.jsx"], [2, "artifact", "artifacts/orbit-lamp.html"]]);
     // No publisher said where it is opened: refused, saying what to do.
-    await expect(app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no web page yet.*--url/);
+    await expect(app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no web page yet.*\/artifact\/4 below the web client; set EP0CH_WEB_URL/);
     // A publisher tells the service where it is opened (as `publish serve --url` does): its page is the note's, below it.
     const sock = await Bun.connect({ unix: scratch.sock, socket: { data() {} } });
     sock.write(JSON.stringify({ id: "pub", action: "events.subscribe", ...((board as any).outline ? { outline: (board as any).outline } : {}),
