@@ -15,6 +15,11 @@ import {
   isVirtualBranchOccurrence,
   projectVirtualBranches,
 } from "../src/virtual-branches";
+import { useJiraProvider } from "./resource-providers";
+
+// The tour's `[jira::EXAMPLE-1]` is a Jira reference only where the Jira extension's provider is known: this file says
+// so itself, rather than counting on another test file in the same run to have.
+useJiraProvider();
 
 const EXPECTED_GUIDE_SECTIONS = [
   "core-model",
