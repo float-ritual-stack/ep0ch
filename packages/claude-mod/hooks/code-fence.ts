@@ -49,20 +49,20 @@ export function closesCodeFence(line: string, fence: CodeFence, contentIndent = 
 
 /**
  * The last line of the fence `fence` opened on line `start` (a fence outside any list item): its closing line, or, never
- * closed, the line before the first blank line after it (PIE-669), or the last line (`codeBlocks` says when it is
+ * closed, the line before the first blank line or fence opener after it (PIE-669), or the last line (`codeBlocks` says when it is
  * known never closed). The one bound for a reader that
  * walks a note's lines itself and meets a fence (`codeBlocks` is the whole-note scan).
  */
 export function fenceEnd(lines: readonly string[], start: number, fence: CodeFence): { end: number; closed: boolean } {
-  let blank = -1;
+  let stop = -1;
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     if (closesCodeFence(line, fence)) return { end: i, closed: true };
-    if (blank < 0 && /^[ \t]*\r?$/.test(line)) blank = i;
     const other = codeFenceOpen(line);
-    if (other && other.char === fence.char && other.length >= fence.length && other.info !== "") return { end: blank >= 0 ? blank - 1 : i - 1, closed: false };
+    if (stop < 0 && (/^[ \t]*\r?$/.test(line) || other)) stop = i;
+    if (other && other.char === fence.char && other.length >= fence.length && other.info !== "") return { end: stop - 1, closed: false };
   }
-  return { end: blank >= 0 ? blank - 1 : lines.length - 1, closed: false };
+  return { end: stop >= 0 ? stop - 1 : lines.length - 1, closed: false };
 }
 
 /** A fenced code block in a note's lines: its first and last line (inclusive), whether a closing line ends it, its fence. */
@@ -84,8 +84,8 @@ function listMarker(line: string): ListContainer | null {
  * item counts from the item's content column, so a fence nested under a bullet is code) and its indented code lines
  * (four columns past their container, after a blank line).
  *
- * One deviation (Blockdown, PIE-669): an unclosed fence ends at its paragraph, the line before the first blank line
- * after it (or at the end of the list item it is in, if that comes first), never at the end of the note. What follows
+ * One deviation (Blockdown, PIE-669): an unclosed fence ends at its paragraph, the line before the first blank line or
+ * fence opener after it (or at the end of the list item it is in, if that comes first), never at the end of the note. What follows
  * is read as it would be without the fence, so a half-typed or half-streamed fence can't turn the rest of a note into
  * code. Only a fence with no blank line before the note's end runs to the end. A line that opens another fence like it
  * with an info string (```` ```ts ```` in a ```` ``` ```` fence) also says it was never closed: typed above a code
@@ -119,8 +119,12 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
         return !!other && other.char === fence.char && other.length >= fence.length && other.info !== "";
       })();
       if (reopens || i === lines.length - 1) {
-        const blank = lines.findIndex((candidate, at) => at > active!.block.start && at <= i && /^[ \t]*\r?$/.test(candidate));
-        const end = blank >= 0 ? blank - 1 : reopens ? i - 1 : i;
+        // Its paragraph: up to the first blank line, or the first line that opens a fence of its own (a code block it
+        // was typed above keeps its opening line).
+        const contentIndent = active.contentIndent;
+        const stop = lines.findIndex((candidate, at) => at > active!.block.start && at <= i &&
+          (/^[ \t]*\r?$/.test(candidate) || !!codeFenceOpen(candidate, contentIndent)));
+        const end = stop >= 0 ? stop - 1 : i;
         if (end < i) {
           active.block.end = end;
           listContainers = active.resume.listContainers;

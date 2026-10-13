@@ -22,6 +22,20 @@ are its record. The outliner's entries from then are kept below, under
   `outliner purge --id <id> --confirm <work id or first 8>` purges from a shell.
 - **Run:** PROTOCOL bump; restart the host and the clients together (`ep0ch install --apply`).
 
+### A half-written note never loses what follows it (PIE-669)
+
+- **Fixed:** an unclosed code fence no longer turns the rest of the note into code: it ends at its paragraph (the next
+  blank line), and what follows is read as before: its properties, links and tags count. A fence typed above an
+  existing code block no longer pairs with that block's closing line.
+- **Fixed:** a half-typed `[[`, `((` or `[key::` stays text on its own line: it no longer swallows the next link or
+  property on that line (`[[Gard and [[Beds]]` links Beds; `[due:: friday [owner::Ilse]` reads `owner`), and an
+  unclosed `((` no longer hides the tags after it.
+- **Added:** each construct left open is said, with how to close it: ⚠ rows above the note in the door's reader, the
+  save's flash, `ep0ch new`, and the `warnings` of an agent's write. Detail and published pages close an open fence
+  where the service ends it.
+- **Run:** PROTOCOL bump (what outline-core's grammar matches changed); restart the host and the clients together
+  (`ep0ch install --apply`).
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

@@ -138,7 +138,8 @@ export function colourBody(line: string, literal = false): string {
   // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(C.grey)}`);
   return fg(C.grey) + line
-    .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
+    // As link-syntax reads a page link: an unclosed `[[` before one is text (PIE-669).
+    .replace(/\[\[((?:(?!\[\[)[^\]])+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.

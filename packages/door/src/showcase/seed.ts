@@ -59,6 +59,7 @@ export const SEED = {
   settings: "Compost bay jobs get a badge",
   remoteWrites: "Remote writes and the netmail queue",
   overscroll: "The long row of runner beans",
+  halfWritten: "A note left half-written",
   labels: "Jar labels",
   logBeans: "Bean row log",
   logCompost: "Compost bay log",
@@ -439,6 +440,20 @@ export const NEW_NOTES = [
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
+].join("\n");
+
+/**
+ * A half-written note (PIE-669): a fence and a page link left open. Each costs only itself: the fence its paragraph,
+ * the link its line; the link and tag after the fence still count, and the reader says both, with how to close them.
+ */
+export const HALF_WRITTEN = [
+  SEED.halfWritten,
+  "Typed in a hurry: the fence below was never closed, and neither was the link on the last line.",
+  "```ts",
+  "const jars = 12",
+  "",
+  `After the code, the [[${SEED.shed}]] page and this tag still count. #seed-jars`,
+  "Ask about [[Seed tr",
 ].join("\n");
 
 /**
@@ -1220,6 +1235,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.looksLab = await make(notes.root.id, LOOKS_LAB);
   notes.spacingLab = await make(notes.root.id, SPACING_LAB);
   notes.overscroll = await make(notes.root.id, OVERSCROLL);
+  notes.halfWritten = await make(notes.root.id, HALF_WRITTEN);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
