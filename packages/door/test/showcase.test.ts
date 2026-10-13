@@ -1897,11 +1897,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(draft().text).toContain("# Pantry inventory");
     // An agent can't take back the person's paste: its undo is its own.
     await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("this agent has no edit to undo");
-    // The person, by keys: into the stage and into the edit (⏎ enters one the keys aren't in yet), ctrl+z takes the
-    // whole paste back, ctrl+y puts it back, ctrl+z again.
+    // The person, by keys: into the stage, and so into their edit kept open there (PIE-812: no ⏎ or e to enter it),
+    // ctrl+z takes the whole paste back, ctrl+y puts it back, ctrl+z again.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    press({ kind: "enter" });
     press({ kind: "char", ch: "z", ctrl: true });
     await until(() => !draft().text.includes("Pantry"), "the paste undone in one step");
     expect(draft().note).toContain("undid the paste (42 lines)");
@@ -3234,16 +3233,18 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "char", ch: "s", ctrl: true });
     const saved = async (id: string, text: string) => { const end = Date.now() + 5000; while ((await board.get(id))?.text !== text) { if (Date.now() > end) throw new Error(`timed out waiting for ${text}`); await Bun.sleep(30); } };
     await saved(top.id, "Chard seed: 2 rows");
-    // From an edit: into the fourth (its edit open, the keys elsewhere: e enters it), typed, then ctrl+n: saved, a sixth floats.
+    // From an edit: into the fourth (its edit open: the keys going back to it are in it, PIE-812), typed, then ctrl+n:
+    // a sixth floats, and the fourth stays open as it was until it's saved.
     const fourth = floats()[3]!;
     await stage().dispatch.press("tile.focus", {}, fourth.tile);
-    press({ kind: "char", ch: "e" });
     await until(() => stage().newNoteWhileTyping() && stage().describe().focusName === fourth.tile, "in the fourth's edit", 5000);
     for (const c of "Leek trench") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "n", ctrl: true });
-    await saved(fourth.id, "Leek trench");
     await until(() => floats().length === 6 && floats().at(-1)!.writing, "a sixth float from the edit", 8000);
     expect((await board.get(floats().at(-1)!.id))!.parentId).toBe(guide);
+    expect(floats().find(f => f.id === fourth.id)?.writing).toBeTruthy();
+    await stage().dispatch.press("edit.save", {}, fourth.tile);   // saved where it is, the keys staying on the sixth
+    await saved(fourth.id, "Leek trench");
     // Docked by mouse: the first float's title dragged onto the reader's header joins its tabs.
     const first = floats()[0]!;
     const rows = () => sc.render(app).lines.map(plain);

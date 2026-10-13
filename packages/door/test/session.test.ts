@@ -1033,6 +1033,9 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   test("a desk kept in the background comes back with its program: D on the menu shows it, the same process", async () => {
     const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => a.screen().includes("chard-42"), "the desk", 10_000);
+    // The edit the test before brought back stays open until it's saved or closed (PIE-812): ctrl+s saves it first.
+    a.type("\x13");
+    for (let i = 0; i < 50 && JSON.stringify((await control({ cmd: "peek" })).screen.state).includes(`"place":"edit:`); i++) await Bun.sleep(100);
     a.type("\x1b[23;5u");                                  // ctrl+w (as a Kitty terminal sends it) is ^W on the desk; esc after it stays…
     a.type("q");
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.screen !== "main menu"; i++) { a.type("q"); await Bun.sleep(100); }

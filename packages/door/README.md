@@ -1712,11 +1712,11 @@ The board's new-card composer is the same control too.
 - **Keys follow the editor** (board and desk): only the focused reader's edit, comment or property panel
   takes keys, and only one you are in. One you open by key (`e`, `C`, `m`, `i`, from the lanes too) is
   yours as it opens, and focus moves to it; if you press `Esc` or move away before the note has been
-  read, it doesn't open. One an agent opened, or yours after you moved to another area, doesn't take
+  read, it doesn't open. One an agent opened doesn't take
   your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the reader,
   `x` refuses to close one holding an edit or a comment, and `e` or `⏎` enters it. The frame title
-  and the hint row say which it is (`editing (e enters)`; one of yours left open says `(kept open)`, and the keys
-  coming back put you in it). The mouse wheel always scrolls whatever is
+  and the hint row say which it is (`editing (e enters)`). One of yours you moved away from stays open, says
+  `(kept open)`, and takes your keys again the moment they're back on its tile (PIE-812). The mouse wheel always scrolls whatever is
   under the pointer.
 - **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
   border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.

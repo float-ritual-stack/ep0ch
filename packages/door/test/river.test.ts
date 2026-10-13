@@ -224,7 +224,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((app as any).message).toContain(d.savedCopy);
   });
 
-  test("after the person moves away, coming back by h l doesn't put their keys in the edit", async () => {
+  test("after the person moves away, coming back by h l puts their keys straight back in their edit (PIE-812)", async () => {
     key(char("e"));                                              // the person's own edit in the beans column
     await until(() => !!surfaceOf(2).draft, "the draft");
     key(char("x"));                                              // in it: x is typed
@@ -235,11 +235,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(V().focus).toBe(0);
     key(char("l"));
     expect(V().focus).toBe(1);
-    const before = surfaceOf(2).draft.text;
-    key(char("q"));
-    expect(surfaceOf(2).draft.text).toBe(before);
-    expect(screen()).toContain("enter the edit");
-    key({ kind: "enter" }); key({ kind: "esc" }); key({ kind: "esc" });
+    key(char("q"));                                              // in it again, at the same place: q is typed after x
+    expect(surfaceOf(2).draft.text).toContain("xq");
+    for (let i = 0; i < 3 && surfaceOf(2).draft; i++) key({ kind: "esc" });
     expect(surfaceOf(2).draft).toBeNull();
   });
 

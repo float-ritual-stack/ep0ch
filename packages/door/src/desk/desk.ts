@@ -3233,6 +3233,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.linking && k.kind !== "mouse") return this.linkKey(k);
     // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
+    // An edit or comment of the person's kept open on the focused reader (brought back by a restore, or left by a ^W
+    // chord) has their keys before anything else does (PIE-812): none of them goes to the desk underneath.
+    this.reenter();
     const focused = this.focusedReader();
     const c = ch(k);
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
@@ -3252,7 +3255,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal()) { this.prefix = "wm"; return this.redraw(); }
           focused.key(k, this); return;
         }
-        if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
+        // The drag and release of a press the desk took before the keys came back into this edit (a float's title, a
+        // border, a press elsewhere: PIE-812 re-enters the edit on that press) stay the desk's.
+        const desks = k.action !== "down" && !this.editPressed && !!(this.headPress || this.pressed || this.dragging || this.mouseTile || this.drag || this.floatDrag || this.outDrag);
+        if (focused.editing && !desks && k.action !== "wheel-up" && k.action !== "wheel-down") {
           if ((k.action === "down" || k.action === "drag" || k.action === "up") && this.clickIn(focused, k)) return this.redraw();
           // A click in the edit's own tile (its frame, its hint rows) stays in it. A click anywhere else leaves
           // it as any editor does (session.leave: saved, closed, or kept as unsent) and then does what it does.
