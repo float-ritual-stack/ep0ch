@@ -7,6 +7,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { OutlineHost } from "../src/outline-host";
 import type { Block } from "../src/types";
 
@@ -513,7 +514,8 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   writeFileSync(join(farOutlines, ".remote", "box-a.json"), JSON.stringify({ outlines }));
   await send(far.socket, { action: "outlines.create", name: "field" });
   await far.call("field", { action: "mcp.access.configure", level: "propose" });
-  await access("cafe", "full");
+  // propose: the call writes what the cafe's own toss would, and nothing else (src/echonet-scope.ts).
+  await access("cafe", "propose");
   await far.call("field", { action: "extensions.list", reload: true });
   const farToss = async () => (await far.call<{ message: string }>("field", { action: "extensions.act", extension: "echonet", extensionAction: "toss", mutation: { author: "user" } })).message;
   const hedge = await far.create("field", "Field: the hedge by the gate flowers late [echo::field.notes]");
@@ -521,7 +523,7 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   const sub = await create("cafe", "Field notes from the box [subscribe::field@box-b] [echo::field.*] [since::all]");
   await far.create("field", "Cafe notes [subscribe::cafe@box-a] [echo::cafe.*] [since::all]");
 
-  const lastLog = async (outline: string) => (await where(outline, "type=toss")).sort((a, b) => a.createdAt!.localeCompare(b.createdAt!)).at(-1)!.text;
+  const lastLog = async (outline: string) => (await where(outline, "type=toss")).filter((block) => block.text.startsWith("Toss")).sort((a, b) => a.createdAt!.localeCompare(b.createdAt!)).at(-1)!.text;
   // Before box-b has called, the cafe tries it like any machine, and can't reach it.
   expect(await toss("cafe")).toContain("copies 0");
   expect(await lastLog("cafe")).toContain("- field@box-b (Field notes from the box): unreachable (");
@@ -562,9 +564,19 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   await far.call("field", { action: "annotations.reply", requestId: crypto.randomUUID(), author: "user", input: { annotationId: there.block.id, body: "the third week of June", source: "user" } });
   expect(await farToss()).toContain("netmail 0 to here, 1 to there");
   expect((await threads("cafe", copy.id)).find((thread) => thread.block.id === mark.id)!.replies.map((r) => r.body)).toEqual(["the third week of June"]);
-  await toss("cafe");
+  // The cafe's toss counts the netmail others delivered since its last toss, whoever carried it.
+  expect(await toss("cafe")).toContain("netmail out 0, in 2,");
+  expect(await lastLog("cafe")).toContain(`## delivered here by other nodes\n- netmail from field@box-b (user) on ((${espresso.id}|Cafe: the espresso timer drifts))\n- netmail from field@box-b (user) on ((${copy.id}|`);
   nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
   expect(nodelist).toContain("- netmail held: 0\n");
+
+  // Past that scope, a relayed EchoNet write from box-b needs full: a note of its own, or its subscription's mask widened.
+  const relayed = { extension: "echonet", node: "field@box-b", label: "ext.echonet", writes: true, protocol: PROTOCOL };
+  await expect(send(socket(outlines), { outline: "cafe", action: "create", text: "Field: a note of its own", relayed })).rejects.toThrow("needs full");
+  const subNow = await get("cafe", sub.id);
+  await expect(send(socket(outlines), { outline: "cafe", action: "update", blockId: sub.id, expectedRevision: subNow.revision, text: subNow.text.replace("field@box-b", "*@*"), relayed })).rejects.toThrow("needs full");
+  // Nor a subscription of its own inside the one that names it.
+  await expect(send(socket(outlines), { outline: "cafe", action: "create", parentId: sub.id, text: "More [subscribe::*@*] [echo::*]", relayed })).rejects.toThrow("needs full");
   // The call's own log is under the cafe's nodelist.
   const list = (await where("cafe", "type=nodelist"))[0]!;
   const logs = (await send<Block[]>(socket(outlines), { outline: "cafe", action: "children", parentId: list.id })).filter((block) => block.text.startsWith("Call from field@box-b"));
@@ -584,8 +596,10 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   expect((await get("cafe", copy.id)).text).not.toContain("echo-take");
 
   // Said outright on this side, the cafe calls it again (and finds it refused).
+  // A call a moment ago tossed its sources: the cafe leaves them to it rather than copy them twice.
   writeFileSync(join(outlines, ".remote", "box-b.json"), JSON.stringify({ outlines: farOutlines, dialsIn: false }));
   await toss("cafe");
+  expect(await lastLog("cafe")).toContain("- field@box-b (Field notes from the box): it called at ");
   expect((await where("cafe", "type=nodelist"))[0]!.text).toMatch(/## field@box-b\n- unreachable: /);
 }, 120_000);
 

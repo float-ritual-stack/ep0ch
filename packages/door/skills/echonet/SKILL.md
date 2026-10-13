@@ -94,7 +94,7 @@ offered across machines needs a level set; `propose` is the usual one.
 - **A machine that dials in** (a laptop whose inbound ssh is off or gated, which can still ssh out): on it,
   `ep0ch install --apply --machine-name <ssh-name> --dials-in`. Its toss then calls each node on another machine that
   reads it and does that node's toss for it (its areas into their subscriptions, netmail both ways), and needs that
-  node to grant `full` (`ep0ch mcp access full --ws <node's outline>` there). The other machine never ssh's to it once
+  node to grant `propose`, at which its host lets the call write only what that node's own toss would. The other machine never ssh's to it once
   it has called; to say so before the first call, `"dialsIn": true` in its `<outlines>/.remote/<ssh-name>.json`
   (`false` calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines.
 
@@ -121,7 +121,8 @@ offered across machines needs a level set; `propose` is the usual one.
 | `unreachable: …` (ssh, no host answers, a timeout) | that machine is off, asleep or its host is down | nothing: netmail queues and the next toss delivers. Check `ssh <machine> ep0ch status` |
 | `protocol mismatch: … update <machine> (…)` | the two hosts run different versions | run the command it names on that machine (`ep0ch install --apply`) |
 | `waiting for <node> to call in (last call …)`, `held n` | that machine dials in: it's never called from here | nothing: its next toss calls and carries both ways. No call for long: on that machine, `ep0ch echo toss --ws <its outline>` and read its log's `## calls` |
-| on the machine that dials in, `grants propose, and a call delivers only with full` | the node it calls lets it mark but not write copies | there: `ep0ch mcp access full --ws <outline>` |
+| on the machine that dials in, `grants read, and a call needs propose` | the node it calls lets it read only | there: `ep0ch mcp access propose --ws <outline>` |
+| `## delivered here by other nodes` in a toss log | netmail and seen-by that other nodes' tosses or calls left here since the last toss | nothing: it's counted in `netmail-in` |
 | `couldn't be listed` for a machine | a `*` mask couldn't ask that machine | as unreachable; or name the outline outright |
 | `[waiting::n]` on a board | the cap held back n | wait for the next tosses, or raise `[cap::]` |
 | an undeliverable note | the original was trashed or deleted upstream | read it; the comment stays on the copy. Restore the original there if it was a mistake (new comments go; that one stays) |

@@ -125,8 +125,13 @@ node's toss for it:
   went by (it is never reached to be asked, so its old-name marks there stay one node's), and a toss log `Call from float-hub@laptop …
   [call::pie@float-2]` under its nodelist.
 
-A call writes copies and the ledger, so it needs that node to grant `full` (`ep0ch mcp access full --ws pie` on
-float-2); otherwise its log says so and nothing is written.
+A call needs that node to grant `propose` (`ep0ch mcp access propose --ws pie` on float-2), and at `propose` its host
+lets a call write only what that node's own toss would (`src/echonet-scope.ts`): under the subscriptions that name the
+caller (or a mask that matches it; a `@page` list doesn't count), the subscription's own `since`, the ledger, and a
+`[type::toss] [node::<caller>]` log under the nodelist; netmail and seen-by are marks. Anything else needs `full`.
+A node that called in the last 10 minutes has its sources left to it by this node's toss (two at once would each
+copy), and each toss log lists the netmail and seen-by others delivered since the last one (`## delivered here by
+other nodes`), whoever carried them.
 
 The node it calls learns from the `call` line that the machine dials in, and never ssh's to it again: its toss says
 `waiting for float-hub@laptop to call in (last call …)` as status, never an error, and the nodelist shows

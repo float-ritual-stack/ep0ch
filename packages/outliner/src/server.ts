@@ -138,6 +138,7 @@ import {
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
+import { echonetCallMayWrite } from "./echonet-scope";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
@@ -3762,7 +3763,7 @@ export class OutlinerServer {
     // Secrets are this machine's, for its own extensions: another machine's never asks for them.
     if (grant.relayed && action === "secrets.group") throw new Error(`${actor.actorId} runs on another machine: secrets.group is for this machine's own extensions`);
     // Asking an outline's access level is what finds out what it allows.
-    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
+    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant, rest as Record<string, unknown>);
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -3819,7 +3820,7 @@ export class OutlinerServer {
    * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one). It holds
    * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
    */
-  private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
+  private crossOutlineAccess(action: string, grant: ExtensionGrant, request: Record<string, unknown> = {}): void {
     const level = this.grantedLevel(grant);
     if (level === "full") return;
     const here = this.outline!.name;
@@ -3828,6 +3829,9 @@ export class OutlinerServer {
     const need = !writes ? "read" : marks ? "propose" : "full";
     const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
     if (allowed) return;
+    // A node that dials in does this outline's EchoNet toss for it (PIE-562): at propose, only what that toss writes.
+    if (level === "propose" && grant.relayed && grant.extensionId === `echonet@${grant.outline}` && grant.outline
+      && echonetCallMayWrite(action, request, grant.outline, (id) => this.store.get(id) ?? undefined)) return;
     throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
       `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);
   }
