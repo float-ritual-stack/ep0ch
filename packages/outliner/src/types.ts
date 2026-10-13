@@ -1345,7 +1345,8 @@ export interface PropertyFilter {
   value?: string;
 }
 
-export type ChecklistStatus = "todo" | "done" | "waiting" | "problem";
+export type { ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+import type { ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 
 export interface ChecklistItem {
   itemId?: string;

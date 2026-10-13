@@ -24,6 +24,7 @@ import type {ResourceDescription} from './resources';
 import {resourceDescriptionLabel} from './resources';
 import {resourceContentDocument} from './document-resources';
 import {observeDocument,sourceDocument} from './document-provenance';
+import {stepClosed} from '@ep0ch/outline-core/checklist-marks';
 
 type SavedPreviewSource = Pick<Block,"id"|"text"|"revision"> & Partial<Pick<Block,"updatedAt">> & {inboxAttemptId?:string};
 
@@ -151,7 +152,7 @@ export class DocumentPreview {
     if(key.name==='space'||str===' '){
       const action=parsePreviewRegionActionUri(this.value.activeLink??'');
       const control=action?.type==='checklist.open'?findChecklistControl(this.value.document.previewRegions?.regions??[],action.regionId):undefined;
-      if(control){await this.changeChecklist(control.item.status==='done'?'todo':'done',control);return true;}
+      if(control){await this.changeChecklist(stepClosed(control.item.status)?'todo':'done',control);return true;}
     }
     if(this.selectionInput?.selectionKey(key,str)){this.changed();return true;}
     const character=str||key.name;

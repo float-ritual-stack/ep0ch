@@ -81,6 +81,22 @@ test("checklist queries correlate each mark and its own indexed properties witho
   expect(store.sequence).toBe(sequence);
 });
 
+test("approved and rejected steps (PIE-811): read from their marks and the keyboard's, queried apart, written back canonical", () => {
+  const store = makeStore();
+  const block = store.create(["# Needs you", "- [✓] Felt from the merchant ^felt", "- [+] Green paint", "- [✗] Patch the gutter ^gutter", "- [-] A second shed", "- [ ] The hinge ^hinge"].join("\n"));
+  expect(store.queryChecklist(block.id, {limit: 20}).items.map(item => item.status)).toEqual(["approved", "approved", "rejected", "rejected", "todo"]);
+  expect(store.queryChecklist(block.id, {limit: 20, statuses: ["approved"]}).items.map(item => item.itemId ?? item.text)).toEqual(["felt", "- [+] Green paint"]);
+  expect(store.queryChecklist(block.id, {limit: 20, filters: [{key: "status", value: "rejected"}]}).items.map(item => item.itemId ?? null)).toEqual(["gutter", null]);
+  expect(() => store.queryChecklist(block.id, {limit: 20, statuses: ["maybe" as never]})).toThrow("todo, done, waiting, problem, approved, rejected");
+  // A status change writes the mark it's drawn with, whatever was typed.
+  const hinge = store.queryChecklist(block.id, {limit: 20}).items[4]!;
+  store.updateChecklist(block.id, {target: {itemId: "hinge"}, expectedEvidence: hinge.evidence, change: {kind: "status", status: "approved"}}, {author: "user"});
+  const green = store.queryChecklist(block.id, {limit: 20}).items[1]!;
+  store.updateChecklist(block.id, {target: {start: green.span.start, expectedRevision: store.require(block.id).revision}, expectedEvidence: green.evidence, change: {kind: "status", status: "rejected"}}, {author: "user"});
+  expect(store.require(block.id).text).toMatch(/^- \[✗\] Green paint \^t-[0-9a-f]{6,}$/m);
+  expect(store.require(block.id).text).toContain("- [✓] The hinge ^hinge");
+});
+
 test("workspace checklist search correlates canonical items across plans with bounded, collapse-independent results", () => {
   const store=makeStore();
   const folder=store.create('Plans');

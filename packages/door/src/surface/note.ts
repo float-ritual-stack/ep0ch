@@ -31,7 +31,8 @@ import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, page
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
@@ -1768,7 +1769,9 @@ export class NoteSurface {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
         if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
-        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, box) + LINK_OFF : null;
+        // Drawn by its status (`[+]` as `[✓]`, rejected as ✘), where the box still reads as the step's status.
+        const shown = boxStatus(box) === st?.status ? STEP_BOXES[st.status] : box;
+        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
       },
     };
   }
@@ -3019,7 +3022,7 @@ export class NoteSurface {
     if (isUp(k) || isDown(k)) { void this.runKey("scroll", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
-    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: e.task.step.status === "done" ? "todo" : "done" }, host, true); return true; } }
+    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
     // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
     if (k.kind === "char" && k.ctrl && k.ch === "z") {
       const at = this.msg?.id ?? "";
@@ -3648,7 +3651,7 @@ export class NoteSurface {
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
       // An extension's control is its own row.
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
-      const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
+      const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
@@ -4387,8 +4390,8 @@ export class NoteSurface {
     if (!e.task) return;
     this.setElem(e);
     this.reveal = true;
-    // Mark done first, as Detail's menu; on a done step, Mark to do.
-    this.picker = { key: e.key, list: this.choices(e.task.step.status === "done" ? 1 : 0), note: "", busy: false };
+    // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
   }
 
   /**
@@ -5771,7 +5774,7 @@ interface LineUndo { block: string; edits: LineEdit[]; by: string; context: stri
  */
 function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
   const edge = fg(C.yellow), inner = Math.max(8, W - 2);
-  const title = ` ${STEP_MARKS[ref.step.status]} ${printable(stepTitle(ref.step))} `;
+  const title = ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `;
   const room = Math.max(0, W - 2);
   const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
   const rows: number[] = [];
@@ -6592,7 +6595,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (e.kind === "figure" && e.link?.figure) {
         return surface.runFigureControl(e.link.figure, host, actor);
       }
-      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
+      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
       if (e.link?.ext && (e.kind === "control" || e.kind === "resource")) {
@@ -7622,13 +7625,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "task.status": def({
-    summary: "set a checklist step's status (done, todo, waiting, problem) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
-    keys: "[ ] to a step, then ⏎ or a click on its box and x o w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
+    summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
+    keys: "[ ] to a step, then ⏎ or a click on its box and x o + - w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
     touches: "draft", draft: "write", replay: "ask",
-    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting or problem" } },
+    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     async run({ to, ...which }, { surface, host }, actor) {
       const status = parseStatus(to);
-      if (!status) throw new ActionRefused(`to is done, todo, waiting or problem, not ${JSON.stringify(to)}`);
+      if (!status) throw new ActionRefused(`to is done, todo, waiting, problem, approved or rejected, not ${JSON.stringify(to)}`);
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, status, host, actor);
     },

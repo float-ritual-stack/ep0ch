@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A checklist step can be approved or rejected (PIE-811)
+
+- **Added:** two step states beside to do, done, waiting and problem: **approved** (`[✓]`, your yes) and **rejected**
+  (`[✗]`, your no). Pick Approve or Reject from a step's box: in the door's status choice (`+` and `-`, or a click), the
+  board's steps overlay, Detail's checklist menu, and now on your tailnet web pages, where every step's box is a button
+  that opens the same choices (by tap, or `x o + - w !` on a keyboard). Typing `[+]` or `[-]` in a note reads the same.
+- **Changed:** web pages draw each step's box as its state (☐ ✔ ✓ ✗ ~ !) instead of a grey checkbox that knew only
+  done; a share link's and a public page's boxes are drawn but don't change. `space` on an approved or rejected step
+  reopens it to to do. Approved counts as done in a step tally; rejected doesn't.
+- **For agents:** `checklist.query` (`statuses: ["approved"]`) tells them apart, and an approved step is the person's
+  yes (the ep0ch-outline and daily-brief skills say so).
+- **Run:** a protocol bump: `ep0ch install --apply` on each machine, then restart the publishers.
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers

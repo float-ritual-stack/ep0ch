@@ -114,6 +114,7 @@ import {
 import { isRemoteEntity } from "./remote-entity";
 import { TextBuffer, type TextBufferRange } from "./text-buffer";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
+import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import type {
   AnnotationBatchReceipt,
   AnnotationReplyInput,
@@ -3633,7 +3634,7 @@ export function createDetailController(
         const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
         if (!control || state.mode !== "preview" || state.busy) break;
         state.busy = true;
-        try { await changeChecklist(control, control.item.status === "done" ? "todo" : "done", requestGeneration); }
+        try { await changeChecklist(control, stepClosed(control.item.status) ? "todo" : "done", requestGeneration); }
         finally { state.busy = false; }
         break;
       }

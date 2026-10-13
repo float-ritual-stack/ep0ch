@@ -623,3 +623,39 @@ test("a card's quote is drawn as the note's words: a reference by its title, lin
   expect(listed[0]!.quoteHtml).toContain(`>the moth survey</a> route`);
   expect(listed[0]!.quoteHtml).not.toContain("((");
 });
+
+test("a step's box on a page is its state, a button on the owner's page: Approve and Reject land as the note's marks, a stale one is refused; a public page draws it read-only (PIE-811)", async () => {
+  const log = store.create(["Shed roof build log [publish::public]", "## Needs you", "- [ ] felt from the merchant ^t-felt01", "- [ ] patch the gutter until spring", "- [x] measure the roof", "- [-] paint it green"].join("\n"), null, "user");
+  const html = await page(`/pub/p/${log.id}`);
+  const boxes = [...html.matchAll(/<button type="button" class="step s-(\w+)"[^>]*>/g)];
+  expect(boxes.map((box) => box[1])).toEqual(["todo", "todo", "done", "rejected"]);
+  // Markdown's own checkbox is gone; the words selected across a box stay the note's (the glyph is drawn by the style).
+  expect(html).not.toContain('type="checkbox" disabled');
+  expect(html).toMatch(/data-glyph="✗"><\/button> paint it green/);
+  const attrs = (tag: string) => Object.fromEntries([...tag.matchAll(/data-step-(\w+)="([^"]*)"/g)].map((m) => [m[1]!, m[2]!]));
+  const felt = attrs(boxes[0]![0]), gutter = attrs(boxes[1]![0]);
+  expect(felt).toMatchObject({ block: log.id, id: "t-felt01" });
+  // Approve the felt by its id; reject the gutter (no id yet) by where it starts in the revision drawn.
+  let answer = await write({ page: log.id, action: "step", status: "approved", block: log.id, itemId: felt.id, evidence: felt.evidence });
+  expect(answer.status).toBe(200);
+  expect(await answer.json()).toMatchObject({ ok: true, status: "approved", said: "marked approved" });
+  // The gutter's evidence is its own, unchanged: its start moved by nothing (the felt's box is the same length).
+  answer = await write({ page: log.id, action: "step", status: "rejected", block: log.id, start: Number(gutter.start), revision: Number(gutter.revision), evidence: gutter.evidence });
+  // Its note moved on a revision, so a step with no id is refused as stale and drawn again; by its new place it lands.
+  expect(answer.status).toBe(409);
+  expect(await answer.json()).toMatchObject({ ok: false, stale: true, error: expect.stringContaining("choose again") });
+  const again = attrs([...(await page(`/pub/p/${log.id}`)).matchAll(/<button type="button" class="step s-(\w+)"[^>]*>/g)][1]![0]);
+  answer = await write({ page: log.id, action: "step", status: "rejected", block: log.id, start: Number(again.start), revision: Number(again.revision), evidence: again.evidence });
+  expect(answer.status).toBe(200);
+  const text = store.get(log.id)!.text;
+  expect(text).toContain("- [✓] felt from the merchant ^t-felt01");
+  expect(text).toMatch(/- \[✗\] patch the gutter until spring \^t-[0-9a-f]{6,}/);
+  expect(store.get(log.id)!.author).toBe("user");
+  // Not a status, or a note not on this page: refused with why.
+  expect((await write({ page: log.id, action: "step", status: "maybe", block: log.id, itemId: "t-felt01", evidence: "x" })).status).toBe(400);
+  expect((await write({ page: log.id, action: "step", status: "done", block: survey.id, itemId: "t-felt01", evidence: "x" })).status).toBe(404);
+  // The public page draws the same states, as glyphs nobody can press.
+  const open = await (await get(`/share/p/${log.id}?view=html`, browser, "public")).text();
+  expect([...open.matchAll(/<span class="step s-(\w+)" role="img"/g)].map((m) => m[1])).toEqual(["approved", "rejected", "done", "rejected"]);
+  expect(open).not.toContain("<button type=\"button\" class=\"step");
+});

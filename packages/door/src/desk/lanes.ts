@@ -31,6 +31,8 @@ import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query
 import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
 import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
+import { CHECKLIST_STATUSES, isChecklistStatus, stepClosed, stepDone } from "@ep0ch/outline-core/checklist-marks";
+import { STEP_BOXES, statusWord, stepTitle } from "../steps";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
@@ -223,7 +225,7 @@ export class Lanes implements SourceModel {
     }
     if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 closes · the second line says what would be patched");
     if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
-    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 closes · each change is checked against the step as it was read");
+    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15+|08 approve · |15-|08 reject · |15w|08 waiting · |15!|08 problem · |15esc|08 closes · each change is checked against the step as it was read");
     return null;
   }
 
@@ -1055,22 +1057,21 @@ export class Lanes implements SourceModel {
   /** `s`: the selected card's checklist steps, read from the service. */
   private async openSteps(card = this.card()) {
     if (!card) return this.host.ctx.flash("select a card to see its steps");
-    const MARK: Record<StepStatus, string> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
-    const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred };
+    const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred, approved: C.lgreen, rejected: C.grey };
     // The person's step change from the overlay: checked against the step as it was read; a refusal is its note.
     const set = (to?: StepStatus) => {
       const it = S.read?.items[S.sel];
       if (S.busy || !S.read || !it) return;
-      const status = to ?? (it.status === "done" ? "todo" : "done");
+      const status = to ?? (stepClosed(it.status) ? "todo" : "done");
       void this.host.pressAction(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
     };
     const S: Steps = Object.assign(new ListPicker<ChecklistStep, Lanes>({
       name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
-      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
+      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
-      keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1 })) return false; set(to); return true; },
+      keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem", "+": "approved", "-": "rejected" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1, "+": 1, "-": 1 })) return false; set(to); return true; },
       frame: (a, n) => {
-        const done = S.read?.items.filter(i => i.status === "done").length ?? 0;
+        const done = S.read?.items.filter(i => stepDone(i.status)).length ?? 0;
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
           title: `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
@@ -1106,13 +1107,13 @@ export class Lanes implements SourceModel {
     const it = shown ? shown.item : read.items[i];
     if (!it) throw new ActionRefused(typeof index === "number" ? `there's no step ${index + 1}; ${titleOf(card)} has ${read.items.length}` : `no step ^${index} in ${titleOf(card)}`);
     if (it.identity === "duplicate") throw new ActionRefused(`step ${i + 1} shares its id ^${it.itemId} with another step; fix it in the note's text first`);
-    const to: StepStatus = status ?? (it.status === "done" ? "todo" : "done");
+    const to: StepStatus = status ?? (stepClosed(it.status) ? "todo" : "done");
     if (S) { S.busy = true; S.note = "saving…"; this.host.redraw(); }
     try {
       const r = await this.host.ctx.board.setStep(card.id, it, read.revision, to, actor);
       for (const x of this.readers()) { x.refresh(r.block); if (x.msg?.id === card.id) x.surface.noteAgent(actor, `set step ${i + 1} to ${to}`); }
       const named = it.identity === "unassigned" && r.changed ? ` · the step now has an id (^${r.item.itemId})` : "";
-      const said = `${to === "done" ? "checked off" : `set to ${to}`}: ${stepText(it.text)} · ${titleOf(card)}${named}`;
+      const said = `${to === "done" ? "checked off" : to === "approved" ? "approved" : to === "rejected" ? "rejected" : `set to ${statusWord(to)}`}: ${stepText(it.text)} · ${titleOf(card)}${named}`;
       asActor(this.host.ctx, actor).flash(r.changed ? said : `already ${to}: ${stepText(it.text)}`);
       this.lastWrite = { what: "step", id: card.id, result: `step ${i + 1} ${it.status} -> ${to} · revision ${r.block.revision}`, ...(byOf(actor)) };
       if (S) { S.note = r.changed ? said : ""; }
@@ -1368,7 +1369,7 @@ type Composer =
   | { kind: "child"; parent: Msg; session: DraftSession };
 
 /** A step's first line, without its list mark, checkbox and ^id. */
-const stepText = (t: string) => (t.split("\n")[0] ?? "").replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~!]\]\s*/, "").replace(/\s*\^[\w-]+\s*$/, "").trim();
+const stepText = (t: string) => stepTitle({ text: t });
 /** `(project=a OR project=b)` → `project::a`: a token the person could type to meet it. */
 const hintToken = (need: string) => { const m = need.match(new RegExp(`(${PROPERTY_KEY_SOURCE})=("[^"]*"|[^\\s()]+)`)); return m ? `${m[1]}::${m[2]!.replace(/^"|"$/g, "")}` : `${need.replace(/[()]/g, "")}::…`; };
 
@@ -1514,15 +1515,15 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     run: ({ card }, { model }, actor) => lanesOf({ model }).listSteps(card, actor),
   }),
   "step.set": def({
-    summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w !",
+    summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w ! + -",
     touches: "draft", draft: "write", replay: "ask",
     args: {
       step: { type: "string", about: "the step's number in `steps` (from 1), or its ^id" },
-      status: { type: "string", optional: true, about: "todo, done, waiting or problem; default toggles done" },
+      status: { type: "string", optional: true, about: `${CHECKLIST_STATUSES.join(", ")}; default toggles done (an approved or rejected step reopens to todo)` },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
     run({ step, status, card }, { model, shown }, actor) {
-      if (status !== undefined && !["todo", "done", "waiting", "problem"].includes(status)) throw new ActionRefused(`status is todo, done, waiting or problem, not ${status}`);
+      if (status !== undefined && !isChecklistStatus(status)) throw new ActionRefused(`status is ${CHECKLIST_STATUSES.join(", ")}, not ${status}`);
       const n = /^\d+$/.test(step) ? Number(step) - 1 : step;
       if (typeof n === "number" && n < 0) throw new ActionRefused("steps are numbered from 1");
       return lanesOf({ model }).setStep(card ?? lanesOf({ model }).selectedCardId(actor), n, status as StepStatus | undefined, actor, shown);

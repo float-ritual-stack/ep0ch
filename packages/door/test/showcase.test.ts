@@ -27,6 +27,12 @@ import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
 import { external } from "../src/open";
 import { outliner, Scratch, until } from "./scratch";
+
+/** `until` for an answer that takes a request. */
+const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
+  const end = Date.now() + ms;
+  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+};
 import { UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 
 
@@ -336,6 +342,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The society page: one question as a list, tabs by crop and a rank by season.
     questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
+    // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
+    steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
@@ -2841,6 +2849,32 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "echo" }, as: "test-agent" })).rejects.toThrow("what makes this note");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
+
+  test("steps (PIE-811): the person approves a step by keys; an agent reads the answer and rejects another (the mouse path is tasks.test's)", async () => {
+    const id = seeded.notes.buildLog.id;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "steps" }, as: "test-agent" })).toMatchObject({ key: "steps" });
+    await until(() => screen().includes("felt from the merchant"), "the build log", 8000);
+    const statuses = async () => ((await app.act({ action: "tasks", tile: "build log", as: "test-agent" })) as any).steps.map((t: any) => t.status).join(" ");
+    await untilAsync(async () => (await statuses()) === "todo todo approved rejected done waiting", "the steps read");
+    // Keys: into the reader, [ ] to the felt, ⏎ opens its choices, + approves it.
+    press({ kind: "enter" });
+    for (let i = 0; i < 20 && !screen().includes("step [ ] felt from the merchant"); i++) ch("]");
+    expect(screen()).toContain("step [ ] felt from the merchant");
+    press({ kind: "enter" });
+    await until(() => screen().includes("Approve"), "the choices");
+    ch("+");
+    await untilAsync(async () => (await board.get(id))!.text.includes("- [✓] felt from the merchant, not the DIY shop ^t-b1d001"), "the approval");
+    // An agent reads the answer and rejects the gutter, recorded as its own.
+    await untilAsync(async () => (await statuses()).startsWith("approved todo"), "the agent to see the approval");
+    expect(await app.act({ action: "task.status", tile: "build log", args: { n: "2", to: "rejected" }, as: "test-agent" })).toMatchObject({ status: "rejected" });
+    await untilAsync(async () => (await board.get(id))!.text.includes("- [✗] patch the gutter until spring"), "the agent's rejection");
+    // Back to the index, and the note put back as it was seeded.
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+    const text = (await board.get(id))!;
+    await board.update(id, text.text.replace("- [✓] felt", "- [ ] felt").replace("- [✗] patch", "- [ ] patch"), text.revision!);
+  }, 30_000);
 
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
     const id = seeded.notes.plotJobs.id, before = (await board.get(id))!.text;

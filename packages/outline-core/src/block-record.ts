@@ -5,7 +5,7 @@
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
-export type TaskStatus = "todo" | "done" | "waiting" | "problem";
+export type TaskStatus = import("./checklist-marks").ChecklistStatus;
 export type PropertyScope = "block" | "line" | "inline";
 
 /** A block as a record. */

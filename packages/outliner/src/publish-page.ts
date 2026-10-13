@@ -31,7 +31,8 @@ import { onItsPage, plainBody } from "./publish-marginalia";
 import { stripPropertyTokens } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
-import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
+import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
+import { CHECKLIST_STATUSES, isChecklistStatus, statusWord } from "@ep0ch/outline-core/checklist-marks";
 import { passageAt } from "@ep0ch/outline-core/passage";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { SEARCH_SCRIPT, type CompletionAnswer } from "./publish-search";
@@ -325,6 +326,32 @@ export class PageMarginalia {
     return json(200, { ok: true, ...(answer && typeof answer === "object" ? answer : {}) });
   }
 
+  /**
+   * A step's box set from the page (PIE-811): `checklist.update` on a step of a note this page shows, checked against the
+   * step as the page drew it (its evidence; a step with no id by where it starts in the revision drawn). The person's, as
+   * from the door. Only the owner's own page: a share link takes comments, not edits to its notes.
+   */
+  private async step(input: Record<string, unknown>, view: PageView, share?: PageShare): Promise<[number, Record<string, unknown>]> {
+    const text = (value: unknown) => typeof value === "string" ? value : "";
+    if (share) return [403, { ok: false, error: "a link takes comments, not changes to its notes: change the step from your own page or the door" }];
+    const status = text(input.status), block = text(input.block), evidence = text(input.evidence), itemId = text(input.itemId);
+    if (!isChecklistStatus(status)) return [400, { ok: false, error: `status is ${CHECKLIST_STATUSES.join(", ")}` }];
+    if (!view.blocks.some((shown) => shown.id === block)) return [404, { ok: false, error: "that step's note isn't on this page now" }];
+    const start = Number(input.start), revision = Number(input.revision);
+    if (!itemId && (!Number.isSafeInteger(start) || !Number.isSafeInteger(revision))) return [400, { ok: false, error: "name the step: its itemId, or its start and the revision drawn" }];
+    try {
+      const receipt = await this.host.request<ChecklistUpdateReceipt>({
+        action: "checklist.update", blockId: block, mutation: { author: "user" },
+        input: { target: itemId ? { itemId } : { start, expectedRevision: revision }, expectedEvidence: evidence, change: { kind: "status", status } },
+      });
+      return [200, { ok: true, block, status: receipt.item.status, itemId: receipt.item.itemId ?? null, changed: receipt.changed, said: receipt.changed ? `marked ${statusWord(status)}` : `already ${statusWord(status)}` }];
+    } catch (error) {
+      // The step moved on since the page drew it: the page reads the note again and the reader chooses again.
+      const why = error instanceof Error ? error.message : String(error);
+      return [409, { ok: false, error: /changed|missing|location/i.test(why) ? "the step changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
+    }
+  }
+
   private extensionList(): Promise<ExtensionsListResult> {
     if (!this.extensions || Date.now() - this.extensions.at > EXTENSIONS_MAX_AGE_MS) {
       const value = this.host.request<ExtensionsListResult>({ action: "extensions.list" });
@@ -582,6 +609,7 @@ export class PageMarginalia {
         this.undos.delete(undo);
         return said(200, { ok: true, undone: done.written, said: "undone: the quote is in the Trash" });
       }
+      if (action === "step") return said(...await this.step(input, view, share));
       const { marks: shown } = await this.onPage(view, share);
       if (action === "quote") {
         const wanted = Array.isArray(input.marks) ? input.marks.map(text).filter(Boolean) : [];

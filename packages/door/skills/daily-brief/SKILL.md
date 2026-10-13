@@ -65,7 +65,9 @@ Same order every day, so the eye learns where things are. Conclusion first.
 1. **Headline** — a `> [!summary]` callout, two or three sentences: the one thing to do first, and whether
    anything is on fire. A warm opener is fine; one line of it.
 2. **`## Needs you`** — at most five bullets: decisions only the person can make, things to try, replies
-   owed. Each links its note. None: write "nothing". The rest belongs on the board.
+   owed. Each links its note. None: write "nothing". The rest belongs on the board. A decision is a step
+   (`- [ ] …`) the person answers from its box: Approve (`[✓]`, their yes) or Reject (`[✗]`, their no); read
+   yesterday's answers before writing today's and act on the approved ones.
 3. **`## Yesterday, as a story`** — 3 to 6 short paragraphs or bullet groups, grouped by project or arc,
    each opening with a bold one-line headline. Say what the problem was and what worked. Every claim links
    its proof: an item (`[[PIE-…]]`), a PR, a delivery record.

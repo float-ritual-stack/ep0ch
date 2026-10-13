@@ -1527,7 +1527,7 @@ the same plan's answer.
 |---|---|
 | `n` | a new card in the focused lane |
 | `N` | a note under the selected card |
-| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `w` waiting, `!` problem |
+| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `+` approve, `-` reject, `w` waiting, `!` problem |
 | `d` `d` | trash the selected card (and the notes under it); `u` restores it |
 
 - **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
@@ -1574,7 +1574,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
   prefix and exactly one active `type=work-queue` block for the project; otherwise its refusal is shown
   as it is (`Expected exactly one active work queue for project …`). A lost answer is looked for among the project's newest items, never retried.
 
-- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
+- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`, `[✓]`, `[✗]`), read with
   `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
   as it was read: a step reworded since is refused and the list read again. A step without an id is named
   by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
@@ -2041,7 +2041,8 @@ restart (`extensions: horoscope added` on the status bar).
 
 ### Checklist steps
 
-Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem), in the note or
+Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem, `[✓]` approved, `[✗]` rejected:
+outline-core's `checklist-marks.ts`, PIE-811; `[+]` and `[-]` read as approved and rejected, for a keyboard), in the note or
 inside an embed of another note, anchored ones (`!((id^t-8a6d7f))`) too (PIE-472). The service says
 which items are steps and reads their status (`checklist.query`, and each embed's projection carries
 its own); each step's box is a control, and `[ ]` stops on it with the note's other elements. Every
@@ -2056,20 +2057,21 @@ change (yours or an agent's).
 | Keys | Action |
 |---|---|
 | `⏎`, a click (or right-click) on a step's box | the status choice opens under it: Detail's choices, in its order |
-| `x` `o` `w` `!` in the choice | mark done, to do, waiting, problem |
+| `x` `o` `+` `-` `w` `!` in the choice | mark done, to do, approved (Approve: your yes), rejected (Reject: your no), waiting, problem |
 | `y`, `a` in the choice | Copy step link (`((note^t-…))` to your clipboard), Make addressable; either gives the step a stable id |
 | `j k` `↑↓` `⏎`, a click on a row; `esc` | move, choose; cancel. The choice holds your keys until then |
-| `space` on the current step | done, or back to to do (as Detail's space) |
+| `space` on the current step | done, or back to to do from done, approved or rejected (as Detail's space) |
 | `ctrl+z` | undo the last step change you made while reading this note (or callout or image change, whichever was last) |
 
 The keys were picked after checking every screen's: `space` pages a reader everywhere else and keeps doing
 so unless a step is the current element in view; `ctrl+z` is undo wherever it's bound (here, and in a draft
-for an agent's patch); `x o w !`
+for an agent's patch); `x o + - w !`
 and `y a` only mean this while the choice is open (it takes the keys first on the board, the desk, the
-river and the BBS reader), and match the board's steps overlay (`x w !`) and the door's `y` for copy.
+river and the BBS reader), and match the board's steps overlay (`x + - w !`) and the door's `y` for copy. `+` and `-` are the marks a keyboard
+types for approved and rejected (`[+]`, `[-]`).
 
 Agents use `tasks` (the steps the reader draws, in the note and in its embeds), `task.status` (`n=` or
-`id=`, `to=done|todo|waiting|problem`), `task.undo` (its own last change) and `task.link`. An agent's
+`id=`, `to=done|todo|waiting|problem|approved|rejected`), `task.undo` (its own last change) and `task.link`. An agent's
 change is said in the status bar and the reader's header (`an agent (<id>) set "Sow the beans" to do →
 waiting · in !((…))`) and never moves your `[ ]` position, scroll or selection; the status choice is
 yours only.
@@ -2532,7 +2534,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `board.reload` | none: read the lanes again | `r` |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
-| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
+| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem\|approved\|rejected` (default toggles done) | `s`, `j k`, `space x + - w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
 | `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles), `dir=v\|h` (vertical or horizontal spine); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c`, `alt+h` (alt+H horizontal), bare `-` folds and `+` `=` open the focused tile where it takes no text, `✦-` `✦=` (hyper), the ◂ ▾ on a tile's frame (alt+click horizontal) |
@@ -2585,7 +2587,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |
 | `block.tint`, `block.untint` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
-| `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |
+| `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem\|approved\|rejected` | `⏎` or a click on a box, then `x o + - w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
 | `task.link`, `task.menu` | `n` or `id` (the person's: default the step at their keys). `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard; `copy=false` only makes it addressable); `task.menu` opens the status choice and is the person's only | the choice's `y` and Make addressable; `⏎` on a box |
 | `props` | `full=true` | `i`, `I` |

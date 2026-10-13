@@ -6,6 +6,8 @@ export type ChecklistChoice = ChecklistStatus | "copy-link" | "address";
 export const CHECKLIST_CHOICES: readonly {id: ChecklistChoice; label: string}[] = [
   {id: "done", label: `${CHECKLIST_MARKS.done} Mark done`},
   {id: "todo", label: `${CHECKLIST_MARKS.todo} Mark to do`},
+  {id: "approved", label: `${CHECKLIST_MARKS.approved} Approve`},
+  {id: "rejected", label: `${CHECKLIST_MARKS.rejected} Reject`},
   {id: "waiting", label: `${CHECKLIST_MARKS.waiting} Mark waiting`},
   {id: "problem", label: `${CHECKLIST_MARKS.problem} Mark problem`},
   {id: "copy-link", label: "Copy step link"},

@@ -12,6 +12,7 @@
 import { passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, fragmentAnchorMatch, MARKDOWN_LINK_SOURCE, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 
 /** A block's text as a page draws it, with each drawn character's offset in the source. */
 export interface DrawnText {
@@ -20,7 +21,7 @@ export interface DrawnText {
 }
 
 const EMPHASIS = new Set(["*", "_", "`", "~"]);
-const LINE_MARKER = /^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)+/;
+const LINE_MARKER = new RegExp(`^[ \\t]*(?:#{1,6}[ \\t]+|>[ \\t]?|(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?)+`);
 
 /** Words as compared: emphasis left out, blanks one space, trimmed. */
 export function drawnWords(text: string): string {
