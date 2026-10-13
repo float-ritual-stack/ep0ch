@@ -108,6 +108,24 @@ refactor into a risky rewrite. Evan: the MCP server "wraps the code used in the 
   per-session `outline_bind`, guards on writes (`tool.call`), tool rows and program status. Only a mod can do these
   (Claude Code mods reference); only MCP reaches claude.ai, Desktop chats and the Agent SDK.
 
+- **Both sides' strengths go into the shared module** (daddy, the claude.ai surface, Oct 13): the mod's `work_*`,
+  `outline_edit` and `view_order`, and the gateway's `outline_query`, threads, write receipts (applied, proposed or
+  queued) and link warnings on every write. Otherwise the same gaps just move.
+
+<details><summary>The first version of §5 (Oct 9), kept for the record</summary>
+
+> - The mod registers no outline, workboard or door tools. What only it has today moves into the MCP server:
+>   `outline_edit`, `outline_changes`, `outline_resolve`, `view_order`, `note_section` and `work_*` (under the same
+>   access grant), and the opens.
+> - **`open` routes; the agent doesn't.** One `open` tool sends a note where this agent's opens land: its door tile,
+>   else the Outliner Detail beside it in Herdr, else the mod's pane. The stdio server offers it, and `door_*`, only
+>   when its environment has a door or Herdr (`EP0CH_CONTROL`, `HERDR_PANE_ID`); a Herdr-only operation with no door
+>   equivalent is `herdr_*` under the same rule. The gateway never lists them.
+> - The mod keeps what is presentation: tool rows, references as links, the band and pane, the binding card, program
+>   status, mentions ingest (now over MCP).
+
+</details>
+
 ### 6. One place decides whether an agent may write
 
 The outline's access grant (`none | read | propose | full`, ADR 0002) and the door's per-tile agent rules
