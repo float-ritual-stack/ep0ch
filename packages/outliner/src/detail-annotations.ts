@@ -332,6 +332,7 @@ export function buildDetailAnnotationView(
       outlinerActionLink("detail.annotation.previous", "‹"),
       outlinerActionLink("detail.annotation.next", "›"),
       outlinerActionLink("detail.annotation.reply", "Reply"),
+      ...(thread.body.trim() ? [outlinerActionLink("detail.annotation.edit", "Edit")] : []),
       outlinerActionLink("detail.annotation.lifecycle", markCurrent(thread.lifecycle) ? "Seen" : "Bring back"),
       `· ${thread.lifecycle}`,
     ].join(" "), width, "…"));
@@ -390,7 +391,7 @@ export function buildDetailAnnotationView(
     output.push("─".repeat(width));
   }
   const comment = extractAnnotationBody(state.resolvedSelectedText);
-  output.push(`\x1b[1m${annotation ? annotationKindWord({ body: comment, properties: annotation.properties }) : "Comment"}\x1b[0m`);
+  output.push(`\x1b[1m${annotation ? annotationKindWord({ body: comment, properties: annotation.properties }) : "Comment"}\x1b[0m${annotation ? editedNote(annotation) : ""}`);
   const tags = annotation ? annotationTags(annotation) : [];
   const empty = annotation && !comment.trim() ? `(Highlight${tags.length ? ` · ${tags.map(tag => `#${tag}`).join(" ")}` : ""})` : "(No comment text)";
   for (const line of (comment || empty).split(/\r?\n/)) {
@@ -399,11 +400,18 @@ export function buildDetailAnnotationView(
   if (thread) {
     for (const reply of thread.replies) {
       if (reply.block.id === state.context.selected?.id) continue;
-      output.push("", fitDynamicText(`${reply.source} reply:`, width));
+      output.push("", truncateToWidth(`${reply.source} reply:${editedNote(reply)} ${outlinerActionLink(`detail.annotation.edit:${reply.block.id}`, "Edit")}`, width, "…"));
       output.push(...reply.body.split(/\r?\n/).map(line => renderMarkdownLine(fitDynamicText(line, width))));
     }
   }
   return output;
+}
+
+/** " · edited" after a posted mark's label, with who when it wasn't the author (PIE-763); empty when never edited. */
+function editedNote(mark: Pick<AnnotationRecord, "edited" | "editedBy" | "source">): string {
+  if (!mark.edited) return "";
+  const by = mark.editedBy && mark.editedBy !== mark.source ? ` by ${mark.editedBy}` : "";
+  return `\x1b[2m · edited${by}\x1b[0m`;
 }
 
 export function selectedAnnotationThread(state: Pick<AnnotationReaderState, "annotationThreads" | "selectedAnnotationId" | "context">): AnnotationThread | null {

@@ -1,12 +1,12 @@
 // Comments from a reader (EPD-004): pick a passage of the note's source, write a comment on it, reply to
-// a thread, and say how present it stays (PIE-791): seen puts it away, keep keeps it, TL;DR asks @margin for its face. The service owns the rules: a comment names the note's revision and
+// a thread, edit a posted comment or reply in the same editor (PIE-763), and say how present it stays (PIE-791): seen puts it away, keep keeps it, TL;DR asks @margin for its face. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings";
 import { RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
-import { commentTarget, DraftSession, Outgoing, type CommentWhere } from "./draft-session";
+import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
 import type { Completer } from "./surface/completer";
@@ -16,6 +16,10 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
 import { ago, rule, wrap } from "./text";
 import type { MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
+
+/** A posted comment's or reply's "edited" mark (PIE-763): who edited it when that isn't who wrote it. */
+export const editedMark = (x: { author: string; edited?: number; editedBy?: string }): string =>
+  !x.edited ? "" : x.editedBy && x.editedBy !== x.author ? ` · edited by ${x.editedBy}` : " · edited";
 
 /** CP437-safe marks, so snapshots and real VGA-font terminals draw them. */
 const MARK = "▐", OPEN = "■", DONE = "·";
@@ -157,7 +161,7 @@ export { Outgoing };
 // ── the session a reader holds while commenting ───────────────────────────────
 
 export interface CommentEnv {
-  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle" | "tldr"> & Partial<ReferenceBoard>;
+  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle" | "tldr" | "updateComment"> & Partial<ReferenceBoard>;
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
@@ -240,7 +244,7 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true });
-    return `j k thread · PgUp PgDn or wheel scroll · r reply · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
+    return `j k thread · PgUp PgDn or wheel scroll · r reply · e edit · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
@@ -269,7 +273,7 @@ export class CommentSession {
           if (cmd === "save") void this.send(env);
           else if (cmd === "editor") env.external(d);
           else if (cmd === "pick") env.pick?.();
-          else if (cmd === "reload") void this.relocate(env);
+          else if (cmd === "reload") void (this.target?.kind === "edit" ? this.reloadEdit(env) : this.relocate(env));
           else if (cmd === "close" || cmd === "discard") {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
             w.close(cmd === "discard");
@@ -319,10 +323,50 @@ export class CommentSession {
     return null;
   }
 
-  /** A draft session for the comment or reply `target` names, sent by the comment adapter. */
+  /**
+   * `e` on a thread (or an expanded thread's [Edit] on its comment or a reply, PIE-763): edit the posted words of its
+   * comment, or of its reply `reply` (an id, or its first 6+ characters), in the same editor a comment is written in.
+   * It starts from the words and revision the thread list read; ctrl+s saves through `annotations.update`.
+   */
+  editMark(i: number, reply?: string, by: Actor = USER): string | null {
+    const t = this.threads[i];
+    if (!t) return "no such thread";
+    const r = reply === undefined ? null : t.replies.find(x => x.id === reply || (reply.length >= 6 && x.id.startsWith(reply)));
+    if (reply !== undefined && !r) return `no reply ${reply} on this thread`;
+    const on = r ?? t;
+    if (on.revision === undefined) return "the outline didn't say which revision it's at, so it can't be edited safely · m opens the list again";
+    // A highlight has no words to edit: reply to it, or write a comment on its passage.
+    if (!r && !t.body.trim()) return "a highlight has no words to edit · r replies to it";
+    this.sel = i;
+    this.target = { kind: "edit", thread: t, mark: { id: on.id, revision: on.revision, body: on.body, author: on.author, reply: !!r } };
+    this.writing = this.open(by);
+    this.back = "threads"; this.mode = "compose"; this.note = ""; this.error = null; this.stale = false;
+    return null;
+  }
+
+  /** A draft session for the comment or reply `target` names, sent by the comment adapter (an edit: the edit adapter). */
   private open(by: Actor): DraftSession {
+    const t = this.target!;
+    if (t.kind === "edit") {
+      const m = t.mark;
+      return DraftSession.open(commentEditTarget({
+        mark: m, note: this.msg,
+        board: () => this.env!.board,
+        landed: r => this.edited(r, t),
+        refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
+        reread: async () => {
+          const now = await this.env!.reloadComments().catch(() => null);
+          if (!now) return null;
+          this.threads = now;
+          const th = now.find(x => x.id === t.thread.id), x = m.reply ? th?.replies.find(r => r.id === m.id) : th;
+          if (!x || x.revision === undefined) return null;
+          this.error = null; this.stale = false;
+          return { ...m, revision: x.revision, body: x.body };
+        },
+      }), { by, text: m.body, base: m.revision });
+    }
     return DraftSession.open(commentTarget({
-      where: () => this.target!,
+      where: () => this.target as Exclude<Target, { kind: "edit" }>,
       note: this.msg,
       board: () => this.env!.board,
       out: this.out,
@@ -349,7 +393,7 @@ export class CommentSession {
     const w = this.writing, t = this.target;
     if (!w || !t) return;
     this.env = env;
-    if (w.draft.text.trim()) { this.busy = t.kind === "quote" ? "sending the comment..." : "sending the reply..."; this.error = null; env.redraw(); }
+    if (w.draft.text.trim()) { this.busy = t.kind === "quote" ? "sending the comment..." : t.kind === "reply" ? "sending the reply..." : "saving the edit..."; this.error = null; env.redraw(); }
     // A refusal is the adapter's to say (its error line, at once); one said on the draft itself (nothing typed) stays there.
     const r = await w.submit(env.actor ?? USER);
     if (!r.ok) this.busy = null;
@@ -357,7 +401,7 @@ export class CommentSession {
   }
 
   /** A send landed: back to the thread list, reloaded, on the thread it went to. */
-  private async landed(r: { id: string; deduplicated?: boolean }, t: Target, body: string): Promise<void> {
+  private async landed(r: { id: string; deduplicated?: boolean }, t: Exclude<Target, { kind: "edit" }>, body: string): Promise<void> {
     const env = this.env!;
     this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
     this.mode = "threads"; this.busy = "loading the thread...";
@@ -378,6 +422,41 @@ export class CommentSession {
       // Said only while nothing else has started here since (another comment, a reply, a passage being picked).
       if (w && this.mode === "threads" && !this.writing && !this.busy) { this.note = w; env.flash(w); env.redraw(); }
     }
+  }
+
+  /** An edit saved (PIE-763): back to the thread list, reloaded, on its thread, which now shows the new words as edited. */
+  private async edited(r: { id: string; body: string; unchanged?: boolean }, t: Extract<Target, { kind: "edit" }>): Promise<void> {
+    const env = this.env!;
+    this.writing = null; this.target = null; this.stale = false; this.note = "";
+    this.mode = "threads"; this.busy = "loading the thread...";
+    if (this.fromReader) this.finished = true;
+    env.flash(r.unchanged ? "nothing changed" : `${t.mark.reply ? "reply" : "comment"} edited`);
+    this.threads = await env.reloadComments();
+    this.busy = null;
+    this.sel = Math.max(0, this.threads.findIndex(x => x.id === t.thread.id)); this.view.reveal();
+    if (this.fromReader) env.posted?.(t.thread.id);
+    // Saved first; then a reference in it that leads nowhere is said, as a new comment's is (PIE-761).
+    const b = env.board;
+    if (b.resolveReferences && b.searchBlocks && b.get) {
+      const w = await savedReferenceWarning(b as ReferenceBoard, r.body, this.msg.id, r.id);
+      if (w && this.mode === "threads" && !this.writing && !this.busy) { this.note = w; env.flash(w); env.redraw(); }
+    }
+  }
+
+  /** ctrl+r on a stale edit: its words as they are now (the draft kept and copied). */
+  async reloadEdit(env: CommentEnv): Promise<void> {
+    this.env = env;
+    const w = this.writing;
+    if (!w || this.target?.kind !== "edit") return;
+    this.busy = "reading it again..."; env.redraw();
+    try { await w.target.reload?.(w); } finally { this.busy = null; }
+    const t = this.target;
+    if (t?.kind === "edit" && w.open) {
+      const th = this.threads.find(x => x.id === t.thread.id);
+      const now = t.mark.reply ? th?.replies.find(x => x.id === t.mark.id) : th;
+      if (th && now?.revision !== undefined) this.target = { kind: "edit", thread: th, mark: { ...t.mark, revision: now.revision, body: now.body } };
+    }
+    env.redraw();
   }
 
   /** After a stale refusal: find the same quote in the note's current text, nearest where it was. */
@@ -478,14 +557,14 @@ export class CommentSession {
     const status = (s: string, colour: number) => fg(colour) + s + RESET;
     const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
-    const what = t.kind === "quote" ? kind : `reply to ${t.thread.author}`;
+    const what = t.kind === "quote" ? kind : t.kind === "reply" ? `reply to ${t.thread.author}` : `edit ${t.mark.author}'s ${t.mark.reply ? "reply" : "comment"}`;
     const away = this.place === "popup" || this.place === "split";
     const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {
       title: `${what} · ctrl+s saves · esc cancels`,
-      status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-      context, by: writtenBy(d, "send"), preview, pick: true, place: this.place,
+      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words · ctrl+s saves · esc leaves it as it was") : d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+      context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, place: this.place,
     };
   }
 
@@ -519,7 +598,7 @@ export class CommentSession {
     this.threads.forEach((t, i) => {
       if (!t.open && (i === 0 || this.threads[i - 1]!.open)) lines.push(fg(C.dark) + pad("── earlier ── s on one brings it back", w) + RESET);
       if (i === this.sel) selAt = lines.length;
-      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
+      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)}${editedMark(t)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
       lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       // On the earlier shelf a thread is its one line until it's chosen.
       if (!t.open && i !== this.sel) return;
@@ -538,7 +617,7 @@ export class CommentSession {
       for (const l of whole ? body : body.slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
       if (!whole) more(body.length - 4, "    ");
       for (const r of t.replies) {
-        const rl = wrap(`${r.author} · ${ago(r.at)}${r.tldr ? " · TL;DR" : ""}: ${r.body}`, w - 6);
+        const rl = wrap(`${r.author} · ${ago(r.at)}${editedMark(r)}${r.tldr ? " · TL;DR" : ""}: ${r.body}`, w - 6);
         for (const [j, l] of (whole ? rl : rl.slice(0, 3)).entries()) lines.push(fg(C.cyan) + (j ? "      " : "    └ ") + l + RESET);
         if (!whole) more(rl.length - 3, "      ");
       }
@@ -556,6 +635,7 @@ export class CommentSession {
       mode: this.mode, blockId: this.msg.id, revision: this.msg.revision,
       quote: this.mode === "select" ? this.passage?.quote : this.target?.kind === "quote" ? this.target.passage.quote : undefined,
       replyTo: this.target?.kind === "reply" ? this.target.thread.id : undefined,
+      editing: this.target?.kind === "edit" ? this.target.mark.id : undefined,
       dirty: this.dirty, busy: this.busy, error: this.error, requestId: this.requestId, threads: this.threads.length,
       ...(this.mode === "compose" ? { place: this.place } : {}),
     };

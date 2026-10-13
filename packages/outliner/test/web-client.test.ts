@@ -178,6 +178,18 @@ test("highlight, comment, an answered ask, reply and seen land in the outline, a
   expect((await write({ page: survey.id, action: "reply", thread: commented.thread, body: "And note the weather.", requestId: "reply-00001" })).status).toBe(200);
   const replied = (await threads(survey.id)).threads.find((thread) => thread.id === commented.thread)!;
   expect(replied.replies.map((reply) => [reply.by, reply.body])).toEqual([["you", "And note the weather."]]);
+  // Edit (PIE-763): a comment's and a reply's words changed from the revision the page drew; a stale one is refused.
+  const drawnComment = replied as unknown as { edit: { revision: number; words: string }; replies: { id: string; edit: { revision: number; words: string } }[] };
+  expect(drawnComment.edit.words).toBe("Count them again in October.");
+  expect((await write({ page: survey.id, action: "edit", mark: commented.thread, revision: drawnComment.edit.revision, body: "Count them again in late October." })).status).toBe(200);
+  const stale = await write({ page: survey.id, action: "edit", mark: commented.thread, revision: drawnComment.edit.revision, body: "Lost words." });
+  expect(stale.status).toBe(409);
+  expect((await stale.json()).error).toContain("your words are still in the box");
+  const firstReply = drawnComment.replies[0]!;
+  expect((await write({ page: survey.id, action: "edit", mark: firstReply.id, revision: firstReply.edit.revision, body: "And note the weather and the moon." })).status).toBe(200);
+  const edited = (await threads(survey.id)).threads.find((thread) => thread.id === commented.thread)! as unknown as { body: string; edited?: string; editedBy?: string; by: string; replies: { body: string; edited?: string }[] };
+  expect([edited.body, !!edited.edited, edited.editedBy, edited.by]).toEqual(["Count them again in late October.", true, "you", "you"]);
+  expect(edited.replies.map((reply) => [reply.body, !!reply.edited])).toEqual([["And note the weather and the moon.", true]]);
   // Seen puts it on the Earlier shelf (PIE-791): still on the page, out of the margin's default.
   expect((await write({ page: survey.id, action: "seen", thread: commented.thread })).status).toBe(200);
   expect((await threads(survey.id)).threads.find((thread) => thread.id === commented.thread)).toMatchObject({ lifecycle: "seen" });
@@ -322,6 +334,14 @@ test("through a share link too: Ask about this gets its answer in the margin, an
     const listed = (await response.json()) as { threads: { id: string; replies: { by: string }[] }[] };
     return listed.threads.find((thread) => thread.id === asked.thread && thread.replies.some((reply) => reply.by === "marginalia"));
   });
+  // Edit through the share (PIE-763): what was written through it, yes; the person's own comment on the tailnet, never.
+  const onShare = ((await (await get(`${base}/_marginalia/threads?page=${survey.id}`, {}, "public")).json()) as { threads: { id: string; edit?: { revision: number; words: string } }[] }).threads;
+  const mine = onShare.find((thread) => thread.id === asked.thread)!;
+  expect(mine.edit?.words).toBe("@margin how bright?");
+  expect(onShare.filter((thread) => thread.id !== asked.thread).every((thread) => !thread.edit)).toBe(true);
+  const theirs = onShare.find((thread) => thread.id !== asked.thread)!;
+  expect((await write({ page: survey.id, action: "edit", mark: theirs.id, revision: 1, body: "Rewritten by a guest." }, `https://${HOST}`, "public", base)).status).toBe(403);
+  expect((await write({ page: survey.id, action: "edit", mark: asked.thread, revision: mine.edit!.revision, body: "@margin how bright is it?" }, `https://${HOST}`, "public", base)).status).toBe(200);
   // Quoted through the share: under the note, linked inside it; its undo is the share's, not the tailnet's.
   const viaShare = await (await write({ page: survey.id, action: "quote", marks: [asked.thread], place: "note" }, `https://${HOST}`, "public", base)).json();
   expect(viaShare).toMatchObject({ ok: true, href: `${base}/p/${viaShare.block}` });

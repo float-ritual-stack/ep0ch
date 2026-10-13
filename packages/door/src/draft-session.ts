@@ -33,7 +33,7 @@ export type Outcome =
 
 /** Where a draft goes when it's written: one adapter per kind of destination. */
 export interface DraftTarget {
-  /** Where it's put aside and brought back from (the unsent key): `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<view>`, `child:<id>`. */
+  /** Where it's put aside and brought back from (the unsent key): `edit:<id>`, `comment:<id>`, `reply:<thread>`, `remark:<mark>`, `card:<view>`, `child:<id>`. */
   readonly place: string;
   /** What brings it back, as said: "e brings it back". */
   readonly back: string;
@@ -712,10 +712,17 @@ export function blockTarget(m: Msg, o: {
 
 // ── adapter 2: a comment on a passage, or a reply to a thread ─────────────────
 
-/** Where a comment goes: a passage of a note at a revision, or a thread. */
+/** Where a comment goes: a passage of a note at a revision, a thread, or (PIE-763) a posted comment or reply's own words. */
 export type CommentWhere =
   | { kind: "quote"; blockId: string; revision: number; passage: CommentPassage; props?: AnnotationProps }
-  | { kind: "reply"; thread: Comment };
+  | { kind: "reply"; thread: Comment }
+  | { kind: "edit"; thread: Comment; mark: EditedMark };
+
+/** Where something new is sent: a comment on a passage, or a reply. */
+export type NewCommentWhere = Exclude<CommentWhere, { kind: "edit" }>;
+
+/** A posted comment (the thread's own) or one of its replies, as an edit of its words starts from it. */
+export interface EditedMark { id: string; revision: number; body: string; author: string; reply: boolean }
 
 /**
  * One requestId per thing the person means to send. A retry of the same text reuses it, so the service
@@ -748,12 +755,12 @@ export class Outgoing {
  */
 export function commentTarget(o: {
   /** Where it goes now (a relocate moves a quote's revision and offset). */
-  where(): CommentWhere;
+  where(): NewCommentWhere;
   /** The note it's on, for its place and name. */
   note: Msg;
   board(): Pick<SocketBoard, "comment" | "commentOnResource" | "reply">;
   out: Outgoing;
-  landed(r: { id: string; deduplicated?: boolean }, where: CommentWhere, body: string): Promise<void>;
+  landed(r: { id: string; deduplicated?: boolean }, where: NewCommentWhere, body: string): Promise<void>;
   /** Not sent, and why (said by the host at once, before the outcome reaches whoever asked). */
   refused?(why: string, stale: boolean): void;
   relocate?(): Promise<void>;
@@ -761,7 +768,7 @@ export function commentTarget(o: {
   const w0 = o.where(), title = `“${subject(o.note).slice(0, 40)}”`;
   let confirmNew = false;
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
-  const key = (t: CommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
+  const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
   const back = w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back";
   const label = `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`;
   return {
@@ -808,6 +815,71 @@ export function commentTarget(o: {
       }
     },
     ...(o.relocate ? { reload: () => o.relocate!() } : {}),
+  };
+}
+
+// ── adapter 4: a posted comment's or reply's words, edited ────────────────────
+
+/**
+ * Edit a posted comment or reply in place (`annotations.update`, PIE-763), from the revision the edit started on: the
+ * service keeps its target, lifecycle and replies, marks it edited and keeps its earlier words in the block's revisions.
+ * It's an edit, so a click away saves it, as a note's does; a stale one (changed meanwhile) is refused, kept and copied,
+ * and ctrl+r loads its words as they are now. It holds no draft on the service: the draft is its words, not its block's
+ * text (heading and properties), so an agent's `draft.patch` has nothing to land in; it edits through `comment.edit`.
+ */
+export function commentEditTarget(o: {
+  mark: EditedMark;
+  /** The note it's on, for its name. */
+  note: Msg;
+  board(): Pick<SocketBoard, "updateComment">;
+  /** Saved (or nothing changed, `unchanged`): the host reloads the thread and shows it. */
+  landed(r: { id: string; revision: number; body: string; unchanged?: boolean }): Promise<void>;
+  /** Not saved, and why (said by the host at once). */
+  refused?(why: string, stale: boolean): void;
+  /** ctrl+r after a stale refusal: the mark's words and revision as the service has them now (null: it's gone). */
+  reread(): Promise<EditedMark | null>;
+}): DraftTarget {
+  let mark = o.mark;
+  const what = mark.reply ? "reply" : "comment", label = `${mark.id.slice(0, 8)}-${what}-edit`;
+  const no = (why: string, stale = false): Outcome => { o.refused?.(why, stale); return { ok: false, why, ...(stale ? { stale } : {}) }; };
+  return {
+    place: `remark:${mark.id}`, near: o.note.id, label,
+    back: `e on the ${what} brings it back`,
+    what: `the edit to ${mark.author}'s ${what} on “${subject(o.note).slice(0, 40)}”`,
+    verb: "save", leaveWrites: true,
+    async submit(s, by) {
+      const d = s.draft;
+      const body = d.text.trim();
+      if (!body) return no(`a ${what} can't be emptied by an edit · change its words, or esc esc to leave it as it was`);
+      // Nothing changed: the edit closes as a saved one does, nothing written.
+      if (body === mark.body.trim()) { await o.landed({ id: mark.id, revision: mark.revision, body: mark.body, unchanged: true }); return { ok: true, said: "nothing changed" }; }
+      d.saving = true; d.note = "saving…";
+      try {
+        const r = await o.board().updateComment(mark.id, mark.revision, body, by);
+        d.saving = false;
+        mark = { ...mark, revision: r.revision, body: r.body };
+        await o.landed(r);
+        return { ok: true, revision: r.revision, result: r };
+      } catch (e) {
+        d.saving = false;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (e instanceof Refused && /revision is stale/i.test(msg)) return no(`the ${what} changed since you started editing · not saved`, true);
+        if (e instanceof Refused) return no(`refused, not saved: ${msg} · your text is kept here and copied to ${tidy(d.copyOut(label))}`);
+        return no(`no answer from the outline (${msg}) · it may be saved · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s tries again (a stale refusal then means it landed)`);
+      }
+    },
+    async reload(s) {
+      const d = s.draft;
+      if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
+      const copy = d.dirty ? d.copyOut(label) : d.savedCopy;
+      const now = await o.reread();
+      if (!s.open) return;
+      if (!now) { d.note = `the ${what} is gone from the outline`; return; }
+      mark = now;
+      s.settled();
+      d.rebase({ id: now.id, text: now.body, revision: now.revision, props: {}, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
+      d.note = `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+    },
   };
 }
 

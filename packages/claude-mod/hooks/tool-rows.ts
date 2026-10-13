@@ -255,6 +255,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       return { kind: 'write', glyph: '💬', lead: 'comment on', target, change: [on, quoted(input.body)], detail: `${quote}${input.body}` }
     }
     case 'outline_reply': {
+      if (typeof input.edit === 'string' && typeof input.body === 'string') return { kind: 'write', glyph: '✎', lead: 'edited', target: threadTarget(input.edit), change: [quoted(input.body)], detail: input.body }
       if (typeof input.thread !== 'string' || typeof input.body !== 'string') return null
       return { kind: 'write', glyph: '💬', lead: 'reply in', target: threadTarget(input.thread), change: [quoted(input.body)], detail: input.body }
     }

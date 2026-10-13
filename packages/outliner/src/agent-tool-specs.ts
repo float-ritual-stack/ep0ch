@@ -31,6 +31,7 @@ export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
   create: spec("create", { parent: str, text: str, position: int }, ["parent", "text"], { parent: "PIE-123", text: "Bring labels" }),
   comment: spec("comment", { ref, body: str, quote: str, whole: bool, start: int, near: int, prefix: str, suffix: str, requestId: str, from: str, revision, properties: { type: "object" } }, ["ref"], { ref: "PIE-123", body: "Is this still true?", whole: true }),
   reply: spec("reply", { thread: str, body: str, requestId: str }, ["thread", "body"], { thread: THREAD, body: "Yes, checked today." }),
+  "edit-comment": spec("edit-comment", { mark: str, body: str, observed: str, revision }, ["mark", "body"], { mark: THREAD, observed: "Is this still true?", body: "Is this still true in May?" }),
   "resolve-thread": spec("resolve-thread", { thread: str, resolved: bool }, ["thread", "resolved"], { thread: THREAD, resolved: true }),
   changes: spec("changes", { since: { type: ["string", "integer"] }, author: str, actor: str, limit: int, before: int }, ["since"], { since: "2026-03-01T09:00:00Z" }),
   patch: spec("patch", { ref, revision, patches: { type: "array", items: { type: "object" } }, mark: str, policy: str, allowStructural: bool, propose: {} }, ["ref", "revision", "patches"],

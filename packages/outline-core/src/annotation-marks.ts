@@ -15,8 +15,11 @@
 import { propertyTokensInLine, withoutPropertyTokens } from "./property-grammar";
 import { RULE_TONES, type RuleTone } from "./rules";
 
+/** The store's own key for when a comment or reply was edited after it was posted (an ISO time; PIE-763's `annotations.update`). */
+export const ANNOTATION_EDITED_KEY = "annotation-edited";
+
 /** The keys the annotation store writes for its own bookkeeping: never shown as an annotation's properties. */
-export const ANNOTATION_OWN_KEYS: ReadonlySet<string> = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block"]);
+export const ANNOTATION_OWN_KEYS: ReadonlySet<string> = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
 
 /** The tone a kind is drawn in when the annotation names no `color`: conventions, not a closed list. */
 const KIND_TONES: Readonly<Record<string, RuleTone>> = { highlight: "warn", question: "accent", define: "good", explain: "good", note: "default" };

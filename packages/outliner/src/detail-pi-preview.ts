@@ -949,13 +949,17 @@ function annotationPanelLines(
     `╭${title}${"─".repeat(Math.max(0, panelWidth - visibleWidth(title) - 1))}`,
     panelWidth,
   );
+  const editLink = (replyId?: string) =>
+    `[Edit](${previewRegionActionUri({ type: "annotation.thread.edit", annotationId: thread.block.id, ...(replyId ? { replyId } : {}) })})`;
+  const editedWords = (mark: Pick<AnnotationThread, "edited" | "editedBy" | "source">) => mark.edited
+    ? `edited${mark.editedBy && mark.editedBy !== mark.source ? ` by ${escapeGeneratedMarkdown(mark.editedBy)}` : ""}` : "";
   const action = (label: string, type: "annotation.thread.select" | "annotation.thread.reply" | "annotation.thread.lifecycle") =>
     `[${label}](${previewRegionActionUri({ type, annotationId: thread.block.id })})`;
   const navigation = (label: string, delta: -1 | 1) =>
     `[${label}](${previewRegionActionUri({ type: "annotation.thread.move", delta })})`;
   const body = [
-    `${navigation("‹", -1)} ${action("Select", "annotation.thread.select")} ${navigation("›", 1)} · ${action("Reply", "annotation.thread.reply")} · ${action(markCurrent(thread.lifecycle) ? "Seen" : "Bring back", "annotation.thread.lifecycle")}`,
-    [thread.source, placement === "inline" ? placementWords(thread.currentResolution.status) : placement, thread.lifecycle].filter(Boolean).join(" · "),
+    `${navigation("‹", -1)} ${action("Select", "annotation.thread.select")} ${navigation("›", 1)} · ${action("Reply", "annotation.thread.reply")}${thread.body.trim() ? ` · ${editLink()}` : ""} · ${action(markCurrent(thread.lifecycle) ? "Seen" : "Bring back", "annotation.thread.lifecycle")}`,
+    [thread.source, placement === "inline" ? placementWords(thread.currentResolution.status) : placement, thread.lifecycle, editedWords(thread)].filter(Boolean).join(" · "),
     scope,
     "",
     // A highlight has no body: it reads as one, with its tags, never as an empty comment.
@@ -972,7 +976,8 @@ function annotationPanelLines(
   }
   for (const reply of thread.replies) {
     const [first = "", ...rest] = commentLines(reply.body);
-    body.push("", `**${escapeGeneratedMarkdown(reply.source)}:** ${first}`, ...rest);
+    body.push("", `**${escapeGeneratedMarkdown(reply.source)}:** ${first}`, ...rest,
+      `${[editedWords(reply)].filter(Boolean).map(words => `*${words}* · `).join("")}${editLink(reply.block.id)}`);
   }
   const rendered = (comments.trackLinks ? new LinkAwareMarkdown(body.join("\n"), theme)
     : new Markdown(body.join("\n"), 0, 0, theme)).render(Math.max(1, panelWidth - 2));

@@ -36,9 +36,9 @@ describe("a thread inline, without a service", () => {
       await until(() => s.comments?.length === 1, "the comment");
       s.setExpanded(comment.id, true);
       const text = s.render(w, 40, h).lines.map(plain).join("\n");
-      for (const c of ["[Select]", "[Reply]", "[Seen]", "[Keep]", "[TL;DR]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
+      for (const c of ["[Select]", "[Reply]", "[Edit]", "[Seen]", "[Keep]", "[TL;DR]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
       const controls = s.describeElements().filter(e => e.kind === "control");
-      expect(controls.map(e => e.control)).toEqual(["select", "reply", "seen", "keep", "tldr", "quote"]);
+      expect(controls.map(e => e.control)).toEqual(["select", "reply", "edit", "seen", "keep", "tldr", "quote"]);
     }
   });
 });
@@ -150,7 +150,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(body).toBeGreaterThan(passage);
     expect(body).toBeLessThan(where(lines, "Water them in", r).y);        // under its passage, before the next line
     expect(drawn("The ones behind the shed?")).toBe(true);                // the reply
-    expect(drawn("[Select] · [Reply] · [Seen]")).toBe(true);
+    expect(drawn("[Select] · [Reply] · [Edit] · [Seen]")).toBe(true);
     // The quoted passage is highlighted while the thread is open (the ruler is on the mark, so step off first).
     key(char("]")); frame();
     expect(frame()[passage]).toContain(THREAD_BG);
@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     click(markAt("Water them in"));
     await shows("Or Saturday, if it's dry.");
     expect(drawn("resolved")).toBe(true);
-    expect(drawn("[Select] · [Reply] · [Bring back]")).toBe(true);
+    expect(drawn("[Select] · [Reply] · [Edit] · [Bring back]")).toBe(true);
     expect(current()).toMatchObject({ kind: "comment" });
     click(markAt("Water them in"));
     frame();

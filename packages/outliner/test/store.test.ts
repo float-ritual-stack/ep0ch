@@ -2843,6 +2843,43 @@ Second paragraph`;
     expect(() => store.createAnnotation("stale-general-comment", input)).toThrow("snapshot is stale");
   });
 
+  test("a posted comment and reply are edited in place: revision-checked, marked edited, their earlier words kept (PIE-763)", () => {
+    const store = makeStore();
+    const source = store.create("Plant the leeks before the frost");
+    const target: AnnotationTarget = { representation: blockAnnotationRepresentation(source, "edit-v1"), anchor: { kind: "whole-subject" } };
+    const comment = store.createAnnotation("edit-comment", { target, body: "Too late for leeks?", source: "user", properties: { kind: ["question"] } }).annotations[0]!;
+    const reply = store.replyToAnnotation("edit-reply", { annotationId: comment.block.id, body: "Not if they go in this week", source: "agent" }, "agent", { actorId: "margin" }).annotations[0]!;
+    const kept = store.setAnnotationLifecycle({ annotationId: comment.block.id, lifecycle: "kept" }, { author: "user" });
+
+    // A stale edit (the lifecycle change moved the revision on) is refused and says why; nothing changes.
+    expect(() => store.updateAnnotation({ annotationId: comment.block.id, expectedRevision: comment.block.revision, body: "Lost words" }, { author: "user" })).toThrow("revision is stale");
+    const edited = store.updateAnnotation({ annotationId: comment.block.id, expectedRevision: kept.block.revision, body: "Too late for leeks this year?" }, { author: "user" });
+    expect(edited.body).toBe("Too late for leeks this year?");
+    expect(edited.edited).toBeString();
+    expect(edited.lifecycle).toBe("kept");
+    expect(edited.properties).toEqual({ kind: ["question"] });
+    // The thread keeps its reply, and its earlier words are the block's revisions.
+    const thread = store.listAnnotationThreads({ subject: { kind: "block", blockId: source.id }, includeResolved: true })[0]!;
+    expect(thread.body).toBe("Too late for leeks this year?");
+    expect(thread.replies.map(r => r.body)).toEqual(["Not if they go in this week"]);
+    const earlier = store.revisions(comment.block.id).revisions.filter(r => r.revision < edited.block.revision);
+    expect(earlier.some(r => store.revisionText(comment.block.id, r.revision).text.includes("Too late for leeks?"))).toBe(true);
+    // A later lifecycle change keeps the edited mark.
+    expect(store.setAnnotationLifecycle({ annotationId: comment.block.id, lifecycle: "seen" }, { author: "user" }).edited).toBe(edited.edited);
+
+    // A reply is edited the same way, attributed to whoever edits it, and can't be emptied.
+    expect(() => store.updateAnnotation({ annotationId: reply.block.id, expectedRevision: reply.block.revision, body: "  " }, { author: "user" })).toThrow("can't be emptied");
+    const fixed = store.updateAnnotation({ annotationId: reply.block.id, expectedRevision: reply.block.revision, body: "Not if they go in by Friday" }, { author: "agent", actorId: "margin" });
+    expect(fixed.body).toBe("Not if they go in by Friday");
+    expect(fixed.parentAnnotationId).toBe(comment.block.id);
+    expect(fixed.edited).toBeString();
+    expect(fixed.block.actorId).toBe("margin");
+    // Who wrote it stays who wrote it: an agent's edit of the person's comment doesn't make it the agent's.
+    const byAgent = store.updateAnnotation({ annotationId: comment.block.id, expectedRevision: store.getAnnotation(comment.block.id).block.revision, body: "Too late for leeks?" }, { author: "agent", actorId: "margin" });
+    expect([byAgent.block.author, byAgent.block.actorId ?? null, byAgent.source, byAgent.editedBy]).toEqual(["user", null, "user", "margin"]);
+    expect(edited.editedBy).toBe("user");
+  });
+
   test("a sibling move cannot make an unchanged annotation source stale", () => {
     const store = makeStore();
     try {

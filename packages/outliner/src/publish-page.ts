@@ -5,7 +5,8 @@
 // - comment, ask and explain: `annotations.batch` (a `block-comment` on the passage). Ask and explain are a comment
 //   starting `@<agent>` for the agent that answers in threads (marginalia's `@margin`), which the service sets off;
 // - an extension's passage action (marginalia's highlight, define): `extensions.act` with the passage;
-// - reply: `annotations.reply`; resolve: `annotations.lifecycle`;
+// - reply: `annotations.reply`; resolve: `annotations.lifecycle`; edit (PIE-763): `annotations.update`, a mark's words from the
+//   revision its Edit started on (below a share link, only a mark written through that link);
 // - quote: `marks.quote`, one or more of the page's marks (a thread, a reply, or a mark on one) quoted into a new block
 //   in the Inbox, under this note or under a note found with `/find`; undo: `extensions.undo` with the undo step a
 //   quote from this publisher answered. A mark's card says where it's been quoted (`quotedIn`);
@@ -85,7 +86,15 @@ export interface PageReply {
   at: string;
   marks: PageThread[];
   quotedIn: PageQuote[];
+  /** When its words were edited after posting (PIE-763), and by whom (`you`, or an agent's handle). */
+  edited?: string;
+  editedBy?: string;
+  /** Where this page may edit it: its words as written (references as ids) and the revision an edit names. */
+  edit?: PageEdit;
 }
+
+/** A mark's words as written and its revision: what an Edit starts from, so an edit made meanwhile is refused. */
+export interface PageEdit { revision: number; words: string }
 
 /** One block's open thread as the page's script reads it. */
 export interface PageThread {
@@ -115,6 +124,11 @@ export interface PageThread {
   marks: PageThread[];
   /** The blocks quoting it (`marks.quote`). */
   quotedIn: PageQuote[];
+  /** When its words were edited after posting (PIE-763), and by whom. */
+  edited?: string;
+  editedBy?: string;
+  /** Where this page may edit it: its words as written and its revision. */
+  edit?: PageEdit;
 }
 
 /** Where a thread's words start in what it's on (0 for a whole-note comment): threads in reading order. */
@@ -158,6 +172,14 @@ export interface PageShare {
   comments: boolean;
   /** Whether the link still opens its session now: asked again right before a write lands, and after a long poll. */
   active(): Promise<boolean>;
+}
+
+/**
+ * Whether a page may edit a mark's words (PIE-763): any on the tailnet's pages; below a share link, only one written
+ * through that same link (its `[via::share:<id>]`), so a link's guest never edits the person's words.
+ */
+function editableHere(record: AnnotationRecord, share?: PageShare): boolean {
+  return !share || (record.properties?.via ?? []).includes(`share:${share.id}`);
 }
 
 /** The page's attention verbs (PIE-791): the lifecycle each sets and what's said. */
@@ -405,7 +427,7 @@ export class PageMarginalia {
     const roots = lists.flat()
       .sort((a, b) => (order.get(a.blockId)! - order.get(b.blockId)!) || start(a.thread) - start(b.thread));
     const raws: { into: { html?: string }; text: string }[] = [];
-    const drawn = await Promise.all(roots.map(({ thread }) => this.pageThread(thread, marked, quoted, 1, raws)));
+    const drawn = await Promise.all(roots.map(({ thread }) => this.pageThread(thread, marked, quoted, 1, raws, share)));
     // The words of every mark drawn as the note's are (the page's Blockdown renderer); plain text where it can't.
     if (this.host.render && raws.length) {
       try {
@@ -443,17 +465,22 @@ export class PageMarginalia {
   }
 
   /** One thread as the script draws it; `marked`: the marks with marks on their own words, read `depth` deep. */
-  private async pageThread(thread: AnnotationThread, marked: ReadonlySet<string>, quoted: string[], depth: number, raws: { into: { html?: string }; text: string }[] = []): Promise<PageThread> {
+  private async pageThread(thread: AnnotationThread, marked: ReadonlySet<string>, quoted: string[], depth: number, raws: { into: { html?: string }; text: string }[] = [], share?: PageShare): Promise<PageThread> {
     const on = async (id: string) => depth < MAX_MARK_DEPTH && marked.has(id)
-      ? Promise.all((await this.openOn(id)).sort((a, b) => start(a) - start(b)).map((mark) => this.pageThread(mark, marked, quoted, depth + 1, raws)))
+      ? Promise.all((await this.openOn(id)).sort((a, b) => start(a) - start(b)).map((mark) => this.pageThread(mark, marked, quoted, depth + 1, raws, share)))
       : [];
+    // Edited after posting (PIE-763), and where this page may edit it: its words as written go only where it may.
+    const edits = (record: AnnotationRecord) => ({
+      ...(record.edited ? { edited: record.edited, ...(record.editedBy ? { editedBy: record.editedBy === "user" ? "you" : parseActor(record.editedBy).handle } : {}) } : {}),
+      ...(record.body && editableHere(record, share) ? { edit: { revision: record.block.revision, words: record.body } } : {}),
+    });
     const quotes = (record: AnnotationRecord): PageQuote[] => (record.quotedIn ?? []).map((id) => { quoted.push(id); return { id, title: "", href: null }; });
     const anchor = thread.resolvedTarget?.anchor;
     const properties = thread.properties ?? {};
     // A reply marked [publish::never] stays off the page, as a locked note does.
     const replies = await Promise.all(thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
       .map(async (reply): Promise<PageReply> => {
-        const drawn: PageReply = { id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply), ...(isTldr(reply.properties) ? { tldr: true } : {}) };
+        const drawn: PageReply = { id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply), ...(isTldr(reply.properties) ? { tldr: true } : {}), ...edits(reply) };
         raws.push({ into: drawn, text: reply.body });
         return drawn;
       }));
@@ -473,6 +500,7 @@ export class PageMarginalia {
       replies,
       marks: await on(thread.block.id),
       quotedIn: quotes(thread),
+      ...edits(thread),
     };
     raws.push({ into: face, text: thread.body });
     if (face.quote) raws.push({ into: { set html(value: string) { face.quoteHtml = value; } }, text: face.quote });
@@ -588,7 +616,7 @@ export class PageMarginalia {
     if (raw.length > MAX_WRITE_BYTES) return refused(413, "that's too long to send at once");
     let input: {
       page?: unknown; view?: unknown; action?: unknown; quote?: unknown; prefix?: unknown; suffix?: unknown; body?: unknown; thread?: unknown; requestId?: unknown;
-      marks?: unknown; place?: unknown; under?: unknown; text?: unknown; undo?: unknown; in?: unknown;
+      marks?: unknown; place?: unknown; under?: unknown; text?: unknown; undo?: unknown; in?: unknown; mark?: unknown; revision?: unknown;
     };
     try { input = JSON.parse(raw); } catch { return refused(400, "send JSON"); }
     const text = (value: unknown) => typeof value === "string" ? value : "";
@@ -646,6 +674,23 @@ export class PageMarginalia {
         this.quotes.set(`${where}:${requestId}`, answer);
         while (this.quotes.size > MAX_QUOTE_UNDOS) this.quotes.delete(this.quotes.keys().next().value!);
         return said(200, answer);
+      }
+      if (action === "edit") {
+        // A mark's words edited after posting (PIE-763), from the revision its Edit started on; a stale one is refused.
+        const mark = text(input.mark);
+        if (!shown.has(mark)) return refused(404, "that comment isn't on this page now (seen, or moved)");
+        const body = text(input.body).trim();
+        if (!body) return refused(400, "a comment can't be emptied by an edit: change its words, or Cancel");
+        const revision = Number(input.revision);
+        const record = await this.host.request<AnnotationRecord>({ action: "annotations.get", annotationId: mark });
+        if (!editableHere(record, share)) return refused(403, "this link edits only what was written through it");
+        try {
+          const edited = await this.host.request<AnnotationRecord>({ action: "annotations.update", input: { annotationId: mark, expectedRevision: revision, body }, mutation: { author: "user" } });
+          return said(200, { ok: true, mark, revision: edited.block.revision, said: "edited" });
+        } catch (error) {
+          if (/revision is stale/i.test((error as Error).message)) return refused(409, "it changed since you opened the edit: your words are still in the box · Cancel, then Edit again to start from it as it is now");
+          throw error;
+        }
       }
       if (action === "reply" || action === "resolve" || action === "read" || action in ATTENTION || action === "tldr") {
         const thread = text(input.thread);

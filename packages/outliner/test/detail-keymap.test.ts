@@ -279,6 +279,18 @@ test("opens the contextual menu and invokes its selected action through effectiv
   ]);
 });
 
+test("an Edit link beside a reply edits that reply (PIE-763): detail.annotation.edit:<reply id>", async () => {
+  const detailState = state();
+  detailState.mode = "preview";
+  const detail = harness(detailState, false);
+  await detail.invoke("detail.annotation.edit");
+  await detail.invoke("detail.annotation.edit:3f0c9e2a-reply");
+  expect(detail.intents).toEqual([
+    { type: "annotation.thread.edit" },
+    { type: "annotation.thread.edit", replyId: "3f0c9e2a-reply" },
+  ]);
+});
+
 test("invokes the external editor action from an active unsaved draft", async () => {
   const editState = state();
   editState.mode = "edit";
