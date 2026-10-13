@@ -93,45 +93,47 @@ function listMarker(line: string): ListContainer | null {
 export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]; indented: number[] } {
   const fences: CodeFenceBlock[] = [], indented: number[] = [];
   let listContainers: ListContainer[] = [];
-  let active: { block: CodeFenceBlock; contentIndent: number; resume: { listContainers: ListContainer[] } } | null = null;
+  // `stop`: the first blank line or fence opener inside it, where it ends if it turns out never closed.
+  let active: { block: CodeFenceBlock; contentIndent: number; resume: ListContainer[]; stop: number } | null = null;
   let activeIndentedCode = false;
   let canStartIndentedCode = true;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    // A fence in a list item ends with the item: a nonblank line left of the item's content column ends both, and is
-    // read as what it is.
-    if (active && active.contentIndent > 0 && line.trim() && leadingColumns(line).columns < active.contentIndent) active = null;
     if (active) {
-      active.block.end = i;
       const fence = active.block.fence;
-      if (closesCodeFence(line, fence, active.contentIndent)) {
-        active.block.closed = true;
+      // Never closed: it ends at its paragraph (`stop`), and the scan goes on from there as if it weren't there. A fence
+      // is known never closed at the note's end, at the end of the list item it is in, or at a line that opens another
+      // fence like it with an info string (```` ```ts ````): in a fence that line would close it and leave its own code
+      // outside.
+      const giveUp = (atLeast: number) => {
+        const end = active!.stop >= 0 ? active!.stop - 1 : atLeast;
+        active!.block.end = Math.min(active!.block.end, end);
+        listContainers = active!.resume;
         active = null;
-        canStartIndentedCode = true;
+        return end;
+      };
+      // A fence in a list item ends with the item: a nonblank line left of the item's content column ends both, and is
+      // read as what it is.
+      if (active.contentIndent > 0 && line.trim() && leadingColumns(line).columns < active.contentIndent) {
+        if (active.stop >= 0) { i = giveUp(i - 1); continue; }
+        active = null;
+      } else {
+        active.block.end = i;
+        if (closesCodeFence(line, fence, active.contentIndent)) {
+          active.block.closed = true;
+          active = null;
+          canStartIndentedCode = true;
+          continue;
+        }
+        const other = codeFenceOpen(line, active.contentIndent);
+        if (active.stop < 0 && (other || /^[ \t]*\r?$/.test(line))) active.stop = i;
+        const reopens = !!other && other.char === fence.char && other.length >= fence.length && other.info !== "";
+        if (reopens || i === lines.length - 1) {
+          const end = giveUp(i);
+          if (end < i) i = end;
+        }
         continue;
       }
-      // Never closed: it ends at its paragraph, and the scan goes on from there as if it weren't there. A fence is
-      // known never closed at the note's end, or at a line that opens another fence like it with an info string
-      // (```` ```ts ````): in a fence that line would close it and leave its own code outside.
-      const reopens = i < lines.length - 1 && (() => {
-        const other = codeFenceOpen(line, active!.contentIndent);
-        return !!other && other.char === fence.char && other.length >= fence.length && other.info !== "";
-      })();
-      if (reopens || i === lines.length - 1) {
-        // Its paragraph: up to the first blank line, or the first line that opens a fence of its own (a code block it
-        // was typed above keeps its opening line).
-        const contentIndent = active.contentIndent;
-        const stop = lines.findIndex((candidate, at) => at > active!.block.start && at <= i &&
-          (/^[ \t]*\r?$/.test(candidate) || !!codeFenceOpen(candidate, contentIndent)));
-        const end = stop >= 0 ? stop - 1 : i;
-        if (end < i) {
-          active.block.end = end;
-          listContainers = active.resume.listContainers;
-          active = null;
-          i = end;
-        }
-      }
-      continue;
     }
     if (/^[ \t]*\r?$/.test(line)) {
       canStartIndentedCode = true;
@@ -156,7 +158,7 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
     if (fence) {
       const block = { start: i, end: i, closed: false, fence };
       fences.push(block);
-      active = { block, contentIndent, resume: { listContainers: [...listContainers] } };
+      active = { block, contentIndent, resume: [...listContainers], stop: -1 };
       activeIndentedCode = false;
     } else if (!startsListItem) {
       const isIndented = indent - contentIndent >= 4;
