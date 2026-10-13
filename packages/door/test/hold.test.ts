@@ -14,7 +14,7 @@ describe.skipIf(!outliner)("holding a reader", () => {
   let board: SocketBoard, one: Msg, two: Msg;
   const desk = (current: Msg | null) => ({
     ctx: { board, flash() {}, redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
-    current, setCurrent() {}, focusKind() {}, redraw() {},
+    current, setCurrent(this: { current: Msg | null }, m: Msg | null) { this.current = m; }, focusKind() {}, redraw() {},
   }) as unknown as DeskApi & { current: Msg | null };
 
   beforeAll(async () => {
@@ -41,7 +41,8 @@ describe.skipIf(!outliner)("holding a reader", () => {
     pane.key(char("p"), d);
     expect(pane.followMode).toBe("follows");
     expect(pane.title()).toBe("reader");
-    expect(pane.msg?.id).toBe(two.id);          // let go: catches up with the current note
+    expect(pane.msg?.id).toBe(one.id);          // let go: it keeps its note, which becomes the current note (nothing jumps)
+    expect(d.current?.id).toBe(one.id);
   });
 
   test("a reader that never follows (the board's) doesn't offer hold, and p doesn't change what it shows", () => {
