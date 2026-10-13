@@ -136,6 +136,9 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     const waited = readBackupState(laptop.state);
     expect(waited.drill).toEqual(drilled);
     expect(waited.drillWaiting?.why).toContain("hub-box doesn't answer over ssh");
+    // The next run retries the waiting drill: the hub answering again, it runs there.
+    await runAll(laptop, { ...quiet, drill: undefined });
+    expect(readBackupState(laptop.state).drillWaiting).toBeUndefined();
     // A direct upload ends the long way round: the route and the mark go.
     outline(join(laptop.outlines, "orchard.sqlite"), ["Pick the pears"]);
     await runAll(laptop, { ...quiet, probe: REACHABLE, drill: false });

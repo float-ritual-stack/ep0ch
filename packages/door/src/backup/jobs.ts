@@ -388,7 +388,8 @@ export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: 
   if (!why) return { drill: await drill(c, o) };
   const { drillVia } = await import("./relay");
   const r = await drillVia(c, c.hub!);
-  if ("error" in r) return { waiting: `${plainReason(why, { repo })}, and ${r.error}` };
+  if ("error" in r) return r.unreachable ? { waiting: `${plainReason(why, { repo })}, and ${r.error}` }
+    : { drill: { ok: false, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.error}`, via: c.hub! } };
   return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub! } };
 }
 
@@ -470,7 +471,8 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     o.step?.("netmail queues");
     await netmailStep(c, s, { now, say, ...(o.verbose ? { verbose: true } : {}) });
     writeBackupState(c.state, s);
-    const due = o.drill ?? (!s.drill || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
+    // A drill that waited (nowhere to run it) is due again at the next run.
+    const due = o.drill ?? (!s.drill || !!s.drillWaiting || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
     if (due && Object.values(s.outlines).some(x => x.snapshot || x.relayed?.uploaded)) {
       o.step?.("restore drill");
       const d = await drillHere(c, { now, say, probe: o.probe });
