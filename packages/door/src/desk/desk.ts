@@ -1108,8 +1108,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.idOf(from);
     if (id === undefined) return;
     for (const p of this.followers(id)) p.follow?.(m, this.homeOf(p));
+    // Never into `from` itself (a reader linked to itself): a selection there is only its own.
     const to = this.previewOf(id);
-    if (to !== undefined) this.openInto(to, m, USER, true); else this.openAcross(id, m, USER, true);
+    if (to !== undefined && to !== id) this.openInto(to, m, USER, true); else this.openAcross(id, m, USER, true);
     this.redraw();
   }
 
@@ -1570,13 +1571,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const across = this.panes.get(this.focus) instanceof ReaderPane ? undefined : this.linkOf(this.focus) === undefined ? this.extTarget(this.focus) : undefined;
     if (across && across.pane instanceof ReaderPane && !across.pane.holdsKeys && !across.pane.editing && !(by.kind === "agent" && across.desk.limitedFor(across.pane))) {
       const path = this.pathTo(across.pane) ?? null;
-      if (across.pane.msg?.id !== m.id) across.desk.openIntoPane(across.pane, m, path ?? across.desk.nameOfPane(across.pane), by);
+      across.desk.openIntoPane(across.pane, m, path ?? across.desk.nameOfPane(across.pane), by);
       this.redraw(); across.desk.redraw();
       return path;
     }
     const r = this.openLandingReader(by);
     if (!r) { this.setCurrent(m, { by }); return null; }
-    if (r.pane.msg?.id !== m.id) this.openInto(r.id, m, by);
+    // Even when it shows `m` already (a selection previewed in a following reader): the open makes it current.
+    this.openInto(r.id, m, by);
     this.redraw();
     return r.name;
   }
@@ -1648,12 +1650,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.redraw();
       return { reader: this.nameOf(at), id: m.id };
     }
-    if (to !== undefined && this.panes.get(to) instanceof ReaderPane) return this.openIn(id, this.nameOf(to), actor);
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     // A linked tile that takes notes its own way (an extension's kind): it takes it there.
     if (to !== undefined && actor.kind === "agent") { const no = this.agentNo(to, "opening a note in it"); if (no) throw new ActionRefused(no); }
     if (to !== undefined && this.openInto(to, m, actor)) { this.redraw(); return { reader: this.nameOf(to), id: m.id }; }
+    // A reader with no link is its own home (PIE-794): the note replaces its own, as a link followed in it does (a held
+    // one changes only itself; one following the current note moves the current note).
+    const self = this.panes.get(t.id);
+    if (to === undefined && !fresh && self instanceof ReaderPane && !kindOf(self)?.follower) {
+      if (actor.kind === "agent") { const no = this.agentNo(t.id, "opening a note in it"); if (no) throw new ActionRefused(no); }
+      if (this.openInto(t.id, m, actor)) { this.redraw(); return { reader: t.name, id: m.id }; }
+    }
     // A mounted part with no reader of its own (the lanes alone): where the mount's opens land, on the screen holding it.
     if (this.outward && !this.namedReaders().length && this.spec.lands === undefined) return this.outward(m, actor, fresh);
     return this.land(m, actor);
