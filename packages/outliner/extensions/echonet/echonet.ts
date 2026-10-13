@@ -53,8 +53,33 @@ const CAP = config.cap ?? 25;
 const TRIES = config.undeliverableAfter ?? 3;
 const LIMIT = 1000;
 
-const address = await outline<{ outline?: string; machine: string }>({ action: "notes.address" });
+const address = await outline<{ outline?: string; machine: string; aliases?: string[] }>({ action: "notes.address" });
 const self = nodeOf(process.env.EP0CH_WS ?? address.outline ?? "unknown", address.machine);
+
+// ── one node, one name ──
+//
+// A machine is named by its person (`<outlines>/.host/machine-name`, `ep0ch install --apply`), else by its host name.
+// Before it had a name, its tosser signed seen-by marks, netmail and the nodelist with its host name's form
+// (`float-hub@evans-MacBook-Pro.local`), while other machines reach it by an ssh name (`float-hub@laptop`). Each
+// host says the names it went by (`notes.address`'s `aliases`), so a mark under an old name is the same node's:
+// never counted twice, never sent again.
+
+/** The names this node went by: its own, then its machine's older ones. */
+const selfIds = [self.id, ...(address.aliases ?? []).map((machine) => nodeOf(self.outline, machine).id)];
+const isSelf = (id: string | undefined) => id !== undefined && selfIds.some((mine_) => mine_.toLowerCase() === id.toLowerCase());
+const selfMachine = (machine: string) => [self.machine, ...(address.aliases ?? [])].some((name) => sameMachine(name, machine));
+/** Whether a `netmail-from` (`<node>/<mark>`) is this node's, under any name it went by. */
+const sentHere = (key: string | undefined, markId: string) => key !== undefined && key.endsWith(`/${markId}`) && isSelf(key.slice(0, -markId.length - 1));
+/** Another node's other names (what it calls itself, the names it went by), learned when it is linked: `<outline>@<name>` → its id here. */
+const aliasOf = new Map<string, string>();
+/** The other names `id` goes by, as learned: what the nodelist says under it. */
+const akaOf = (id: string) => [...aliasOf].filter(([, to]) => to === id).map(([from]) => from);
+/** A node id as this node knows it: its own name for itself, another node's by how it is reached from here. */
+function canonical(id: string): string {
+  if (isSelf(id)) return self.id;
+  const known = [...aliasOf].find(([from]) => from.toLowerCase() === id.toLowerCase());
+  return known?.[1] ?? id;
+}
 
 // ── nodes ──
 
@@ -70,7 +95,7 @@ interface Link {
 
 const mine = <T>(request: OutlineRequest) => outline<T>(request);
 const canMark = (level: Level) => level === "propose" || level === "full";
-const remote = (machine: string) => !sameMachine(machine, self.machine);
+const remote = (machine: string) => !selfMachine(machine);
 const links = new Map<string, Link>();
 
 async function linkTo(node: Node): Promise<Link> {
@@ -90,6 +115,11 @@ async function linkTo(node: Node): Promise<Link> {
     try {
       const status = await call<{ level: Level; granted?: Level }>({ action: "mcp.access.status" });
       link = { node, reachable: true, level: status.granted ?? status.level, call };
+      // What it calls itself, and the names it went by: a mark it left under one of them is this node's.
+      const there = await call<{ machine?: string; aliases?: string[] }>({ action: "notes.address" }).catch(() => undefined);
+      for (const name of [there?.machine, ...(there?.aliases ?? [])]) {
+        if (name && !sameMachine(name, node.machine)) aliasOf.set(nodeOf(node.outline, name).id, node.id);
+      }
     } catch (error) {
       link = unreachable(error instanceof Error ? error.message.split("\n")[0]! : String(error));
     }
@@ -167,8 +197,8 @@ async function nodesFor(masks: readonly NodeMask[], named: readonly string[]): P
     for (const machine of machines) {
       const names = hasStar(mask.outline) ? (await outlinesOn(machine)).filter((name) => glob(mask.outline).test(name)) : [mask.outline];
       for (const name of names) {
-        const node = nodeOf(name, sameMachine(machine, self.machine) ? self.machine : machine);
-        if (node.id !== self.id) out.set(node.id, node);
+        const node = nodeOf(name, selfMachine(machine) ? self.machine : machine);
+        if (!isSelf(node.id)) out.set(node.id, node);
       }
     }
   }
@@ -495,7 +525,7 @@ async function seenBy(origin: Link, message: Block, copy: Block, area: string, l
   // Left once: the ledger says so, and the original's marks aren't read again every toss.
   if (ledger.lines.has(`seen ${copy.id}`)) return;
   const threads = await threadsOn(origin.call, message.id);
-  if (threads.some((thread) => thread.properties?.kind?.includes("echo-seen-by") && thread.properties["echo.node"]?.includes(self.id))) {
+  if (threads.some((thread) => thread.properties?.kind?.includes("echo-seen-by") && thread.properties["echo.node"]?.some(isSelf))) {
     ledger.lines.set(`seen ${copy.id}`, `${origin.node.id}/${message.id}`);
     return;
   }
@@ -541,7 +571,7 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
   for (const thread of local) {
     if (cameIn(thread) || gaveUp(thread)) continue;
     const key = `${self.id}/${thread.block.id}`;
-    let there = remoteThreads.find((candidate) => netmailFrom(candidate) === key);
+    let there = remoteThreads.find((candidate) => sentHere(netmailFrom(candidate), thread.block.id));
     if (!there) {
       original = (await originalOf(origin, originalId)) ?? original;
       const quote = quoteOf(thread);
@@ -565,7 +595,7 @@ async function netmail(origin: Link, copy: Block, ledger: Ledger): Promise<void>
     // goes back out, and one that went out carries it there, so it never comes back.
     for (const reply of thread.replies.filter((candidate) => !cameIn(candidate) && !gaveUp(candidate))) {
       const replyKey = `${self.id}/${reply.block.id}`;
-      const sent = there.replies.find((candidate) => netmailFrom(candidate) === replyKey);
+      const sent = there.replies.find((candidate) => sentHere(netmailFrom(candidate), reply.block.id));
       if (sent) {
         // Sent by a toss that stopped before it wrote the ledger: written now.
         if (!ledger.lines.has(`out ${reply.block.id}`)) ledger.lines.set(`out ${reply.block.id}`, `${origin.node.id}/${sent.block.id}`);
@@ -664,6 +694,8 @@ function nodelistText(facts: NodeFacts[], lastToss: string | undefined): string 
     const open = link.reachable && link.level !== "none";
     lines.push(`## ${link.node.id}`);
     lines.push(`- ${state} · access ${link.reachable ? link.level : "unknown"}${f.role.length ? ` · ${f.role.join(", ")}` : ""}`);
+    const aka = link.node.id === self.id ? selfIds.slice(1) : akaOf(link.node.id);
+    if (aka.length) lines.push(`- also known as: ${aka.join(", ")}`);
     lines.push(`- last toss: ${f.lastToss ?? (link.reachable ? "never" : "unknown")}`);
     lines.push(`- areas: ${f.areas.length ? f.areas.join("; ") : open ? "none" : "unknown"}`);
     lines.push(`- subscriptions: ${f.subscriptions.length ? f.subscriptions.join("; ") : open ? "none" : "unknown"}`);
@@ -672,20 +704,41 @@ function nodelistText(facts: NodeFacts[], lastToss: string | undefined): string 
   return lines.join("\n").trimEnd();
 }
 
+/**
+ * The other names the last nodelist learned (`- also known as:` under each node): a node that doesn't answer this
+ * toss is still known by them.
+ */
+function rememberAliases(nodelist: Block): void {
+  let at: string | undefined;
+  for (const line of nodelist.text.split("\n")) {
+    const head = line.match(/^## (\S+)$/);
+    if (head) { at = parseNode(head[1])?.id; continue; }
+    const aka = line.match(/^- also known as: (.+)$/);
+    if (!at || !aka || isSelf(at)) continue;
+    for (const name of aka[1]!.split(",").map((part) => part.trim())) if (parseNode(name) && !aliasOf.has(name)) aliasOf.set(name, at);
+  }
+}
+
 /** `tossed`: this run is a toss, so this node's last toss is now; a nodelist-only run keeps the one it had. */
 async function writeNodelist(nodelist: Block, subscribers: Set<string>, tossed: boolean): Promise<void> {
+  rememberAliases(nodelist);
   const roles = new Map<string, string[]>();
   const add = (id: string, role: string) => roles.set(id, [...new Set([...(roles.get(id) ?? []), role])]);
   for (const sub of (await query(mine, "subscribe")).filter((block) => kindOf(block) === "subscription" && !trashed(block))) {
-    for (const id of (await sourcesUnder(sub)).keys()) add(id, `we read its ${values(sub, "echo").join(",")}`);
+    for (const id of (await sourcesUnder(sub)).keys()) {
+      // Linked first: what each node read here calls itself is how its marks are known (`canonical`).
+      const node = parseNode(id);
+      if (node && !isSelf(id)) await linkTo(node);
+      add(id, `we read its ${values(sub, "echo").join(",")}`);
+    }
   }
-  for (const id of subscribers) add(id, "reads our areas");
+  for (const id of subscribers) add(canonical(id), "reads our areas");
   const own = await factsOf(await linkTo(self), []);
   if (tossed) own.lastToss = now;
   const facts = [own];
   for (const [id, role] of roles) {
     const node = parseNode(id);
-    if (node && node.id !== self.id) facts.push(await factsOf(await linkTo(node), role));
+    if (node && !isSelf(node.id)) facts.push(await factsOf(await linkTo(node), role));
   }
   const text = nodelistText(facts, own.lastToss);
   // Unchanged, not written: a toss that learned nothing adds nothing to the change feed.

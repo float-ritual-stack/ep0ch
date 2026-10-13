@@ -10,7 +10,7 @@
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
-import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
+import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -103,7 +103,9 @@ function requireAddress(expected: unknown, d: ControlDeps): void {
   const e = expected as Partial<ExpectedAddress>;
   if (typeof e.outline !== "string" || typeof e.machine !== "string") throw new Error("open URI address is malformed");
   const actual = { outline: d.app.outline, machine: d.app.machine ?? canonicalLocalMachineName() };
-  if (!namesOutline({ outline: e.outline, machine: e.machine }, actual)) {
+  // A door on this machine answers to a name the machine went by too (its host name's, before it was given one).
+  const here = d.app.machine === undefined && !!actual.outline && e.outline === actual.outline && isLocalMachine(e.machine);
+  if (!here && !namesOutline({ outline: e.outline, machine: e.machine }, actual)) {
     throw new Error(`that URI names ${e.outline} on ${e.machine}, but this door is ${actual.outline ?? "not on an outline"} on ${actual.machine}`);
   }
 }

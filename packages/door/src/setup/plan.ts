@@ -13,7 +13,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
+export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -32,6 +32,8 @@ export interface Step {
   writes?: { path: string; text: string }[];
   /** schema: the outlines it migrates, one step (`from` → `to`) with one script (absolute), and how to go back. */
   migrate?: Migration;
+  /** name: the machine name it writes. */
+  machineName?: string;
 }
 
 export interface Migration {
@@ -477,6 +479,25 @@ export function backupsStep(f: Facts): Step | null {
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
+/**
+ * This machine's own name, written once (`<outlines>/.host/machine-name`): what `ep0ch://` URIs and EchoNet call it.
+ * Unset, it is the short host name unless the person gives another (`--machine-name`, or asked at a terminal): the ssh
+ * name other machines reach it by is the one to give, which install can't know from here.
+ */
+export function nameStep(f: Facts): Step | null {
+  const m = f.machineName;
+  if (!m) return null;
+  const title = "Name this machine";
+  const again = (name: string) => `ep0ch install --apply --machine-name ${name}`;
+  if (m.env) return { id: "name", title, status: "skip", why: `EP0CH_MACHINE_NAME names it ${m.env}${m.configured && m.configured !== m.env ? ` (over ${m.file}'s ${m.configured})` : ""}`, commands: [] };
+  const name = m.chosen ?? m.configured ?? m.suggested;
+  if (m.configured && name === m.configured) return { id: "name", title, status: "skip", why: `named ${m.configured} (${m.file}); another: ${again("<name>")}`, commands: [] };
+  const why = m.configured
+    ? `renamed from ${m.configured} to ${name}: EchoNet and ep0ch:// links call it ${name} from now on (the old name is still known as an alias)`
+    : `${name}${m.chosen ? "" : " (its short host name)"}: what EchoNet and ep0ch:// links call it; give it the ssh name other machines reach it by, if that differs: ${again("<that name>")}`;
+  return { id: "name", title, status: "do", why, commands: [`echo ${name} > ${m.file}`], machineName: name };
+}
+
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   let repo = repoStep(f);
   // The outlines' schema against the code the checkout ends on: one that can't be migrated holds the update back, so
@@ -490,6 +511,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   // A managed plugin refreshed from main would be that code too: held back with the checkout.
   if (repo.status === "manual" && schema?.status === "manual" && plugin.status === "do") plugin = { ...plugin, status: "manual", why: `held back with the checkout (${plugin.why})`, commands: [] };
   const link = linkStep(f);
+  const name = nameStep(f);
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   let host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
@@ -507,5 +529,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
   }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }

@@ -1218,8 +1218,10 @@ export interface RenderedNote {
 export interface NoteAddress {
   /** The outline's name; absent on a service that serves no named outline. */
   outline?: string;
-  /** This host's machine name in `ep0ch://` URIs (the door's `canonicalLocalMachineName`). */
+  /** This host's machine name in `ep0ch://` URIs (`canonicalLocalMachineName`: the name its person gave it, else its host name's). */
   machine: string;
+  /** Names this machine went by before it was given one (its host name's): older URIs and EchoNet marks still say them. */
+  aliases?: string[];
   blockId?: string;
   /** `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. */
   uri?: string;

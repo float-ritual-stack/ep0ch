@@ -161,7 +161,8 @@ agent working in this folder writes as (ADR 0003: recorded, never a permission).
 folder that names none gets the home base (the door's `home` screen: open, new or import, here or on a machine),
 never a guess taken silently and never a default. Outlines are
 `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it; the host's socket
-and lock are in `.host/`.
+and lock are in `.host/`, with `machine-name`: this machine's own name in `ep0ch://` URIs and EchoNet (the ssh name
+other machines reach it by; `ep0ch install --apply` writes it, `EP0CH_MACHINE_NAME` overrides, else the host name).
 
 Which machine, first match wins: `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the
 nearest `.ep0ch` when it names the same outline. A machine is an ssh config name; ssh owns its keys and hops. Every client

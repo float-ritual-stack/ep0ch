@@ -13,7 +13,8 @@ import { binDirOf, extFacts } from "./ext-links";
 import { skillLinkFacts } from "./skill-links";
 import { outlinerPlugin } from "../skills";
 import { packDir, packs } from "../packs";
-import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { configuredMachineName, suggestedMachineName } from "@ep0ch/outliner/machine-name";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
@@ -607,6 +608,12 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     ep0ch: { found, target, pointsHere: target === real(repo.entry) },
     linkDirs,
     host,
+    machineName: {
+      file: outlineLayout(folder).machineName,
+      configured: configuredMachineName({ ...env, EP0CH_OUTLINES: folder, EP0CH_MACHINE_NAME: "" }) ?? null,
+      ...(env.EP0CH_MACHINE_NAME?.trim() ? { env: env.EP0CH_MACHINE_NAME.trim() } : {}),
+      suggested: suggestedMachineName(),
+    },
     databases: dbs,
     schema: await part("the outlines' schema", schemaFacts(repo, dbs, env)),
     here,

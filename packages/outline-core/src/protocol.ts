@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 151;
+export const PROTOCOL = 152;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -191,7 +191,8 @@ export interface OutlinerServiceStatus {
   protocolVersion: number;
   /** Opaque identity of this outline file instance; changes when an outline is restored, reset, imported or recreated. */
   outlineInstanceId?: string;
-  location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
+  /** `machine`: the machine's name in `ep0ch://` URIs (the name its person gave it, else its host name's). */
+  location?: { hostname: string; machine?: string; workspaceRoot: string; database: string; stateDirectory: string };
   /** The outline answering. */
   outline?: OutlinerServiceOutline;
   /** The host that routed the request. */

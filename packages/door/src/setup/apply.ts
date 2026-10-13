@@ -14,9 +14,11 @@ import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
+import { writeMachineName } from "@ep0ch/outliner/machine-name";
+import { isMachineName } from "@ep0ch/outline-core/outline-location";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json]";
+export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -223,6 +225,13 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed${causes.size === 1 ? `: ${[...causes][0]}` : " (each above)"}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);
       return;
     }
+    case "name": {
+      const name = step.machineName!;
+      try { writeMachineName(name, { ...env, EP0CH_OUTLINES: f.host.folder }); }
+      catch (e) { throw new StepFailed(`naming this machine failed: ${(e as Error).message}`, `write it by hand: echo ${name} > ${f.machineName?.file}`); }
+      say(`this machine is ${name} (${f.machineName?.file})`);
+      return;
+    }
     case "link": {
       const dir = f.linkDirs.find(d => step.commands[0]?.endsWith(`${d.dir}/ep0ch`))?.dir;
       if (!dir) throw new StepFailed("no link directory chosen", "rerun ep0ch install to see the plan");
@@ -385,13 +394,20 @@ export interface SetupIO {
   progress?: Progress;
   /** Program status (OSC 7501) for the terminal, made by a test; otherwise found for this terminal when it applies. */
   status?: StatusEmitter;
+  /** Asks the person this machine's name (the suggestion is the default): only at a terminal. Answers a valid name, or undefined. */
+  ask?: (suggested: string) => Promise<string | undefined>;
 }
 
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
   const json = args.includes("--json");
   const env = io.env ?? process.env;
-  const unknown = args.slice(1).filter(a => !["--json", "--apply", "--backups"].includes(a));
-  if (unknown.length || (args[0] === "doctor" && args.includes("--apply")) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+  // `--machine-name <name>` (or `=<name>`): this machine's own name, written by the name step.
+  const at = args.findIndex(a => a === "--machine-name" || a.startsWith("--machine-name="));
+  const machineName = at < 0 ? undefined : args[at]!.includes("=") ? args[at]!.slice("--machine-name=".length) : args[at + 1];
+  const rest = at < 0 ? args : args.filter((_, i) => i !== at && !(i === at + 1 && !args[at]!.includes("=")));
+  if (machineName !== undefined && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
+  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--backups"].includes(a));
+  if (unknown.length || (args[0] === "doctor" && (args.includes("--apply") || at >= 0)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
@@ -407,14 +423,14 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(args, io, env, json, progress, status); }
+  try { return await setup(rest, io, env, json, progress, status, machineName); }
   finally {
     progress.close();
     if (io.terminal) process.off("SIGINT", interrupted);
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
@@ -427,6 +443,12 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     return report.ok ? 0 : 1;
   }
   const apply = args.includes("--apply");
+  if (facts.machineName) {
+    // Unnamed and at a terminal: asked once, the short host name offered (Enter takes it). Named, it isn't asked again.
+    const asked = !machineName && apply && !json && !facts.machineName.configured && !facts.machineName.env && io.ask ? await io.ask(facts.machineName.suggested) : undefined;
+    const chosen = machineName ?? asked;
+    if (chosen) facts.machineName.chosen = chosen;
+  }
   const options: PlanOptions = { now: io.now ?? new Date(), backupDir: backupDirOf(facts.home) };
   const plan = buildPlan(facts, options);
   if (!apply) {

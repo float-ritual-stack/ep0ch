@@ -29,7 +29,7 @@ export interface LiveRoute {
 }
 
 type Verdict = { up: true; at: number; board: NotesBoard; host: string } | { up: false; at: number; why: string; command?: string };
-/** `host`: the machine's own name for itself, as its outline host reports it (os.hostname). */
+/** `host`: the machine's own name for itself, as its outline host reports it (its configured name, else os.hostname). */
 export type LiveAnswer = { board: NotesBoard; host: string } | { away: { why: string; checkedAt: string; command?: string } };
 
 export interface LiveOptions {
@@ -135,7 +135,7 @@ export class LiveMachines {
       this.boards.set(key, board);
     }
     let host: string;
-    try { host = (await board.info()).host; }
+    try { const info = await board.info(); host = info.machine ?? info.host; }
     catch (e) { this.boards.delete(key); board.close(); this.log(`mcp live: ${machine}: ${outline}: ${firstLine(e)}`); return this.fail(`its host can't open ${outline}: ${firstLine(e)}`); }
     if (this.closed) { this.boards.delete(key); board.close(); return this.fail("the gateway is shutting down"); }
     return { up: true, at: this.now(), board: board as unknown as NotesBoard, host };

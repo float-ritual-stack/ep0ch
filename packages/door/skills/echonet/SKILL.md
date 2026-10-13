@@ -5,7 +5,9 @@ description: Use when someone wants notes from one ep0ch outline to show up in a
 
 # echonet: outlines as nodes, copies that drift
 
-EchoNet makes each outline a node (`outline@machine`, as `pie@float-2`) on a FidoNet-style network. An outline
+EchoNet makes each outline a node (`outline@machine`, as `pie@float-2`) on a FidoNet-style network. A node's
+machine is the name its person gave it (`<outlines>/.host/machine-name`, written by `ep0ch install --apply`; else its
+host name), and it should be the ssh name other machines reach it by, so both sides call it the same. An outline
 **offers areas**; another **subscribes** and gets **copies**. Nothing syncs. A copy is a photocopy sent to a friend:
 it is an ordinary local note that can be edited, moved, tagged and talked about here, while marks on it travel
 home as **netmail** and replies travel back. Live views across outlines are a different thing (for looking);
@@ -115,6 +117,7 @@ offered across machines needs a level set; `propose` is the usual one.
 | `[waiting::n]` on a board | the cap held back n | wait for the next tosses, or raise `[cap::]` |
 | an undeliverable note | the original was trashed or deleted upstream | read it; the comment stays on the copy. Restore the original there if it was a mistake (new comments go; that one stays) |
 | `[upstream-newer::n]` | the original changed | leave it (drift is fine), or take-newer / compare-newer |
+| a node shows under two names (`## float-hub@laptop` and `## float-hub@evans-MacBook-Pro.local`, or a second seen-by mark from one node) | that machine signed with its host name while others reach it by an ssh name | name it as the others reach it: `ssh <machine> ep0ch install --apply --machine-name <ssh-name>` (here: `ep0ch install --apply --machine-name <name>`). The next toss knows the old name as `also known as:` in the nodelist and counts its marks as the same node's |
 | a toss log `stopped [failed::yes]` | the toss hit an error midway | its text says why; the next toss carries on from where it was |
 
 ## Common setups

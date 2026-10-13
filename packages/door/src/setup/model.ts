@@ -177,6 +177,12 @@ export interface Facts {
   /** The link directories in preference order, whether each is on PATH and writable. */
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
+  /**
+   * This machine's own name (`<outlines>/.host/machine-name`): what `ep0ch://` URIs and EchoNet call it, so other
+   * machines' ssh name for it and its own agree. `env`: EP0CH_MACHINE_NAME names it instead; `chosen`: the name
+   * `--machine-name` (or the person, asked) gave this run; `suggested`: the short host name, offered when none is set.
+   */
+  machineName?: { file: string; configured: string | null; env?: string; suggested: string; chosen?: string };
   databases: DatabaseFacts[];
   /** The schema the checkout's code opens and each outline's (PIE-617); undefined when not looked for. */
   schema?: SchemaFacts;

@@ -10,6 +10,8 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlineHost } from "../src/outline-host";
 import type { Block } from "../src/types";
 
+const socket = (outlines: string) => outlineLayout(outlines).socket;
+
 const EXTENSION = join(import.meta.dir, "..", "extensions", "echonet");
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -453,6 +455,47 @@ test("another machine: a mask finds the outlines there that opted in, and copies
   await far.call("field", { action: "annotations.reply", requestId: crypto.randomUUID(), author: "user", input: { annotationId: there.block.id, body: "the third week of June", source: "user" } });
   expect(await toss("cafe")).toContain("in 1");
   expect((await threads("cafe", copies[0]!.id)).find((thread) => thread.block.id === mark.id)!.replies.map((r) => r.body)).toEqual(["the third week of June"]);
+}, 90_000);
+
+test("one node, one name: a machine given a name keeps its marks made under its host name's, and the nodelist says both", async () => {
+  const { root, outlines, machine: hostForm, toss, create, threads, where, comment, board, get, edit } = await setup(["cafe"]);
+  const far = await farMachine(root, outlines);
+  await send(far.socket, { action: "outlines.create", name: "field" });
+  await far.call("field", { action: "mcp.access.configure", level: "propose" });
+  const hedge = await far.create("field", "Field: the hedge by the gate flowers late [echo::field.notes]");
+  const sub = await create("cafe", "Field notes from the box [subscribe::field@box-b] [echo::field.*] [since::all]");
+  // Unnamed, the cafe signs as its host name's form.
+  expect(await toss("cafe")).toContain("copies 1");
+  const copy = (await board("cafe", sub, "field@box-b")).copies[0]!;
+  const mark = await comment("cafe", copy, "which week, roughly?", "flowers late");
+  expect(await toss("cafe")).toContain("netmail out 1");
+  expect((await far.threads("field", hedge.id)).map((thread) => thread.properties?.["echo.node"]?.[0] ?? thread.properties?.["netmail-from"]?.[0]))
+    .toEqual([`cafe@${hostForm}`, `cafe@${hostForm}/${mark.id}`]);
+
+  // Named (what `ep0ch install --apply` writes): both machines, the far one as the ssh name the cafe reaches it by.
+  writeFileSync(outlineLayout(outlines).machineName, "box-a\n");
+  writeFileSync(outlineLayout(join(root, "far", "outlines")).machineName, "box-b\n");
+  // The far machine's tosser once read the cafe under its host name: its seen-by mark here says field@<host name>.
+  const posted = await create("cafe", "Cafe: the espresso timer drifts [echo::cafe.notes]");
+  await send(socket(outlines), { outline: "cafe", action: "annotations.batch", requestId: crypto.randomUUID(), author: "agent", actorId: "ext:echonet",
+    operations: [{ operationId: "seen", type: "block-comment", input: { blockId: posted.id, expectedRevision: posted.revision, source: "agent", body: `also in: field@${hostForm}`,
+      properties: { kind: "echo-seen-by", "echo.node": `field@${hostForm}`, via: `echonet:field@${hostForm}` } } }] });
+  // A toss that lost its ledger looks at the marks there: the ones under the old name are this node's.
+  const ledger = (await where("cafe", "type=echo-ledger"))[0]!;
+  await edit("cafe", ledger.id, () => "EchoNet ledger [type::echo-ledger]");
+  const after = await toss("cafe");
+  expect(after).toStartWith("cafe@box-a tossed:");
+  expect(after).toContain("seen-by 0");
+  expect(after).toContain("netmail out 0");
+  expect(await far.threads("field", hedge.id)).toHaveLength(2);
+  const nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
+  expect(nodelist).toStartWith("Nodelist [type::nodelist] [node::cafe@box-a]");
+  expect(nodelist).toContain(`## cafe@box-a\n- this node · access none\n- also known as: cafe@${hostForm}`);
+  // One node, one heading: what it reads of ours and what we read of its, under the name the cafe reaches it by.
+  expect(nodelist).toContain(`## field@box-b\n- reachable · access propose · we read its field.*, reads our areas\n- also known as: field@${hostForm}`);
+  expect(nodelist).not.toContain(`## field@${hostForm}`);
+  expect((await get("cafe", copy.id)).text).toContain("[from::field@box-b/");
+  expect((await threads("cafe", copy.id)).map((thread) => thread.body)).toEqual(["which week, roughly?"]);
 }, 90_000);
 
 test("ep0ch echo: subscribe writes a subscription, toss runs the tosser, areas reads what an outline offers and reads", async () => {
