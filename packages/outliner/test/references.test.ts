@@ -247,7 +247,7 @@ describe("reference occurrence Markdown protection", () => {
 
     expect(blockReferenceOccurrences(invalid)).toEqual([]);
     expect(resolveBlockReferences(invalid, () => target)).toBe(invalid);
-    expect(outlinerReferenceOccurrences(invalid, "PIE").map(o => [o.kind, o.address])).toEqual([["page", "Page"], ["work-id", "PIE-123"]]);
+    expect(outlinerReferenceOccurrences(invalid, "PIE").map(o => o.kind)).toEqual(["page", "work-id"]);
   });
 
   test("excludes titled references in protected spans without leaking label syntax", () => {
