@@ -184,6 +184,8 @@ one.
 - `[page::address]` names a block so `[[address]]` reaches it. Rename by editing the token; the old address
   stays an alias. An address another note owns is refused. A first line of only `[page::x]` gets `x` as its title
   on save (`2026-09-30 [page::2026-09-30]`); a title already there is kept.
+- A page's address may hold another page link: `[[[[2026-10-06]] - editor thoughts]]` reaches the page
+  `[[2026-10-06]] - editor thoughts [page::[[2026-10-06]] - editor thoughts]` and links 2026-10-06 as well.
 - **A new note where it belongs:** `outliner new --text … [--near <id>] --author agent --actor <id>` (or the door's
   `note.new`) asks the service's placement rule: under `--near`, else the top of the Inbox. Use it instead of
   working out where the Inbox is. A missing `[[page]]` is made by the door's `page.create` (the Inbox too).

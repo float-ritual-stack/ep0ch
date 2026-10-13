@@ -229,6 +229,7 @@ const WHITEBOARD = [
   "    - [ ] buy the oven cleaner",
   "Press e to edit; type [[ for a page, (( for a block, [file:: for a file; ctrl+t puts in notes or files another program picks (tv ep0ch).",
   "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
+  `In an edit, ctrl+l opens the link the cursor is on beside it, and the edit stays open: [[${SEED.shed}]]. So does an alt- or ctrl-click on one, or a click on one in the preview. In \`[[\`, a name no page has yet is offered as a new page.`,
 ].join("\n");
 
 // A labelled block ref inside italics (PIE-541): the link keeps its colour inside the emphasis.
@@ -438,6 +439,8 @@ export const NEW_NOTES = [
   "",
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
+  "A page link can hold another: [[[[2026-03-12]] - seed swap notes]] is one link to the page \"[[2026-03-12]] - seed swap notes\" (the brackets are counted, never matched by the first `]]`), and the 2026-03-12 page lists this note among its backlinks too.",
+  "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
 ].join("\n");
 
@@ -641,6 +644,10 @@ export const MEETING = [
   "## Actions",
   "- Ana mends the vent hinge",
   "- Bo orders the shade netting",
+  "",
+  "> [!quote] What Cy said",
+  "> The seedlings don't mind the cold.",
+  "> They mind the draught from the door.",
 ].join("\n");
 const DEEP_LINKS = [
   SEED.deepLinks,
@@ -650,6 +657,7 @@ const DEEP_LINKS = [
   "- **Refine a reference:** choose the meeting itself, then type `^` straight after its `))`: the popup searches inside the meeting, its anchors first. Choose `^a10`.",
   "- **A passage with no anchor:** type `^` after another reference and choose a line that says `adds ^…`: the anchor is added to the meeting (the reader beside shows it) and the reference points at it, in one choice.",
   "- **Reopen one later:** click inside a finished `((…))` and type `^` (every passage) or `#` (headings).",
+  "- **Embed a part without visiting it:** type `!((Gree`: under the meeting are its headings, quotes and callouts with no anchor yet (`[!] What Cy said`). Choose one: it gets its anchor in the meeting, and `!((…^what-cy-said))` embeds the whole callout, every line of it.",
   "- **Mistakes land:** an unclosed `((` or a title in place of an id is sent as written, with a warning and a did-you-mean.",
   "- **The mouse:** drag across words and press backspace; ctrl+z undoes.",
 ].join("\n");

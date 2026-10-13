@@ -1108,6 +1108,8 @@ export class App implements Ctx {
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
+      // A paste of nothing at all (the clipboard held only a picture, PIE-592) is ctrl+v, which a draft takes as draft.image.
+      if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; }
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }

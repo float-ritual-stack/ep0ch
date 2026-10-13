@@ -890,6 +890,9 @@ export class Lanes implements SourceModel {
     if (cmd === "save") void this.submitComposer();
     else if (cmd === "editor") void this.host.pressAction(BOARD_ACTIONS, "composer.external", {});
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
+    // A new card has no reader beside it to open a link in: open it from the card once it's made.
+    else if (cmd === "follow") this.host.ctx.flash("ctrl+l opens a link from a note's edit or a comment; a new card's links open once it's made");
+    else if (cmd === "image") { this.host.ctx.flash("a picture goes into a note's edit or a comment; make the card, then e on it"); }
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c && this.host.ctx.copy?.(c.text) !== false) this.host.ctx.flash(`copied ${c.chars} chars`); this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
@@ -1344,7 +1347,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: draftPreview, pick: true }, w, r.rows - 2);
+    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw) => draftPreview(t, pw), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }

@@ -16,7 +16,7 @@ import type { WebDoor } from "./publish-door";
 import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
-import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { getProperty, parseProperties, parsePropertyRecords, stripPropertyTokens } from "./properties";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import {
@@ -2447,10 +2447,11 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const start = embedStarts.has(occurrence.start - 1) ? occurrence.start - 1 : occurrence.start;
     body = body.slice(0, start) + replacement + body.slice(occurrence.end);
   }
-  for (const reference of [...pageAddressReferences(body)].reverse()) {
+  // A page link another holds (PIE-592) is part of that one's text.
+  for (const reference of pageAddressReferences(body).filter((page) => !page.nested).reverse()) {
     if (inCode(reference.start)) continue;
     const blockId = pages.get(reference.normalizedAddress);
-    const replacement = link(reference.label ?? reference.displayAddress, blockId ? byId.get(blockId) : undefined);
+    const replacement = link(reference.label ?? pageAddressText(reference.displayAddress), blockId ? byId.get(blockId) : undefined);
     body = body.slice(0, reference.start) + replacement + body.slice(reference.end);
   }
   body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));

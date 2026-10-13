@@ -5,13 +5,13 @@
 // the service's (see below).
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
 import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
-import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
+import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -43,17 +43,23 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
   const callout = calloutTypeAtCursor(line, column);
   if (callout) return { kind: "callout", ...callout };
+  const agent = agentAtCursor(line, column);
+  if (agent) return { kind: "agent", ...agent };
   const yaml = lines && row !== undefined ? yamlAtCursor(lines, row, column) : null;
   if (yaml) return yaml.kind === "key" ? { kind: "yaml-key", start: yaml.start, end: yaml.end, query: yaml.query, component: yaml.component } : { kind: "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, key: yaml.key, component: yaml.component };
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
   let target: CompletionTarget | null = null;
+  // A `[[` or `((` in a code span earlier on the line is text: it opens nothing the cursor is in (PIE-764).
+  const code = line.includes("`") ? codeSpanRanges(line) : [];
+  const inCode = (at: number) => at >= 0 && code.some(r => r.start <= at && at < r.end);
   for (const syntax of TARGET_SYNTAX) {
     let searchFrom = beforeCursor.length, closedDepth = 0, start = -1;
     while (searchFrom > 0) {
       const opening = beforeCursor.lastIndexOf(syntax.opening, searchFrom - 1);
       const closing = beforeCursor.lastIndexOf(syntax.closing, searchFrom - 1);
       if (opening < 0) break;
+      if (inCode(Math.max(opening, closing))) { searchFrom = Math.max(opening, closing); continue; }
       if (closing > opening) { closedDepth += 1; searchFrom = closing; }
       else if (closedDepth > 0) { closedDepth -= 1; searchFrom = opening; }
       else { start = opening; break; }
@@ -71,6 +77,18 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   const prop = propertyAtCursor(line, column);
   if (!prop) return null;
   return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
+}
+
+/**
+ * `@na` at a line's start (after its indent and a list mark), the way a request to an agent is written (`@tidy`,
+ * PIE-501): the name being typed, and the rest of the word after the cursor that a choice replaces (PIE-592).
+ */
+export function agentAtCursor(line: string, column: number): { start: number; end: number; query: string } | null {
+  const before = line.slice(0, Math.max(0, Math.min(column, line.length)));
+  const m = /^(\s*(?:[-*+]\s+)?)@([A-Za-z0-9_-]*)$/.exec(before);
+  if (!m) return null;
+  const rest = /^[A-Za-z0-9_-]*/.exec(line.slice(before.length))![0];
+  return { start: m[1]!.length, end: before.length + rest.length, query: m[2]! };
 }
 
 /**

@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 156;
+export const PROTOCOL = 159;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -159,9 +159,10 @@ export interface OutlinerRequestProblem {
 
 /**
  * What a fragment anchor names (`fragments.read`, `fragments.candidates`): a heading's section, a paragraph, a list
- * item, or (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`.
+ * item, (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`, or (PIE-592)
+ * a whole blockquote or callout, named by an anchor at the end of its last line.
  */
-export type FragmentKind = "heading" | "paragraph" | "list-item" | "component";
+export type FragmentKind = "heading" | "paragraph" | "list-item" | "component" | "quote" | "callout";
 
 /** One answer line on the socket. */
 export type OutlinerResponse =

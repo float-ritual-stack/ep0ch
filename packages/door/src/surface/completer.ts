@@ -9,7 +9,7 @@
 //
 // Deep links (PIE-762): a reference is refined in place. `((Gree` lists the notes with each top note's `^anchors`
 // right under it; `^` or `#` typed in (or just after) a finished `((id))` opens it again as `((id^`, and the popup
-// searches inside that one note: its anchors first, then its headings, paragraphs and list items, each without an
+// searches inside that one note: its anchors first, then its headings, paragraphs, list items, quotes and callouts, each without an
 // anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
@@ -25,7 +25,7 @@ import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -49,7 +49,7 @@ export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inser
 export const REFERENCE_HINT = "up/down choose · enter/click inserts · then ^ or # searches inside it · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
@@ -86,6 +86,8 @@ export interface CompletionItem {
    * still at `revision`.
    */
   anchor?: { lineIndex: number; line: string; revision: number };
+  /** A page nobody has written yet (PIE-592): choosing it makes it (`pages.follow`, attributed) and links it. */
+  newPage?: string;
 }
 
 export interface CompletionLookup {
@@ -138,6 +140,16 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
+  } else if (target.kind === "agent") {
+    // The extensions' agents (PIE-501), so a request is found by typing `@` (PIE-592): what each does and when it runs.
+    // Imported when asked: the extensions module reaches the tile registry, which this one is loaded under.
+    const all = (await import("../extensions")).noteAgents() ?? [];
+    const q = target.query.toLowerCase();
+    items = all.filter(a => a.name.toLowerCase().startsWith(q)).map(a => ({
+      label: `@${a.name}${a.description ? ` · ${a.description}` : ""}`, insertion: `@${a.name} `, kind: "agent",
+      context: a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again",
+    }));
+    empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
   } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
     items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));
@@ -146,6 +158,9 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "page") {
     const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT, opts);
     items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), blockId: a.blockId, address: a.address, kind: a.kind }));
+    const made = newPageItem(target.query, r.addresses, prefix);
+    if (made) items.push(made);
+    if (made && items.length === 1) partial = `no page is named ${made.newPage} yet · ↓ then ⏎ makes it`;
     if (r.completeness.kind === "truncated") truncated = r.completeness.limit ?? COMPLETION_LIMIT;
     ranked = r.semantic?.status === "ranked";
     off = !!r.semantic && notConfigured(r.semantic);
@@ -165,8 +180,23 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}), ...(heading ? { heading } : {}) };
 }
 
+/**
+ * `[[Seed swap` naming no page yet (PIE-592): the last row offers it new, `[[Seed swap]]` written and the page made in
+ * one choice (where new notes go). Not for an address a page already has, one no page can have, or a Work ID's shape or
+ * the outline's Work ID prefix (those are the workboard's to give).
+ */
+function newPageItem(query: string, have: readonly { address: string }[], prefix: string | null): CompletionItem | null {
+  const bar = query.indexOf("|"), named = (bar < 0 ? query : query.slice(0, bar)).trim(), label = bar < 0 ? "" : query.slice(bar + 1).trim();
+  const wanted = tryNormalizePageAddress(named);
+  if (!wanted || /^[A-Z][A-Z0-9]*-\d+$/.test(named) || (prefix && named.toUpperCase().startsWith(prefix.toUpperCase()))) return null;
+  if (have.some(a => tryNormalizePageAddress(a.address)?.normalizedAddress === wanted.normalizedAddress)) return null;
+  return { label: `new page · ${named}`, insertion: label ? `[[${named}|${label}]]` : `[[${named}]]`, kind: "new page", newPage: named, context: "made where new notes go when you choose it · ctrl+l then opens it beside" };
+}
+
 /** How many of the top notes a `((words` list shows the anchors of, and how many each. */
 const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
+/** The parts of the first note `((words` lists under it with no anchor yet (PIE-592), and how many. */
+const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4, PASSAGES_ASKED = 100;
 /** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
 const NOTES_SEARCHED = 3;
 
@@ -188,8 +218,13 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
     context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
   }));
   const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
-  const theirs = anchored && top.length
-    ? await anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null;
+  // The first note's headings, quotes and callouts with no anchor yet (PIE-592): a part to embed, without visiting it
+  // first; choosing one adds its anchor, as a passage refined with ^ does.
+  const [theirs, parts] = anchored && top.length ? await Promise.all([
+    anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }),
+    // Its anchors and paragraphs come first in that list: asked for the most the service gives, so they don't hide them.
+    anchors({ blockIds: top.slice(0, 1), fragmentQuery: "", mode: "passage", limit: PASSAGES_ASKED, ...draft }),
+  ]) : [null, null];
   const items: CompletionItem[] = [], seen = new Set<string>();
   const add = (it: CompletionItem) => { if (!seen.has(it.insertion)) { seen.add(it.insertion); items.push(it); } };
   const lower = q.toLowerCase();
@@ -197,6 +232,7 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
   for (const n of notes) {
     add(n);
     for (const c of (theirs?.items ?? []).filter(c => c.blockId === n.blockId && c.fragmentId).slice(0, ANCHORS_PER_NOTE)) add(fragmentItem(c, false, true));
+    for (const c of (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.has(c.kind)).slice(0, PARTS_OF_TOP)) add(fragmentItem(c, false, true));
   }
   return {
     items, truncated: r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated" ? COMPLETION_LIMIT : null,
@@ -236,10 +272,10 @@ async function fragmentLookup(board: CompletionBoard, fragment: { blockQuery: st
  */
 function fragmentItem(c: FragmentCandidate, oneNote: boolean, under = false): CompletionItem {
   const id = c.fragmentId ?? c.anchor!.fragmentId;
-  const what = c.kind === "heading" ? `# ${c.label}` : c.label;
+  const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}` : c.label;
   const where = oneNote || under ? "" : `${c.title} » `;
   return {
-    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${where}${what} · adds ^${id}`,
+    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`,
     blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
     context: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
     ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
@@ -366,9 +402,18 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
       if (written.fragmentId !== item.fragmentId) throw new Error("that heading changed; search again");
     }
   }
+  // A new page (PIE-592): made before it's linked, so the link never names nothing.
+  let made: string | null = null;
+  if (item.newPage) {
+    const r = await board.followPage(item.newPage, by).catch((e: Error) => { throw new Error(`the page wasn't made: ${e.message}`); });
+    if (!still()) return false;
+    if (!r.note) throw new Error(r.status === "deleted" ? `[[${item.newPage}]] is a page in the trash: restore it there` : `the page wasn't made (${r.status})`);
+    made = r.created ? `made page ${item.newPage} ${r.placement?.said ?? ""}`.trim() + " · ctrl+l opens it" : `${item.newPage} was there already · ctrl+l opens it`;
+  }
   // Right before the splice, with no wait between: what the insert uses up (an invitation) is spent only when it lands.
   commit?.();
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by);
+  if (made) d.note = made;
   return true;
 }
 
@@ -378,6 +423,8 @@ export interface CompletionState extends CompletionLookup {
   loading: boolean;
   /** Where the cursor was when it was asked: a reply for anywhere else is dropped. */
   at: { row: number; col: number; line: string };
+  /** The person moved through the list (↑ ↓, the wheel): a new page alone on it is theirs to choose then. */
+  picked?: boolean;
 }
 
 /** One draft's completion popup: a lookup at a time, newer typing or a dismissal dropping older answers. */
@@ -515,6 +562,7 @@ export class Completer {
   move(delta: number): void {
     const s = this.state;
     if (!s?.items.length) return;
+    s.picked = true;
     s.index = Math.max(0, Math.min(s.items.length - 1, s.index + delta));
     this.redraw();
     void this.enrich();
@@ -573,7 +621,9 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
     if (k.kind === "esc") { c.dismiss(); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
-      if (k.kind === "enter" || k.kind === "tab") { void c.accept(); return true; }
+      // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
+      const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
+      if ((k.kind === "enter" || k.kind === "tab") && !lone) { void c.accept(); return true; }
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {

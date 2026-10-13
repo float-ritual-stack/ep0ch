@@ -18,7 +18,7 @@ import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
@@ -46,7 +46,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
-import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width } from "../style";
+import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -65,6 +65,8 @@ import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
+import { hostname } from "node:os";
+import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
@@ -423,11 +425,29 @@ interface Control { thread: string; control: ThreadControl; row: number; from: n
  * The note's links in reading order, as outline-core's scan finds them: `((…))` (transclusions too), `[[…]]` and
  * Markdown `[text](url)`.
  */
-const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map((l): Link => {
+const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map(linkOf);
+/** One link of outline-core's scan as the reader follows it. */
+const linkOf = (l: LinkOccurrence): Link => {
   if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
   if (l.kind === "page") return { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) };
   return { url: l.url, label: l.text };
-});
+};
+/**
+ * A link a draft's preview draws as `edit.follow`'s `ref=` (PIE-592): `((id^fragment))`, `[[page]]`, a URL or `#tag`;
+ * null for one that has no such words (a resource token, a picture).
+ */
+const refOfLink = (l: Link): string | null =>
+  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
+/** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
+function linkOfRef(ref: string): Link | null {
+  const text = ref.trim();
+  if (text.startsWith("#") && text.length > 1) return { tag: text.slice(1) };
+  const [l] = linkOccurrences(text, []);
+  if (l && l.start === 0 && l.end === text.length) return linkOf(l);
+  if (/^[a-z][a-z0-9+.-]*:\S+$/i.test(text)) return { url: text };
+  const b = referencedBlock(text);
+  return b ? { block: b.blockId, ...(b.fragment ? { fragment: b.fragment } : {}) } : null;
+}
 /** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
 const linkText = (l: Link, text: string, src: Source | null) => l.block
   ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment))).text
@@ -1732,11 +1752,14 @@ export class NoteSurface {
    * (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
    * presentLinks. Its links aren't elements: what's followable is the note's own.
    */
-  snippet(text: string, width: number, host?: SurfaceHost): string[] {
-    const m = this.msg, src = this.src, drawn: Link[] = [];
+  snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
+  /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[] } {
+    const m = this.msg, src = this.src;
     const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 6), graphics: false, noImages: undefined, unfold: true };
     const embed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
-    return renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) }).lines;
+    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
+    return { lines: doc.lines, links: doc.links };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
@@ -2089,7 +2112,7 @@ export class NoteSurface {
   private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null, away = false): string[] {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
-      preview: (t, pw) => draftPreview(t, pw, src), pick: true, ...(away ? { away } : {}),
+      preview: (t, pw, links) => draftPreviewDoc(t, pw, src, links), pick: true, follow: true, ...(away ? { away } : {}),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -2161,6 +2184,8 @@ export class NoteSurface {
         if (cmd === "save") void this.runKey("edit.save", {}, host, true);
         else if (cmd === "editor") void this.runKey("edit.external", {}, host);
         else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
+        else if (cmd === "follow") void this.runKey("edit.follow", {}, host);
+        else if (cmd === "image") void this.runKey("draft.image", {}, host);
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
         // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
@@ -2367,6 +2392,8 @@ export class NoteSurface {
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
+      follow: () => void this.runKey("edit.follow", {}, host),
+      image: () => void this.runKey("draft.image", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
@@ -2447,7 +2474,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => (s.dirty ? [s.keep()] : []),
-      hint: () => editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null }),
+      hint: () => (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), writtenBy: writtenBy(d, "save") }),
     };
@@ -2460,7 +2487,7 @@ export class NoteSurface {
   private composing(): { cs: CommentSession; d: Draft; f: EditFrame } | null {
     const cs = this.session, m = this.msg;
     if (!cs || cs.mode !== "compose" || !cs.composer || !m) return null;
-    const f = cs.composerFrame((t, pw) => this.snippet(t, pw));
+    const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, undefined, links));
     return f ? { cs, d: cs.composer, f } : null;
   }
 
@@ -2500,7 +2527,7 @@ export class NoteSurface {
         if (c?.shown) { c.move(dir); return true; }
         return false;
       },
-      rows: (w, h, host) => { const src = this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw) => draftPreview(t, pw, src)) : null; },
+      rows: (w, h, host) => { const src = this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw, links) => draftPreviewDoc(t, pw, src, links)) : null; },
       leave: async (host, actor) => {
         const w = cs.writing;
         // An agent leaves only a comment it opened and alone typed in (the draft session's rule).
@@ -2933,12 +2960,20 @@ export class NoteSurface {
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true) });
+    const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), follow }, host.freshClick ? 8 : 0);
     if (this.editPress) host.redraw();
     return this.editPress;
   }
+  /**
+   * Follow link `l` from the edit or comment being written (`edit.follow`, PIE-592): where a reader's link opens, which
+   * for a reader holding an edit is beside it (the desk's `besideEdit`); the draft and its cursor stay as they were.
+   */
+  followFromDraft(l: Link, host: SurfaceHost): Promise<Msg | Outside | TagList | null> {
+    return this.followTarget(l, host, { link: true });
+  }
   /** The draft being written here, an edit's or a comment's, or null. */
-  private get writingDraft(): Draft | null {
+  get writingDraft(): Draft | null {
     return (this.drafting ?? (this.session?.mode === "compose" ? this.session.writing : null))?.draft ?? null;
   }
 
@@ -5992,9 +6027,12 @@ export const imagePlacements = (images: readonly DocImage[], col: number, cellW:
   });
 
 
-/** A draft's live preview (PIE-496): the readers' own body renderer, without folds, embeds or link tags. */
-export function draftPreview(text: string, w: number, src: Source | null = null): string[] {
-  return renderDoc(presentLinks(text, false, src, text), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) }).lines;
+/** A draft's live preview (PIE-496): the readers' own body renderer, without folds or embeds. */
+export function draftPreview(text: string, w: number, src: Source | null = null): string[] { return draftPreviewDoc(text, w, src).lines; }
+/** `draftPreview` with where its links are drawn (PIE-592): their targets land in `links`, by `.links`' `n`. */
+export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): { lines: string[]; links: LinkRange[] } {
+  const doc = renderDoc(presentLinks(text, false, src, text, links), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) });
+  return { lines: doc.lines, links: doc.links };
 }
 
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
@@ -6439,6 +6477,49 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
     async run({ channel }, { surface, host }) {
       return await surface.pick(host, channel);
+    },
+  }),
+  "draft.image": def({
+    summary: "put a picture in this reader's edit or comment at the cursor (PIE-592): the image file whose path the cursor is on (a file dropped on the terminal pastes its path, as text), else the one on the clipboard, or path=; it's copied into the outline's folder (media/, named by its day and contents) and a media line [img::<path>] goes in on its own line, one undo step. The clipboard is read on the door's machine",
+    keys: "ctrl+v in an edit or a comment (on a dropped file's path: that file), a paste of nothing but a picture",
+    touches: "draft", draft: "type", replay: "ask",
+    args: { path: { type: "string", optional: true, about: "an image file on the door's machine to put in, instead of the clipboard's" } },
+    async run({ path }, { surface, host }, actor) {
+      const d = surface.writingDraft;
+      if (!d) throw new ActionRefused("nothing is being written here; open an edit (e) or a comment first");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      // Pictures live in the outline's folder: on this machine only (a remote outline's is on its host).
+      const info = await host.ctx.board.info().catch(() => null);
+      if (!info || info.host !== hostname()) throw new ActionRefused(`the outline is on ${info?.host ?? "another machine"}: a picture goes into an outline on this machine, or put [img::<path>] in by hand`);
+      const dropped = path === undefined ? imagePathAt(d.lines[d.row] ?? "", d.col) : null;
+      let from: Buffer | string | null = path !== undefined ? droppedImage(path) : dropped?.path ?? null;
+      if (path !== undefined && !from) throw new ActionRefused(`${path} isn't an image file on this machine (png, jpg, gif, webp…)`);
+      if (!from) from = await clipboardImage();
+      // The draft may have been saved, closed or replaced while the clipboard was read.
+      if (surface.writingDraft !== d || d.busy) throw new ActionRefused("the draft changed while the clipboard was read; nothing was put in");
+      if (!from) { d.note = noClipboardImage(); host.redraw(); throw new ActionRefused(d.note); }
+      let kept: string;
+      try { kept = keepImage(info.workspace, from); }
+      catch (e) { d.note = (e as Error).message; host.redraw(); throw new ActionRefused(d.note); }
+      d.putLine(imageLine(kept), actor, dropped ?? undefined);
+      d.note = `put in ${kept.split("/").slice(-2).join("/")} · ctrl+z takes it out (the file stays)`;
+      host.redraw();
+      return { path: kept, line: d.row + 1 };
+    },
+  }),
+  "edit.follow": def({
+    summary: "open the link the cursor is on in this reader's edit or comment (or ref=: a link its preview draws, ((id)), [[page]], a URL or #tag) beside it, as a reader's link opens: the edit stays open as it is and the keys stay in it (PIE-592). Opened again from the same edit, it reuses that detail",
+    keys: "ctrl+l in an edit or a comment, an alt- or ctrl-click on a link in its text, a click on a link in its preview (ctrl+p)",
+    touches: "tile", replay: "ask", way: "an agent opens a note beside the person's edit with open id= naming no tile",
+    args: { ref: { type: "string", optional: true, about: "the link to open: ((id)) or ((id^fragment)), [[page]], a URL or #tag; default the one at the cursor" } },
+    async run({ ref }, { surface, host }) {
+      const d = surface.writingDraft;
+      if (!d) throw new ActionRefused("nothing is being written here; link.follow opens a link in what a reader shows");
+      const at = ref === undefined ? d.linkAtCursor() : null;
+      const l = ref !== undefined ? linkOfRef(ref) : at && linkOf(at);
+      if (!l) throw new ActionRefused(ref !== undefined ? `${ref} isn't a link: give ((id)), [[page]], a URL or #tag` : "no link at the cursor: put it on a [[page]], ((reference)) or [text](url)");
+      const m = await surface.followFromDraft(l, host);
+      return m && "id" in m ? { opened: m.id, title: subject(m) } : m && "outside" in m ? { opened: null, ...m } : { opened: null };
     },
   }),
   "edit.text": def({
