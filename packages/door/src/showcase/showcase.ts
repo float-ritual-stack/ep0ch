@@ -578,7 +578,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "extensions", need: "bind an extension the service runs, and draw a rich component's view", part: "the extension binding: extensions.list read at start and on every extensions event; handler lines and @name requests drawn by extensionRegion (a component through primitiveLines), their actions ext.* in EXT_ACTIONS (the line's key, a click on its control, act), tile kinds through serviceKind (^W o T for tarot)", files: "src/extensions.ts, src/components.ts, src/projection.ts, src/desk/tile-kinds.ts",
-    aside: "the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy, and almanac: a scheduled program whose ext.almanac.write-day, by act or at 06:05, writes a dated note under the Almanac page over its own connection, as ext:almanac), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
+    aside: "in an edit, @ at a line's start offers the agents (@tidy) with what each does and when it runs (PIE-592) · the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy, and almanac: a scheduled program whose ext.almanac.write-day, by act or at 06:05, writes a dated note under the Almanac page over its own connection, as ext:almanac), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
     stage(n, show) {
       // What the service's list bound, drawn the way a service tile is: each extension, what it answers, its actions' keys.
       const list = serviceKind({
