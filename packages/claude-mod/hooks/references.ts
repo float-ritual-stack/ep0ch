@@ -5,15 +5,36 @@
  * click the plugin does not take goes nowhere. The plugin maps it back to the
  * `pi-outliner://` URI the Outliner's own link navigation takes.
  */
+import { codeBlocks } from './code-fence'
+
 const STAND_IN = 'https://pi-outliner.invalid/'
 
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
+/** A fragment id, as outline-core's link grammar has it (`((id^fragment))`). */
+const FRAGMENT = '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
+
 /**
- * Code, existing links and URLs: never rewritten. An unclosed fence runs to the
- * end, as the renderer draws it.
+ * Inline code, existing links and URLs: never rewritten. Code blocks (fenced and indented) are found by the one fence
+ * rule, `code-fence.ts`, so a four-backtick fence isn't closed by three.
  */
-const PROTECTED = /```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]+/gi
+const PROTECTED = /`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]+/gi
+
+/** `text` cut into runs of prose and of code-block lines (each run whole lines, newlines kept), in order. */
+function codeRuns(text: string): { code: boolean; text: string }[] {
+  const lines = text.split('\n')
+  const { fences, indented } = codeBlocks(lines)
+  const code = new Set(indented)
+  for (const fence of fences) for (let line = fence.start; line <= fence.end; line++) code.add(line)
+  const runs: { code: boolean; text: string }[] = []
+  lines.forEach((line, i) => {
+    const piece = i < lines.length - 1 ? `${line}\n` : line
+    const last = runs.at(-1)
+    if (last && last.code === code.has(i)) last.text += piece
+    else runs.push({ code: code.has(i), text: piece })
+  })
+  return runs
+}
 
 export type Linkified = {
   /** The markdown to draw, references as stand-in links. */
@@ -33,7 +54,7 @@ export function linkifyReferences(text: string, prefixes: readonly string[]): Li
     .map(prefix => `${prefix}-\\d+`)
   const reference = new RegExp(
     `\\[\\[([^\\[\\]|\\n]+)(?:\\|([^\\[\\]\\n]+))?\\]\\]` +
-      `|\\(\\((${UUID})(?:\\|([^()\\n]+))?\\)\\)` +
+      `|\\(\\((${UUID})(?:\\^${FRAGMENT})?(?:\\|([^()\\n]+))?\\)\\)` +
       (workIds.length ? `|(?<![\\w/#-])(${workIds.join('|')})(?![\\w-])` : ''),
     'g',
   )
@@ -50,12 +71,15 @@ export function linkifyReferences(text: string, prefixes: readonly string[]): Li
     })
 
   let out = ''
-  let last = 0
-  for (const match of text.matchAll(PROTECTED)) {
-    out += rewrite(text.slice(last, match.index)) + match[0]
-    last = match.index + match[0].length
+  for (const run of codeRuns(text)) {
+    if (run.code) { out += run.text; continue }
+    let last = 0
+    for (const match of run.text.matchAll(PROTECTED)) {
+      out += rewrite(run.text.slice(last, match.index)) + match[0]
+      last = match.index + match[0].length
+    }
+    out += rewrite(run.text.slice(last))
   }
-  out += rewrite(text.slice(last))
   return { text: out, hrefs: [...hrefs] }
 }
 

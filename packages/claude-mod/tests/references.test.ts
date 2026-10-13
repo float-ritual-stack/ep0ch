@@ -45,6 +45,21 @@ describe('references', () => {
     expect(linkifyReferences(source, ['PIE'])).toEqual({ text: source, hrefs: [] })
   })
 
+  test('a four-backtick fence is code until four backticks close it; indented code is code too (PIE-631)', async () => {
+    const fenced = ['````md', '```', `PIE-1 and ((${UUID}))`, '```', '````', 'After: PIE-2'].join('\n')
+    const { text, hrefs } = linkifyReferences(fenced, ['PIE'])
+    expect(text).toBe(['````md', '```', `PIE-1 and ((${UUID}))`, '```', '````', `After: [PIE-2](${STAND_IN}work/PIE-2)`].join('\n'))
+    expect(hrefs).toEqual([`${STAND_IN}work/PIE-2`])
+    expect(linkifyReferences('Text\n\n    PIE-3 in code\n\nPIE-4', ['PIE']).hrefs).toEqual([`${STAND_IN}work/PIE-4`])
+  })
+
+  test('a block reference to a fragment links to its block, never to a page', async () => {
+    const { text, hrefs } = linkifyReferences(`See ((${UUID}^beds|the beds)).`, [])
+    expect(text).toBe(`See [the beds](${STAND_IN}block/${UUID}).`)
+    expect(hrefs).toEqual([`${STAND_IN}block/${UUID}`])
+    expect(outlinerUriFor(`((${UUID}^beds))`)).toBe(`pi-outliner://block/${UUID}`)
+  })
+
   test('bare Work IDs follow the configured prefixes only', async () => {
     expect(linkifyReferences('ABC-12 and PIE-3', ['ABC']).hrefs).toEqual([`${STAND_IN}work/ABC-12`])
     expect(linkifyReferences('PIE-3 and [[x]]', []).hrefs).toEqual([`${STAND_IN}page/x`])

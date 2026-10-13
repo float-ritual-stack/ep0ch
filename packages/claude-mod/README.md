@@ -311,6 +311,11 @@ this session. Items are named by `ref` (a Work ID or block UUID; `item` still wo
 result is the command's JSON; a refusal (stale revision, unknown stage, unmerged
 delivery…) comes back as the CLI's reason.
 
+`work_body` and `note_section` replace text, so each one requires the
+`expectedRevision` you read with `outline_read`: without it nothing runs (the
+answer says to read first), and a block that changed since is refused. Text
+built from an older read never overwrites an edit made in between (PIE-631).
+
 An item can have several deliveries, one per PR. `work_deliver` takes a `key`
 (`door` → `PIE-123/door`); `work_complete` takes `deliveries` or `allMerged` and
 is refused, naming what is left, while any other delivery is incomplete; and
