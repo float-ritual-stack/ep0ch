@@ -291,7 +291,7 @@ interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
   /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
-  title: { row: number; text: string; ink: string; big: boolean } | null;
+  title: { row: number; text: string; ink: string; big: boolean; col: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
 }
@@ -1083,7 +1083,9 @@ export class NoteSurface {
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
     const named = workIdTitle(subject(m), m.props["work-id"]), focused = host?.focused !== false;
     const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
-    const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && width(title) * 2 <= w;
+    // At double height only the title's own words are sized; its Work ID keeps the accent in cells before it.
+    const idCols = named.workId ? width(`${named.workId} · `) : 0;
+    const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && idCols + width(named.title) * 2 <= w;
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
@@ -1101,7 +1103,7 @@ export class NoteSurface {
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = (named.workId ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${named.title}`, w) : ink + pad(title, w)) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: title, ink, big }, crumbsRow: this.printed ? rows.length - 1 : 0 };
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
 
   /**
@@ -1462,7 +1464,7 @@ export class NoteSurface {
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
     if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && ![title.row, title.row + 1].some(r => this.selection?.span(r) || this.agentSelection?.sel.span(r))) {
-      placements.push(sizedPlacement("title", title.text, title.ink, 0, title.row, width(title.text), 2));
+      placements.push(sizedPlacement("title", title.text, title.ink, title.col, title.row, width(title.text), 2));
     }
     if (foot) {
       while (lines.length < h) lines.push("");

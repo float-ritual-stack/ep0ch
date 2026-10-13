@@ -443,6 +443,8 @@ test("a note with a Work ID is headed by it, once, in the accent (PIE-809)", () 
   expect(page("Rehang the shed door [work-id::HOME-042]")).toStartWith("# HOME-042 · Rehang the shed door");
   expect(page("HOME-042 — Rehang the shed door [work-id::HOME-042]")).toStartWith("# HOME-042 · Rehang the shed door");
   expect(page("Rehang the shed door")).toStartWith("# Rehang the shed door");
+  // A note that opens with its own heading is headed the same way.
+  expect(page("## Rehang the shed door [work-id::HOME-042]")).toStartWith("## HOME-042 · Rehang the shed door");
   const html = accentWorkId(renderMarkdownHtml(page("Rehang the shed door [work-id::HOME-042]")));
   expect(html).toContain('<span class="wid">HOME-042</span> · Rehang the shed door');
   expect(accentWorkId(renderMarkdownHtml(page("Rehang the shed door")))).not.toContain('class="wid"');

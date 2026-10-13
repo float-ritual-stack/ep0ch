@@ -625,7 +625,8 @@ describe("the reader's header leads with the title (PIE-657)", () => {
 
   test("double height where the terminal has text sizing and the title fits twice over; else bold on one row", async () => {
     const big = (await shown({}, 70)).view;
-    expect(big.placements?.map(p => ({ row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ row: 1, rows: 2, cols: 62, text: "HUB-003 · Build the compost bin", scale: 2 }]);
+    // Only the title's words are sized; its Work ID keeps the accent in cells before them (PIE-809).
+    expect(big.placements?.map(p => ({ col: p.col, row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ col: 10, row: 1, rows: 2, cols: 42, text: "Build the compost bin", scale: 2 }]);
     // Too narrow for twice the title's width: bold, one row, the meta line moves up.
     const narrow = (await shown({}, 30)).view;
     expect(narrow.placements ?? []).toEqual([]);
@@ -661,10 +662,9 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     expect(wide.s.click(at + 2, 3, wide.h)).toBe(true);
     expect(wide.s.click(2, 3, wide.h)).toBe(false);
     // Narrow: the summary takes a line of its own, so no chip is cut off the end of the byline.
-    // (At 60 the title with its Work ID is too wide for double height: one row, so the summary is on row 3.)
     const narrow = await shown({ summaryKeys: () => ["related-to"] }, 60);
-    expect(strip(narrow.view.lines[3]!)).toContain("related-to");
-    expect(narrow.s.click(strip(narrow.view.lines[3]!).indexOf("related-to") + "related-to ".length + 2, 3, narrow.h)).toBe(true);
+    expect(strip(narrow.view.lines[4]!)).toContain("related-to");
+    expect(narrow.s.click(strip(narrow.view.lines[4]!).indexOf("related-to") + "related-to ".length + 2, 4, narrow.h)).toBe(true);
   });
 
   test("a tile too short for the header leaves the title to its frame bar", () => {

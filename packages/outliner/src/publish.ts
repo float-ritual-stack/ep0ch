@@ -382,6 +382,7 @@ export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry =
 }
 
 const PAGE_STYLE = `
+h1 .wid{color:var(--link);white-space:nowrap}
 :root{color-scheme:dark;--bg:#111110;--fg:#e8e6df;--dim:#9a988f;--rule:#34332f;--link:#8fb8ff}
 body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-serif,Georgia,serif}
 main{max-width:46rem;margin:0 auto;padding:2rem 1rem 4rem}
@@ -407,7 +408,6 @@ ${CALLOUT_STYLE}${COMPONENT_STYLE}${FIGURE_STYLE}${MARGINALIA_STYLE}${MEDIA_STYL
  */
 const BROWSE_STYLE = `
 main.browse{max-width:42rem;padding:1rem 1rem 6rem}
-h1 .wid{color:var(--link);white-space:nowrap}
 nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
@@ -2728,7 +2728,7 @@ export function renderSubtreeMarkdown(
   // A note with a Work ID heads its title with it (PIE-809: `HOME-011 · <title>`), once; `accentWorkId` colours it.
   const workId = getProperty(parseProperties(root.text ?? ""), "work-id");
   const headed = (title: string) => { const named = workIdTitle(title, workId); return named.workId ? `${named.workId} · ${named.title}` : title; };
-  const lines = (/^#{1,6}\s/.test(first) ? [first, ...rest]
+  const lines = (/^#{1,6}\s/.test(first) ? [first.replace(/^(#{1,6}\s+)(.*)$/, (_, mark: string, text: string) => `${mark}${headed(text)}`), ...rest]
     // A note that opens with an embed keeps it below the heading.
     : first.startsWith(">") ? [`# ${headed(root.id)}`, "", first, ...rest]
       : [`# ${headed(first.trim() || root.id)}`, ...rest]);
