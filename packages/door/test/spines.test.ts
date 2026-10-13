@@ -351,6 +351,30 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await act("tile.collapse", { on: false }, "detail1");
   });
 
+  test("every kind of tile folds to a spine that names it, in cells: its title, else its number and name, never blank", async () => {
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    const kinds = ["reader", "detail", "preview", "tree", "backlinks", "activity", "who", "art", "blank"];
+    const leaves = kinds.map((kind, i) => ({ t: "leaf", kind, name: `k${i}`, ...(kind === "preview" ? { source: "tile:k0" } : {}), ...(kind === "backlinks" ? { source: "tile:k0" } : {}) }));
+    const d = new Desk({ name: "spines", title: "spines", layout: { root: { t: "split", dir: "row", kids: leaves, weights: leaves.map(() => 1) } as any, focus: "k0" } });
+    app.push(d);
+    const D = d as any;
+    // One tile with nothing to call itself yet (a title that is empty until its first read).
+    D.panes.get(D.idNamed("k1")).spine = () => ({ title: " \x1b[33m \x1b[0m" });
+    for (const [i] of kinds.entries()) if (i > 0) await d.dispatch.act({ action: "tile.collapse", tile: `k${i}`, args: { on: true } }, USER);
+    const lines = d.render(D.ctx).lines.map(plain);
+    for (const [i, kind] of kinds.entries()) {
+      if (i === 0) continue;
+      const r = d.drawnAt(`k${i}`)!;
+      expect(r.cols).toBeLessThanOrEqual(3);
+      const down = lines.slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("").replace(/[·×■✎¶≡ ]/g, "");
+      expect({ kind, title: down.length > 0 }).toEqual({ kind, title: true });
+    }
+    // The one with no title says its number and name, as its header does.
+    const r = d.drawnAt("k1")!;
+    expect(lines.slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("")).toContain("2 k1");
+    app.pop();
+  });
+
   test("under Kitty graphics, lane and reader spines are rotated titles placed on screen", async () => {
     await withDetail();
     key(char("c")); key({ kind: "tab" }); key(char("c"));
