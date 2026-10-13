@@ -1,3 +1,4 @@
+import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { ticketScope } from "./work-ids";
 import {TreeComments} from "./tree-comments";
 import {TreeBranchFilter} from "./tree-branch-filter";
@@ -696,6 +697,11 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         items = items.filter(item => item.id !== "tree.reorder.up" && item.id !== "tree.reorder.down");
       }
     }
+    // Restore and purge are offered on a direct Trash root only.
+    if (!isBlockTreeRow(selected) || !selected.block.deletedAt) {
+      items = items.filter(item => item.id !== "tree.trash.restore" && item.id !== "tree.trash.purge");
+    }
+    if (isBlockTreeRow(selected) && selected.block.effectiveDeletedRootId) items = items.filter(item => item.id !== "tree.delete");
     if (!isBlockTreeRow(selected)) {
       items = items.filter((item) => {
         if (item.id === "tree.authored-links.toggle") return !!connectionOwner(selected);
@@ -3116,8 +3122,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         reloadRequired = true;
       } else if (selected.hasChildren) selectedIndex = Math.min(rows.length - 1, selectedIndex + 1);
     } else if (str === "r" && selected?.block.deletedAt) {
-      await effects.request({ action: "trash.restore", blockId: selected.canonicalId, mutation: TREE_MUTATION });
-      status = "Restored from Trash";
+      status = restoredStatus(await effects.request<RestoredBlock>({ action: "trash.restore", blockId: selected.canonicalId, mutation: TREE_MUTATION }));
       reloadRequired = true;
     } else if (str === "p" && selected?.block.deletedAt) {
       const required =

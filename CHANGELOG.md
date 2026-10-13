@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note in Trash no longer keeps its page name (PIE-312)
+
+- **Fixed:** trashing a note named `[page::2031-04-02]` and writing a new one with the same name was refused ("is
+  already the page of … (in Trash)"), and `[[2031-04-02]]` kept pointing at the note in Trash. Now the live note takes
+  the name and the links follow it.
+- **Changed:** restoring a note whose page name was taken meanwhile still restores it, as `[page::2031-04-02-2]` (the
+  next free name), and Tree, Detail and the board's `u` say which name changed. `trash.restore`'s reply names each
+  rename (`renamedPages`).
+- **Added:** Tree's restore (`r`) and purge (`p`) are in its action menu on a Trash root, so a click runs them;
+  `outliner purge --id <id> --confirm <work id or first 8>` purges from a shell.
+- **Run:** PROTOCOL bump; restart the host and the clients together (`ep0ch install --apply`).
+
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
 - **Added:** `EP0CH_WEB_URL` and `EP0CH_MCP_RESOURCE` take several origins, comma-separated. The web client answers
