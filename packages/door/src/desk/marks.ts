@@ -9,6 +9,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { outlineState, readState, writeState } from "../state";
+import { authorName } from "../socket";
 
 export interface Mark {
   /** Its number, for dismissing and stepping: stays the same while the mark lives. */
@@ -83,4 +84,4 @@ export class LocalMarks implements MarkStore {
 }
 
 /** How a mark reads in a tile's header. */
-export const markLabel = (m: Mark) => `◆ ${m.line ? `line ${m.line}: ` : ""}${m.reason} · by ${m.by}`;
+export const markLabel = (m: Mark) => `◆ ${m.line ? `line ${m.line}: ` : ""}${m.reason} · by ${authorName(m.by)}`;
