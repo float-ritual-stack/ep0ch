@@ -439,7 +439,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   });
 
-  test("editing works in a section, by keys: e, type, ctrl+s writes to the showcase outline", async () => {
+  test("editing works in a section, by keys: e, type, a click away and back keeps it (PIE-812), ctrl+s writes to the showcase outline", async () => {
     ch("5"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // e arms the edit (edit.arm): the reader's frame asks, nothing opens until ⏎.
@@ -452,10 +452,23 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 5; i++) press({ kind: "pgdn" });            // to the last line, however it wraps
     press({ kind: "end" });
     for (const c of " Mind the oven.") ch(c);
+    // A click on the notebook beside it (PIE-812): the keys go there, the edit stays open as it was, nothing saved; a
+    // click back is in it again at the same place, with no e.
+    // The stage's tiles where the screen draws them (its hits are in the stage's own cells).
+    const tiles = () => { sc.render(app); const o = S().stageRect; return (desk().hits as [number, { col: number; row: number; cols: number; rows: number }][]).map(([id, r]) => [id, { ...r, col: r.col + o.col, row: r.row + o.row }] as const); };
+    const [other, or] = tiles().find(([id]) => id !== desk().focus)!;
+    press({ kind: "mouse", action: "down", button: 0, x: or.col + 3, y: or.row + 3 }); press({ kind: "mouse", action: "up", button: 0, x: or.col + 3, y: or.row + 3 });
+    expect(desk().focus).toBe(other);
+    expect(desk().describe().panes[0].editing?.dirty).toBe(true);
+    expect(sc.render(app).lines.map(plain).join("\n")).toContain("(kept open)");
+    const [mine, mr] = tiles().find(([id]) => id !== other)!;
+    press({ kind: "mouse", action: "down", button: 0, x: mr.col + 3, y: mr.row + 3 }); press({ kind: "mouse", action: "up", button: 0, x: mr.col + 3, y: mr.row + 3 });
+    expect(desk().focus).toBe(mine);
+    for (const c of " Lid on.") ch(c);
     press({ kind: "char", ch: "s", ctrl: true });
     await until(() => !desk().describe().panes[0].editing?.dirty, "the save", 5000);
     const wb = await board.get(seeded.notes.whiteboard.id);
-    expect(wb!.text.split("\n").at(-1)).toContain("Mind the oven.");
+    expect(wb!.text.split("\n").at(-1)).toContain("Mind the oven. Lid on.");
     // Esc backs out through the part (a draft first, if still open), then to the index; never past it.
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");

@@ -2075,10 +2075,10 @@ export class NoteSurface {
     return true;
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null, away = false): string[] {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
-      preview: (t, pw) => draftPreview(t, pw, src), pick: true,
+      preview: (t, pw) => draftPreview(t, pw, src), pick: true, ...(away ? { away } : {}),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -2427,7 +2427,7 @@ export class NoteSurface {
       click: (x, y, host) => this.writeClick(d, x, y, host),
       press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
       wheel: dir => this.writeWheel(d, dir),
-      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host)) : null),
+      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host), host?.focused === false) : null),
       leave: async (host, actor) => {
         const r = await s.leave(actor);
         host.redraw();
@@ -2723,12 +2723,17 @@ export class NoteSurface {
   }
 
   /**
-   * A comment the person is writing here, left open when their keys move to another tile (PIE-785): it stays on screen
-   * as it was, and is theirs again the moment this reader has the keys back. Only the person's own, while it's written.
+   * An edit or a comment the person is writing here, left open when their keys move to another tile (PIE-785 for a
+   * comment, PIE-812 for an edit): it stays on screen as it was (its cursor, selection and undo: the same draft session),
+   * and is theirs again the moment this reader has the keys back. Only the person's own, and not while it's landing.
+   * Save, esc or another open in this reader still end it, by the draft session's rules.
    */
   keepsOnFocusAway(): boolean {
+    if (this.modes.leaveRefusal()) return false;
+    const d = this.drafting;
+    if (d) return d.openedBy.kind === "user" && !d.busy;
     const cs = this.session, w = cs?.writing;
-    return !!cs && cs.mode === "compose" && !!w && w.openedBy.kind === "user" && !cs.busy && !this.modes.leaveRefusal();
+    return !!cs && cs.mode === "compose" && !!w && w.openedBy.kind === "user" && !cs.busy;
   }
 
   /**
@@ -6451,8 +6456,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "session.leave": def({
-    summary: "leave the edit or comment as a click elsewhere does: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's gesture: an agent leaves only a session it opened",
-    keys: "a click outside it, ^W then a window key (desk)",
+    summary: "leave the edit or comment: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's own edit or comment stays open when they click or move elsewhere (PIE-785, PIE-812); this is what going elsewhere does to an agent's edit they're in. An agent leaves only a session it opened",
+    keys: "a click outside an agent's edit you're in, or ^W then a window key (desk)",
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.leave(host, actor),

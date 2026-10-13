@@ -353,11 +353,16 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
     expect(BV.where(b)).toBe("detail0");
     expect(d.draft).not.toBeNull();
-    // A click elsewhere leaves the edit (unchanged: it just closes) and focuses what was clicked.
+    // A click elsewhere focuses what was clicked; the edit stays open in its tile (PIE-812), and esc there closes it.
     const r = rect("preview");
     key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
     key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
     expect(BV.where(b)).toBe("preview");
+    expect(d.draft).not.toBeNull();
+    const back = rect("detail0");
+    key({ kind: "mouse", action: "down", button: 0, x: back.col + 3, y: back.row + 3 });
+    key({ kind: "mouse", action: "up", button: 0, x: back.col + 3, y: back.row + 3 });
+    key({ kind: "esc" });
     expect(d.draft).toBeNull();
   });
 

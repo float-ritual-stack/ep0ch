@@ -1,7 +1,9 @@
-// Leaving an edit by a click elsewhere, as in any editor (session.leave): a changed edit is saved, an
-// unchanged one closes, one the service refuses is kept as unsent, a comment stays open where it is (PIE-785,
-// never sent), an agent never leaves the person's draft for them, and the draft's hold goes with it. Runs a desk
-// in the App against a scratch outliner service (never a real outline), with fictional notes.
+// Going elsewhere from an edit or a comment (PIE-785, PIE-812): a click on another tile, or a window key, leaves it open
+// where it is, as it was, never saved or sent behind the person's back, and the keys coming back put them straight into
+// it at the same cursor. Saving is explicit (ctrl+s); leaving (session.leave) saves a changed edit, and keeps one the
+// service refuses as unsent.
+// An agent never leaves, saves or moves the person's draft for them. Runs a desk in the App against a scratch outliner
+// service (never a real outline), with fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -16,7 +18,7 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 
-describe.skipIf(!outliner)("a click away from an edit, against a scratch outline", () => {
+describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, other: SocketBoard, app: App, desk: Desk, key: (k: Key) => void = () => {};
   const D = () => desk as any;
@@ -62,30 +64,56 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
   }, 30_000);
   afterAll(async () => { app?.quit(); board?.close(); other?.close(); await scratch.dispose(); });
 
-  test("a click on another tile saves the edit, lets go of its hold, and gives that tile the keys", async () => {
-    const { id, rd } = await editing("Plant the leeks\nin the far bed");
-    const d = rd.draft!;
+  test("a click on another tile leaves the edit open as it was; the keys coming back are in it at the same cursor (PIE-812)", async () => {
+    const { id, rd, name } = await editing("Plant the leeks\nin the far bed");
+    const d = rd.draft!, before = (await current(id)).revision;
     await until(() => !!board.heldDraft(id)?.holdId, "the service's hold on the draft");
     type(" today");
     const to = clickElsewhere();
     expect(D().nameOf(D().focus)).toBe(to);                            // the click did what it does: focus
+    // Still open, the same draft session, nothing saved, held, and the person isn't in it while away.
+    await Bun.sleep(150);
+    expect(rd.draft).toBe(d);
+    expect(d.text).toBe("Plant the leeks today\nin the far bed");
+    expect((await current(id)).revision).toBe(before);
+    expect(board.heldDraft(id)?.holdId).toBeTruthy();
+    expect(D().isIn(rd)).toBe(false);
+    // The other tile has the keys: j there doesn't type into the edit.
+    key(char("j"));
+    expect(d.text).toBe("Plant the leeks today\nin the far bed");
+    // A click back on the edit's tile: in it again, typing where the cursor was, with no e.
+    D().render(D().ctx);
+    const [, r] = (D().hits as [number, { col: number; row: number; cols: number; rows: number }][]).find(([t]) => D().nameOf(t) === name)!;
+    key({ kind: "mouse", action: "down", button: 0, x: r.col + 1, y: r.row });
+    key({ kind: "mouse", action: "up", button: 0, x: r.col + 1, y: r.row });
+    expect(D().nameOf(D().focus)).toBe(name);
+    expect(D().isIn(rd)).toBe(true);
+    type(" now");
+    expect(d.text).toBe("Plant the leeks today now\nin the far bed");
+    // Saving is the person's own step.
+    key(ctrl("s"));
     await until(() => !rd.draft, "the save");
-    expect((await current(id)).text).toBe("Plant the leeks today\nin the far bed");
-    expect(message()).toContain("saved · revision");
+    expect((await current(id)).text).toBe("Plant the leeks today now\nin the far bed");
     expect(unsent(`edit:${id}`)).toBeNull();
     expect(board.heldDraft(id)).toBeNull();              // the hold (drafts.hold) went with the draft
-    expect(d.text).toBe("Plant the leeks today\nin the far bed");
   }, 30_000);
 
-  test("an unchanged edit just closes: nothing is written", async () => {
-    const { id, rd } = await editing("Oil the gate\nhinges squeak");
+  test("moving away by keys (^W then a tile) keeps the edit too, and focusing back is in it", async () => {
+    const { id, rd, name } = await editing("Oil the gate\nhinges squeak");
     const before = (await current(id)).revision;
-    clickElsewhere();
-    expect(rd.draft).toBeNull();                                        // at once: nothing to save
-    await Bun.sleep(100);
+    type(" and the latch");
+    for (const c of "hjkl") { if (D().nameOf(D().focus) !== name) break; key(ctrl("w")); key(char(c)); }
+    expect(D().nameOf(D().focus)).not.toBe(name);
+    expect(rd.draft?.text).toBe("Oil the gate and the latch\nhinges squeak");
+    desk.focusOn(name);
+    expect(D().isIn(rd)).toBe(true);
+    type(" too");
+    expect(rd.draft?.text).toBe("Oil the gate and the latch too\nhinges squeak");
+    // esc twice: closed, put aside as unsent (the draft session's rule), nothing written.
+    key({ kind: "esc" }); key({ kind: "esc" });
+    expect(rd.draft).toBeNull();
     expect((await current(id)).revision).toBe(before);
-    expect(unsent(`edit:${id}`)).toBeNull();
-    expect(board.heldDraft(id)).toBeNull();
+    expect(unsent(`edit:${id}`)?.text).toBe("Oil the gate and the latch too\nhinges squeak");
   }, 30_000);
 
   test("a save the service refuses (a conflict) keeps the draft as unsent, says so, and e brings its copy's place back", async () => {
@@ -93,7 +121,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     type(" soon");
     const m = await current(id);
     await other.update(id, "Net the brassicas\nbefore the pigeons land", m.revision!, { kind: "agent", id: "gardener" });
-    clickElsewhere();
+    await D().dispatch.press("session.leave", {}, name);
     await until(() => !rd.draft, "the edit put aside");
     expect(message()).toMatch(/^not saved: it changed elsewhere since you started · the edit to “Net the brassicas” is kept here · a copy is at /);
     expect((await current(id)).text).toBe("Net the brassicas\nbefore the pigeons land");   // theirs stands: nothing overwritten
@@ -113,7 +141,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     const was = board.update.bind(board);
     (board as any).update = async () => { throw new Error("offline · the outline isn't answering"); };
     try {
-      clickElsewhere();
+      await D().dispatch.press("session.leave", {}, name);
       await until(() => !rd.draft, "the edit put aside");
     } finally { (board as any).update = was; }
     expect(message()).toContain("not saved: offline · the outline isn't answering · the edit to “Sharpen the shears” is kept here · e brings it back");
@@ -204,7 +232,7 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     expect(unsent(`comment:${id}`)?.text).toBe("Which pots? Clay");
   }, 30_000);
 
-  test("an agent can't leave, save or move off the person's draft; ^W then a window key leaves it", async () => {
+  test("an agent can't leave, save or move off the person's draft; ^W then a window key runs and the edit stays open", async () => {
     const { id, rd, name } = await editing("Prune the apple\nin winter");
     type(" tree");
     await expect(app.act({ action: "session.leave", tile: name, as: "tidy" })).rejects.toThrow("an agent doesn't save or close it");
@@ -213,12 +241,16 @@ describe.skipIf(!outliner)("a click away from an edit, against a scratch outline
     expect(D().nameOf(D().focus)).toBe(name);
     type("s");                                                          // still the person's keys
     expect(rd.draft?.text).toBe("Prune the apple trees\nin winter");
-    // ^W arms the window keys (the edit is still open); the next one leaves it, saving, and runs.
+    // ^W arms the window keys; the next one runs (^W w: save a layout, asking its name), and the edit stays open, unsaved.
     key(ctrl("w"));
-    expect(rd.draft).not.toBeNull();
-    key(char("w"));                                                     // ^W w: save a layout (asks its name)
+    key(char("w"));
+    await Bun.sleep(100);
+    expect(rd.draft?.text).toBe("Prune the apple trees\nin winter");
+    expect((await current(id)).text).toBe("Prune the apple\nin winter");
+    key({ kind: "esc" });                                               // the layout's name put away: back in the edit
+    expect(D().isIn(rd)).toBe(true);
+    key(ctrl("s"));
     await until(() => !rd.draft, "the save");
     expect((await current(id)).text).toBe("Prune the apple trees\nin winter");
-    key({ kind: "esc" });
   }, 30_000);
 });

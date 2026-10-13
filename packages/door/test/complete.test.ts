@@ -836,9 +836,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     } finally { app.pop(); }
   });
 
-  test("the board's preview under a float: a click on the float's cells doesn't reach the popup (it leaves the edit)", async () => {
+  test("the board's preview under a float: a click on the float's cells doesn't reach the popup (the edit stays open, PIE-812)", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);
-    const was = (await board.get(beans.id))!.text;
+    const was = (await board.get(beans.id))!;
     app.push(b);
     try {
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
@@ -860,13 +860,17 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       screen();                                                            // drawn before the person clicks
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
-      // The float is elsewhere: the click leaves the edit (saved as typed), and the hidden candidate wasn't inserted.
-      await until(() => !B.preview.draft, "the edit left");
+      // The float is elsewhere: the click goes to it, the hidden candidate wasn't inserted, and the edit stays open
+      // in the preview as typed, nothing saved.
+      await Bun.sleep(100);
+      expect(B.preview.draft).toBe(draft);
       expect(draft.lines.at(-1)).toBe("sow [[se");
-      const saved = (await board.get(beans.id))!;
-      expect(saved.text.split("\n").at(-1)).toBe("sow [[se");
+      expect((await board.get(beans.id))!.revision).toBe(was.revision);
       await b.dispatch.act({ action: "tile.close", tile: "over" }, USER);
-      await board.update(beans.id, was, saved.revision!);                  // the note as it was, for the next hosts
+      // Back in the preview's edit, esc closes it (put aside as unsent): the note as it was, for the next hosts.
+      await b.dispatch.act({ action: "tile.focus", tile: "preview" }, USER);
+      for (let i = 0; i < 3 && B.preview.draft; i++) key(K("esc"));
+      expect(B.preview.draft).toBeFalsy();
     } finally { app.pop(); }
   });
 

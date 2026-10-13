@@ -159,8 +159,8 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       await reads(async () => !(await childrenOf(notes.plot.id)).includes(""), "the empty note trashed", 5000);
       await until(() => desk.idOf(r) === undefined, "its float gone with it", 5000);
       expect(plot.msg?.id).toBe(notes.plot.id);
-      // ctrl+n while the person types in an edit (PIE-591): that edit is left as a click away leaves it (what was
-      // typed saved), and a new note floats over the screen with the keys.
+      // ctrl+n while the person types in an edit (PIE-591): that edit stays open where it is, as it was (PIE-812), and a
+      // new note floats over the screen with the keys.
       const plotName = desk.nameOf([...desk.panes].find(([, p]: any) => p === plot)![0]);
       desk.focusOn(plotName);
       key(char("e"));
@@ -168,10 +168,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       key({ kind: "end" });
       for (const c of " Sown 3 May.") key(char(c));
       key(ctrl("n"));
-      await until(() => !!editing() && editing() !== plot && editing().surface.draft.blockId !== notes.plot.id, "a new note's edit from the edit", 8000);
-      await reads(async () => (await board.get(notes.plot.id))!.text.includes("Sown 3 May."), "the left edit saved");
-      expect(plot.surface.draft).toBeFalsy();
-      const fromEdit = editing();
+      const focusedEdit = () => { const p = desk.panes.get(desk.focus) as any; return p?.surface?.draft ? p : undefined; };
+      await until(() => !!focusedEdit() && focusedEdit() !== plot && focusedEdit().surface.draft.blockId !== notes.plot.id, "a new note's edit from the edit", 8000);
+      expect(plot.surface.draft?.text).toContain("Sown 3 May.");
+      expect((await board.get(notes.plot.id))!.text).not.toContain("Sown 3 May.");
+      const fromEdit = focusedEdit();
       expect(desk.isFloat(desk.idOf(fromEdit))).toBe(true);
       expect((await board.get(fromEdit.surface.draft.blockId))!.parentId).toBe(notes.plot.id);
       // Written and saved, its float names it by what was written, never the "(empty)" it opened as; the current note
@@ -180,6 +181,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       key(ctrl("s"));
       await until(() => !fromEdit.surface.draft && fromEdit.title() === "Beans up", "the float naming the saved note", 5000);
       expect((desk.describe().floats as any[]).some(f => f.title === "Beans up")).toBe(true);
+      // Back on the plot notes: in its edit again, where it was; ctrl+s saves what was typed there.
+      desk.focusOn(plotName);
+      await until(() => desk.entered.in(plot), "back in the plot notes' edit", 5000);
+      key(ctrl("s"));
+      await reads(async () => (await board.get(notes.plot.id))!.text.includes("Sown 3 May."), "the plot edit saved");
       // An empty reader (^W o d) offers a new note, and ctrl+n there writes it in that reader.
       const opened = await app.act({ action: "tile.open", args: { kind: "detail", name: "blank" } }) as any;
       const blank = desk.panes.get(desk.idNamed("blank")) as any;
@@ -222,7 +228,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       expect(floats().every(f => f.writing)).toBe(true);
       expect(await board.get(b.id)).toBeTruthy();
       // Written, its × (tile.close) saves it and closes it; the empty one's trashes it.
-      desk.focusOn(b.tile); key(char("e"));
+      desk.focusOn(b.tile);                                             // its edit kept open: the keys are in it again (PIE-812)
       await until(() => desk.newNoteWhileTyping(), "in b's edit", 5000);
       for (const c of "Netting up") key(char(c));
       await desk.dispatch.press("tile.close", {}, b.tile);

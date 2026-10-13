@@ -2018,7 +2018,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!this.overlays.top() || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || this.rawKeys() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
       || [...this.models.values()].some(m => m.busy?.());
   }
-  /** A hyper chord (PIE-699) is moving the keys: the edit, comment or panel the person is in is left as a click elsewhere leaves it. False when it can't be left. */
+  /** A hyper chord (PIE-699) is moving the keys: the edit, comment or panel the person is in is left as a click elsewhere leaves it (theirs stays open, PIE-812). False when it can't be left. */
   leaveTyping(): boolean { const w = this.personIn(); return w ? this.leaveSession(w) : true; }
   /** A reader whose step choice is open (PIE-472), wherever it is: it takes the keys (a click in a dock's preview opens one without focusing it). */
   private choosingReader(): ReaderPane | undefined { return this.namedReaders().find(r => r.pane.surface.choosing && !this.collapsed.has(r.id))?.pane; }
@@ -2180,8 +2180,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * screen, a new tab on the tile they're in, their drawer), or where the focused tile's opens land (`lands`: its link,
    * the screen's readers row, the next river column, else a reader beside it); an empty reader they're in (^W o d) takes
    * it there. Its edit opens through the reader's own `edit` (the one editor and draft session) and their keys go to it.
-   * From an edit, that edit is left as a click away leaves it first (saved when typed in; a new one not typed in yet
-   * stays open, empty, where it is). The reader's name, or null when no reader took it.
+   * From an edit, that edit stays open where it is, as a click away leaves it (PIE-812). The reader's name, or null when no reader took it.
    */
   async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
     const from = this.focusedName(), f = this.panes.get(this.focus);
@@ -2292,7 +2291,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { focus: r.name };
   }
 
-  /** The keys are back on a reader holding the person's own comment, left open when they went elsewhere: they're in it again, as it was (PIE-785). */
+  /** The keys are back on a reader holding the person's own edit or comment, left open when they went elsewhere: they're in it again, as it was (PIE-785, PIE-812). */
   private reenter() {
     const back = this.focusedReader();
     if (back && !this.entered.in(back) && back.surface.keepsOnFocusAway() && !this.prefix && !this.overlays.top()) this.entered.enter(back);
@@ -2634,7 +2633,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const edgeC = no?.loud ? TONE.amber : this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
     const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // A float's long subject is cut so what it holds and how far down it is still show.
-    const tail = (held ? fg(C.dark) + " (e enters)" : "") + more + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
+    // One of the person's own left open here (PIE-812) is theirs again with the keys; another's takes e.
+    const tail = (held ? fg(C.dark) + (pane instanceof ReaderPane && pane.surface.keepsOnFocusAway() ? " (kept open)" : " (e enters)") : "") + more + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
     // The controls on its top right corner (× ⧉ ⋯, drawn after the frame): where they start, so the title ends before them.
     const closes = !dock && cover === undefined && r.cols >= 10 && this.closesByMouse(id);
     const floats = focused && !float && !dock && cover === undefined && r.cols >= 12 && leaves(this.root).length > 1 && !this.ctx?.hostLayer?.isDrawer(this) && !refusal(this.layout, { op: "float", tile: id }, this.layoutCtx(USER));
@@ -4042,6 +4042,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const moved = t.id !== this.focus;
     this.apply({ op: "focus", tile: t.id }, actor);
     if (moved) { this.entered.clear(); this.panes.get(t.id)?.focused?.(this, actor); }
+    // The person's keys back on an edit or comment of theirs left open there: they're in it again (PIE-785, PIE-812).
+    if (moved && actor.kind === "user") this.reenter();
     this.save(); this.redraw();
     return { tile: t.name };
   }
@@ -5544,6 +5546,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         } else if (pane?.mouse) { this.mouseTile = { id, r: this.origin(id, r) }; pane.mouse(k, x, y, this, how); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
+          // The press that gives the keys back to an edit of theirs left open there (PIE-812) only does that: the cursor,
+          // the selection and the scroll stay where they were, as the keys coming back by ^W or Tab leave them.
+          if (focusing && pane.editing && this.entered.in(pane)) return this.redraw();
           const o = this.origin(id, r);
           this.pressed = { pane, col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
