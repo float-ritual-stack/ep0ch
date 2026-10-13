@@ -29,7 +29,7 @@ are its record. The outliner's entries from then are kept below, under
   Welcome or a board fills itself in the morning.
 - **Changed:** `key=<date>` clauses go through the query evaluator (they find the same text as before, plus the same
   day written another way).
-- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 160: clients and the host update together; no schema change).
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 163: clients and the host update together; no schema change).
 
 ### A checklist step can be approved or rejected (PIE-811)
 
