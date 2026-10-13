@@ -5,6 +5,7 @@
 // (`blockTarget`), a comment or reply (`commentTarget`), or a new card or child note (`cardTarget`). Hosts
 // (the reader, the board's composer, the comment session) call `key` and `leave`; the actions the keys run
 // call `submit`, `close` and `replace`. Every rule about an agent and a draft is `agentRefusal`, here.
+import { propertyListOf, type PropertyList } from "./props";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -140,10 +141,10 @@ export class DraftSession {
    * block's draft is held on the service, so an agent's `draft.patch` lands in it while it's open. An agent
    * doesn't open a draft of a block someone else has open in one (`agentRefusal`).
    */
-  static open(target: DraftTarget, init: { text?: string; base?: number; props?: Record<string, string>; by?: Actor }, env: SessionEnv = {}): DraftSession {
+  static open(target: DraftTarget, init: { text?: string; base?: number; props?: PropertyList; by?: Actor }, env: SessionEnv = {}): DraftSession {
     const by = init.by ?? USER;
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
-    const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? {}), by, env);
+    const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? []), by, env);
     // A new draft here supersedes strays dropped here earlier: ctrl+z never lays them over what came after.
     strays.delete(target.place);
     s.draft.near = target.near;
@@ -613,11 +614,25 @@ export function openDraftOf(board: object | null | undefined, blockId: string): 
 
 // ── adapter 1: a block's whole text ───────────────────────────────────────────
 
-/** `properties.preview`'s view of a change: `-stage=queued +stage=doing`, or "" when the property set is the same. */
-export function propertyChange(before: Record<string, string>, after: Record<string, string>): string {
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(before)) if (after[k] !== v) out.push(`-${k}=${v}`);
-  for (const [k, v] of Object.entries(after)) if (before[k] !== v) out.push(`+${k}=${v}`);
+
+export { propertyListOf, type PropertyList };
+
+/**
+ * What a save changes in a note's properties (PIE-802), in plain words, "" when nothing: each key's values compared as
+ * a multiset (a key written several times, as tags are, is a list), so adding tags beside others never reads as
+ * removing one. Tags read `+#pow -#beep`; a key that had one value and has another, `stage: queued → doing`; one
+ * added or dropped, `+due: friday`, `-due: friday`. Every flash and notice that says what a save changed says this.
+ */
+export function propertyChange(before: PropertyList, after: PropertyList): string {
+  const count = (l: PropertyList) => { const m = new Map<string, Map<string, number>>(); for (const { key, value } of l) { const v = m.get(key) ?? new Map<string, number>(); v.set(value, (v.get(value) ?? 0) + 1); m.set(key, v); } return m; };
+  const was = count(before), now = count(after), out: string[] = [];
+  const less = (a: Map<string, number> | undefined, b: Map<string, number> | undefined) => [...(a ?? [])].flatMap(([v, n]) => Array<string>(Math.max(0, n - (b?.get(v) ?? 0))).fill(v));
+  for (const key of [...new Set([...was.keys(), ...now.keys()])]) {
+    const gone = less(was.get(key), now.get(key)), added = less(now.get(key), was.get(key));
+    if (key === "tag") { out.push(...added.map(v => `+#${v}`), ...gone.map(v => `-#${v}`)); continue; }
+    if (gone.length === 1 && added.length === 1) { out.push(`${key}: ${gone[0]} → ${added[0]}`); continue; }
+    out.push(...added.map(v => `+${key}: ${v}`), ...gone.map(v => `-${key}: ${v}`));
+  }
   return out.join(" ");
 }
 
@@ -627,7 +642,7 @@ export function propertyChange(before: Record<string, string>, after: Record<str
  * them is shown and needs a second save (never by a click away). `saved` is the host's: show the result.
  */
 export function blockTarget(m: Msg, o: {
-  board: Pick<SocketBoard, "update" | "previewProperties" | "get">;
+  board: Pick<SocketBoard, "update" | "previewPropertyList" | "get">;
   /** A note `note.new` just made for this edit (PIE-544): it has no properties to lose, so it saves on the first ctrl+s. */
   isNew?: boolean;
   /** Saved as `by` (who `asked`), changing the properties by `change`: the host shows it. */
@@ -649,8 +664,8 @@ export function blockTarget(m: Msg, o: {
       // A new note being written (PIE-544) has no properties to lose: it's written at once.
       if (d.propertyWarned !== text && !o.isNew) {
         d.previewing = true; redraw();
-        let next: Record<string, string> | null = null;
-        try { next = await o.board.previewProperties(text).catch(() => null); } finally { d.previewing = false; }
+        let next: PropertyList | null = null;
+        try { next = await o.board.previewPropertyList(text).catch(() => null); } finally { d.previewing = false; }
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
         if (!s.open || d.text !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
         const change = next ? propertyChange(d.baseProps, next) : "";
@@ -670,7 +685,7 @@ export function blockTarget(m: Msg, o: {
         // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
         const old = unsent(`edit:${m.id}`);
         if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
-        o.saved?.(saved, by, asked, propertyChange(d.baseProps, saved.props));
+        o.saved?.(saved, by, asked, propertyChange(d.baseProps, propertyListOf(saved)));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
         d.saving = false;

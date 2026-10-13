@@ -82,6 +82,12 @@ export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
 // ── the tokens of a text, from the service ─────────────────────────────────────
 
 /** Where a reader's reads go, and what to redraw when an answer arrives: the reader's own connection. */
+/** A note's properties in the service's list form: one entry per value, a key written twice (tags) listed twice. */
+export type PropertyList = readonly { key: string; value: string }[];
+/** The list form of a `Msg`: its `properties` as the service sent them, else its one-value-per-key `props`. */
+export const propertyListOf = (m: { props: Record<string, string>; properties?: PropertyList }): PropertyList =>
+  m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }));
+
 export interface Source { board: SocketBoard; redraw(): void }
 
 interface Parsed { state: "loading" | "ready" | "none" | "error"; tokens: PropertyRecord[]; error?: string; done?: Promise<Parsed>; asked?: number }
