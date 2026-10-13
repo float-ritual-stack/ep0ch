@@ -39,7 +39,7 @@ describe.skipIf(!outliner)("a river of many columns: every spine names its note,
     app = new App(term as any, board, Date.now(), () => {});
     river = openScreen("river") as Desk;
     app.push(new MainMenu()); app.push(river);
-    await until(() => !!V().column(1)?.items?.length || true, "the Library", 10_000);
+    await until(() => !!V().column(1)?.items?.length, "the Library", 10_000);
   }, 30_000);
   afterAll(async () => {
     app?.quit(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE;
