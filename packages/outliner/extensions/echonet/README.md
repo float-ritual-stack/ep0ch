@@ -82,7 +82,9 @@ Recon: flaky cron on larder [type::recon]  ── bulletin ─▶     └─ Rec
 - **Nodelist**: `Nodelist [type::nodelist] [node::…] [last-toss::…]`, written again at every toss: each known node
   (this one, the ones it reads, the ones that read it), reachable or not and why (another protocol says which machine
   to update and how), the netmail held for it, its areas and subscriptions and its last toss (from its bulletin).
-  Under it, a **toss log** per run (`[type::toss]` with `copies`, `waiting`, `updated`, `gone`, `skipped`,
+  Under it, a **toss log** per toss that moved something or found trouble (a node unreachable, a subscription it
+  can't read, a packet that stopped); a toss that moved nothing writes none, and the nodelist's `last-toss` (and the
+  bulletin's age, `ep0ch echo status`, `ep0ch doctor`) says it ran (`[type::toss]` with `copies`, `waiting`, `updated`, `gone`, `skipped`,
   `netmail-out` (packed here), `netmail-in` (imported or carried in here, whoever handed it over), `seen-by-in`,
   `queued`, `held`, `undeliverable`, `dropped`; an `## imported` section lists each item with the note it landed on)
   and the **ledger** (`[type::echo-ledger]`): each mark packed or carried, and the last call of each node that dials
@@ -122,6 +124,8 @@ that outline's own `extensions/`. It tosses every 30 minutes. From the shell:
 - `ep0ch echo nodelist [--ws <outline>]`: write and print the nodelist.
 - `ep0ch echo subscribe <mask> <area> [--ws <outline>] [--since all|<date>] [--cap n] [--under <id>]`.
 - `ep0ch echo areas [--ws <outline>]`: what the outline offers, what it reads, and what the other nodes offer.
+- `ep0ch echo status [--ws <outline>]`: when each outline's tosser last ran ("tossed 4 min ago (every 30m)"), and a
+  warning with the command when it's older than twice its schedule (exit 1). `ep0ch doctor` says the same.
 
 In the door, the EchoNet screen (`ep0ch --screen echonet`) reads the areas as message areas.
 

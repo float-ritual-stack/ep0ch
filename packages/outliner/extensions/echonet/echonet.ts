@@ -311,6 +311,7 @@ function outlinesOn(machine: string): Promise<string[]> {
   if (!listed.has(key)) {
     const ask = outline<{ outlines: Array<{ name: string }> }>({ action: "echonet.list" }, remote(machine) ? { machine, timeoutMs: 60_000 } : {});
     listed.set(key, ask.then((r) => r.outlines.map((entry) => entry.name)).catch((error: unknown) => {
+      trouble = true;
       log.push(`- ${machine}: its outlines couldn't be listed (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`);
       return [];
     }));
@@ -328,6 +329,7 @@ async function flatten(masks: readonly Mask[], depth = 0): Promise<{ masks: Node
     if (depth > 2) continue;
     const page = await mine<{ status: string; block?: Block }>({ action: "pages.resolve", address: mask.page }).catch(() => undefined);
     if (page?.status !== "resolved" || !page.block) {
+      trouble = true;
       log.push(`- the node list ${mask.text} names no page here ([page::${mask.page}] on a note listing name@machine lines)`);
       unread = true;
       continue;
@@ -477,6 +479,11 @@ async function saveLedger(ledger: Ledger): Promise<void> {
 // ── the toss ──
 
 interface Counts { copies: number; updated: number; gone: number; skipped: number; waiting: number; seenBy: number; seenByIn: number; netmailOut: number; netmailIn: number; queued: number; held: number; undeliverable: number; dropped: number }
+/**
+ * Something this toss should say that isn't a count: a node unreachable or refused, a machine that couldn't be listed,
+ * a call or a packet that stopped. A toss with none of it and nothing moved writes no log (PIE-798).
+ */
+let trouble = false;
 const counts: Counts = { copies: 0, updated: 0, gone: 0, skipped: 0, waiting: 0, seenBy: 0, seenByIn: 0, netmailOut: 0, netmailIn: 0, queued: 0, held: 0, undeliverable: 0, dropped: 0 };
 const log: string[] = [];
 
@@ -545,6 +552,7 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>, ledge
   const name = firstLine(sub.text) || values(sub, "echo").join(", ");
   const wanted = wantedBy(sub);
   if (typeof wanted === "string") {
+    trouble = true;
     log.push(`- ${name}: ${wanted}`);
     return [];
   }
@@ -572,6 +580,7 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>, ledge
     const say = (line: string) => { if (board || exact) log.push(`- ${line}`); };
     if (!link.origin) {
       const why = link.dialsIn ? `${link.why}; no bulletin yet, its next call leaves one` : !link.reachable ? `unreachable (${link.why}); its copies stay as they are` : "publishes no bulletin (no EchoNet there, or it hasn't tossed)";
+      if (!link.dialsIn && (board || exact)) trouble = true;
       say(`${node.id} (${name}): ${why}`);
       if (board) read.push(link);
       continue;
@@ -579,7 +588,7 @@ async function tossSubscription(sub: Block, everyCopy: Map<string, Block>, ledge
     if (await tossSource(sub, link, link.origin, board, wanted, name, everyCopy, ledger)) read.push(link);
     else say(`${node.id} (${name}): no area there named ${wanted.areas.join(" or ")}`);
   }
-  if (!nodes.size) log.push(`- ${name}: ${wanted.masks.map((mask) => mask.text).join(", ")} matches no node this toss`);
+  if (!nodes.size) { trouble = true; log.push(`- ${name}: ${wanted.masks.map((mask) => mask.text).join(", ")} matches no node this toss`); }
   return read;
 }
 
@@ -795,7 +804,7 @@ async function deliver(): Promise<void> {
     const files = jsonFiles(boxPath("outbound", node.id));
     const count = files.reduce((sum, file) => sum + (readJson<Packet>(boxPath("outbound", node.id, file))?.items.length ?? 0), 0);
     if (link.dialsIn) { counts.held += count; log.push(`- ${node.id}: ${count} held until it calls`); continue; }
-    if (!link.reachable || !link.route) { counts.queued += count; log.push(`- ${node.id}: ${count} queued (unreachable: ${link.why})`); continue; }
+    if (!link.reachable || !link.route) { counts.queued += count; if (count) trouble = true; log.push(`- ${node.id}: ${count} queued (unreachable: ${link.why})`); continue; }
     let handed = 0;
     for (const file of files) {
       const packet = readJson<Packet>(boxPath("outbound", node.id, file));
@@ -806,6 +815,7 @@ async function deliver(): Promise<void> {
         handed += packet.items.length;
       } catch (error) {
         counts.queued += count - handed;
+        trouble = true;
         log.push(`- ${node.id}: ${count - handed} queued (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`);
         break;
       }
@@ -832,7 +842,7 @@ async function nodesElsewhere(subscribers: Set<string>): Promise<Node[]> {
 async function callOut(subscribers: Set<string>, leave: boolean): Promise<void> {
   for (const node of await nodesElsewhere(subscribers)) {
     const link = await linkTo(node);
-    if (!link.reachable || !link.route) { if (!leave) log.push(`- ${node.id}: unreachable (${link.why}); the next toss calls again`); continue; }
+    if (!link.reachable || !link.route) { if (!leave) { trouble = true; log.push(`- ${node.id}: unreachable (${link.why}); the next toss calls again`); } continue; }
     try {
       if (!leave) {
         // Kept in the order they were held (their names begin with when), then acknowledged; a long backlog comes in
@@ -851,6 +861,7 @@ async function callOut(subscribers: Set<string>, leave: boolean): Promise<void> 
         log.push(`- ${node.id}: left our bulletin`);
       }
     } catch (error) {
+      trouble = true;
       log.push(`- ${node.id}: the call stopped (${error instanceof Error ? error.message.split("\n")[0] : String(error)}); the next toss calls again`);
     }
   }
@@ -899,6 +910,7 @@ async function importInbound(ledger: Ledger, published: Bulletin, subs: Block[])
     const tries = (packet.tries ?? 0) + 1;
     if (failed !== undefined) {
       const why = failed instanceof Error ? failed.message.split("\n")[0] : String(failed);
+      trouble = true;
       if (tries >= 3) {
         mkdirSync(boxPath("inbound", "failed"), { recursive: true });
         renameSync(boxPath("inbound", file), boxPath("inbound", "failed", file));
@@ -1143,6 +1155,9 @@ async function toss(): Promise<string> {
   const nodelist = await nodelistBlock();
   const ledger = readLedger(await ledgerBlock(nodelist));
   calls = callsIn(ledger);
+  // What was held for nodes before this toss: a change in it is news.
+  const heldNow = () => box ? readdirSafe(boxPath("outbound")).reduce((sum, id) => sum + itemsHeldFor(id), 0) : 0;
+  const heldBefore = heldNow();
   const subs = await subscriptionsHere();
   let subscribers = await subscribersHere();
   if (address.dialsIn) {
@@ -1176,9 +1191,14 @@ async function toss(): Promise<string> {
   const summary = `copies ${counts.copies}, waiting ${counts.waiting}, newer ${counts.updated}, gone ${counts.gone}, skipped ${counts.skipped}, seen-by ${counts.seenBy}, ` +
     `netmail out ${counts.netmailOut}, in ${counts.netmailIn}, queued ${counts.queued}, undeliverable ${counts.undeliverable}` +
     `${counts.held ? `, held ${counts.held}` : ""}${counts.seenByIn ? `, seen-by in ${counts.seenByIn}` : ""}${counts.dropped ? `, dropped ${counts.dropped}` : ""}`;
+  // Nothing moved and nothing went wrong: no log. The nodelist's last toss (and the bulletin beside the outline) is the
+  // heartbeat (PIE-798); a log is written when something moved, a node couldn't be reached, or anything stopped.
+  const moved = counts.copies + counts.updated + counts.gone + counts.seenBy + counts.seenByIn + counts.netmailOut + counts.netmailIn +
+    counts.undeliverable + counts.dropped + Math.abs(heldNow() - heldBefore);
   const title = `Toss ${now.slice(0, 16).replace("T", " ")} UTC [type::toss] [node::${self.id}] [at::${now}] [copies::${counts.copies}] [waiting::${counts.waiting}] ` +
     `[updated::${counts.updated}] [gone::${counts.gone}] [skipped::${counts.skipped}] [netmail-out::${counts.netmailOut}] [netmail-in::${counts.netmailIn}] ` +
     `[seen-by-in::${counts.seenByIn}] [queued::${counts.queued}] [held::${counts.held}] [undeliverable::${counts.undeliverable}] [dropped::${counts.dropped}]`;
+  if (!moved && !trouble) return `${self.id} tossed: ${summary} · nothing moved, so no log (the nodelist's last toss says when)`;
   await mine({ action: "create", parentId: nodelist.id, text: [title, "", ...(input.scheduled ? ["(scheduled)", ""] : []), ...log].join("\n") });
   await pruneLogs(nodelist);
   return `${self.id} tossed: ${summary}`;

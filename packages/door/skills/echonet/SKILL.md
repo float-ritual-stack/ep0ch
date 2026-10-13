@@ -56,7 +56,7 @@ What the tosser writes (never edit these by hand; they're rewritten or read back
   `undeliverableAfter`), then becomes an **undeliverable** note beside the copy (`[type::echo-undeliverable]`), and
   that mark is never sent, even if the original comes back.
 - **Nodelist** `[type::nodelist]`: this node, the nodes it reads (a board each) and the ones that read it (their
-  seen-by marks), reachable or not and why, netmail held for it, areas, subscriptions, last toss. Under it, a **toss log** per run (`[type::toss]`, counts as properties, the why in its
+  seen-by marks), reachable or not and why, netmail held for it, areas, subscriptions, last toss. Under it, a **toss log** per toss that moved something or found trouble (an empty toss writes none: `last-toss` is the heartbeat) (`[type::toss]`, counts as properties, the why in its
   text) and the **ledger** (`[type::echo-ledger]`).
 
 Copies never post: a note with an EchoNet `from` is never a message, so two outlines reading each other don't bounce,
@@ -95,14 +95,16 @@ Nodes mail; they never write each other's notes (ADR 0005, `docs/adr/0005-agents
 ## Checking a toss
 
 1. `ep0ch echo areas --ws <reader>`: does the subscription list a board for the node, with copies or `waiting`?
-2. The last toss log (`outline_find` with `query: "type=toss"`; its `[at::]` says when): each node with a board, or
+2. Is the tosser running? `ep0ch echo status --ws <reader>` ("tossed 4 min ago"; a warning with the command when it
+   is late; `ep0ch doctor` says it too). A toss that moved nothing writes no log, so no new log isn't trouble.
+3. The last toss log (`outline_find` with `query: "type=toss"`; its `[at::]` says when): each node with a board, or
    named outright, has a line saying what it saw, copied, held back, refused or couldn't reach; the netmail lines say
    what went out, came in or queued and why. A `*` mask's nodes without a matching area aren't said.
-3. The nodelist: `## <node>` sections, `- reachable`, `- unreachable: <why>`, or `- dials in · last call <when>` with
+4. The nodelist: `## <node>` sections, `- reachable`, `- unreachable: <why>`, or `- dials in · last call <when>` with
    `- netmail held: n` (a node that calls; never down).
-4. On the receiving side, the toss log's `## imported` lists each packet item with the note it landed on, and what was
+5. On the receiving side, the toss log's `## imported` lists each packet item with the note it landed on, and what was
    `dropped` and why (an item about a note it doesn't publish, a bulletin no subscription reads).
-5. In the offering outline: `ep0ch echo areas --ws <origin>` lists its areas; a seen-by mark on an original says it
+6. In the offering outline: `ep0ch echo areas --ws <origin>` lists its areas; a seen-by mark on an original says it
    reached a node.
 
 ## Troubleshooting

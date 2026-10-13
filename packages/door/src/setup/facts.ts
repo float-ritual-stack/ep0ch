@@ -15,6 +15,7 @@ import { outlinerPlugin } from "../skills";
 import { packDir, packs } from "../packs";
 import { outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { configuredMachineName, dialsIn, suggestedMachineName } from "@ep0ch/outliner/machine-name";
+import { tossHealth } from "@ep0ch/outliner/echo-health";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
@@ -615,6 +616,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
       suggested: suggestedMachineName(),
     },
     dialsIn: { file: outlineLayout(folder).dialsIn, configured: dialsIn(folder) },
+    echonet: tossHealth(folder),
     databases: dbs,
     schema: await part("the outlines' schema", schemaFacts(repo, dbs, env)),
     here,

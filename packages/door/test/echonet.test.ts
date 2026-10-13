@@ -74,6 +74,8 @@ describe("the shapes", () => {
     const toss = tossOf(msg("t", "Toss", { type: "toss", node: "shack@box-b", at: "2026-10-11T05:03:00Z", copies: "3", "netmail-out": "1", queued: "2" }));
     const lines = nodelistLines("EchoNet", nodes, [toss], Date.UTC(2026, 9, 11)).map(plain);
     expect(lines[0]).toMatch(/^;A EchoNet Nodelist for .* -- Day number 284$/);
+    // The heartbeat: how long since this node tossed (a toss that moved nothing writes no log).
+    expect(lines[1]).toMatch(/^;A EchoNet · tossed \d+[smhd] ago$/);
     expect(lines[4]).toMatch(/^, 1,shack@box-b *,HOME ,10-11-26 \(\d\d:\d\d\) *,- *,SHACK\.CHAT$/);
     expect(lines[5]).toMatch(/^, 2,cafe@box-a *,UP *,never *,- *,CAFE\.CHAT JAMS$/);
     expect(lines[6]).toMatch(/^, 3,attic@box-c *,DOWN ,never *,- *,- ; no forward to box-c$/);

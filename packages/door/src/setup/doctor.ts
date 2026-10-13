@@ -147,6 +147,8 @@ export function doctorChecks(f: Facts): Check[] {
   if (f.backups) for (const c of backupChecks(f.backups, f.home)) add("backups", c.name, c.status, c.detail, c.fix);
   // and the restic job (PIE-607): its units, each outline's newest snapshot, the mirrors, the drill
   if (f.restic) for (const c of resticChecks(f.restic)) add("backups", c.name, c.status, c.detail, c.fix);
+  // EchoNet's tossers (PIE-798): a toss that moved nothing writes no log, so when each last ran is said here.
+  for (const h of f.echonet ?? []) add("echonet", h.outline, h.status === "ok" ? "ok" : "behind", h.detail, h.fix);
 
   // Herdr
   if (!f.herdr.path) add("herdr", "herdr", "missing", "not on PATH", "see https://herdr.dev");

@@ -314,6 +314,15 @@ describe("this machine's name (EchoNet and ep0ch:// links)", () => {
       expect(err.join("\n")).toMatch(/--machine-name/);
     }
   });
+  test("doctor says when each outline's EchoNet last tossed, and warns with the command when it's late (PIE-798)", () => {
+    const f = laptop({ echonet: [
+      { outline: "pie", lastToss: 1, everyMs: 1_800_000, status: "ok", detail: "tossed 4 min ago (every 30m)" },
+      { outline: "gurgle", lastToss: 1, everyMs: 1_800_000, status: "stale", detail: "last tossed 75 min ago, and it tosses every 30m: its schedule isn't running (is its outline host?)", fix: "ep0ch echo toss --ws gurgle" },
+    ] });
+    const c = Object.fromEntries(doctorChecks(f).map(x => [`${x.group}/${x.name}`, x]));
+    expect(c["echonet/pie"]).toMatchObject({ status: "ok", detail: "tossed 4 min ago (every 30m)" });
+    expect(c["echonet/gurgle"]).toMatchObject({ status: "behind", fix: "ep0ch echo toss --ws gurgle" });
+  });
   test("--dials-in: a machine that calls and is never called, said once it does; --no-dials-in undoes it", async () => {
     const dials = (d: Partial<NonNullable<Facts["dialsIn"]>>) => laptop({ dialsIn: { file: "/home/wren/outlines/.host/dials-in", configured: false, ...d } });
     expect(dialsStep(dials({}))).toBeNull();
