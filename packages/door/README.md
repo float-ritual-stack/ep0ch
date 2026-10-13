@@ -949,8 +949,10 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   are wherever you last typed (tmux's `window-size latest`): the session is drawn at that terminal's size and in its
   video mode, and the drop shell or `$EDITOR` runs there. Another terminal of another size sees the same frame cut to
   its size, its bottom row saying whose size it's drawn at; its first key takes the session over, and its first click
-  only does that (it was aimed at the other size's frame). Each terminal has its own video mode and its own Kitty
-  images. `ep0ch session attach --watch` shows the session read-only (`q` stops watching).
+  only does that (it was aimed at the other size's frame). A terminal that attaches while the one with the keys has
+  gone 30 s untouched takes the session at once (that one is likely left behind: its terminal app restarted, its ssh
+  not yet dropped). Each terminal has its own video mode and its own Kitty images, uploaded again when the terminal
+  says it lost them. `ep0ch session attach --watch` shows the session read-only (`q` stops watching).
 - **Agents** reach the session through its control socket as before (`peek`, `act`, `subscribe`); `peek` says which
   terminals are attached (`session.clients`). An agent's act never takes the person's keys, whichever terminal they're on.
 - **Upgrades keep your programs.** `ep0ch session upgrade` hands the session to a new daemon on the code in the

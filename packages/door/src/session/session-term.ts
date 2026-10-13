@@ -37,6 +37,9 @@ export interface Link {
 export const BACKLOG_LIMIT = 4 << 20;
 
 /** One attached client: its terminal, its rows and images, its keys. */
+/** How long the client with the keys may go untouched before a terminal attaching takes the session from it. */
+export const TAKE_AFTER_IDLE_MS = 30_000;
+
 export class SessionClient {
   readonly info: TermInfo;
   readonly rows: ClientRows;
@@ -210,7 +213,13 @@ export class SessionTerm implements Display {
     const first = !this.clients.length;
     this.clients.push(c);
     this.sendGround(c);
-    if (!c.watch && !this.active) this.activate(c);
+    // The person is where they just attached. A terminal that has the keys but hasn't been typed on for a while is
+    // likely one left behind (a terminal app restarted, an ssh not yet dropped): the new one takes the session, at its
+    // size, so the frame and its images aren't drawn for a terminal nobody looks at (PIE-795). One typed on in the last
+    // 30 s keeps the keys, and so does one running a program the session handed it (what's typed there goes to the
+    // program, not here, so its quiet says nothing).
+    const idle = this.active ? Date.now() - (this.active.lastInput || this.active.since) : 0;
+    if (!c.watch && (!this.active || (!this.active.away && idle >= TAKE_AFTER_IDLE_MS))) this.activate(c);
     else this.paintClient(c);
     this.tellStatus(c);
     // Nobody saw the frames before this one attached: the one App skipped is drawn now, for every client.
