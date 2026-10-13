@@ -6,6 +6,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
+import { Selection } from "../src/surface/selection";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -51,6 +52,11 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     // The keys come to the reader: the whole title in the status line.
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, { kind: "user" });
     expect((app as any).message).toBe(`PLOT-007 · ${QUESTION}`);
+    // A selection on the title's second row is the note's subject line, as on its first (copy source, a passage).
+    const s = r().surface as any, second = at - rect.row; // the header's rows count from the reader's first inner row
+    const src = s.sourceOf(new Selection({ row: second, col: 0 }, { row: second, col: 3 }));
+    expect(src).not.toBeNull();
+    expect(src.lines).toEqual([0, 0]);
     D().dispose(); app.quit();
   }, 30_000);
 });
