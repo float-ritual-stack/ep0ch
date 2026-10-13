@@ -1444,7 +1444,8 @@ export type QueryComparison = "<" | "<=" | ">" | ">=";
 
 /**
  * Boolean property/timestamp predicate. Property leaves have filter semantics
- * (presence or case-insensitive equality within propertyScope). Time values are
+ * (presence or case-insensitive equality within propertyScope; a value that reads as a date also holds for the
+ * values on that day, or a span holding it). Time values are
  * YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N{h,d,w}; relative
  * values resolve when the service evaluates the query.
  */
@@ -1457,6 +1458,12 @@ export type QueryExpression =
    */
   | { kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
+  /**
+   * `due <= +3d`, `rating > 3`, `stage >= beta`: any property against a bound, as dates when the bound reads as one
+   * (outline-core `dates.ts`: relative ones resolve when the service evaluates the query), numbers when it is a
+   * number, text otherwise (PIE-769). A block holds when any of its values for the key does.
+   */
+  | { kind: "compare"; key: string; op: QueryComparison; value: string }
   /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~`, `call:`, `unread:` and `thread:` (outline-core `query-atoms.ts`); the service evaluates them. */
   | QueryAtom
   | { kind: "not"; operand: QueryExpression }

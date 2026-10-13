@@ -6,6 +6,8 @@
 import { blockReferenceOccurrences, fragmentAnchorMatch } from "./link-syntax";
 import { referenceEnvelopeEnd } from "./addressable-resource";
 import { offsetInRanges, protectedCodeRanges } from "./code-ranges";
+import { looksLikeDate, readDate } from "./dates";
+import { replacePropertyTokens } from "./property-grammar";
 
 /** A `((` the link grammar reads as no reference: never closed on its line, or closed round something that isn't an id. */
 export interface ReferenceSuspect {
@@ -77,8 +79,10 @@ export interface ReferenceLookups {
   self?: string;
 }
 
-/** A reference a save kept as written that leads nowhere, and what it may have meant. */
+/** A reference a save kept as written that leads nowhere, and what it may have meant; or (`kind: "date"`) a property's date the outline can't read. */
 export interface ReferenceWarning {
+  /** `date`: a `[key::value]` shaped like a date that reads as none (PIE-769); absent for a reference. */
+  kind?: "date";
   /** As written. */
   written: string;
   /** Why it leads nowhere, in a few words. */
@@ -96,8 +100,31 @@ export function describeReferenceWarning(w: ReferenceWarning): string {
 /** All of them on one line, for a status line or a flash; "" when there are none. */
 export function describeReferenceWarnings(ws: readonly ReferenceWarning[], max = 3): string {
   if (!ws.length) return "";
-  const shown = ws.slice(0, max).map(describeReferenceWarning).join(" · ");
-  return `saved; ${ws.length === 1 ? "a reference leads" : `${ws.length} references lead`} nowhere: ${shown}${ws.length > max ? ` · and ${ws.length - max} more` : ""}`;
+  const said = (list: readonly ReferenceWarning[], one: string, many: string) => {
+    if (!list.length) return "";
+    const shown = list.slice(0, max).map(describeReferenceWarning).join(" · ");
+    return `${list.length === 1 ? one : `${list.length} ${many}`}: ${shown}${list.length > max ? ` · and ${list.length - max} more` : ""}`;
+  };
+  const refs = said(ws.filter(w => w.kind !== "date"), "a reference leads nowhere", "references lead nowhere");
+  const dates = said(ws.filter(w => w.kind === "date"), "a date can't be read", "dates can't be read");
+  return `saved; ${[refs, dates].filter(Boolean).join(" · ")}`;
+}
+
+/**
+ * The `[key::value]` tokens of `text` (outside code, not escaped) whose value is shaped like a date but reads as none
+ * (`[due::Oct 32]`, `[sent::2026-13-01]`): saved as written, and said, since a query comparing dates won't match them.
+ */
+export function dateWarnings(text: string): ReferenceWarning[] {
+  if (!text.includes("::")) return [];
+  const out: ReferenceWarning[] = [];
+  const code = protectedCodeRanges(text);
+  replacePropertyTokens(text, token => {
+    if (!offsetInRanges(token.start, code) && looksLikeDate(token.value) && !readDate(token.value)) {
+      out.push({ kind: "date", written: token.raw, problem: "isn't a date the outline can read, so a query comparing dates skips it (write 2026-10-20, Oct 20, 10/20 or 20 Oct)" });
+    }
+    return token.raw;
+  });
+  return out;
 }
 
 const ID_LIKE = /^[0-9a-f-]{8,}$/i;
@@ -129,10 +156,12 @@ function nearestAnchor(wanted: string, anchors: readonly string[]): string | und
 
 /**
  * The warnings for `text` once it is saved: references to no note, a note in the Trash, an anchor the note doesn't
- * have, and `((` forms the grammar doesn't read as references. Each lookup that fails only drops a suggestion.
+ * have, `((` forms the grammar doesn't read as references, and property dates it can't read (`dateWarnings`). Each lookup
+ * that fails only drops a suggestion.
  */
 export async function referenceWarnings(text: string, lookups: ReferenceLookups): Promise<ReferenceWarning[]> {
-  if (!text.includes("((")) return [];
+  const dates = dateWarnings(text);
+  if (!text.includes("((")) return dates;
   const out: ReferenceWarning[] = [];
   const code = protectedCodeRanges(text);
   const refs = blockReferenceOccurrences(text, code);
@@ -173,5 +202,5 @@ export async function referenceWarnings(text: string, lookups: ReferenceLookups)
     const problem = s.kind === "unclosed" ? "isn't closed with ))" : "isn't a reference (a note's id goes inside (( ))";
     out.push({ written: s.written, problem, ...(didYouMean ? { didYouMean } : {}) });
   }
-  return out;
+  return [...out, ...dates];
 }

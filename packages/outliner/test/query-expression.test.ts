@@ -78,8 +78,9 @@ describe("query grammar", () => {
     expect(parseQueryExpression("updated< 2026-09-20T12:30:00Z type=task")).toEqual({ kind: "and", operands: [
       range("updated", "<", "2026-09-20T12:30:00Z"), p("type", "task"),
     ] });
-    // Equality on a property named updated keeps its property meaning.
-    expect(parseSearchExpression("updated=2026-09-20")).toEqual({ filters: [{ key: "updated", value: "2026-09-20" }] });
+    // Equality on a property named updated keeps its property meaning (a date value is the evaluator's: that day).
+    expect(parseSearchExpression("updated=2026-09-20")).toEqual({ filters: [], where: p("updated", "2026-09-20") });
+    expect(parseSearchExpression("status=open")).toEqual({ filters: [{ key: "status", value: "open" }] });
   });
 
   test("invalid queries fail with the character position instead of matching nothing", () => {
@@ -88,7 +89,7 @@ describe("query grammar", () => {
     expect(syntaxPosition("a (b OR c")).toBe(2);
     expect(syntaxPosition("a ()")).toBe(2);
     expect(syntaxPosition("status=open NOT")).toBe(15);
-    expect(syntaxPosition("due < 2026-10-01")).toBe(0);
+    expect(syntaxPosition("due <")).toBe(5);
     expect(syntaxPosition("updated > soon")).toBe(10);
     expect(syntaxPosition("updated > 2026-02-30")).toBe(10);
     // Impossible datetimes fail instead of rolling over (2026-02-30T10:00Z is not March 2).

@@ -8,6 +8,8 @@
 //   again. A different question under the same key replaces the watch.
 // - Bounds: 64 watches per connection and 512 per service; past them the oldest goes, announced `dropped: true`. A
 //   connection's watches end with it.
+// - A question can name the day (`wait-until <= today`, `due <= +3d`, PIE-769): when the machine's day turns, every
+//   watch is evaluated again with no change at all, so a view of what's waiting until today fills at midnight.
 //
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (outline-core WATCHABLE_ACTIONS).
@@ -73,6 +75,7 @@ export class QueryWatches {
   private readonly connections = new Map<WatchConnection, number>();
   private nextConnection = 1;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private dayTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSince = 0;
   private readonly settleMs: number;
   private readonly maxWaitMs: number;
@@ -84,6 +87,15 @@ export class QueryWatches {
     this.maxWaitMs = options.maxWaitMs ?? WATCH_LIMITS.maxWaitMs;
     this.perConnection = options.perConnection ?? WATCH_LIMITS.perConnection;
     this.perService = options.perService ?? WATCH_LIMITS.perService;
+    this.awaitDayTurn();
+  }
+
+  /** At the next midnight on this machine's clock (a second past), evaluate every watch: today has moved. */
+  private awaitDayTurn(): void {
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1).getTime();
+    this.dayTimer = setTimeout(() => { if (this.all.size) this.flush(); this.awaitDayTurn(); }, midnight - now.getTime());
+    (this.dayTimer as { unref?: () => void }).unref?.();
   }
 
   get size(): number { return this.all.size; }
@@ -196,7 +208,9 @@ export class QueryWatches {
   /** The service is stopping. */
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
+    if (this.dayTimer) clearTimeout(this.dayTimer);
     this.timer = null;
+    this.dayTimer = null;
     this.all.clear();
     this.connections.clear();
   }
