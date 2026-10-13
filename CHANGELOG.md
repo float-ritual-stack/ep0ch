@@ -12,6 +12,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Writing papercuts from sysops-log (PIE-592)
 
+- **Added:** `@` at the start of a line offers the agents the outline's extensions serve (`@tidy`), with what each
+  does and when it runs, so a request is found by typing `@`.
+
+### Writing papercuts from sysops-log (PIE-592)
+
 - **Added:** links work from an edit. `Ctrl+L` (or an alt- or ctrl-click) on a `[[page]]`, `((reference))` or
   `[text](url)` in an edit or a comment opens it in a detail beside the draft; a click on a link in the draft's preview
   (`Ctrl+P`) does the same. The draft stays open and keeps your keys, and the next link opens in the same detail.

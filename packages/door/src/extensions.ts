@@ -433,6 +433,14 @@ export function passageActions(): { extension: ExtensionEntry; action: Extension
   return (current?.extensions ?? []).filter(serving).flatMap(e => e.actions.filter(a => a.on === "passage").map(action => ({ extension: e, action })));
 }
 
+/**
+ * Every agent an extension serves (PIE-592): what `@` at a line's start offers while writing, so `@tidy` is found by
+ * typing `@`, with what it does. Null before the list is read.
+ */
+export function noteAgents(): ExtensionAgent[] | null {
+  return current ? current.extensions.filter(serving).flatMap(e => e.agents ?? []) : null;
+}
+
 /** The agents that answer `@name` in a comment thread (`threads: true`): what a reader's Ask offers, first one first. */
 export function threadAgents(): ExtensionAgent[] {
   return (current?.extensions ?? []).filter(serving).flatMap(e => (e.agents ?? []).filter(x => x.threads));
