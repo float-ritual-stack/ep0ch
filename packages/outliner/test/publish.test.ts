@@ -1004,10 +1004,9 @@ test("open highlights and margin notes are drawn read-only on the HTML page; res
   expect(html).toContain(`<mark class="ann ann-good" data-kind="highlight" data-tags="beans june">Stake the beans</mark>`);
   // After the paragraph holding the passage: kind, the body as text, the reply count.
   expect(html).toContain(`</p>\n<aside class="margin-note ann-accent"><span class="kind">question</span> <span class="body">Why dawn? &lt;ask Wren&gt;</span> <span class="replies">1 reply</span></aside>`);
-  // Across markup: no mark, its aside still follows the paragraph.
-  expect(html).not.toContain(`data-kind="comment"`);
+  // Across markup: marked in pieces, one per run of its text, and the bold run stays whole.
+  expect(html).toContain(`<mark class="ann ann-default" data-kind="comment">the </mark><strong><mark class="ann ann-default" data-kind="comment">roof</mark> when</strong>`);
   expect(html).toContain(`<span class="body">Crosses the bold run</span>`);
-  expect(html).toContain("<strong>roof when</strong>");
   // Resolved threads, the annotation rows and highlight bodies are not published; no sentinel leaks.
   expect(html).not.toContain("Settled last week");
   expect(html).not.toContain("Comment on");

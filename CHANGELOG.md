@@ -19,6 +19,11 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** on the tailnet and signed in, nothing is held back by `[publish::]` but `[publish::never]`: a
   `[publish::false]` note, an extension's records ("… data, not published") and links to unpublished notes all show.
   The public listener and share links hold back as before.
+- **Fixed:** a highlight on a web page shows: a warm tint on its words at once, and after a reload (the tones never
+  applied before). Tapping it offers Comment, Ask and Remove.
+- **Changed:** on a wide web page, comment, ask and explain cards sit beside their words with a line to the open one,
+  short until opened, their actions on one row. Words across bold or a link are marked; a thread whose words can't
+  be found is at the foot under "Couldn't place", and "On this note" lists them all.
 - **Changed:** an outline's top level lists its notes; Trash and Bookmarks are no longer drawn as a board (Bookmarks is
   a link at its foot), and a note in Trash never shows as an "untitled" row.
 

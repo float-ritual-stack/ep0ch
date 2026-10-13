@@ -45,7 +45,7 @@
   const page = main.dataset.page;
   const noteId = main.dataset.note;
   const full = main.dataset.view === "full";
-  const wide = window.matchMedia("(min-width: 75rem)");
+  const wide = window.matchMedia("(min-width: 65rem)");
 
   /** The version of what the page draws, as the threads route last said (null until it has). */
   let version = null;
@@ -238,6 +238,8 @@
   let selectTimer = 0;
   document.addEventListener("selectionchange", () => {
     present();
+    // The words are kept as they're chosen, so a button pressed at once acts on these words, never the last ones.
+    if (!busy()) { const now = readSelection(); if (now) selected = now; }
     clearTimeout(selectTimer);
     selectTimer = setTimeout(() => {
       if (busy()) return;
@@ -255,6 +257,7 @@
       type: "button", text: choice.label,
       // Pressing a button mustn't drop the selection first.
       onpointerdown: (event) => event.preventDefault(),
+      onmousedown: (event) => event.preventDefault(),
       onclick: () => choose(choice.action),
     })));
     bar.hidden = !choices.length;
@@ -293,8 +296,12 @@
 
   async function act(action, words) {
     sending += 1;
+    // The words as they're selected now: a highlight is drawn on them the moment it lands, before the page is read again.
+    const selection = window.getSelection();
+    const range = action === "highlight" && selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
     try {
       const answer = await send({ action, ...words, requestId: requestId() });
+      if (range && article()?.contains(range.commonAncestorContainer)) markRange(range, { kind: "highlight", tone: "default", id: answer.thread || "", placed: "pending" });
       letGo(words);
       say(answer.said || "done");
     } catch (error) {
@@ -489,13 +496,18 @@
     ];
   }
 
-  function card(thread) {
+  /**
+   * A thread's card. At rest it's short: who, the words it's on (when they aren't marked on the page), its first lines
+   * and how many replies. Open (the active card, `.on`), it's all of it with its actions. Tapping a resting card opens it.
+   */
+  function card(thread, top) {
     const bare = thread.kind === "highlight" && !thread.body && !thread.replies.length;
-    const node = el("div", { class: `mg-card mg-ui${bare ? " bare" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
+    const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
     node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at)].filter(Boolean).join(" · ") }));
     if (thread.quote && !markOf(thread.id)) node.append(el("div", { class: "q", text: `“${thread.quote}”` }));
     const marks = thread.marks || [];
     if (thread.body) node.append(ownText(thread.id, thread.body, marks));
+    if (top && thread.replies.length) node.append(el("div", { class: "sum", text: `${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"} · ${thread.replies[thread.replies.length - 1].by}` }));
     const nested = nest(marks);
     if (nested) node.append(nested);
     for (const reply of thread.replies) {
@@ -512,12 +524,23 @@
     const ask = turns.map((turn, at) => (turn.by === "you" && /^@\S+/.test(turn.body) ? at : -1)).reduce((a, b) => Math.max(a, b), -1);
     const asked = ask >= 0 && !turns.slice(ask + 1).some((turn) => turn.by !== "you");
     if (asked) node.append(el("div", { class: "who", text: "waiting for the answer…" }));
+    if (top) node.addEventListener("click", (event) => {
+      if (node.classList.contains("on") || !window.getSelection()?.isCollapsed) return;
+      if (event.target instanceof Element && event.target.closest("a, button, mark")) return;
+      activate(thread.id);
+    });
     if (readOnly) return node;
     const row = el("div", { class: "mg-row" });
+    // A highlight's words take a comment or a question of their own.
+    const onWords = (action) => () => { const words = wordsOf(thread.id); if (words) compose(action, words); };
     row.append(
-      el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
+      ...(bare ? [
+        el("button", { type: "button", text: "Comment", onclick: onWords("comment") }),
+        ...(choices.some((choice) => choice.action === "ask") ? [el("button", { type: "button", text: "Ask", onclick: onWords("ask") })] : []),
+      ] : [el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) })]),
       el("button", { type: "button", class: "quiet", text: bare ? "Remove" : "Resolve", onclick: () => act("resolve", { thread: thread.id }) }),
-      ...quoteButtons(thread.id),
+      // A highlight quotes alone: picking several is for threads.
+      ...quoteButtons(thread.id).slice(0, bare ? 1 : undefined),
     );
     node.append(row);
     return node;
@@ -525,7 +548,7 @@
 
   /** The cards of the marks on a card's words, under them: a highlight's opens when its words are tapped. */
   function nest(marks) {
-    return marks.length ? el("div", { class: "mg-nest" }, ...marks.map(card)) : null;
+    return marks.length ? el("div", { class: "mg-nest" }, ...marks.map((mark) => card(mark, false))) : null;
   }
 
   // ---- Quoting marks into a block of their own.
@@ -646,12 +669,11 @@
     const node = document.querySelector(`.mg-card[data-thread="${CSS.escape(wanted)}"]`);
     if (!node) return;
     arrived = true;
-    for (const on of document.querySelectorAll(".on")) on.classList.remove("on");
-    node.classList.add("open", "on");
-    markOf(wanted)?.classList.add("on");
-    place();
-    node.scrollIntoView({ block: "center" });
+    // A mark on a card's words is a card in that card's nest: it and the cards around it open too.
+    for (let inner = node; inner && !inner.classList.contains("top"); inner = inner.parentElement?.closest(".mg-card")) inner.classList.add("open");
+    activate(node.closest(".mg-card.top")?.dataset.thread || wanted);
     markRead(wanted);
+    node.scrollIntoView({ block: "center" });
   }
   window.addEventListener("hashchange", () => { arrived = false; arrive(); });
 
@@ -678,68 +700,202 @@
   }
 
   const markOf = (id) => article()?.querySelector(`mark.ann[data-ann="${CSS.escape(id)}"]`);
+  /** Every piece of a mark: a passage across markup is marked in pieces, each with the same id. */
+  const marksOf = (id) => [...(article()?.querySelectorAll(`mark.ann[data-ann="${CSS.escape(id)}"]`) || [])];
   const BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, table";
+  /** The thread whose card is open (the one the reader tapped, or arrived at), kept across redraws. */
+  let active = null;
 
+  /** A mark's words as a selection of them would say them: the drawn words and those either side. */
+  function wordsOf(id) {
+    const pieces = marksOf(id);
+    if (!pieces.length) return null;
+    const range = document.createRange();
+    range.setStartBefore(pieces[0]);
+    range.setEndAfter(pieces[pieces.length - 1]);
+    const { before, inside, after } = around(range);
+    const quote = inside.trim();
+    return quote ? { quote, prefix: before.slice(-64), suffix: after.slice(0, 64) } : null;
+  }
+
+  /** Marks `range` in the article, one `<mark>` per text node it covers (a range across markup stays well formed). */
+  function markRange(range, { kind, tone, id, placed }) {
+    const walker = document.createTreeWalker(range.commonAncestorContainer.nodeType === Node.TEXT_NODE ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+    const pieces = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!range.intersectsNode(node) || node.parentElement?.closest(".mg-card, .mg-whole")) continue;
+      const from = node === range.startContainer ? range.startOffset : 0;
+      const to = node === range.endContainer ? range.endOffset : node.nodeValue.length;
+      if (to > from && /\S/.test(node.nodeValue.slice(from, to))) pieces.push([node, from, to]);
+    }
+    for (const [node, from, to] of pieces.reverse()) {
+      const piece = document.createRange();
+      piece.setStart(node, from);
+      piece.setEnd(node, to);
+      piece.surroundContents(el("mark", { class: `ann ann-${tone}`, ...(id ? { "data-ann": id } : {}), "data-kind": kind, "data-placed": placed }));
+    }
+  }
+
+  /** The article's words for finding a quote: lower case, spaces folded, Markdown's marks left out, each mapped to where it's drawn. */
+  const fold = (text) => text.replace(/[*_`\[\]]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  function readable() {
+    const walker = document.createTreeWalker(article(), NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => node.parentElement?.closest(".mg-card, .mg-whole, aside.margin-note") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    let text = "";
+    const at = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const value = node.nodeValue || "";
+      for (let offset = 0; offset < value.length; offset += 1) {
+        let character = value[offset];
+        if (/[*_`\[\]]/.test(character)) continue;
+        if (/\s/.test(character)) { if (!text || text.endsWith(" ")) continue; character = " "; }
+        // One entry per character written: a letter that lower-cases to two (İ) maps both to where it's drawn.
+        for (const unit of character.toLowerCase()) { text += unit; at.push([node, offset]); }
+      }
+    }
+    return { text, at };
+  }
+
+  /**
+   * A thread the page didn't mark (its words were found in the note's source, but the page draws them otherwise: an
+   * embed, a link, a note drawn again since) is placed by its words in the page: exactly, else by its opening or closing
+   * words. Placed, it's marked like any other; not, its card goes to the foot of the note, said "couldn't place".
+   */
+  function placeByWords(thread) {
+    const wanted = fold(thread.quote || "");
+    if (!wanted) return false;
+    const { text, at } = readable();
+    let start = text.indexOf(wanted), length = wanted.length;
+    if (start < 0 && wanted.length > 48) {
+      const head = text.indexOf(wanted.slice(0, 40)), tail = text.indexOf(wanted.slice(-40));
+      if (head >= 0) { start = head; length = Math.min(wanted.length, text.length - head); }
+      else if (tail >= 0) { start = Math.max(0, tail + 40 - wanted.length); length = tail + 40 - start; }
+    }
+    if (start < 0 || !at[start] || !at[start + length - 1]) return false;
+    const range = document.createRange();
+    range.setStart(at[start][0], at[start][1]);
+    range.setEnd(at[start + length - 1][0], at[start + length - 1][1] + 1);
+    markRange(range, { kind: thread.kind, tone: thread.tone || "default", id: thread.id, placed: "words" });
+    return true;
+  }
+
+  /** One line of the note's index of threads: what it is and its first words; tapping opens its card where it is. */
+  function indexRow(thread, placed) {
+    const said = (thread.body || (thread.quote ? `“${thread.quote}”` : "")).replace(/\s+/g, " ").trim();
+    return el("li", {}, el("button", { type: "button", class: "quiet", onclick: () => { activate(thread.id); document.querySelector(`.mg-card.top[data-thread="${CSS.escape(thread.id)}"]`)?.scrollIntoView({ block: "center" }); } },
+      el("span", { class: "k", text: `${thread.kind}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}${placed ? "" : thread.quote ? " · couldn't place" : ""}` }),
+      el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said })));
+  }
+
+  let watching = null;
   function draw() {
     if (busy()) return;
     const host = article();
     if (!host) return;
-    // The page's own asides were for readers without the script: the cards replace them.
+    // The page's own asides were for readers without the script: the cards replace them. Marks placed here by words
+    // are placed again (their thread may have gone, or the server may mark it now).
     for (const old of document.querySelectorAll(".mg-card, .mg-whole, aside.margin-note")) old.remove();
+    for (const old of host.querySelectorAll('mark[data-placed="words"]')) old.replaceWith(...old.childNodes);
+    host.normalize();
     margin.replaceChildren();
-    const whole = [];
+    const whole = [], lost = [], rows = [];
     for (const thread of threads) {
-      const node = card(thread);
-      const mark = markOf(thread.id);
-      if (!mark) { whole.push(node); continue; }
+      const placed = !!markOf(thread.id) || placeByWords(thread);
+      const node = card(thread, true);
+      if (thread.id === active) node.classList.add("on");
+      rows.push(indexRow(thread, placed || !thread.quote));
+      if (!placed) { (thread.quote ? lost : whole).push(node); continue; }
       if (wide.matches) margin.append(node);
       else {
         // Under its passage: after the paragraph (or list item) the words are in, after any cards already there.
-        let at = mark.closest(BLOCKS) || mark;
+        let at = markOf(thread.id).closest(BLOCKS) || markOf(thread.id);
         while (at.nextElementSibling && at.nextElementSibling.classList.contains("mg-card")) at = at.nextElementSibling;
         at.after(node);
       }
     }
-    if (whole.length) {
-      if (wide.matches) margin.prepend(...whole);
-      else host.append(el("div", { class: "mg-whole" }, el("h2", { text: "On this note" }), ...whole));
-    }
-    if (readOnly) host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "who", text: readOnly })));
+    for (const node of marksOf(active || "")) node.classList.add("on");
+    // The foot of the note: every thread on it (the index), the note's own comments, and any card that couldn't be placed.
+    const foot = el("div", { class: "mg-whole mg-ui" });
+    if (threads.length) foot.append(el("h2", { text: `On this note · ${threads.length}` }), el("ul", { class: "mg-index" }, ...rows));
+    foot.append(...whole);
+    if (lost.length) foot.append(el("h2", { text: "Couldn't place" }), el("p", { class: "who", text: "Their words aren't on the page as it's drawn now." }), ...lost);
+    if (readOnly) foot.append(el("div", { class: "who", text: readOnly }));
     else if (choices.some((choice) => choice.action === "comment")) {
-      host.append(el("div", { class: "mg-whole mg-ui" }, el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }))));
+      foot.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) })));
     }
+    host.append(foot);
+    // A picture loading, a fold opening or the window narrowing moves the words: the cards follow.
+    watching?.disconnect();
+    watching = new ResizeObserver(() => place());
+    watching.observe(host);
     place();
     arrive();
   }
 
-  /** Wide: each card level with its words, pushed down past the one above. */
-  function place() {
-    if (!wide.matches) return;
-    const top = margin.getBoundingClientRect().top;
-    let floor = 0;
-    for (const node of margin.children) {
-      const mark = markOf(node.dataset.thread);
-      const want = mark ? mark.getBoundingClientRect().top - top : 0;
-      const y = Math.max(want, floor);
-      node.style.top = `${y}px`;
-      if (getComputedStyle(node).display !== "none") floor = y + node.offsetHeight + 8;
-    }
-    margin.style.minHeight = `${floor}px`;
+  /** Opens one thread's card (and lights its words); the others rest. */
+  function activate(id) {
+    active = id;
+    for (const node of document.querySelectorAll(".mg-card.top")) node.classList.toggle("on", node.dataset.thread === id);
+    for (const node of document.querySelectorAll("mark.ann.on")) node.classList.remove("on");
+    for (const node of marksOf(id || "")) node.classList.add("on");
+    place();
+    if (id) markRead(id);
   }
 
-  // Tapping a highlight opens its card (a bare highlight's only way in) and marks the pair.
+  const leader = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  leader.id = "mg-leader";
+  leader.setAttribute("aria-hidden", "true");
+  main.append(leader);
+
+  /**
+   * Wide: each card level with its words. The open card stays at its words; the ones above it move up and the ones
+   * below it down, as little as keeps them apart. A line runs from the open card's words to it.
+   */
+  function place() {
+    leader.replaceChildren();
+    if (!wide.matches) return;
+    const top = margin.getBoundingClientRect().top;
+    const items = [...margin.children].filter((node) => getComputedStyle(node).display !== "none").map((node) => {
+      const mark = markOf(node.dataset.thread);
+      return { node, want: mark ? mark.getBoundingClientRect().top - top - 2 : 0, height: node.offsetHeight };
+    }).sort((a, b) => a.want - b.want);
+    const gap = 8, at = items.findIndex((item) => item.node.dataset.thread === active);
+    if (at < 0) items.forEach((item, index) => { item.top = index ? Math.max(item.want, items[index - 1].top + items[index - 1].height + gap) : item.want; });
+    else {
+      items[at].top = items[at].want;
+      for (let index = at - 1; index >= 0; index -= 1) items[index].top = Math.min(items[index].want, items[index + 1].top - items[index].height - gap);
+      for (let index = at + 1; index < items.length; index += 1) items[index].top = Math.max(items[index].want, items[index - 1].top + items[index - 1].height + gap);
+    }
+    let floor = 0;
+    for (const item of items) {
+      item.top = Math.max(item.top, floor);
+      floor = item.top + item.height + gap;
+      item.node.style.top = `${item.top}px`;
+    }
+    margin.style.minHeight = `${floor}px`;
+    const open = items[at];
+    const mark = open && markOf(active);
+    if (!mark) return;
+    const box = main.getBoundingClientRect(), words = mark.getClientRects()[0] || mark.getBoundingClientRect();
+    const column = article().getBoundingClientRect(), side = margin.getBoundingClientRect();
+    const x1 = column.right - box.left + 6, x2 = side.left - box.left - 2;
+    const y1 = words.top - box.top + Math.min(words.height, 26) / 2, y2 = side.top - box.top + open.top + 14;
+    const bend = x1 + (x2 - x1) * 0.5;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", Math.abs(y2 - y1) < 2 ? `M${x1} ${y1}H${x2}` : `M${x1} ${y1}H${bend}V${y2}H${x2}`);
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    dot.setAttribute("cx", String(x1)); dot.setAttribute("cy", String(y1)); dot.setAttribute("r", "2.5");
+    leader.append(path, dot);
+  }
+
+  // Tapping a mark opens its card (a bare highlight's only way in: remove it, comment or ask on its words).
   document.addEventListener("click", (event) => {
     const mark = event.target instanceof Element ? event.target.closest("mark.ann[data-ann]") : null;
     if (!mark || !window.getSelection()?.isCollapsed) return;
-    const node = document.querySelector(`.mg-card[data-thread="${CSS.escape(mark.dataset.ann)}"]`);
-    for (const on of document.querySelectorAll(".on")) on.classList.remove("on");
-    if (!node) return;
-    node.classList.toggle("open");
-    node.classList.add("on");
-    mark.classList.add("on");
-    place();
-    node.scrollIntoView({ block: "nearest" });
-    markRead(mark.dataset.ann);
+    const id = mark.dataset.ann;
+    activate(active === id ? null : id);
+    if (active) document.querySelector(`.mg-card.top[data-thread="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" });
   });
   // Tapping words marked in a card opens that mark's card, in the nest under them.
   document.addEventListener("click", (event) => {
