@@ -151,4 +151,7 @@ test("a comment whose offsets aren't its quote's words in the note has no place"
   const across = { quote: "pea poles. 08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
   expect(onTheirWords([own, stale, across], text)).toEqual([own, { ...stale, start: null, end: null }, across]);
   expect(onTheirWords([stale], undefined)).toEqual([stale]);
+  // A quote kept as written, across a line: its own words still.
+  const written = { quote: "pea poles.\n08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
+  expect(onTheirWords([written], text)).toEqual([written]);
 });

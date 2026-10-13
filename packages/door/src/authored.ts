@@ -208,7 +208,7 @@ export function alignComments<C extends { start: number | null; end: number | nu
 export function onTheirWords<C extends { quote: string; start: number | null; end: number | null }>(comments: C[], text: string | undefined): C[] {
   if (text === undefined) return comments;
   const words = (s: string) => s.replace(/\s+/g, " ").trim();
-  return comments.map(c => c.start === null || c.end === null || !c.quote || words(text.slice(c.start, c.end)) === c.quote ? c : { ...c, start: null, end: null });
+  return comments.map(c => c.start === null || c.end === null || !c.quote || words(text.slice(c.start, c.end)) === words(c.quote) ? c : { ...c, start: null, end: null });
 }
 
 /** The same Resource's note read again (its text may have changed), still opened from the note it was opened from. */

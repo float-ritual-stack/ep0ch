@@ -2710,7 +2710,9 @@ Second paragraph`;
     expect(shifted[0]!.originalTarget).toEqual(originalTarget);
     expect(shiftedTarget.anchor.start).toBe(10);
     expect(shifted[0]!.currentResolution.status).toBe("resolved");
+    // Created, followed by the write itself (PIE-805), then placed in the inbox attempt's representation.
     expect(shifted[0]!.resolutionHistory.map((event) => event.status)).toEqual([
+      "resolved",
       "resolved",
       "resolved",
     ]);
@@ -2720,7 +2722,7 @@ Second paragraph`;
       newRepresentation: blockAnnotationRepresentation(shiftedSource, "block-source-v2"),
     });
     expect(unchanged.changed).toBe(false);
-    expect(unchanged.threads[0]!.resolutionHistory).toHaveLength(2);
+    expect(unchanged.threads[0]!.resolutionHistory).toHaveLength(3);
 
     const replacedSource = store.update(
       source.id,
@@ -2740,6 +2742,8 @@ Second paragraph`;
     expect(orphaned.resolutionHistory.map((event) => event.status)).toEqual([
       "resolved",
       "resolved",
+      "resolved",
+      "orphaned",
       "orphaned",
     ]);
 
@@ -2769,6 +2773,8 @@ Second paragraph`;
       1,
       2,
       3,
+      4,
+      5,
     ]);
 
     const persisted = store.getAnnotation(annotation.block.id);
