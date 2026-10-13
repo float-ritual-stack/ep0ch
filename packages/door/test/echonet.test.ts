@@ -63,22 +63,22 @@ describe("the shapes", () => {
   test("the nodelist the tosser writes, as FidoNet wrote it; the banner in half blocks; a quote's > lines", () => {
     const nodes = nodesOf([
       "Nodelist [type::nodelist] [node::shack@box-b]", "", "The nodes this outline knows.", "",
-      "## shack@box-b", "- this node · access read", "- last toss: 2026-10-11T05:03:00Z", "- areas: shack.chat (Shack chat)", "- subscriptions: cafe.chat from cafe@box-a", "",
-      "## cafe@box-a", "- reachable · access propose · we read its areas", "- last toss: never", "- areas: cafe.chat (Cafe chat); jams (Jam talk)", "- subscriptions: none", "",
+      "## shack@box-b", "- this node", "- last toss: 2026-10-11T05:03:00Z", "- areas: shack.chat (Shack chat)", "- subscriptions: cafe.chat from cafe@box-a", "",
+      "## cafe@box-a", "- reachable · we read its areas", "- last toss: never", "- areas: cafe.chat (Cafe chat); jams (Jam talk)", "- subscriptions: none", "",
       "## attic@box-c", "- unreachable: no forward to box-c · reads our areas", "- last toss: unknown", "- areas: unknown", "",
       "## porch@box-d", "- dials in · last call 2026-10-11 04:58 UTC · we read its porch.*", "- netmail held: 2 (its next call takes them)", "- last toss: 2026-10-11T04:58:00Z", "- areas: unknown",
     ].join("\n"));
-    expect(nodes.map(n => [n.node, n.self, n.reachable, n.access, n.areas])).toEqual([["shack@box-b", true, true, "read", ["shack.chat"]], ["cafe@box-a", false, true, "propose", ["cafe.chat", "jams"]], ["attic@box-c", false, false, "unknown", []], ["porch@box-d", false, null, "unknown", []]]);
+    expect(nodes.map(n => [n.node, n.self, n.reachable, n.areas])).toEqual([["shack@box-b", true, true, ["shack.chat"]], ["cafe@box-a", false, true, ["cafe.chat", "jams"]], ["attic@box-c", false, false, []], ["porch@box-d", false, null, []]]);
     expect(nodes.map(n => [n.dialsIn, n.held, n.roles])[3]).toEqual([true, 2, "we read its porch.*"]);
     expect(nodes[2]!.why).toBe("no forward to box-c");
     const toss = tossOf(msg("t", "Toss", { type: "toss", node: "shack@box-b", at: "2026-10-11T05:03:00Z", copies: "3", "netmail-out": "1", queued: "2" }));
     const lines = nodelistLines("EchoNet", nodes, [toss], Date.UTC(2026, 9, 11)).map(plain);
     expect(lines[0]).toMatch(/^;A EchoNet Nodelist for .* -- Day number 284$/);
-    expect(lines[4]).toMatch(/^, 1,shack@box-b *,HOME ,10-11-26 \(\d\d:\d\d\) *,read *,SHACK\.CHAT$/);
-    expect(lines[5]).toMatch(/^, 2,cafe@box-a *,UP *,never *,propose,CAFE\.CHAT JAMS$/);
-    expect(lines[6]).toMatch(/^, 3,attic@box-c *,DOWN ,never *,unknown,- ; no forward to box-c$/);
+    expect(lines[4]).toMatch(/^, 1,shack@box-b *,HOME ,10-11-26 \(\d\d:\d\d\) *,- *,SHACK\.CHAT$/);
+    expect(lines[5]).toMatch(/^, 2,cafe@box-a *,UP *,never *,- *,CAFE\.CHAT JAMS$/);
+    expect(lines[6]).toMatch(/^, 3,attic@box-c *,DOWN ,never *,- *,- ; no forward to box-c$/);
     // A node that dials in is never down.
-    expect(lines[7]).toMatch(/^, 4,porch@box-d *,DIAL ,10-11-26 \(\d\d:\d\d\) *,unknown,- ; 2 netmail held for its call$/);
+    expect(lines[7]).toMatch(/^, 4,porch@box-d *,DIAL ,10-11-26 \(\d\d:\d\d\) *,2 *,- ; 2 netmail held for its call$/);
     expect(lines.at(-1)).toMatch(/^;  10-11-26 \(\d\d:\d\d\) shack@box-b copies 3 newer 0 netmail 1 out 0 in 2 queued$/);
     expect(banner("echonet").map(plain)).toEqual(["█▀▀ █▀▀ █ █ █▀█ █▀▄ █▀▀ ▀█▀", "█▀  █   █▀█ █ █ █ █ █▀   █ ", "▀▀▀ ▀▀▀ ▀ ▀ ▀▀▀ ▀ ▀ ▀▀▀  ▀ "]);
     expect(quoteLines("Cover the beans.\n\nTonight.")).toBe("> Cover the beans.\n>\n> Tonight.\n\n");
@@ -127,7 +127,7 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     // Posted by its tag, from anywhere in the outline.
     await shack.createBlock(null, "Gate code changed [echo::shack.chat]\nAsk at the shed.");
     const nl = await shack.createBlock(null, ["Nodelist [type::nodelist] [node::shack@box-b]", "",
-      "## cafe@box-a", "- reachable · access propose", "- last toss: 2026-10-11T05:03:00Z", "- areas: cafe.chat (Cafe chat)", "",
+      "## cafe@box-a", "- reachable", "- last toss: 2026-10-11T05:03:00Z", "- areas: cafe.chat (Cafe chat)", "",
       "## attic@box-c", "- unreachable: offline (config.json's offline list)", "- last toss: unknown"].join("\n"));
     await shack.createBlock(nl.id, "Toss 2026-10-11 05:03 UTC [type::toss] [node::shack@box-b] [at::2026-10-11T05:03:00Z] [copies::3] [updated::0] [netmail-out::0] [netmail-in::0] [queued::0]");
     process.env.EP0CH_STATE = join(host.root, "door");
@@ -148,7 +148,7 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     expect(s).toContain("echomail across 2 outlines");
     expect(s).toMatch(/1 +CAFE\.CHAT +Cafe chat \+4 waiting +cafe@box-a +3 +3/);
     expect(s).toMatch(/,UP +,10-11-26/);
-    expect(s).toMatch(/,DOWN ,never +,unknown,- ; offline/);
+    expect(s).toMatch(/,DOWN ,never +,- +,- ; offline/);
     expect(s).toMatch(/shack@box-b copies 3 newer 0/);
     // The first area's messages beside, oldest first, all new.
     await until(() => list().items?.length === 3, "the subscription's copies listed");
