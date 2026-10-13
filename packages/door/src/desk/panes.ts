@@ -97,6 +97,8 @@ export interface DeskApi {
   followSource?(p: ReaderPane): { name: string; hidden: boolean } | null;
   /** The tile that moved the current note last, and whether it's out of sight now (a tree in a shut dock). */
   steering?(): { name: string; hidden: boolean } | null;
+  /** Why reader `p` can't follow tile `source` (no such tile, itself, nothing to follow), or null. */
+  followRefusal?(p: ReaderPane, source: string): string | null;
   /** Reader `p` follows tile `source` (a link with the preview role, saved with the layout); null: no tile. */
   followFrom?(p: ReaderPane, source: string | null, actor: Actor): void;
   /** The person picks what reader `p` follows: a picker of sources over the screen. */
@@ -320,8 +322,9 @@ export class ReaderPane implements Pane {
     if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
     const next = mode ?? (this.followMode === "follows" && !desk.followSource?.(this) ? "held" : "follows");
     const gen = ++this.modeGen;
-    // A mode chosen is the reader's own way again: a tile it followed (reader.follow source=<tile>) lets go of it.
-    if (desk.followSource?.(this)) desk.followFrom?.(this, null, USER);
+    // A mode chosen is the reader's own way again: a tile it followed (reader.follow source=<tile>) lets go of it, once
+    // the mode is sure to be set.
+    const letGo = () => { if (desk.followSource?.(this)) desk.followFrom?.(this, null, USER); };
     if (next === "pinned") {
       const name = page ?? this.msg?.props.page;
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
@@ -329,9 +332,11 @@ export class ReaderPane implements Pane {
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
       if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
       if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
+      letGo();
       this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
       if (this.msg?.id !== r.block.id) this.show(r.block, desk);
     } else {
+      letGo();
       this.pinPage = null; this.pageNote = null;
       this.held = next === "held";
       // Held to follows keeps the note on screen: it becomes the current note (the others follow it), never a jump to
@@ -809,6 +814,9 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       }
       if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
       if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      // Checked before anything changes: a refused source leaves the reader as it was.
+      const why = desk.followRefusal?.(pane, source);
+      if (why) throw new ActionRefused(why);
       if (pane.followMode !== "held") await pane.setMode("held", desk);
       desk.followFrom(pane, source, actor);
       return { tile: desk.nameOfPane?.(pane), source };

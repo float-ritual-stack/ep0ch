@@ -1084,12 +1084,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   followFrom(p: ReaderPane, source: string | null, actor: Actor): void {
     const id = this.idOf(p);
     if (id === undefined) throw new ActionRefused("that reader isn't on this screen");
+    const why = source === null ? null : this.followRefusal(p, source);
+    if (why) throw new ActionRefused(why);
     const from = source === null ? undefined : this.tile(source);
-    if (from && !this.followable(from.id, p)) throw new ActionRefused(`${from.name} has no selection to follow: a tree, a links tile or another reader can be followed`);
     for (const [z, to] of [...this.layout.links]) if (to === id && z !== id && this.layout.linkRoles.get(z) !== "target" && z !== from?.id) this.apply({ op: "link", tile: z }, actor);
     if (from && this.layout.links.get(from.id) !== id) this.apply({ op: "link", tile: from.id, to: id, role: "preview" }, actor);
     else if (from && this.layout.linkRoles.get(from.id) !== "preview") this.apply({ op: "link", tile: from.id, role: "preview" }, actor);
     this.save(); this.redraw();
+  }
+  /** DeskApi.followRefusal: why reader `p` can't follow tile `source`, or null. */
+  followRefusal(p: ReaderPane, source: string): string | null {
+    if (this.idOf(p) === undefined) return "that reader isn't on this screen";
+    let from: { id: number; name: string };
+    try { from = this.tile(source); } catch (e) { return (e as Error).message; }
+    return this.followable(from.id, p) ? null : `${from.name} has no selection to follow: a tree, a links tile or another reader can be followed`;
   }
   /** DeskApi.askFollow: the person picks what reader `p` follows (its mode chip's click, `P`): a list picker of sources. */
   askFollow(p: ReaderPane): void {
@@ -4395,7 +4403,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
   private savedAs: string | null = null;
-  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note nor where their histories are) nor their ids. */
+  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note, a reader's history) nor their ids. */
   private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "nav" || k === "id" ? undefined : v)); }
 
   /**

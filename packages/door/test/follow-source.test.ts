@@ -97,7 +97,14 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     expect(r("b").msg?.id).toBe(notes[0].id);
     await act("reader.follow", { source: "current" }, "b");
     expect(chipText("b")).toMatch(/^follows · current/);
+    // A refused source leaves it as it was: still following the current note, and a tile it follows stays followed.
     await expect(act("reader.follow", { source: "b" }, "b")).rejects.toThrow(/no selection to follow/);
+    expect(r("b").followMode).toBe("follows");
+    await act("reader.follow", { source: "tree" }, "b");
+    await expect(act("reader.follow", { source: "nowhere" }, "b")).rejects.toThrow();
+    await expect(act("reader.mode", { mode: "pinned" }, "b")).rejects.toThrow(/no page to pin/);
+    expect(D().followSource(r("b"))?.name).toBe("tree");
+    await act("reader.follow", { source: "current" }, "b");
     await expect(act("reader.follow", {}, "b")).rejects.toThrow(/source=current, source=none or source=<tile>/);
   });
 
