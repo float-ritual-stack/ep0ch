@@ -405,7 +405,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   const at = args.findIndex(a => a === "--machine-name" || a.startsWith("--machine-name="));
   const machineName = at < 0 ? undefined : args[at]!.includes("=") ? args[at]!.slice("--machine-name=".length) : args[at + 1];
   const rest = at < 0 ? args : args.filter((_, i) => i !== at && !(i === at + 1 && !args[at]!.includes("=")));
-  if (machineName !== undefined && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
+  if (at >= 0 && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
   const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--backups"].includes(a));
   if (unknown.length || (args[0] === "doctor" && (args.includes("--apply") || at >= 0)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());

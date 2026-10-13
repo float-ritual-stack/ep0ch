@@ -729,7 +729,7 @@ async function writeNodelist(nodelist: Block, subscribers: Set<string>, tossed: 
       // Linked first: what each node read here calls itself is how its marks are known (`canonical`).
       const node = parseNode(id);
       if (node && !isSelf(id)) await linkTo(node);
-      add(id, `we read its ${values(sub, "echo").join(",")}`);
+      add(canonical(id), `we read its ${values(sub, "echo").join(",")}`);
     }
   }
   for (const id of subscribers) add(canonical(id), "reads our areas");

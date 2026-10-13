@@ -5,7 +5,8 @@
 //
 // The name is the person's choice, so the ssh name other machines reach this one by and its own name agree (a node
 // with two names splits EchoNet's nodelist and seen-by): `EP0CH_MACHINE_NAME`, else `<outlines>/.host/machine-name`
-// (written by `ep0ch install --apply`), else the host name as before.
+// (written by `ep0ch install --apply`; its first line is the name, the lines after it the names it had before), else
+// the host name as before.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -29,11 +30,15 @@ export function hostMachineName(raw = hostname()): string {
 export function configuredMachineName(env: NodeJS.ProcessEnv = process.env, outlines?: string): string | undefined {
   const named = env.EP0CH_MACHINE_NAME?.trim();
   if (named) return isMachineName(named) ? named : undefined;
+  return namesInFile(outlines ?? resolveOutlinesFolder(env))[0];
+}
+
+/** The machine-name file's names: the current one first, then the ones it had before; none when it isn't there. */
+function namesInFile(outlines: string): string[] {
   try {
-    const text = readFileSync(outlineLayout(outlines ?? resolveOutlinesFolder(env)).machineName, "utf8").trim();
-    return isMachineName(text) ? text : undefined;
+    return readFileSync(outlineLayout(outlines).machineName, "utf8").split("\n").map((line) => line.trim()).filter(isMachineName);
   } catch {
-    return undefined;
+    return [];
   }
 }
 
@@ -48,11 +53,14 @@ export function canonicalLocalMachineName(raw?: string): string {
 /** This machine's name as the host serving `outlines` gives it (the configured one, else its host name's). */
 export const localMachineName = (outlines?: string) => configuredMachineName(process.env, outlines) ?? hostMachineName();
 
-/** The other names this machine went by: its host name's, once a name is configured. Old URIs and marks still say it. */
+/**
+ * The other names this machine went by, once it has one: the names the file had before, and its host name's. Old URIs
+ * and EchoNet marks still say them.
+ */
 export function localMachineAliases(outlines?: string, env: NodeJS.ProcessEnv = process.env): string[] {
   const named = configuredMachineName(env, outlines);
-  const host = hostMachineName();
-  return named && named !== host ? [host] : [];
+  if (!named) return [];
+  return [...new Set([...namesInFile(outlines ?? resolveOutlinesFolder(env)), hostMachineName()])].filter((name) => name !== named);
 }
 
 /** Whether a URI's machine is this one: its name, or a name it went by. */
@@ -63,13 +71,15 @@ export function isLocalMachine(machine: string, env: NodeJS.ProcessEnv = process
 /** The short host name (`evans-MacBook-Pro` of `evans-MacBook-Pro.local`), as a machine name: the default to offer. */
 export const suggestedMachineName = (raw = hostname()) => hostMachineName(raw.split(".")[0] || raw);
 
-/** Writes this machine's name (`<outlines>/.host/machine-name`); answers the file. */
+/** Writes this machine's name (`<outlines>/.host/machine-name`), the names it had before kept under it; answers the file. */
 export function writeMachineName(name: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!isMachineName(name)) throw new Error(`"${name}" isn't a machine name: an ssh config name (${MACHINE_NAME_PATTERN.source})`);
-  const file = outlineLayout(resolveOutlinesFolder(env)).machineName;
+  const folder = resolveOutlinesFolder(env);
+  const file = outlineLayout(folder).machineName;
+  const before = namesInFile(folder).filter((old) => old !== name);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${name}\n`);
+  writeFileSync(temporary, [name, ...before].map((line) => `${line}\n`).join(""));
   renameSync(temporary, file);
   return file;
 }
