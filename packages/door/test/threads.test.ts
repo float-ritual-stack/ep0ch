@@ -1,6 +1,6 @@
 // PIE-420: comment threads inline. A comment mark (▐ in the margin, yellow while open, dim once resolved)
 // expands its thread under the quoted passage by ⏎ or a click, and collapses it the same way. The thread
-// shows its comment and replies, with Select, Reply and Resolve (or Reopen) controls that `[ ]` reaches and
+// shows its comment and replies, with Select, Reply, Seen (or Bring back), Keep and TL;DR controls that `[ ]` reaches and
 // ⏎ or a click uses, through the same comment code as the thread list. The passage is highlighted while
 // it's expanded. Which threads are expanded is the person's: an agent's actions work on the thread and
 // leave that alone. Fictional notes, against a throwaway outliner service only.
@@ -26,7 +26,7 @@ type Rect = { col: number; row: number; cols: number; rows: number };
 describe("a thread inline, without a service", () => {
   const TEXT = "Shed jobs\nOil the chain before the frost.\nThe pump lives by the door.";
   const quote = "Oil the chain";
-  const comment = { id: "c0ffee00-1111-4222-8333-444444444444", author: "sam", body: "Use the dry lube.", quote, at: Date.now() - 60_000, open: true, start: TEXT.indexOf(quote), end: TEXT.indexOf(quote) + quote.length, replies: [] };
+  const comment = { id: "c0ffee00-1111-4222-8333-444444444444", author: "sam", body: "Use the dry lube.", quote, at: Date.now() - 60_000, open: true, lifecycle: "open" as const, start: TEXT.indexOf(quote), end: TEXT.indexOf(quote) + quote.length, replies: [] };
   const host = () => ({ ctx: { board: { ancestors: async () => [], comments: async () => [comment] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
   test("in a narrow reader every control is drawn whole, on as many rows as it takes, and is an element", async () => {
@@ -36,9 +36,9 @@ describe("a thread inline, without a service", () => {
       await until(() => s.comments?.length === 1, "the comment");
       s.setExpanded(comment.id, true);
       const text = s.render(w, 40, h).lines.map(plain).join("\n");
-      for (const c of ["[Select]", "[Reply]", "[Resolve]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
+      for (const c of ["[Select]", "[Reply]", "[Seen]", "[Keep]", "[TL;DR]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
       const controls = s.describeElements().filter(e => e.kind === "control");
-      expect(controls.map(e => e.control)).toEqual(["select", "reply", "resolve", "quote"]);
+      expect(controls.map(e => e.control)).toEqual(["select", "reply", "seen", "keep", "tldr", "quote"]);
     }
   });
 });
@@ -47,7 +47,7 @@ describe("several threads on one passage, without a service (PIE-541)", () => {
   const TEXT = "Shed jobs\n_Oil the chain, see ((5eed0000-2222-4222-8333-444444444444|the rota))._\nThe pump lives by the door.";
   const quote = "Oil the chain";
   const at = TEXT.indexOf(quote);
-  const thread = (n: number, open: boolean) => ({ id: `c0ffee0${n}-1111-4222-8333-444444444444`, author: "sam", body: `Note ${n}.`, quote, at: Date.now() - 60_000, open, start: at, end: at + quote.length, replies: [] });
+  const thread = (n: number, open: boolean) => ({ id: `c0ffee0${n}-1111-4222-8333-444444444444`, author: "sam", body: `Note ${n}.`, quote, at: Date.now() - 60_000, open, lifecycle: (open ? "open" : "seen") as "open" | "seen", start: at, end: at + quote.length, replies: [] });
   const host = (comments: unknown[]) => ({ ctx: { board: { ancestors: async () => [], comments: async () => comments }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
   const note = { id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
 
@@ -150,7 +150,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(body).toBeGreaterThan(passage);
     expect(body).toBeLessThan(where(lines, "Water them in", r).y);        // under its passage, before the next line
     expect(drawn("The ones behind the shed?")).toBe(true);                // the reply
-    expect(drawn("[Select] · [Reply] · [Resolve]")).toBe(true);
+    expect(drawn("[Select] · [Reply] · [Seen]")).toBe(true);
     // The quoted passage is highlighted while the thread is open (the ruler is on the mark, so step off first).
     key(char("]")); frame();
     expect(frame()[passage]).toContain(THREAD_BG);
@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     click(markAt("Water them in"));
     await shows("Or Saturday, if it's dry.");
     expect(drawn("resolved")).toBe(true);
-    expect(drawn("[Select] · [Reply] · [Reopen]")).toBe(true);
+    expect(drawn("[Select] · [Reply] · [Bring back]")).toBe(true);
     expect(current()).toMatchObject({ kind: "comment" });
     click(markAt("Water them in"));
     frame();
@@ -212,19 +212,19 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(thread(t.canes)!.replies.length).toBe(replies);
   }, 30_000);
 
-  test("Resolve and Reopen, by a click and by ⏎: the lifecycle changes, the mark dims and brightens, the control's word follows", async () => {
+  test("Seen and Bring back, by a click and by ⏎ (PIE-791): the lifecycle changes, the mark dims and brightens, the control's word follows", async () => {
     await fresh();
     P().surface.setExpanded(t.canes, true);
-    await shows("[Resolve]");
-    click(where(frame(), "[Resolve]", rect("preview")));
-    await until(() => thread(t.canes)?.open === false, "resolved");
-    await shows("[Reopen]");
+    await shows("[Seen]");
+    click(where(frame(), "[Seen]", rect("preview")));
+    await until(() => thread(t.canes)?.lifecycle === "seen", "seen");
+    await shows("[Bring back]");
     expect(markIn("Canes along the fence", C.dark)).toBe(true);
     expect(P().surface.expanded.has(t.canes)).toBe(true);                // it stays expanded
-    stepTo("Reopen");
+    stepTo("Bring back");
     key({ kind: "enter" });
-    await until(() => thread(t.canes)?.open === true, "reopened");
-    await shows("[Resolve]");
+    await until(() => thread(t.canes)?.open === true, "brought back");
+    await shows("[Seen]");
     expect(markIn("Canes along the fence", C.yellow)).toBe(true);
   }, 30_000);
 
@@ -266,7 +266,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await act("comment.close", {}, reader, AS);
     expect(R().surface.expanded).toEqual(new Set([t.canes]));            // the view is as it was left
     expect(P().surface.expanded).toEqual(new Set([t.canes]));            // and the person's preview untouched
-    await shows("[Reopen]");
+    await shows("[Bring back]");
     await act("resolve", { thread: t.canes, open: true }, reader, AS);
     await act("comment.close", {}, reader, AS);
     // The person's own thread.toggle (the action the key and the click share) does it.

@@ -36,9 +36,9 @@ const result = await runHerdrScenario({
     await s.waitFor("Preview comment marker rendered", () => s.visible(s.panes.detail), frame => frame.includes("+ EXACT PREVIEW PASSAGE"));
     await s.keys(s.panes.detail, "]");
     await s.waitVisible(s.panes.detail, "PREVIEW THREAD BODY");
-    const frame = await s.waitFor("native Preview reply control", () => terminal.visible(), frame => frame.includes("Reply · Resolve"));
+    const frame = await s.waitFor("native Preview reply control", () => terminal.visible(), frame => frame.includes("Reply · Seen"));
     const lines = frame.split("\n");
-    const row = lines.findIndex(line => line.includes("Reply · Resolve"));
+    const row = lines.findIndex(line => line.includes("Reply · Seen"));
     const column = visibleWidth(lines[row]!.slice(0, lines[row]!.indexOf("Reply")));
     await s.record("preview-native-reply-click", {row, column, frame, annotationId, target});
     await terminal.write(`\x1b[<0;${column + 1};${row + 1}M`); await terminal.write(`\x1b[<0;${column + 1};${row + 1}m`);

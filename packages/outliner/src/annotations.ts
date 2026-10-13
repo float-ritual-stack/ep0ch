@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
-import { annotationProperties, annotationPropertyProblem, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
+import { annotationProperties, annotationPropertyProblem, isMarkLifecycle, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {
   AnnotationAnchor,
   AnnotationPassage,
@@ -831,7 +831,7 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
   const type = getProperty(block.properties, "type");
   if (type !== ANNOTATION_TYPE && type !== ANNOTATION_REPLY_TYPE) throw new Error(`Block is not an annotation: ${block.id}`);
   const lifecycle = getProperty(block.properties, "annotation-status") ?? "open";
-  if (lifecycle !== "open" && lifecycle !== "resolved") throw new Error(`Unsupported annotation lifecycle: ${lifecycle}`);
+  if (!isMarkLifecycle(lifecycle)) throw new Error(`Unsupported annotation lifecycle: ${lifecycle}`);
   const content: AnnotationBlockContent = {
     block,
     body: extractAnnotationBody(block.text),

@@ -75,12 +75,12 @@ const result = await runHerdrScenario({
     await s.checkpoint("02-selected-contextual-thread");
     const pointerFrame = await s.waitFor("selected thread controls in attached client", () => terminal.visible(), frame => {
       const panel = frame.slice(frame.indexOf("▶ Comment 2"));
-      return frame.includes("▶ Comment 2") && panel.includes("‹ Select › · Reply · Resolve");
+      return frame.includes("▶ Comment 2") && panel.includes("‹ Select › · Reply · Seen");
     });
     const pointerLines = pointerFrame.split("\n");
     const panelStart = pointerLines.findIndex(line => line.includes("▶ Comment 2"));
     const panelEnd = pointerLines.findIndex((line, index) => index > panelStart && line.includes("╰"));
-    const row = pointerLines.findIndex((line, index) => index > panelStart && index < panelEnd && line.includes("‹ Select › · Reply · Resolve"));
+    const row = pointerLines.findIndex((line, index) => index > panelStart && index < panelEnd && line.includes("‹ Select › · Reply · Seen"));
     assert.ok(row > panelStart, "Reply control belongs to the selected contextual thread");
     const column = visibleWidth(pointerLines[row]!.slice(0, pointerLines[row]!.indexOf("Reply")));
     await s.record("native-thread-reply-click", { row, column, frame: pointerFrame });
@@ -101,12 +101,12 @@ const result = await runHerdrScenario({
     assert.deepEqual((await current()).currentTarget, target);
     assert.equal((await s.visible(detail)).split("\n")[3], beforeReply.split("\n")[3]);
     await s.checkpoint("04-human-and-agent-replies-in-place");
-    await s.keys(detail, "D"); await s.waitFor("thread resolved", () => thread(selected.block.id), t => t.lifecycle === "resolved");
-    await s.waitVisible(detail, "Reopen");
+    await s.keys(detail, "D"); await s.waitFor("thread seen", () => thread(selected.block.id), t => t.lifecycle === "seen");
+    await s.waitVisible(detail, "Bring back");
     assert.equal((await s.visible(detail)).split("\n")[3], beforeReply.split("\n")[3]);
     await s.checkpoint("05-resolved-in-place");
     await s.keys(detail, "D"); await s.waitFor("thread reopened", () => thread(selected.block.id), t => t.lifecycle === "open");
-    await s.waitVisible(detail, "Resolve");
+    await s.waitVisible(detail, "Seen");
     await s.keys(detail, "C"); await s.waitVisible(detail, "Reply to comment"); await s.text(detail, "Discard this reply"); await s.keys(detail, "esc");
     await s.waitVisible(detail, "Reply cancelled");
     assert.equal((await thread(selected.block.id)).replies.length, 2);

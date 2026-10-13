@@ -24,7 +24,7 @@
 // found once or refused with why; a comment whose words can't be placed still lands, on the page's own note with the
 // words quoted, so what he wrote is never lost.
 import { readFileSync } from "node:fs";
-import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
+import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { plainBody } from "./publish-marginalia";
@@ -376,7 +376,7 @@ export class PageMarginalia {
       const threads = await this.host.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: false } });
       return threads.filter((thread) => {
         const subject = thread.resolvedTarget?.representation.subject ?? thread.originalTarget.representation.subject;
-        return thread.lifecycle === "open" && !this.host.locks(thread.block.properties ?? []) && subject.kind === "block" && subject.blockId === blockId;
+        return markCurrent(thread.lifecycle) && !this.host.locks(thread.block.properties ?? []) && subject.kind === "block" && subject.blockId === blockId;
       });
     } catch (error) {
       this.host.log(`publish: annotations.list: ${(error as Error).message}`);

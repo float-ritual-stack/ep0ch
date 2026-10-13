@@ -53,7 +53,7 @@ type Stepped = { date: string; n: number; of: number; id: string };
  * narrow pane cuts the rest; then the title, and who wrote it when, with its comments.
  */
 export function briefHeader(m: Msg, w: number, info: HeaderInfo, s: Stepped): string[] {
-  const said = info.comments?.total ? ` · ■ ${info.comments.open ? `${info.comments.open} open comment${info.comments.open === 1 ? "" : "s"}` : `${info.comments.total} resolved`} (m)` : "";
+  const said = info.comments?.total ? ` · ■ ${info.comments.open ? `${info.comments.open} open comment${info.comments.open === 1 ? "" : "s"}` : `${info.comments.total} earlier`} (m)` : "";
   return [
     pad(`${fg(C.yellow)}${weekday(s.date)} ${s.date}${fg(C.lcyan)} · ${s.n} of ${s.of} brief${s.of === 1 ? "" : "s"}${fg(C.dark)} · , earlier · . later`, w) + RESET,
     fg(C.white) + pad(subject(m), w) + RESET,

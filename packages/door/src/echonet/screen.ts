@@ -514,7 +514,7 @@ export class EchoReader extends ReaderPane {
       navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m).slice(0, 50)}`); return; } this.surface.show(m, h); desk.redraw(); },
       header: (m: Msg, _w: number, info: HeaderInfo) => {
         const found = this.list.find(x => x.msg.id === m.id);
-        const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} resolved`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
+        const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} earlier`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
         return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${m.author ?? "?"} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · ] [ back to the list`]).map(paint);
       },
       // SEEN-BY names the nodes the tosser's seen-by marks on it name, once its threads are read.

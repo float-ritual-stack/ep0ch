@@ -1,3 +1,4 @@
+import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER, queryRequestProblem } from "./block-query";
 import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
@@ -2774,6 +2775,18 @@ export class OutlinerServer {
             request.mutation,
           );
           break;
+        case "annotations.tldr": {
+          if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
+          const root = this.store.getAnnotation(String(request.annotationId ?? ""));
+          if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
+          if (typeof request.body === "string" && request.body.trim()) {
+            const by = request.mutation.author === "agent" ? "agent" : "user";
+            result = { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
+              { annotationId: root.block.id, body: request.body.trim(), source: by, properties: { kind: TLDR_KIND } },
+              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] };
+          } else result = { asked: this.agentRequests.tldr(root.block.id) };
+          break;
+        }
         case "marks.quote": {
           if (!request.mutation || typeof request.mutation !== "object") throw new Error("marks.quote needs mutation: who quotes (the person, or an agent with its actor id)");
           const quoted = this.store.quoteMarks(request.input, request.mutation);

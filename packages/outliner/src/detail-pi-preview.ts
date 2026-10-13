@@ -1,3 +1,4 @@
+import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope, type TicketPrefixes } from "./work-ids";
 import {resourceDocumentObservation} from './document-resources';
 import {passageDocumentRepresentation} from './annotation-passages';
@@ -953,7 +954,7 @@ function annotationPanelLines(
   const navigation = (label: string, delta: -1 | 1) =>
     `[${label}](${previewRegionActionUri({ type: "annotation.thread.move", delta })})`;
   const body = [
-    `${navigation("‹", -1)} ${action("Select", "annotation.thread.select")} ${navigation("›", 1)} · ${action("Reply", "annotation.thread.reply")} · ${action(thread.lifecycle === "open" ? "Resolve" : "Reopen", "annotation.thread.lifecycle")}`,
+    `${navigation("‹", -1)} ${action("Select", "annotation.thread.select")} ${navigation("›", 1)} · ${action("Reply", "annotation.thread.reply")} · ${action(markCurrent(thread.lifecycle) ? "Seen" : "Bring back", "annotation.thread.lifecycle")}`,
     `${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle}`,
     scope,
     "",

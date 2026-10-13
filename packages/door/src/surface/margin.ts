@@ -63,12 +63,13 @@ export function cardRows(c: Comment, w: number, mode: MarginMode, say: (text: st
   const ink = fg(toneInk(c.props)), edge = ink + "▌" + RESET;
   const inner = Math.max(4, w - 2);
   const n = c.replies.length;
-  const head = `${kindOf(c)} · ${printable(c.author)} · ${ago(c.at)}${c.open ? "" : " · resolved"}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""}`;
+  const head = `${kindOf(c)} · ${printable(c.author)} · ${ago(c.at)}${c.lifecycle === "kept" ? " · kept" : c.open ? "" : ` · ${c.lifecycle}`}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""}`;
   const rows = [edge + " " + ink + pad(head, inner) + RESET];
   const body = printable(say(c.body).replace(/\t/g, " "), "", { lines: true });
   if (mode === "trim") {
-    const first = printable(say(c.replies.at(-1)?.body ?? c.body).replace(/\s+/g, " ")).trim();
-    const who = c.replies.length ? `${printable(c.replies.at(-1)!.author)}: ` : "";
+    // A thread with a TL;DR (PIE-791) shows it: the post-it, the discussion behind it.
+    const first = printable(say(c.tldr?.body ?? c.replies.at(-1)?.body ?? c.body).replace(/\s+/g, " ")).trim();
+    const who = c.tldr ? "TL;DR " : c.replies.length ? `${printable(c.replies.at(-1)!.author)}: ` : "";
     if (first || who) rows.push(edge + " " + fg(C.grey) + pad(ellipsize(who + first, inner), inner) + RESET);
     const tags = tagsOf(c);
     if (tags && rows.length < 3) rows.push(edge + " " + fg(C.dark) + pad(ellipsize(tags, inner), inner) + RESET);

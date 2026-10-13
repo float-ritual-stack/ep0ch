@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
@@ -33,6 +34,9 @@ import { parsePropertyRecords } from "./properties";
  * request run while they write, before any save. Every write is `author: agent`, `actorId: ext:<id>`, under
  * `ext.<id>.agent.<name>` in the change feed.
  */
+
+/** What a thread's agent is asked for a TL;DR (PIE-791). */
+export const TLDR_REQUEST = "TL;DR: summarize this thread in two or three short lines: what it was about, and where it landed.";
 
 export interface RequestLine {
   readonly agent: string;
@@ -559,15 +563,31 @@ export class AgentRequests {
   private readonly threadTurns = new Map<string, Promise<void>>();
 
   private answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
-    const rootId = record.parentAnnotationId ?? record.block.id;
-    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, record.block.id, line)).catch(() => {});
+    return this.queueTurn(record.parentAnnotationId ?? record.block.id, record.block.id, line);
+  }
+
+  /**
+   * A TL;DR of a thread (PIE-791), asked by the person (the door's `t`, the web's TL;DR): the agent that answers in
+   * threads writes a short summary as a reply with `[kind::tldr]`, which becomes the thread's face. Runs in the
+   * background like any answer; says which agent was asked. With no such agent it's refused, saying how to write one.
+   */
+  tldr(rootId: string): string {
+    const name = [...this.registry.threadAgentNames()][0];
+    if (!name) throw new Error(`no agent answers in threads in this outline, so none can write a TL;DR: write it yourself (annotations.tldr with body)`);
+    const request = TLDR_REQUEST;
+    void this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] });
+    return name;
+  }
+
+  private queueTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<void> {
+    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, asked, line, properties)).catch(() => {});
     this.threadTurns.set(rootId, turn);
     void turn.finally(() => { if (this.threadTurns.get(rootId) === turn) this.threadTurns.delete(rootId); });
     return turn;
   }
 
   /** One ask answered: `asked` is the comment or reply that asked (a later turn may have landed after it). */
-  private async answerTurn(rootId: string, asked: string, line: RequestLine): Promise<void> {
+  private async answerTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<void> {
     const bound = this.registry.agent(line.agent);
     if (!bound || this.stopped) return;
     const { extension, agent } = bound;
@@ -610,6 +630,7 @@ export class AgentRequests {
         comments,
         ...(session ? { session } : {}),
         properties: root.properties ?? {},
+        ...(properties?.kind?.[0] === TLDR_KIND ? { tldr: true } : {}),
         context: { now: new Date(this.now).toISOString() },
       }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
       const respond = validateRespond(result.value);
@@ -628,7 +649,7 @@ export class AgentRequests {
           this.store.setAnnotationProperties(rootId, { [key]: [next] }, actor);
         } catch { /* the thread changed or went: the answer still lands, and the next ask starts afresh */ }
       }
-      this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent" }, "agent", { actorId: actor.actorId! });
+      this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent", ...(properties ? { properties } : {}) }, "agent", { actorId: actor.actorId! });
     });
     this.deps.changed(note?.id && !note.id.startsWith("resource:") ? note.id : rootId);
   }

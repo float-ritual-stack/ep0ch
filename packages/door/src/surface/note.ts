@@ -62,7 +62,7 @@ import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsS
 import { askInBar } from "../bar/ask";
 import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
-import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
+import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
@@ -326,10 +326,10 @@ function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number)
 
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /**
- * The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen;
+ * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
  * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
  */
-export type ThreadControl = "select" | "reply" | "resolve" | "card" | "quote" | "quoted";
+export type ThreadControl = "select" | "reply" | "seen" | "keep" | "tldr" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -357,7 +357,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -480,7 +480,9 @@ type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; 
 const PAGE_OFFER_MS = 60_000;
 
 /** Agent actions that open an edit or a comment session on the note. */
-const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
+const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
+/** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
+const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr" };
 
 export class NoteSurface {
   msg: Msg | null = null;
@@ -1451,7 +1453,8 @@ export class NoteSurface {
     // What the rules draw on the note (PIE-600), unless the person asked for it raw (R).
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
-    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => c.start !== null && hasCard(c));
+    // The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf.
+    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => c.start !== null && c.open && hasCard(c));
     // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
     const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
@@ -2837,7 +2840,7 @@ export class NoteSurface {
     const writing = s.writing;
     // Back to writing: a "leave it unsent?" asked in the power bar (PIE-785) is over, and its answer does nothing.
     this.leaving = null;
-    // ctrl+s sends, x resolves or reopens, and the esc that ends it closes it.
+    // ctrl+s sends, and the esc that ends it closes it; in the thread list s, p and t say how present a thread stays.
     if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
     // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
@@ -2849,8 +2852,8 @@ export class NoteSurface {
     if (sessionKey(s, k, "g")) { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings the composer back into view after the wheel took the note elsewhere.
     if (s.mode === "compose") this.revealComposer = true;
-    const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
-    if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
+    const verb = s.mode === "threads" && !s.busy && s.threads[s.sel] ? ATTENTION_KEYS[ch(k) ?? ""] : undefined;
+    if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id }, host, true); return true; }
     // q quotes the current thread (or the ones space picked) into a new block; space picks.
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "q") { void this.runKey("quote", {}, host, true); return true; }
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === " ") { void this.runKey("thread.pick", {}, host, true); return true; }
@@ -3455,8 +3458,8 @@ export class NoteSurface {
   /**
    * An expanded thread's control, by ⏎ or a click, through the comment code the thread list uses: Select
    * selects its passage (the reader's text selection, PIE-419); Reply opens the thread list as the person's
-   * session with a reply to it started (Esc, or the reply landing, comes back here); Resolve or Reopen sets
-   * its lifecycle as `x` in the list does.
+   * session with a reply to it started (Esc, or the reply landing, comes back here); Seen, Keep and TL;DR are
+   * the thread list's s, p and t (PIE-791).
    */
   private async useControl(e: Element, host: SurfaceHost): Promise<unknown> {
     const c = this.comments?.find(x => x.id === e.thread);
@@ -3479,12 +3482,20 @@ export class NoteSurface {
     // Quote: the thread's mark, or the reply the control is on; the power bar asks where it goes.
     if (e.control === "quote") return this.runKey("quote", { threads: e.value ?? c.id }, host);
     if (e.control === "quoted" && e.value) return this.followTarget({ block: e.value } as Link, host, { link: true, fresh: false });
+    // Seen, Keep and TL;DR from the expanded thread: what the list's s, p and t do, without opening the list over the note.
     const s = new CommentSession(this.msg, this.comments ?? [], "threads");
     s.sel = s.threads.findIndex(t => t.id === c.id);
-    await s.toggle(this.commentEnv(host));
+    if (e.control === "tldr") {
+      const asked = await s.askTldr(this.commentEnv(host));
+      if (s.error) host.ctx.flash(s.error);
+      return { thread: c.id, asked };
+    }
+    if (e.control !== "seen" && e.control !== "keep") return null;
+    const to = e.control === "seen" ? (c.open ? "seen" : "open") : c.lifecycle === "kept" ? "open" : "kept";
+    await s.attend(this.commentEnv(host), to);
     if (s.error) host.ctx.flash(s.error);
     host.redraw();
-    return { thread: c.id, lifecycle: this.comments?.find(x => x.id === c.id)?.open ? "open" : "resolved" };
+    return { thread: c.id, lifecycle: to };
   }
 
   /** The drawn text of a thread's quote, where it's drawn in its passage's rows; else the passage's whole lines. */
@@ -5709,12 +5720,14 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
-  const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)} · ${c.open ? "open" : "resolved"}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
   const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
   const body = (s: string, w: number) => (draw ? draw(s, w) : text(s, w));
+  // Its TL;DR first: the thread's face, the discussion under it.
+  if (c.tldr) for (const l of body(`TL;DR ${c.tldr.body}`, inner)) lines.push(edge + "│ " + fg(C.lgreen) + l + RESET);
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
   const controls: Control[] = [];
@@ -5740,7 +5753,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   }
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
   let row = edge + "│ ", col = 2;
-  ([["select", "Select"], ["reply", "Reply"], ["resolve", c.open ? "Resolve" : "Reopen"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
+  ([["select", "Select"], ["reply", "Reply"], ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
@@ -6078,6 +6091,18 @@ const ROW_ARGS = {
   n: { type: "number", optional: true, about: "which property, from 1, as props lists them" },
   key: { type: "string", optional: true, about: "the property's key, when it appears once" },
 } as const;
+
+/** A thread's lifecycle set from the thread list (PIE-791): already so says so; said on screen when an agent did it. */
+async function attention(on: { surface: NoteSurface; host: SurfaceHost }, actor: Actor, thread: string, to: MarkLifecycle, said: string): Promise<Record<string, unknown>> {
+  const s = await on.surface.ensureSession(on.host, "threads");
+  const i = findThread(s, thread), t = s.threads[i]!;
+  s.sel = i;
+  if (t.lifecycle === to) { on.host.redraw(); return { already: to }; }
+  await s.attend(on.surface.env(on.host, actor), to);
+  if (s.error) throw new ActionRefused(s.error);
+  on.surface.noteAgent(actor, said);
+  return { lifecycle: to };
+}
 
 const findThread = (s: CommentSession, id: string): number => {
   const i = s.threads.findIndex(t => t.id === id || (id.length >= 6 && t.id.startsWith(id)));
@@ -6853,19 +6878,59 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "resolve": def({
-    summary: "resolve a comment thread, or reopen it with open=true. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "m, j k, x",
+    summary: "resolve a comment thread that's a ticket (a request done), or reopen it with open=true. A thread that only needed reading is seen (thread.seen), not resolved. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "none: m then s marks one seen",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
-    async run({ thread, open }, { surface, host }, actor) {
+    async run({ thread, open }, on, actor) {
+      return attention(on, actor, thread, open ? "open" : "resolved", open ? "reopened a comment" : "resolved a comment");
+    },
+  }),
+  "thread.seen": def({
+    summary: "mark a comment thread seen (PIE-791): it leaves the margin for the earlier shelf, and a new reply brings it back; back=true brings it back now. It opens the thread list in the reader",
+    keys: "s in the thread list (m); [Seen] on an expanded thread",
+    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent marks it in another reader (tile=)",
+    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, back: { type: "boolean", optional: true, about: "bring an earlier thread back instead" } },
+    async run({ thread, back }, on, actor) {
+      const s = await on.surface.ensureSession(on.host, "threads");
+      const t = s.threads[findThread(s, thread)]!;
+      const to = back ?? !t.open ? "open" : "seen";
+      return attention(on, actor, thread, to, to === "seen" ? "marked a comment seen" : "brought a comment back");
+    },
+  }),
+  "thread.keep": def({
+    summary: "keep a comment thread (PIE-791): it stays in the margin whatever else is put away, and is in the outline's kept marks; again (or keep=false) unkeeps it. It opens the thread list in the reader",
+    keys: "p in the thread list (m); [Keep] on an expanded thread",
+    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent keeps it in another reader (tile=)",
+    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, keep: { type: "boolean", optional: true, about: "true keeps, false unkeeps; left out, it toggles" } },
+    async run({ thread, keep }, on, actor) {
+      const s = await on.surface.ensureSession(on.host, "threads");
+      const t = s.threads[findThread(s, thread)]!;
+      const to = keep ?? t.lifecycle !== "kept" ? "kept" : "open";
+      return attention(on, actor, thread, to, to === "kept" ? "kept a comment" : "unkept a comment");
+    },
+  }),
+  "thread.tldr": def({
+    summary: "a comment thread's TL;DR (PIE-791): @margin writes a short summary as a reply with [kind::tldr], which becomes the thread's face, its discussion folded behind it. body= writes it instead (yours, or an edit of @margin's)",
+    keys: "t in the thread list (m); [TL;DR] on an expanded thread",
+    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
+    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" } },
+    async run({ thread, body }, { surface, host }, actor) {
       const s = await surface.ensureSession(host, "threads");
-      const i = findThread(s, thread), t = s.threads[i]!;
+      const i = findThread(s, thread);
       s.sel = i;
-      const want = open ? "open" : "resolved";
-      if (t.open === !!open) { host.redraw(); return { already: want }; }
-      await s.toggle(surface.env(host, actor));
-      if (s.error) throw new ActionRefused(s.error);
-      surface.noteAgent(actor, open ? "reopened a comment" : "resolved a comment");
-      return { lifecycle: want };
+      const env = surface.env(host, actor);
+      if (body) {
+        await env.board.tldr(s.threads[i]!.id, actor, body);
+        s.threads = await env.reloadComments();
+        surface.noteAgent(actor, "wrote a comment's TL;DR");
+        host.redraw();
+        return { tldr: body };
+      }
+      const asked = await s.askTldr(env);
+      if (!asked) throw new ActionRefused(s.error ?? "no agent could be asked for a TL;DR");
+      surface.noteAgent(actor, "asked for a comment's TL;DR");
+      host.redraw();
+      return { asked };
     },
   }),
   "quote": def({
