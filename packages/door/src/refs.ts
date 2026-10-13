@@ -2,7 +2,7 @@
 // authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
-import type { Source } from "./props";
+import { tokensOf, type Source } from "./props";
 import { emphasis } from "./inline";
 import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
@@ -162,6 +162,8 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  /** A `#tag` (PIE-800), its value as the service's parser read it (`garden/beds`): it opens the notes carrying the tag. */
+  tag?: string;
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
@@ -248,6 +250,16 @@ export function pageView(address: string, label: string | undefined, r: PageReso
  * (it nests them as the service projects them); off (a component's labels, a list's digest) they read as
  * a link that says it isn't expanded there.
  */
+/** The note's `#tags` as the service's parser reads them (never re-derived here), each with where it may stand in a line. */
+function tagsIn(noteText: string, src: Source | null | undefined): { raw: string; value: string; re: RegExp }[] {
+  const parsed = src ? tokensOf(noteText, src) : null;
+  if (parsed?.state !== "ready") return [];
+  const values = [...new Set(parsed.tokens.filter(t => t.syntax === "hashtag").map(t => t.value))];
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  // At a word's start, and not the head of a longer tag (`#bike` in `#bikes`, `#garden` in `#garden/beds`).
+  return values.map(value => ({ raw: `#${value}`, value, re: new RegExp(`(^|[\\s(])#${esc(value)}(?![\\p{L}\\p{M}\\p{N}_/-])`, "gu") }));
+}
+
 export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = []): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
@@ -256,6 +268,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
   // src/links.ts); drawn as a link, the id would be gone.
   const lines = text.split("\n"), typed = noteStructure(lines);
+  const tags = tagsIn(noteText, src);
   // A fence inside a callout or quote is code too (PIE-690): its lines stay as typed.
   for (const span of structuralLiteralLines(lines)) for (let j = span.start; j <= span.end; j++) if (typed[j]! < 0) typed[j] = span.start;
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
@@ -271,6 +284,11 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     // A resource token the service names reads as itself without its brackets, and shows its Resource.
     for (const t of resources) for (let at = line.indexOf(t.raw); at >= 0; at = line.indexOf(t.raw, at + t.raw.length))
       spans.push({ start: at, end: at + t.raw.length, draw: () => mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }) });
+    // A `#tag` the service reads as a tag (PIE-800): a link to the notes carrying it, where it starts a word.
+    for (const tag of tags) for (const m of line.matchAll(tag.re)) {
+      const start = m.index! + m[1]!.length;
+      spans.push({ start, end: start + tag.raw.length, draw: () => mark({ text: tag.raw, missing: false }, { tag: tag.value, label: tag.raw }) });
+    }
     for (const l of linkOccurrences(line, code)) {
       if (l.kind === "markdown") {
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).

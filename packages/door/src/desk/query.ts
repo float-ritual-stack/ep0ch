@@ -3,6 +3,11 @@
 // kind=query view=<id>`). Where its cards open is the desk's rule (its link, its container's opens-into); the
 // board adds moving cards between its lanes, writing new ones and the rest (src/desk/lanes.ts).
 //
+// A query tile can also list a query in the views' grammar with no saved view (`query=#garden`, PIE-800: a `#tag`
+// opened in a reader), the service answering it (`blocks.query`, `where`). One beside a reader has that reader as
+// its home (`source=tile:<name>`), and opens as every list does (PIE-794): j k and a click preview where its
+// selection goes, ⏎ replaces its home's note, alt+⏎ opens a new detail beside it.
+//
 // The board's lanes come from data: a columns container whose `source` is `hub:<id>` holds one query tile per
 // view under that hub (HUB_SOURCE, src/desk/lanes.ts). The desk asks the source and keeps each tile by its view, so a lane's
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
@@ -89,10 +94,19 @@ export class QueryPane implements Pane {
   boardHint: string | null = null;
   private asked = 0;
   private reload: Timer | null = null;
-  constructor(public view: string) {}
+  /**
+   * `view`: the saved view's block id. `query`: a query in the views' grammar it lists instead (`#garden`), with no
+   * saved view. `home`: the reader it belongs to (a tile's name): its selection previews, ⏎ lands there (PIE-794).
+   */
+  constructor(public view: string, public query: string | null = null, public home: string | null = null) {}
 
-  /** Its view's name (the lane's name). */
-  get name(): string { return this.def ? subject(this.def) : `view ${this.view.slice(0, 8)}`; }
+  /** Its view's name (the lane's name), or the query it lists. */
+  get name(): string { return this.query ?? (this.def ? subject(this.def) : `view ${this.view.slice(0, 8)}`); }
+  /** List another query (a `#tag` opened again from its home): its cards are read again, the cursor at the top. */
+  retarget(query: string, desk: DeskApi): Promise<void> {
+    if (query !== this.query) { this.query = query; this.items = null; this.sel = 0; this.cursor = new RowView(); }
+    return this.load(desk);
+  }
   /** The view as read now (a rename or a new query), its cards asked again when it changed. */
   define(d: Msg) {
     const changed = !this.def || this.def.revision !== d.revision || this.def.id !== d.id;
@@ -108,7 +122,7 @@ export class QueryPane implements Pane {
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
   headName() { return this.def ? subject(this.def) : undefined; }
-  hint() { return this.boardHint ?? "j k pick · ⏎ open · r reload"; }
+  hint() { return this.boardHint ?? (this.home ? `j k preview · ⏎ open in ${this.home} · alt+⏎ new detail · r reload` : "j k pick · ⏎ open · r reload"); }
   /** While a card is dragged over it: yellow (it would move, and what changes), red (refused, why). */
   frameLook(focused: boolean): { colour?: number; hint?: string } | null {
     const d = this.drop;
@@ -122,20 +136,28 @@ export class QueryPane implements Pane {
   }
   spine() { return { title: this.title() }; }
 
+  /** Given the keys: a list with a home previews its selected card there, as a links tile does (PIE-794). */
+  focused(desk: DeskApi) { const m = this.card(); if (m && this.home && desk.showFrom) desk.showFrom(this, m); }
+
   /** The selected card. */
   card(): Msg | undefined { return this.items?.[this.sel]; }
 
   init(desk: DeskApi) {
+    if (this.query !== null) { if (!this.items) void this.load(desk); return; }
     if (!this.def) desk.ctx.board.get(this.view).then(d => { if (d) { this.define(d); void this.load(desk); } else { this.read = { status: "missing", items: [], limit: 0, truncated: false, errors: [`no view ${this.view} in the outline`] }; this.items = []; desk.redraw(); } }, () => {});
     else if (!this.items && !this.managed) void this.load(desk);
   }
 
   /** Ask the service for the view's cards (the selected card stays selected while it's listed). */
   load(desk: DeskApi): Promise<void> {
-    const def = this.def;
-    if (!def) return Promise.resolve();
+    const def = this.def, query = this.query;
+    if (!def && query === null) return Promise.resolve();
     const n = ++this.asked;
-    const mine: Promise<void> = readView(desk.ctx.board, def).then(read => {
+    // A query of its own is the service's to answer (the views' grammar, `where`), as a saved view's is.
+    const reading: Promise<ViewRead> = query !== null
+      ? desk.ctx.board.queryNotes(query, 200).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
+      : readView(desk.ctx.board, def!);
+    const mine: Promise<void> = reading.then(read => {
       if (n !== this.asked) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
       this.inflight = null;
       const items = read.items;
@@ -199,14 +221,17 @@ export class QueryPane implements Pane {
   /** The card drawn at row `y` of the tile (its two rows), or -1. */
   rowAt(y: number): number { const i = this.cursor.top + Math.floor(y / 2); return y >= 0 && i < (this.items?.length ?? 0) ? i : -1; }
 
-  /** Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it); `open` opens it as ⏎ does. */
-  pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER): { card: string; title: string; n: number } {
+  /**
+   * Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it; with a
+   * home, only where its selection goes: the current note stays, PIE-794); `open` opens it as ⏎ does, `fresh` as alt+⏎.
+   */
+  pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER, fresh = false): { card: string; title: string; n: number } {
     const items = this.items ?? [];
     const m = items[i];
     if (!m) throw new ActionRefused(this.items ? (items.length ? `${this.name} has ${items.length} card${items.length === 1 ? "" : "s"}; n is 1-${items.length}` : `${this.name} is empty`) : `${this.name} is still being read`);
     // An agent's pick is its own: the person's cursor and what the tile shows stay.
-    if (actor.kind !== "agent") { this.sel = i; desk.setCurrent(m, { from: this }); }
-    if (open) desk.setCurrent(m, { from: this, link: true, by: actor });
+    if (actor.kind !== "agent") { this.sel = i; if (this.home && desk.showFrom) desk.showFrom(this, m); else desk.setCurrent(m, { from: this }); }
+    if (open || fresh) desk.setCurrent(m, { from: this, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
     desk.redraw();
     return { card: m.id, title: subject(m), n: i + 1 };
   }
@@ -219,7 +244,7 @@ export class QueryPane implements Pane {
     const c = ch(k);
     const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
     if (by) { if (this.items?.length) this.run(desk, "query.pick", { by }); return true; }
-    if (k.kind === "enter") { if (this.card()) this.run(desk, "query.pick", { n: this.sel + 1, open: true }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (this.card()) this.run(desk, "query.pick", { n: this.sel + 1, ...(k.kind === "alt-enter" ? { fresh: true } : { open: true }) }); return true; }
     if (c === "r") { this.run(desk, "query.reload", {}); return true; }
     return false;
   }
@@ -232,14 +257,14 @@ export class QueryPane implements Pane {
     const i = this.rowAt(y);
     if (i < 0) return true;
     const g = this.cursor.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
-    this.run(desk, "query.pick", { n: i + 1, ...(g === "open" || g === "fresh" ? { open: true } : {}) });
+    this.run(desk, "query.pick", { n: i + 1, ...(g === "open" ? { open: true } : g === "fresh" ? { fresh: true } : {}) });
     return true;
   }
 
-  spec() { return { view: this.view }; }
+  spec() { return this.query !== null ? { query: this.query, ...(this.home ? { source: `tile:${this.home}` } : {}) } : { view: this.view }; }
   describe() {
     const brief = (m: Msg | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
-    return { view: this.view, lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
+    return { ...(this.query !== null ? { query: this.query, ...(this.home ? { home: this.home } : {}), cards: (this.items ?? []).map(m => ({ id: m.id, title: subject(m) })) } : { view: this.view }), lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
   }
 }
 
@@ -247,21 +272,22 @@ export class QueryPane implements Pane {
 export interface QueryOn { pane: QueryPane; desk: DeskApi }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
-    summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
-    keys: "j k ↑ ↓ PgUp PgDn, click, wheel (pick) · ⏎, double click, alt- ctrl- or middle-click (open)",
+    summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
+    keys: "j k ↑ ↓ PgUp PgDn, click, wheel (pick) · ⏎, double click (open) · alt+⏎, alt- ctrl- or middle-click (fresh)",
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title.slice(0, 40)}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },
       id: { type: "string", optional: true, about: "a card's block id (or its first 8+ characters)" },
       by: { type: "number", optional: true, about: "cards on from the selected one (negative: up)" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does" },
+      fresh: { type: "boolean", optional: true, about: "open it in a new detail beside its home, as alt+⏎ does" },
     },
-    run({ n, id, by, open }, { pane, desk }, actor) {
+    run({ n, id, by, open, fresh }, { pane, desk }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("query.pick takes one of n, id or by");
       const items = pane.items ?? [];
       const i = id !== undefined ? items.findIndex(m => m.id === id || (id.length >= 8 && m.id.startsWith(id))) : by !== undefined ? clamp(pane.sel + Math.trunc(by), 0, Math.max(0, items.length - 1)) : n! - 1;
       if (id !== undefined && i < 0) throw new ActionRefused(`${pane.name} doesn't list ${id}`);
-      return pane.pick(i, !!open, desk, actor);
+      return pane.pick(i, !!open, desk, actor, !!fresh);
     },
   }),
   "query.reload": def({

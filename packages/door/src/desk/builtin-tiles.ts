@@ -175,12 +175,14 @@ const builtins = (): TileKind[] => [
   // A screen mounted in a tile (PIE-651): any screen, a part of one, a group; the board and river by their older kinds.
   ...mountKinds(),
   {
-    kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>); a board lane is one",
+    kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (m.props.type ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
-    make: s => new QueryPane(s.view ?? ""), actions: QUERY_ACTIONS,
+    make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null); }, actions: QUERY_ACTIONS,
     save: p => (p as QueryPane).spec(),
-    check: s => (s.view ? null : "a query tile needs view=<a saved view's block id> (^W o q picks one)"),
+    check: s => (s.view || s.query ? null : "a query tile needs view=<a saved view's block id> (^W o q picks one) or query=<a query, #tag>"),
+    // Beside a reader (a #tag's list): that reader is its home, where ⏎ lands (PIE-794).
+    home: p => (p as QueryPane).home,
     // The outline's saved views (virtual branches), newest first: ^W o q and the blank tile's Q pick one.
     choices: async desk => {
       const views = await desk.ctx.board.query("type=virtual-branch", 200);

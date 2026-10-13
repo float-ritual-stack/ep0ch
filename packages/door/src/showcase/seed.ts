@@ -73,6 +73,7 @@ export const SEED = {
   marginalia: "Greenhouse plan for the spring",
   marginaliaNotebook: "Marginalia notebook",
   recentReplies: "Recent replies",
+  frost: "Before the first frost",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
@@ -1130,6 +1131,16 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     "- Water the beans before ten.",
     "- Lift the last of the onions.",
   ].join("\n"));
+  // Tags as links (PIE-800): a note whose #tags open the notes carrying them, and those notes (one under a nested tag).
+  notes.frost = await make(notes.root.id, [
+    `${SEED.frost}`,
+    "What has to happen before the nights turn cold. #frost-jobs lists every job tagged for it; #compost the bay's.",
+    "",
+    "A click on a tag lists the notes carrying it beside this reader: a click there previews one, a double click opens it here, an alt-click beside.",
+  ].join("\n"));
+  await make(notes.root.id, "Fleece over the brassicas\nTwo layers on the north bed; weigh the edges with bricks. #frost-jobs");
+  await make(notes.root.id, "Lift the dahlias\nDry the tubers in the shed; the stems go on the heap. #frost-jobs #compost");
+  await make(notes.root.id, "Lag the standpipe\nThe lagging is in the shed, top shelf. #frost-jobs/water");
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
   notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread]\nWho brings what to the seed swap on Saturday. The table goes by [[${SEED.shed}]].`);
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");

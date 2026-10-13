@@ -64,6 +64,8 @@ export interface TileSpec {
   state?: Record<string, unknown>;
   /** A query tile's view (PIE-511): the block id of the saved view (a virtual branch) whose cards it lists. */
   view?: string;
+  /** A query tile's query in the views' grammar, with no saved view (`#garden`, PIE-800). */
+  query?: string;
   /** Folded to a spine (`tile.collapse`, PIE-511): its place kept, its contents as they were. */
   collapsed?: true | "h";
   /** What an agent may do to this tile (PIE-639): `edit` or `off`; left out, the container's or the screen's `agents` says, else `free`. */

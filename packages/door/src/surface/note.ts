@@ -112,6 +112,11 @@ export interface SurfaceHost {
   freshClick?: boolean;
   /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
   revealInOutline?(): void;
+  /**
+   * A `#tag` was opened in the note (PIE-800): the host lists the notes carrying it (the service's `#tag` query), as a
+   * list whose home is this reader. `how.by` is who opened it.
+   */
+  tag?(tag: string, how?: OpenHow): Promise<unknown>;
   /** The click being handled gave this reader the keys: a list's row is only selected by it (PIE-794), as in a links tile. */
   focusing?: boolean;
   /**
@@ -311,7 +316,7 @@ export type Link = LinkTarget;
 const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
 /** A live figure's tab or density control, named across renders (its figure's key, then which). */
 const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : "density"}`;
-const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
+const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -4199,6 +4204,12 @@ export class NoteSurface {
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | null> {
+    // A `#tag` (PIE-800): the notes carrying it, listed where the host lists them (the desk: a query tile beside this reader).
+    if (l.tag !== undefined) {
+      if (!host.tag) { host.ctx.flash(`#${l.tag}: this screen has nowhere to list the notes carrying it · / searches #${l.tag}`); return null; }
+      await host.tag(l.tag, { ...how, ...(host.actor ? { by: host.actor } : {}) });
+      return null;
+    }
     // An artifact's card (PIE-793) opens it running on its web page: as an element (with its line), or as one of the
     // note's followable links (its path alone: the note's artifact line that names it).
     if (l.media && l.image && parseMediaLine(l.image.source)?.kind === "artifact") return this.openArtifact(l.image, host);
