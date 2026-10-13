@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Seen, Keep and TL;DR instead of Resolve (PIE-791)
+
+- **Changed:** a margin thread is seen (put away, on an Earlier shelf; a new reply brings it back), kept (it stays), or
+  given a TL;DR (@margin's summary, or yours, as its face, the discussion folded behind it). In the door's thread list
+  `s`, `p` and `t` (`x` is gone there); on the web, an open card's one row; in Detail, Seen and Bring back. A resolved
+  thread reads as seen.
+- **New:** the web page's margin setting at the foot: off, current (the default) or all.
+- **Changed:** Define on a word the note's glossary lacks asks @margin instead of stopping; card words are drawn as a
+  note's (bold, links).
+- **Run:** PROTOCOL 155: `ep0ch install --apply` on each machine.
+
 ### The web client is your own reader (PIE-789)
 
 - **New:** a search box on every web page, on the tailnet and signed in at my.ep0ch.sh: the door's power bar search,

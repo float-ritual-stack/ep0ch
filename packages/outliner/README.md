@@ -884,7 +884,14 @@ listener is untouched (below): read-only, marked notes only.
   open card stays level with its words and the others move aside. A highlight is a tinted mark at once; tapping it
   opens its card: Comment, Ask, Remove, Quote. Words that fall across markup (half a bold run, a link) are marked in
   pieces. A thread the page didn't mark is placed by its words in the page; failing that its card is at the foot,
-  under "Couldn't place". The foot's "On this note" lists every thread. "Comment on this note" comments on the whole
+  under "Couldn't place". The foot's "On this note" lists every current thread.
+- **Seen, Keep and TL;DR** (PIE-791), not Resolve: an open card's one row is Reply, Seen, Keep, TL;DR and ⋯ (Quote,
+  Pick). Seen puts a thread on the foot's **Earlier** shelf (one line each, opened in place, with Back); a new reply
+  brings it back. Keep keeps it. TL;DR asks @margin for a summary (or edits it: his words are the newest), which
+  becomes the card's face, the discussion folded under it. The foot's **margin** setting (this browser's own): off (no
+  cards, the marks stay), current (the default) or all (the seen ones as cards too). A highlight's card offers
+  Comment, Ask, Keep and Remove. Card words are drawn as the note's are (bold, links by title, page links). Define on
+  words the note's glossary lacks asks @margin, and the answer is a card. "Comment on this note" comments on the whole
   note. An answer appears when it lands: the page waits on the threads route until what it draws changes (its rows,
   its folder's children, its threads), so a busy outline elsewhere doesn't wake it; idle, about three requests a
   minute.

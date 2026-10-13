@@ -24,10 +24,10 @@
 // found once or refused with why; a comment whose words can't be placed still lands, on the page's own note with the
 // words quoted, so what he wrote is never lost.
 import { readFileSync } from "node:fs";
-import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
+import { annotationKind, annotationTone, isTldr } from "@ep0ch/outline-core/annotation-marks";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
-import { plainBody } from "./publish-marginalia";
+import { onItsPage, plainBody } from "./publish-marginalia";
 import { stripPropertyTokens } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
@@ -76,6 +76,10 @@ export interface PageQuote {
 export interface PageReply {
   id: string;
   body: string;
+  /** Its words drawn as the page draws a note (references by title, links, Markdown), when the page could. */
+  html?: string;
+  /** A TL;DR (`[kind::tldr]`, PIE-791). */
+  tldr?: boolean;
   by: string;
   at: string;
   marks: PageThread[];
@@ -92,6 +96,12 @@ export interface PageThread {
   tags: string[];
   /** Plain text: a reference shows its label, never another note's id. */
   body: string;
+  /** Its words drawn as the page draws a note, when the page could. */
+  html?: string;
+  /** How present it is (PIE-791): open and kept are in the margin; seen and resolved on the Earlier shelf. */
+  lifecycle: string;
+  /** Its newest TL;DR reply's id: the thread's face. */
+  tldr?: string;
   by: string;
   at: string;
   replies: PageReply[];
@@ -144,6 +154,10 @@ export interface PageShare {
   active(): Promise<boolean>;
 }
 
+/** The page's attention verbs (PIE-791): the lifecycle each sets and what's said. */
+const ATTENTION = { seen: ["seen", "seen: on the Earlier shelf"], back: ["open", "brought back"], keep: ["kept", "kept"], unkeep: ["open", "unkept"] } as const;
+const kitAgent = (kit: { agent?: string }) => kit.agent;
+
 const ended = () => refused(410, "this link has ended");
 
 /** What the routes ask of the publisher. */
@@ -171,6 +185,8 @@ export interface PageHost {
   linkable(ids: readonly string[], share?: PageShare): Promise<PageQuote[]>;
   /** The outline's notes by words (the service's search), none locked or outside the share. */
   find(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]>;
+  /** Marks' words (Blockdown) drawn as the page draws a note's, links only to notes this page may link (PIE-791). */
+  render?(texts: readonly string[], share?: PageShare): Promise<string[]>;
   /** What completes at offset `at` of `text` in a comment box (publish-search.ts), from the note `near`, as a page here may show it. */
   complete(text: string, at: number, near: string | undefined, share?: PageShare): Promise<CompletionAnswer>;
   log(line: string): void;
@@ -356,7 +372,17 @@ export class PageMarginalia {
     const quoted: string[] = [];
     const roots = lists.flat()
       .sort((a, b) => (order.get(a.blockId)! - order.get(b.blockId)!) || start(a.thread) - start(b.thread));
-    const drawn = await Promise.all(roots.map(({ thread }) => this.pageThread(thread, marked, quoted, 1)));
+    const raws: { into: { html?: string }; text: string }[] = [];
+    const drawn = await Promise.all(roots.map(({ thread }) => this.pageThread(thread, marked, quoted, 1, raws)));
+    // The words of every mark drawn as the note's are (the page's Blockdown renderer); plain text where it can't.
+    if (this.host.render && raws.length) {
+      try {
+        const html = await this.host.render(raws.map((raw) => raw.text), share);
+        raws.forEach((raw, index) => { if (html[index]) raw.into.html = html[index]; });
+      } catch (error) {
+        this.host.log(`publish: marks' words: ${(error as Error).message}`);
+      }
+    }
     const links = new Map((await this.host.linkable([...new Set(quoted)], share).catch(() => [] as PageQuote[])).map((quote) => [quote.id, quote]));
     const fill = (thread: PageThread): void => {
       thread.quotedIn = thread.quotedIn.map((quote) => links.get(quote.id) ?? quote);
@@ -373,10 +399,10 @@ export class PageMarginalia {
   /** A block's open threads on its own text (an annotation block's: the marks on its words), none locked. */
   private async openOn(blockId: string): Promise<AnnotationThread[]> {
     try {
-      const threads = await this.host.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: false } });
+      const threads = await this.host.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: true } });
       return threads.filter((thread) => {
         const subject = thread.resolvedTarget?.representation.subject ?? thread.originalTarget.representation.subject;
-        return markCurrent(thread.lifecycle) && !this.host.locks(thread.block.properties ?? []) && subject.kind === "block" && subject.blockId === blockId;
+        return onItsPage(thread) && !this.host.locks(thread.block.properties ?? []) && subject.kind === "block" && subject.blockId === blockId;
       });
     } catch (error) {
       this.host.log(`publish: annotations.list: ${(error as Error).message}`);
@@ -385,29 +411,38 @@ export class PageMarginalia {
   }
 
   /** One thread as the script draws it; `marked`: the marks with marks on their own words, read `depth` deep. */
-  private async pageThread(thread: AnnotationThread, marked: ReadonlySet<string>, quoted: string[], depth: number): Promise<PageThread> {
+  private async pageThread(thread: AnnotationThread, marked: ReadonlySet<string>, quoted: string[], depth: number, raws: { into: { html?: string }; text: string }[] = []): Promise<PageThread> {
     const on = async (id: string) => depth < MAX_MARK_DEPTH && marked.has(id)
-      ? Promise.all((await this.openOn(id)).sort((a, b) => start(a) - start(b)).map((mark) => this.pageThread(mark, marked, quoted, depth + 1)))
+      ? Promise.all((await this.openOn(id)).sort((a, b) => start(a) - start(b)).map((mark) => this.pageThread(mark, marked, quoted, depth + 1, raws)))
       : [];
     const quotes = (record: AnnotationRecord): PageQuote[] => (record.quotedIn ?? []).map((id) => { quoted.push(id); return { id, title: "", href: null }; });
     const anchor = thread.resolvedTarget?.anchor;
     const properties = thread.properties ?? {};
     // A reply marked [publish::never] stays off the page, as a locked note does.
     const replies = await Promise.all(thread.replies.filter((reply) => !this.host.locks(reply.block.properties ?? []))
-      .map(async (reply): Promise<PageReply> => ({ id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply) })));
-    return {
+      .map(async (reply): Promise<PageReply> => {
+        const drawn: PageReply = { id: reply.block.id, body: plainBody(reply.body), by: this.by(reply), at: reply.block.createdAt, marks: await on(reply.block.id), quotedIn: quotes(reply), ...(isTldr(reply.properties) ? { tldr: true } : {}) };
+        raws.push({ into: drawn, text: reply.body });
+        return drawn;
+      }));
+    const tldr = replies.filter((reply) => reply.tldr).at(-1);
+    const face: PageThread = {
       id: thread.block.id,
       quote: anchor?.kind === "text-quote" ? anchor.exact : "",
       kind: annotationKind(properties, thread.body),
       tone: annotationTone(properties),
       tags: [...new Set((properties.tags ?? []).flatMap((tag) => tag.split(",")).map((tag) => tag.trim()).filter(Boolean))],
       body: plainBody(thread.body),
+      lifecycle: thread.lifecycle,
+      ...(tldr ? { tldr: tldr.id } : {}),
       by: this.by(thread),
       at: thread.block.createdAt,
       replies,
       marks: await on(thread.block.id),
       quotedIn: quotes(thread),
     };
+    raws.push({ into: face, text: thread.body });
+    return face;
   }
 
   /** Every mark a page shows, by id: `root` for a thread (a mark of its own, which takes replies), else a reply. */
@@ -577,7 +612,7 @@ export class PageMarginalia {
         while (this.quotes.size > MAX_QUOTE_UNDOS) this.quotes.delete(this.quotes.keys().next().value!);
         return said(200, answer);
       }
-      if (action === "reply" || action === "resolve" || action === "read") {
+      if (action === "reply" || action === "resolve" || action === "read" || action in ATTENTION || action === "tldr") {
         const thread = text(input.thread);
         if (shown.get(thread) !== "root") return refused(404, "that thread isn't on this page");
         if (action === "read") {
@@ -593,14 +628,23 @@ export class PageMarginalia {
           });
           return said(200, { ok: true, thread, reply: receipt.annotations[0]?.block.id, said: "replied" });
         }
-        await this.host.request({ action: "annotations.lifecycle", input: { annotationId: thread, lifecycle: "resolved" }, mutation: { author: "user" } });
-        return said(200, { ok: true, thread, said: "resolved" });
+        if (action === "tldr") {
+          // Written (his own, or an edit of @margin's), else @margin is asked and it lands in the margin.
+          const body = text(input.body).trim();
+          if (!body && !kitAgent(await this.kit())) return refused(409, "no agent here writes a TL;DR: write it yourself");
+          const answer = await this.host.request<{ asked?: string }>({ action: "annotations.tldr", annotationId: thread, ...(body ? { body, requestId } : {}), mutation: { author: "user" } });
+          return said(200, { ok: true, thread, said: body ? "TL;DR saved" : `@${answer.asked ?? "margin"} is writing the TL;DR` });
+        }
+        // Seen, Keep and their undoing (PIE-791); a highlight's Remove is resolve (it leaves the page).
+        const [lifecycle, words] = action === "resolve" ? ["resolved", "removed"] : ATTENTION[action as keyof typeof ATTENTION];
+        await this.host.request({ action: "annotations.lifecycle", input: { annotationId: thread, lifecycle }, mutation: { author: "user" } });
+        return said(200, { ok: true, thread, lifecycle, said: words });
       }
       const kit = await this.kit();
       // An extension's action by its own id (`highlight`) as the toolbar offers it, or by its full name.
       const extensionAction = kit.actions.find((candidate) => candidate.id === action) ?? kit.actions.find((candidate) => candidate.name === action);
       if (action !== "comment" && action !== "ask" && action !== "explain" && !extensionAction) {
-        return refused(400, `no action ${action || "(none)"} here: it's comment${kit.agent ? ", ask, explain" : ""}, reply, resolve, read${kit.actions.length ? `, or ${kit.actions.map((candidate) => candidate.id).join(", ")}` : ""}`);
+        return refused(400, `no action ${action || "(none)"} here: it's comment${kit.agent ? ", ask, explain" : ""}, reply, seen, back, keep, unkeep, tldr, resolve, read${kit.actions.length ? `, or ${kit.actions.map((candidate) => candidate.id).join(", ")}` : ""}`);
       }
       if ((action === "ask" || action === "explain") && !kit.agent) return refused(409, "no agent here answers in threads: add marginalia to this outline (its @margin agent)");
       // Words selected in a card are a passage of that mark's own words: what's done with them lands on the mark.
@@ -615,20 +659,26 @@ export class PageMarginalia {
       const drawn = findDrawnPassage(blocks, { quote: text(input.quote), prefix: text(input.prefix), suffix: text(input.suffix) });
       // Found in the mark's words alone; its passage is read in its whole text, so the words around it are its own.
       const found = drawn.ok && inside ? { ok: true as const, block: home, passage: passageAt(home.text, drawn.passage.start, drawn.passage.end, home.id, home.revision) } : drawn;
+      let defining = false;
       if (extensionAction) {
         if (!found.ok) return refused(422, found.why);
         const result = await this.host.request<{ written: string[]; message?: string }>({
           action: "extensions.act", extension: extensionAction.extension, extensionAction: extensionAction.id, passage: found.passage,
           mutation: { author: "user" },
         });
-        return said(200, { ok: true, thread: result.written[0], said: result.message ?? `${extensionAction.label.toLowerCase()} done` });
+        // Define never dead-ends (PIE-791): nothing in the glossary, so @margin is asked, and its answer is a card.
+        if (!(extensionAction.id === "define" && !result.written.length && kit.agent)) {
+          return said(200, { ok: true, thread: result.written[0], said: result.message ?? `${extensionAction.label.toLowerCase()} done` });
+        }
+        defining = true;
       }
       const asked = text(input.body).trim();
-      const body = action === "explain" ? `@${kit.agent} explain this passage`
+      const body = defining ? `@${kit.agent} what does “${text(input.quote).trim().replace(/\s+/g, " ").slice(0, 120)}” mean here?`
+        : action === "explain" ? `@${kit.agent} explain this passage`
         : action === "ask" ? `@${kit.agent} ${asked || "what does this mean?"}` : asked;
       if (!body) return refused(400, "write a comment first (a highlight is its own action)");
       // Through a share it's still the person's comment, said to have come by that link.
-      const properties = { ...(action === "ask" ? { kind: "question" } : action === "explain" ? { kind: "explain" } : {}), ...(share ? { via: `share:${share.id}` } : {}) };
+      const properties = { ...(defining ? { kind: "define" } : action === "ask" ? { kind: "question" } : action === "explain" ? { kind: "explain" } : {}), ...(share ? { via: `share:${share.id}` } : {}) };
       const selected = text(input.quote).trim();
       if (!found.ok) {
         // What he wrote still lands: on the page's own note (or the mark), the words he meant quoted above it.
@@ -641,7 +691,7 @@ export class PageMarginalia {
         blockId: found.block.id, expectedRevision: found.block.revision, body, source: "user",
         passage: { quote: p.quote, start: p.start, prefix: p.prefix, suffix: p.suffix }, ...(Object.keys(properties).length ? { properties } : {}),
       });
-      return said(200, { ok: true, thread, said: action === "comment" ? "commented" : `asked @${kit.agent}: the answer lands in the margin` });
+      return said(200, { ok: true, thread, said: defining ? `not in this note's glossary: asked @${kit.agent}, the answer lands in the margin` : action === "comment" ? "commented" : `asked @${kit.agent}: the answer lands in the margin` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.host.log(`publish: page write ${action}: ${message}`);

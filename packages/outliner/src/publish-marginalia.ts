@@ -8,7 +8,7 @@
 // run, the end of a link) is marked in pieces, one `<mark>` per run of its text, each with the same id; one whose ends
 // fall inside a tag (a link's address) is left unmarked, and its aside still follows its paragraph.
 
-import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
+import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { AnnotationThread } from "./types";
 
@@ -24,6 +24,16 @@ export interface PublishedAnnotation {
   /** Its body as plain text, references shown by their label; empty for a highlight. */
   readonly body: string;
   readonly replies: number;
+  /** Put away (PIE-791: seen, or resolved): drawn quietly, with no aside. */
+  readonly earlier?: boolean;
+}
+
+/**
+ * Whether a thread is on its page at all (PIE-791): every one but a highlight that was removed (resolved, with nothing
+ * said on it). Seen and resolved threads are on the page's Earlier shelf, kept and open ones in its margin.
+ */
+export function onItsPage(thread: Pick<AnnotationThread, "lifecycle" | "body" | "replies">): boolean {
+  return thread.lifecycle !== "resolved" || !!thread.body.trim() || thread.replies.length > 0;
 }
 
 /** At most this many marks on one page: each takes one private-use sentinel character. */
@@ -60,7 +70,7 @@ export function plainBody(body: string, titleOf: (blockId: string) => string | u
  */
 export function publishedAnnotations(text: string, threads: readonly AnnotationThread[], shown: ReadonlySet<string>): PublishedAnnotation[] {
   return threads.flatMap((thread): PublishedAnnotation[] => {
-    if (thread.lifecycle !== "open" || !shown.has(thread.block.id) || thread.currentResolution.status !== "resolved") return [];
+    if (!onItsPage(thread) || !shown.has(thread.block.id) || thread.currentResolution.status !== "resolved") return [];
     const anchor = thread.resolvedTarget?.anchor;
     if (anchor?.kind !== "text-quote" || anchor.start === null || anchor.end === null || !anchor.exact.trim() ||
       anchor.exact.includes("\n") || text.slice(anchor.start, anchor.end) !== anchor.exact) return [];
@@ -74,6 +84,7 @@ export function publishedAnnotations(text: string, threads: readonly AnnotationT
       tags: [...new Set((properties.tags ?? []).flatMap(tag => tag.split(",")).map(tag => tag.trim()).filter(Boolean))],
       body: plainBody(thread.body),
       replies: thread.replies.length,
+      ...(markCurrent(thread.lifecycle) ? {} : { earlier: true }),
     }];
   });
 }
@@ -163,7 +174,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
     if (!mark || close === undefined || close < open) continue;
     if (inText(html, open) && inText(html, close)) {
       const tags = mark.tags.length ? ` data-tags="${escapeHtml(mark.tags.join(" "))}"` : "";
-      const tag = `<mark class="ann ann-${escapeHtml(mark.tone)}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>`;
+      const tag = `<mark class="ann ann-${escapeHtml(mark.tone)}${mark.earlier ? " ann-earlier" : ""}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>`;
       // Whole when it nests; else each run of its text between tags is marked on its own, so the HTML stays well formed.
       const runs = balanced(html.slice(open + 2, close).replace(SENTINEL, "")) ? [[open, close]] : textRuns(html, open + 2, close);
       for (const [from, to] of runs) {
@@ -171,7 +182,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
         edits.push({ at: to, remove: 0, order: 0, insert: "</mark>" });
       }
     }
-    if (!mark.body) continue;
+    if (!mark.body || mark.earlier) continue;
     BLOCK_END.lastIndex = close;
     const end = BLOCK_END.exec(html);
     const at = end ? (end[0].startsWith("</") ? end.index + end[0].length : end.index) : html.length;
@@ -196,6 +207,7 @@ mark.ann.ann-good{background:rgba(110,190,140,.22)}mark.ann.ann-bad{background:r
 mark.ann.ann-accent{background:rgba(150,130,230,.24)}mark.ann.ann-dim{background:#26272a}
 mark.ann.ann-default:not([data-kind=highlight]){background:#26282c;box-shadow:inset 0 -1px #8a7440}
 mark.ann.on{box-shadow:inset 0 -2px #c9a24a}
+mark.ann.ann-earlier{background:none;box-shadow:inset 0 -1px #4a4740}
 aside.margin-note{margin:.35rem 0 .75rem;padding:.35rem .6rem;border-left:3px solid var(--rule);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;white-space:pre-line}
 aside.margin-note .kind{color:var(--dim);text-transform:capitalize}
 aside.margin-note .replies{color:var(--dim)}

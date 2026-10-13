@@ -150,7 +150,7 @@ test("browse: the top level, into a note by its page name, into a child by its i
   expect(csp).not.toContain("unsafe-eval");
 });
 
-test("highlight, comment, an answered ask, reply and resolve land in the outline, attributed to the person", async () => {
+test("highlight, comment, an answered ask, reply and seen land in the outline, attributed to the person", async () => {
   const words = { page: survey.id, quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk." };
   const choices = (await threads(survey.id)).choices.map((choice) => choice.action);
   expect(choices).toEqual(expect.arrayContaining(["highlight", "comment", "ask", "copy"]));
@@ -178,8 +178,9 @@ test("highlight, comment, an answered ask, reply and resolve land in the outline
   expect((await write({ page: survey.id, action: "reply", thread: commented.thread, body: "And note the weather.", requestId: "reply-00001" })).status).toBe(200);
   const replied = (await threads(survey.id)).threads.find((thread) => thread.id === commented.thread)!;
   expect(replied.replies.map((reply) => [reply.by, reply.body])).toEqual([["you", "And note the weather."]]);
-  expect((await write({ page: survey.id, action: "resolve", thread: commented.thread })).status).toBe(200);
-  expect((await threads(survey.id)).threads.some((thread) => thread.id === commented.thread)).toBe(false);
+  // Seen puts it on the Earlier shelf (PIE-791): still on the page, out of the margin's default.
+  expect((await write({ page: survey.id, action: "seen", thread: commented.thread })).status).toBe(200);
+  expect((await threads(survey.id)).threads.find((thread) => thread.id === commented.thread)).toMatchObject({ lifecycle: "seen" });
 
   // Words that can't be placed still land: on the whole note, quoted.
   const stray = await (await write({ page: survey.id, action: "comment", quote: "words that are not here", body: "Keep this anyway.", requestId: "stray-00001" })).json();
@@ -535,4 +536,32 @@ test("seen puts a thread away and a new reply brings it back; kept stays current
   const mine = (await state()).replies.filter((reply) => reply.properties?.kind?.[0] === "tldr").at(-1)!;
   expect(mine).toMatchObject({ body: "Warm after rain; check Sundays.", block: { author: "user" } });
   expect((await state()).lifecycle).toBe("kept");
+});
+
+test("the page's verbs: Seen puts a thread on the Earlier shelf and Back brings it back, Keep keeps it, TL;DR is asked or written; the words are drawn as the note's; Define with no glossary line asks @margin", async () => {
+  const note = store.create("Hedge log\nThe hawthorn flowered late; see [[Field Notes]] for the spring.", hub.id, "user");
+  const made = await (await write({ page: note.id, action: "comment", quote: "flowered late", prefix: "The hawthorn ", suffix: ";", body: "Late like **last year**? See ((" + survey.id + ")).", requestId: "verbs-0001" })).json();
+  const thread = made.thread as string;
+  const card = async () => (await threads(note.id)).threads.find((t) => t.id === thread) as unknown as { lifecycle: string; tldr?: string; html?: string; replies: { id: string; body: string; tldr?: boolean }[] };
+  expect((await card()).html).toContain("<strong>last year</strong>");
+  expect((await card()).html).toContain(`href="/pub/p/${survey.id}?view=html">Moth survey</a>`);
+  for (const [action, lifecycle] of [["seen", "seen"], ["back", "open"], ["keep", "kept"], ["unkeep", "open"]] as const) {
+    const answer = await (await write({ page: note.id, action, thread })).json();
+    expect(answer).toMatchObject({ ok: true, lifecycle });
+    expect((await card()).lifecycle).toBe(lifecycle);
+  }
+  expect(await (await write({ page: note.id, action: "tldr", thread })).json()).toMatchObject({ ok: true, said: "@margin is writing the TL;DR" });
+  await until("the TL;DR face", async () => (await card()).tldr);
+  expect(await (await write({ page: note.id, action: "tldr", thread, body: "Late again; check the hedge in May.", requestId: "verbs-0002" })).json()).toMatchObject({ ok: true, said: "TL;DR saved" });
+  const face = await card();
+  expect(face.replies.find((reply) => reply.id === face.tldr)).toMatchObject({ body: "Late again; check the hedge in May.", tldr: true });
+  // A seen thread's mark is drawn quietly, with no aside.
+  await write({ page: note.id, action: "seen", thread });
+  const page = await (await get(`/pub/p/${note.id}?view=full`)).text();
+  expect(page).toMatch(/<mark class="ann ann-default ann-earlier" data-ann="[^"]+"/);
+  // Define on words the note's glossary doesn't have asks @margin instead of stopping there.
+  const defined = await (await write({ page: note.id, action: "define", quote: "hawthorn", prefix: "The ", suffix: " flowered" })).json();
+  expect(defined.said).toContain("asked @margin");
+  const asked = await until("the define's answer", async () => (await threads(note.id)).threads.find((t) => t.kind === "define" && t.replies.some((reply) => reply.by === "marginalia")));
+  expect(asked.body).toContain("@margin what does “hawthorn” mean here?");
 });
