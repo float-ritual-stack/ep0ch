@@ -1279,7 +1279,7 @@ export class NoteSurface {
     const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
-    const open = syntaxWarnings(m.text);
+    const open = openConstructs(m.text);
     this.lookAt(m, w, host);
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
@@ -6050,6 +6050,12 @@ function proposalTarget(id: string | undefined, surface: NoteSurface): string {
 export const IN_TRASH = "■ in the Trash · still readable here";
 /** How many open constructs a reader says by name above the note; the rest are counted. */
 const OPEN_SHOWN = 3;
+/** `syntaxWarnings` of the text last drawn: a reader draws one note many times between edits. */
+let openSeen: { text: string; open: ReturnType<typeof syntaxWarnings> } = { text: "", open: [] };
+function openConstructs(text: string): ReturnType<typeof syntaxWarnings> {
+  if (openSeen.text !== text) openSeen = { text, open: syntaxWarnings(text) };
+  return openSeen.open;
+}
 
 
 // ── the actions ──────────────────────────────────────────────────────────────

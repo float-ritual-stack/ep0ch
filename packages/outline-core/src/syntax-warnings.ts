@@ -9,7 +9,7 @@ import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { LINK_BLOCK_KINDS } from "./link-blocks";
 import { pageAddressReferences } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
-import { isEscapedAt, propertyTokenMatches } from "./property-grammar";
+import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 
 export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal";
 
@@ -62,13 +62,13 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
 
   // `[key::` with no `]` of its own on its line: text.
   const tokens = new Set(propertyTokenMatches(text).map(t => t.start));
-  for (const head of text.matchAll(/\[([A-Za-z][A-Za-z0-9_.-]*)::/g)) {
+  for (const head of text.matchAll(new RegExp(String.raw`\[(${PROPERTY_KEY_SOURCE})::`, "g"))) {
     const at = head.index;
     if (tokens.has(at) || isEscapedAt(text, at) || offsetInRanges(at, literal) || offsetInRanges(at, code)) continue;
     const lineEnd = text.indexOf("\n", at) < 0 ? text.length : text.indexOf("\n", at);
     // `[key::]` (an empty value) is text by design, not a half-written token.
     if (text.slice(at + head[0].length).startsWith("]")) continue;
-    const line = lineOf(at), next = text.slice(at + 1, lineEnd).search(/\[[A-Za-z][A-Za-z0-9_.-]*::/);
+    const line = lineOf(at), next = text.slice(at + 1, lineEnd).search(new RegExp(String.raw`\[${PROPERTY_KEY_SOURCE}::`));
     out.push({ kind: "property", line, message: `the ${shown(text.slice(at, next >= 0 ? at + 1 + next : lineEnd).trimEnd())} on line ${line + 1} isn't closed with ]: it's text, not a property` });
   }
 

@@ -2278,6 +2278,11 @@ Second paragraph`;
     expect(restored.effectiveDeletedRootId).toBeUndefined();
     expect(store.resolvePageAddress("2031-04-02").block?.id).toBe(second.id);
     expect(store.resolvePageAddress("2031-04-02-2")).toMatchObject({status: "resolved", kind: "page", block: {id: first.id}});
+    // Purged, the live note keeps the name and the restored one's goes with it.
+    store.delete(first.id);
+    store.purge(first.id, first.id.slice(0, 8));
+    expect(store.resolvePageAddress("2031-04-02").block?.id).toBe(second.id);
+    expect(store.resolvePageAddress("2031-04-02-2").status).toBe("missing");
   });
 
   test("a text rename takes a name an owner in Trash held, and that owner keeps its address across a restore when free", () => {
