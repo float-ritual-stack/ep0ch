@@ -425,12 +425,12 @@ export class CommentSession {
   }
 
   /** An edit saved (PIE-763): back to the thread list, reloaded, on its thread, which now shows the new words as edited. */
-  private async edited(r: { id: string; body: string }, t: Extract<Target, { kind: "edit" }>): Promise<void> {
+  private async edited(r: { id: string; body: string; unchanged?: boolean }, t: Extract<Target, { kind: "edit" }>): Promise<void> {
     const env = this.env!;
     this.writing = null; this.target = null; this.stale = false; this.note = "";
     this.mode = "threads"; this.busy = "loading the thread...";
     if (this.fromReader) this.finished = true;
-    env.flash(`${t.mark.reply ? "reply" : "comment"} edited`);
+    env.flash(r.unchanged ? "nothing changed" : `${t.mark.reply ? "reply" : "comment"} edited`);
     this.threads = await env.reloadComments();
     this.busy = null;
     this.sel = Math.max(0, this.threads.findIndex(x => x.id === t.thread.id)); this.view.reveal();

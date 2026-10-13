@@ -1657,6 +1657,8 @@ Answers `RenderedNote`.
 | `parentAnnotationId?` | `string` |  |
 | `properties?` | `Readonly<Record<string, readonly string[]>>` | Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. |
 | `quotedIn?` | `readonly string[]` | The live blocks quoting it (`marks.quote`): each holds `[from::((this mark))]`, in the order they were made. |
+| `edited?` | `string` | When its words were last edited after it was posted (`annotations.update`, an ISO time); absent when never. Its earlier words are its block's revisions (`block.revisions`). |
+| `editedBy?` | `string` | Who edited its words last: `user` (the person) or an agent's actor id. |
 
 **`AnnotationBatchOperation`**
 

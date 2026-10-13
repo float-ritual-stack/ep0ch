@@ -979,6 +979,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     ch("e");
     await until(() => cs()?.mode === "compose" && d()?.text === "Could we swap Thursdays in August?", "the comment's words in the editor");
     expect(plain(sc.render(app).lines.join("\n"))).toMatch(/edit \S+'s comment · ctrl\+s saves/);
+    // ctrl+s on words unchanged closes it, nothing written.
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => cs()?.mode === "threads" && !cs()?.busy, "an unchanged edit closed");
+    expect((await thread("Could we swap")).edited).toBeUndefined();
+    ch("e");
+    await until(() => cs()?.mode === "compose" && d()?.text === "Could we swap Thursdays in August?", "the editor again");
     press({ kind: "end" }); press({ kind: "backspace" });
     for (const c of ", from the 4th?") ch(c);
     press({ kind: "char", ch: "s", ctrl: true });
@@ -1005,7 +1011,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect([reply.body, !!reply.edited]).toEqual(["Sewing machine oil: thin, and it doesn't gum. Not 3-in-1.", true]);
     await until(() => rows().some(l => l.includes("└ ") && l.includes("· edited")), "the expanded reply marked edited");
     // An agent's edit through act: saved at once, recorded as the agent; an edit on a revision that's moved on is refused.
-    expect(await app.act({ action: "comment.edit", tile: "rota", args: { thread: question.id, body: "Could we swap Thursdays in August?" }, as: "test-agent" })).toMatchObject({ sent: "edit" });
+    await expect(app.act({ action: "comment.edit", tile: "rota", args: { thread: question.id, body: "Lost words", observed: "Could we swap Thursdays in August?" }, as: "test-agent" })).rejects.toThrow("it changed since you read it");
+    expect(await app.act({ action: "comment.edit", tile: "rota", args: { thread: question.id, body: "Could we swap Thursdays in August?", observed: "Could we swap Thursdays in August, from the 4th?" }, as: "test-agent" })).toMatchObject({ sent: "edit" });
     const back = await thread("Could we swap");
     expect(back.body).toBe("Could we swap Thursdays in August?");
     await expect(board.updateComment(question.id, question.revision!, "Lost words")).rejects.toThrow("revision is stale");

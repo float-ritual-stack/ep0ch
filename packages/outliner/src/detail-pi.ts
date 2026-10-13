@@ -1769,6 +1769,7 @@ const readerVertical = new DetailReaderVerticalLayout(preview, inspectionLayout)
 const composer = new BufferComposer(() => {
   const reader = focusedReader();
   const reply = reader.state.annotationReplyDraft;
+  const editing = reader.state.annotationEditDraft;
   const thread = reply ? reader.state.annotationThreads.find(thread => thread.block.id === reply.annotationId) : null;
   const target = reader.state.annotationDraft?.target;
   const context = target?.anchor.kind === "text-quote"
@@ -1779,7 +1780,7 @@ const composer = new BufferComposer(() => {
         ? target.anchor.exact ?? ""
         : "";
   return {
-    title: reply ? "Reply to comment" : target?.referenceContext
+    title: editing ? "Edit comment" : reply ? "Reply to comment" : target?.referenceContext
       ? "Comment on this reference"
       : target?.anchor.kind === "whole-subject"
       ? "Comment on whole note"

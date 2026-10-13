@@ -832,8 +832,8 @@ export function commentEditTarget(o: {
   /** The note it's on, for its name. */
   note: Msg;
   board(): Pick<SocketBoard, "updateComment">;
-  /** Saved: the host reloads the thread and shows it. */
-  landed(r: { id: string; revision: number; body: string }): Promise<void>;
+  /** Saved (or nothing changed, `unchanged`): the host reloads the thread and shows it. */
+  landed(r: { id: string; revision: number; body: string; unchanged?: boolean }): Promise<void>;
   /** Not saved, and why (said by the host at once). */
   refused?(why: string, stale: boolean): void;
   /** ctrl+r after a stale refusal: the mark's words and revision as the service has them now (null: it's gone). */
@@ -851,7 +851,8 @@ export function commentEditTarget(o: {
       const d = s.draft;
       const body = d.text.trim();
       if (!body) return no(`a ${what} can't be emptied by an edit · change its words, or esc esc to leave it as it was`);
-      if (body === mark.body.trim()) return { ok: true, said: "nothing changed" };
+      // Nothing changed: the edit closes as a saved one does, nothing written.
+      if (body === mark.body.trim()) { await o.landed({ id: mark.id, revision: mark.revision, body: mark.body, unchanged: true }); return { ok: true, said: "nothing changed" }; }
       d.saving = true; d.note = "saving…";
       try {
         const r = await o.board().updateComment(mark.id, mark.revision, body, by);

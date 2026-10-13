@@ -7017,11 +7017,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
       reply: { type: "string", optional: true, about: "one of its replies to edit instead (its id, or its first 6+ characters); left out, the thread's own comment" },
       body: { type: "string", optional: true, about: "the new words, saved at once; left out, the person's editor opens on the words as they are" },
+      observed: { type: "string", optional: true, about: "with body=: the words as you read them (threads lists them); an agent's edit needs it, so an edit made meanwhile is refused, never overwritten" },
     },
-    async run({ thread, reply, body }, on, actor) {
+    async run({ thread, reply, body, observed }, on, actor) {
       if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's edit is saved at once (the words it read are in threads)");
+      if (body !== undefined && observed === undefined && actor.kind === "agent") throw new ActionRefused("say observed=: the comment's words as you read them (threads lists them), so an edit made since isn't overwritten");
       const s = await on.surface.ensureSession(on.host, "threads");
-      const why = s.editMark(findThread(s, thread), reply, actor);
+      const i = findThread(s, thread);
+      // Checked before anything opens: the words read are still its words.
+      if (observed !== undefined) {
+        const th = s.threads[i]!, now = reply === undefined ? th : th.replies.find(x => x.id === reply || (reply.length >= 6 && x.id.startsWith(reply)));
+        if (now && now.body.trim() !== observed.trim()) throw new ActionRefused(`it changed since you read it; its words now: ${JSON.stringify(ellipsize(now.body, 300))} · read them again and edit those`);
+      }
+      const why = s.editMark(i, reply, actor);
       if (why) throw new ActionRefused(why);
       const t = s.target as Extract<NonNullable<typeof s.target>, { kind: "edit" }>;
       if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body }; }
