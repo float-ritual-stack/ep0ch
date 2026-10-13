@@ -411,3 +411,11 @@ export function selectedAnnotationThread(state: Pick<AnnotationReaderState, "ann
     ?? state.annotationThreads.find(thread => thread.block.id === state.context.selected?.id ||
       thread.replies.some(reply => reply.block.id === state.context.selected?.id)) ?? null;
 }
+
+/**
+ * Where a thread's quote is, in the words the web uses (PIE-791): nothing when it was found (placed), "couldn't place"
+ * when it wasn't. Its lifecycle (open, seen, kept, resolved) is said apart from this, so "resolved" means one thing.
+ */
+export function placementWords(status: string): string {
+  return status === "resolved" ? "" : "couldn't place";
+}

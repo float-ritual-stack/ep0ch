@@ -21,7 +21,7 @@ import {
   decorateAttentionLines,
 } from "./attention-render";
 import { currentAttentionMark } from "./attention";
-import { annotationScopeLabel, annotationTags, annotationTargetText, annotationThreadTitle, buildDetailAnnotationView, detailAnnotationGroups } from "./detail-annotations";
+import { annotationScopeLabel, annotationTags, annotationTargetText, annotationThreadTitle, buildDetailAnnotationView, placementWords, detailAnnotationGroups } from "./detail-annotations";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
@@ -369,7 +369,7 @@ export function buildDetailAnsiPreview(
         append(`${thread.block.id === state.selectedAnnotationId ? "▶" : " "} ${annotationThreadTitle(thread, index)} · ${thread.lifecycle}`);
         append(`C reply · D ${markCurrent(thread.lifecycle) ? "seen" : "bring back"}`);
         append(annotationScopeLabel(thread, state));
-        append(`${group.placement} · ${thread.currentResolution.status}`);
+        append([group.placement, placementWords(thread.currentResolution.status)].filter(Boolean).join(" · "));
         if (group.placement === "unpositioned" || thread.resolvedTarget?.anchor.kind === "list-item") {
           append("Original quote:");
           append(annotationTargetText(thread.originalTarget), "│ ");

@@ -17,7 +17,7 @@ import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";
 import {measureRenderedLinks, withInternalLinks, type RenderedLink} from './rendered-links';
 import {LinkAwareMarkdown} from './link-aware-markdown';
-import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, annotationThreadTitle, annotationMarginCard, annotationMarkStyle, annotationTags, type DetailAnnotationGroup, type AnnotationReaderState } from "./detail-annotations";
+import { displayedResourceText, detailAnnotationGroups, sourceLineStarts, sourceLineAt, selectedAnnotationThread, annotationScopeLabel, annotationThreadTitle, annotationMarginCard, placementWords, annotationMarkStyle, annotationTags, type DetailAnnotationGroup, type AnnotationReaderState } from "./detail-annotations";
 import { detailPropertyInspectorRegions } from "./property-inspector";
 import {
   Key,
@@ -944,7 +944,7 @@ function annotationPanelLines(
     comments.workIdPrefix, comments.linksEnabled);
   const panelWidth = Math.max(1, width);
   const title =
-    ` ${selected ? "▶ " : ""}${annotationThreadTitle(thread, index + 1)} · ${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle} `;
+    ` ${selected ? "▶ " : ""}${annotationThreadTitle(thread, index + 1)} · ${[thread.source, placement === "inline" ? placementWords(thread.currentResolution.status) : placement, thread.lifecycle].filter(Boolean).join(" · ")} `;
   const top = truncateToWidth(
     `╭${title}${"─".repeat(Math.max(0, panelWidth - visibleWidth(title) - 1))}`,
     panelWidth,
@@ -955,7 +955,7 @@ function annotationPanelLines(
     `[${label}](${previewRegionActionUri({ type: "annotation.thread.move", delta })})`;
   const body = [
     `${navigation("‹", -1)} ${action("Select", "annotation.thread.select")} ${navigation("›", 1)} · ${action("Reply", "annotation.thread.reply")} · ${action(markCurrent(thread.lifecycle) ? "Seen" : "Bring back", "annotation.thread.lifecycle")}`,
-    `${thread.source} · ${placement === "inline" ? thread.currentResolution.status : placement} · ${thread.lifecycle}`,
+    [thread.source, placement === "inline" ? placementWords(thread.currentResolution.status) : placement, thread.lifecycle].filter(Boolean).join(" · "),
     scope,
     "",
     // A highlight has no body: it reads as one, with its tags, never as an empty comment.
