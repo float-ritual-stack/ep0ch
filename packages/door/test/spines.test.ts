@@ -359,7 +359,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     app.push(d);
     const D = d as any;
     // One tile with nothing to call itself yet (a title that is empty until its first read).
-    D.panes.get(D.idNamed("k1")).spine = () => ({ title: "" });
+    D.panes.get(D.idNamed("k1")).spine = () => ({ title: " \x1b[33m \x1b[0m" });
     for (const [i] of kinds.entries()) if (i > 0) await d.dispatch.act({ action: "tile.collapse", tile: `k${i}`, args: { on: true } }, USER);
     const lines = d.render(D.ctx).lines.map(plain);
     for (const [i, kind] of kinds.entries()) {
