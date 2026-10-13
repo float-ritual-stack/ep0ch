@@ -1975,7 +1975,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "section", args: { name: "deep-links" }, as: "test-agent" });
     await until(() => screen().includes("Greenhouse meeting, October"), "the deep links section");
     const r = await app.act({ action: "complete", args: { text: "!((Greenhouse meeting" }, tile: "guide", as: "test-agent" }) as any;
-    const labels = (r.candidates ?? r.items ?? []).map((c: any) => (c.label ?? c).toString().trim());
+    const labels: string[] = (r.candidates ?? r.items ?? []).map((c: any) => (c.label ?? c).toString().trim());
     expect(labels, labels.join("\n")).toContain("[!] What Cy said · adds ^what-cy-said");
     const meeting = seeded.notes.meeting.id;
     // The callout embedded whole, once it has its anchor.
