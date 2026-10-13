@@ -1730,7 +1730,8 @@ Answers `RenderedNote`.
 | Field | Type | |
 |---|---|---|
 | `outline?` | `string` | The outline's name; absent on a service that serves no named outline. |
-| `machine` | `string` | This host's machine name in `ep0ch://` URIs (the door's `canonicalLocalMachineName`). |
+| `machine` | `string` | This host's machine name in `ep0ch://` URIs (`canonicalLocalMachineName`: the name its person gave it, else its host name's). |
+| `aliases?` | `string[]` | Names this machine went by before it was given one (its host name's): older URIs and EchoNet marks still say them. |
 | `blockId?` | `string` |  |
 | `uri?` | `string` | `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. |
 | `published?` | `NotePublication` | Where the publisher serves it, when it is published (and not `[publish::never]`). |
