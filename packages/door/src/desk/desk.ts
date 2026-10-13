@@ -5362,12 +5362,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { x, y } = k.action === "down" ? near : this.pressedAt(o, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
-    // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as it does in a reader.
+    // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as ctrl+l does: in the detail the last one
+    // opened in, not a new one each time (besideEdit).
     if (k.action === "up") {
       if (this.editPressed !== pane) return false;
-      const fresh = this.editFresh;
+      const mod = this.editFresh;
       this.editPressed = null; this.editFresh = false;
-      pane.release(x, y, this, fresh ? (m, how) => this.setCurrent(m, { ...how, from: pane, fresh: true, reveal: true }) : undefined);
+      pane.release(x, y, this, mod ? (m, how) => this.setCurrent(m, { ...how, from: pane, reveal: true }) : undefined);
       return true;
     }
     // A drag in an open edit selects in its draft (the press placed the cursor).
