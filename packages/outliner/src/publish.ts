@@ -32,6 +32,7 @@ import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publ
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
 import { drawAnchors, placeAnchor } from "./publish-anchors";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
+import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
@@ -447,6 +448,11 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 #mg-sheet input.mg-find{box-sizing:border-box;width:100%;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.4rem .5rem;margin:0 0 .4rem}
 #mg-sheet .found{max-height:10rem;overflow-y:auto;margin:0 0 .5rem}
 #mg-sheet .found button{display:block;width:100%;text-align:left;margin:.2rem 0;min-height:40px;line-height:1.3}
+.mg-complete{background:#161615;border:1px solid var(--rule);border-radius:.5rem;margin:.35rem 0 0;max-height:13rem;overflow-y:auto}
+.mg-ui .mg-complete button{display:block;width:100%;text-align:left;min-height:44px;border:0;border-bottom:1px solid var(--rule);border-radius:0;background:none;padding:.35rem .6rem;line-height:1.3}
+.mg-ui .mg-complete button.on{background:#1d2026}
+.mg-complete .d{display:block;font-size:12px;color:var(--dim);overflow-wrap:anywhere}
+.mg-complete p{margin:.5rem .6rem;font-size:14px}
 #mg-toast a{color:var(--fg)}
 #mg-toast button{margin-left:.6rem;min-height:36px}
 mark.ann[data-ann],mark.ann[data-sub]{cursor:pointer}
@@ -468,21 +474,30 @@ mark.ann.on{outline:1px solid #6a7180}
 interface ReaderTag { src: string; webmcp?: string; api: string; page: string; blockId: string; full: boolean }
 
 /**
- * A page. `browse`: a tailnet page, with breadcrumbs (`nav` is them) and the folder list's style; `reader` also runs
- * the marginalia reader on it. Any other page is as it always was: a bar, the body, no script.
+ * Where a page's search box asks (publish-search.ts): the listener's or the share's base, and the page's note (the
+ * search's context). `form` false: the page draws its own box (the search page), and only the script is added.
  */
-function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean } = {}): string {
-  const { reader } = options;
-  const browse = options.browse || !!reader;
+interface SearchTag { base: string; near?: string; form?: boolean }
+
+/**
+ * A page. `browse`: a tailnet page, with breadcrumbs (`nav` is them) and the folder list's style; `reader` also runs
+ * the marginalia reader on it; `search` puts the search box above the breadcrumbs, with its script. Any other page is
+ * as it always was: a bar, the body, no script.
+ */
+function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag } = {}): string {
+  const { reader, search } = options;
+  const browse = options.browse || !!reader || !!search;
   // The reader first: it sets the polyfill's options, and registers its helpers once both have run.
-  const script = reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "";
+  const script = (reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "") +
+    (search ? `<script src="${escapeHtml(searchScriptPath(search.base))}" defer></script>` : "");
+  const box = search && search.form !== false ? searchForm(search.base, search.near ? { near: search.near } : {}) : "";
   const main = reader
     ? `<main class="browse reader" data-marginalia="${escapeHtml(reader.api)}" data-page="${escapeHtml(reader.page)}" data-note="${escapeHtml(reader.blockId)}"${reader.full ? ` data-view="full"` : ""}>`
     : browse ? `<main class="browse">` : "<main>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${browse ? BROWSE_STYLE : ""}</style>${script}</head>
-<body>${main}${browse ? nav : `<header class="bar">${nav}</header>`}
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${browse ? BROWSE_STYLE + SEARCH_STYLE : ""}</style>${script}</head>
+<body>${main}${box}${browse ? nav : `<header class="bar">${nav}</header>`}
 ${body}
 </main></body></html>
 `;
@@ -500,9 +515,9 @@ const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * d
  * talks only to this origin. No inline script, no eval, nothing from elsewhere: the page's own text is Markdown with
  * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
  */
-const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-/** The shares page: no script, and its forms post only to this origin. */
-const SHARES_CSP = RENDERED_CSP.replace("form-action 'none'", "form-action 'self'");
+const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+/** The shares and sessions pages: their forms post only to this origin, and the search box's script runs. */
+const SHARES_CSP = READER_CSP;
 /**
  * An attached `.html` file runs as authored, but in a sandbox without
  * `allow-same-origin`: its scripts get an opaque origin, so they cannot read
@@ -520,7 +535,7 @@ function renderedHtml(body: string, status = 200, csp = RENDERED_CSP): Response 
 }
 
 function notFound(): Response {
-  return respond("Not published\n", "text/plain; charset=utf-8", 404);
+  return respond("Not found\n", "text/plain; charset=utf-8", 404);
 }
 
 /**
@@ -674,6 +689,8 @@ export class Publisher {
       changed: (since, ms) => this.changed(since, ms),
       linkable: (ids, share) => this.linkableNotes(ids, share),
       find: (query, near, share) => this.findNotes(query, near, share),
+      // A share's tags are the outline's, so `#` completes on the tailnet only.
+      complete: async (line, column, near, share) => completeAt(this.searchHost(share ? await this.shareIndex(share) : await this.readIndex(), share), line, column, near, !share),
       log: this.log,
     });
   }
@@ -706,9 +723,9 @@ export class Publisher {
     if (!whole) return undefined;
     // A mark's own page (its id is a page like any block's) shows the mark itself; the marks on it are its threads.
     const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
-    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !mark(block)) }).filter((row) => !row.locked);
+    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !mark(block)) }, !share).filter((row) => !row.locked);
     const shown = new Set(rows.map((row) => row.block.id));
-    const annotations = new Map(shownSubtree(whole)
+    const annotations = new Map(shownSubtree(whole, !share)
       .filter((row) => !row.locked && row.block.id !== entry.blockId && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
       .map((row) => [row.block.id, row.block.parentId!] as const));
     const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
@@ -1060,6 +1077,8 @@ export class Publisher {
       }
       // Recent replies (a bookmark on the phone): every reply on his threads, newest first, the unread marked.
       if (audience === "tailnet" && (path === "/replies" || path === "/replies/")) return await this.serveReplies(await this.readIndex());
+      // Search, as the door's power bar finds notes (PIE-789): a page of results, or the box's results as JSON.
+      if (audience === "tailnet" && (path === "/search" || path === "/search/")) return await this.serveSearch(request);
       if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
@@ -1105,6 +1124,7 @@ export class Publisher {
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const media = MEDIA_PATH.exec(rest);
     if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share);
+    if (rest === "/search" || rest === "/search/") return this.serveSearch(request, share);
     const index = await this.shareIndex(share);
     const url = new URL(request.url);
     const view = url.searchParams.get("view");
@@ -1119,6 +1139,48 @@ export class Publisher {
     const entry = await this.entryAt(address, index, "tailnet");
     if (!entry || !(await this.inScope([entry.blockId], share)).has(entry.blockId)) return notFound();
     return this.serveEntry(entry.type === "block" ? entry : { ...entry, type: "block" }, index, shown, "tailnet", share);
+  }
+
+  /**
+   * Search (PIE-789): the service's one search (`tree.search`, the power bar's, from the note the page was on), as a page
+   * here may show its notes: on the tailnet every note but a locked one; inside a share only its notes. A page of
+   * results (it works with no script), or with `format=json` the box's results (publish-search.js).
+   */
+  private async serveSearch(request: Request, share?: PageShare): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    const url = new URL(request.url);
+    const near = url.searchParams.get("near")?.trim();
+    const from = near && BLOCK_ID.test(near) && (await this.openIds([near], share)).has(near) ? near : undefined;
+    const index = share ? await this.shareIndex(share) : await this.readIndex();
+    const answer = await searchNotes(this.searchHost(index, share), url.searchParams.get("q") ?? "", from);
+    if (url.searchParams.get("format") === "json") return respond(`${JSON.stringify(answer)}\n`, "application/json; charset=utf-8");
+    const base = share?.base ?? this.basePath;
+    const top = share?.scope.kind === "note" ? noteTitle(share.scope.title) || "shared note" : this.rootLabel();
+    const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(top)}</a> / <span>Search</span></nav>`;
+    const page = htmlPage(answer.query ? `${answer.query} · search` : "Search", searchResultsHtml(answer, base, from), crumbs, { search: { base, form: false } });
+    return renderedHtml(page, 200, READER_CSP);
+  }
+
+  /** What a search or a comment box's completion on this page may show and link (publish-search.ts). */
+  private searchHost(index: PublishedIndex, share?: PageShare): SearchHost {
+    const base = share?.base ?? this.basePath;
+    return {
+      request: (request) => this.client.request(request as never),
+      shown: (ids) => this.openIds(ids, share),
+      href: (blockId) => `${base}${index.entries.find((entry) => entry.blockId === blockId)?.path ?? `/p/${encodeURIComponent(blockId)}`}`,
+      crumbs: !share || share.scope.kind === "outline",
+    };
+  }
+
+  /** Which of `ids` a page here shows: live (not in Trash), not locked, and inside the share when there is one. */
+  private async openIds(ids: readonly string[], share?: PageShare): Promise<Set<string>> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return new Set();
+    const gone = new Set<string>();
+    const locked = await this.lockedIds(unique, gone);
+    let open = unique.filter((id) => !locked.has(id) && !gone.has(id));
+    if (share) { const inside = await this.inScope(open, share); open = open.filter((id) => inside.has(id)); }
+    return new Set(open);
   }
 
   /**
@@ -1163,7 +1225,7 @@ export class Publisher {
     const body = `<article>\n<h1>Sessions</h1>\n<p class="dim">Browsers signed in to the web client. Each lasts 30 days from its last use; Revoke ends it now. The same as <code>ep0ch web sessions</code> and <code>ep0ch web revoke &lt;id&gt;|--all</code>.</p>\n${list}</article>\n` +
       `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
     const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Sessions</span></nav>`;
-    return renderedHtml(htmlPage("Sessions", body, crumbs, { browse: true }), 200, SHARES_CSP);
+    return renderedHtml(htmlPage("Sessions", body, crumbs, { search: { base } }), 200, SHARES_CSP);
   }
 
   /**
@@ -1230,7 +1292,7 @@ export class Publisher {
     const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Short-lived public links. Each ends by itself; Revoke ends it now.</p>\n${start}${list}</article>\n` +
       `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
     const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Shares</span></nav>`;
-    return renderedHtml(htmlPage("Shares", body, crumbs, { browse: true }), 200, SHARES_CSP);
+    return renderedHtml(htmlPage("Shares", body, crumbs, { search: { base } }), 200, SHARES_CSP);
   }
 
   /**
@@ -1300,16 +1362,19 @@ export class Publisher {
     // On the tailnet a note's page is a folder that is also a file (PIE-775): its own text, then its children as
     // links. `?view=full` is the whole subtree on one page, as a public page always is.
     if (audience === "tailnet" && asHtml) return this.serveFolder(entry, index, share);
+    // The tailnet listener (and the sign-in one) is the owner reading his own outline: nothing is gated by `[publish::]`
+    // there but the `never` lock. A share link and the public listener are what publishing is for.
+    const owner = audience === "tailnet" && !share;
     if (asHtml || (audience === "tailnet" && view === "full")) {
       const browse = audience === "tailnet";
-      const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, ...(share ? { share } : {}) });
+      const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
       const article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, browse), rendered.anchors), rendered.index, base);
       if (!browse) return renderedHtml(this.page(entry, article, audience));
       const crumbs = await this.crumbs(entry, index, true, share);
-      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share) }), 200, READER_CSP);
+      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
     }
-    const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown", ...(share ? { share } : {}) });
+    const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown", owner, ...(share ? { share } : {}) });
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
   }
 
@@ -1325,10 +1390,14 @@ export class Publisher {
       if ((await this.lockedIds([entry.blockId])).size) return notFound();
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
-      const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, ...(share ? { share } : {}) });
+      const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, ...(share ? { share } : {}) });
       article = htmlViewLinks(drawAnchors(drawMarginalia(drawComponents(renderMarkdownHtml(rendered.markdown, await this.callouts()), rendered.components), rendered.marks, true), rendered.anchors), rendered.index, base);
     }
-    const all = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
+    const listedHere = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
+    // The outline's own views (Trash, Bookmarks) aren't notes to browse: Bookmarks is a quiet link at the top level's
+    // foot, and Trash is nowhere (a note in Trash is never a page).
+    const system = listedHere.filter(isSystemView);
+    const all = listedHere.filter((block) => !isSystemView(block));
     // Views draw their rows (PIE-397's `views.read`): the note's own when it is one, and its view children as lanes,
     // side by side when it is a hub (two or more), a lane of their own in the list's place otherwise.
     const host = this.liveHost("tailnet", index, base, share);
@@ -1361,13 +1430,15 @@ export class Publisher {
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
       : "";
-    const top = share ? "" : `<footer><a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
+    const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
+    const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
     const body = `<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
     const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.rootLabel())}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
+    const search = { base, ...(entry ? { near: entry.blockId } : {}) };
     return entry
-      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share) }), 200, READER_CSP)
-      : renderedHtml(htmlPage(title, body, crumbs, { browse: true }));
+      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share), search }), 200, READER_CSP)
+      : renderedHtml(htmlPage(title, body, crumbs, { search }), 200, READER_CSP);
   }
 
   /**
@@ -1418,7 +1489,7 @@ export class Publisher {
     const body = `<article>\n<h1>Recent replies</h1>\n<p class="dim">${unreadCount ? `${unreadCount} unread · ` : ""}replies on your threads, newest first. Opening one marks its thread read.</p>\n</article>\n` +
       `<section class="inside">${list}</section>\n<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
     const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Recent replies</span></nav>`;
-    return renderedHtml(htmlPage("Recent replies", body, crumbs, { browse: true }));
+    return renderedHtml(htmlPage("Recent replies", body, crumbs, { search: { base } }), 200, READER_CSP);
   }
 
   /** Breadcrumbs from the outline's top level down to `entry`, each a link but the note itself (on its full page, a link back to the folder). */
@@ -1643,10 +1714,12 @@ export class Publisher {
   /**
    * Which of `ids` are locked: the block or any ancestor carries
    * `[publish::never]`. Walks up one level per request, all ids together. A
-   * chain it cannot finish counts as locked.
+   * chain it cannot finish counts as locked. A missing or trashed block isn't locked: `gone` says which those are.
    */
-  private async lockedIds(ids: readonly string[]): Promise<Set<string>> {
+  private async lockedIds(ids: readonly string[], gone?: Set<string>): Promise<Set<string>> {
     const known = await this.walkUp(ids);
+    // `gone`, when asked for, collects those that are missing or in Trash.
+    if (gone) for (const id of ids) if (known.get(id) === null) gone.add(id);
     const decided = new Map<string, boolean>();
     const isLocked = (id: string, depth = 0): boolean => {
       const cached = decided.get(id);
@@ -1747,7 +1820,7 @@ export class Publisher {
    * that takes comments) an embedded mark is shown whoever wrote it: a reply @margin wrote is a mark, not an
    * extension's record.
    */
-  private async readEmbeds(texts: readonly string[], hostBlockId: string, marksReadable: boolean, shareable?: ShareableNotes, share?: PageShare): Promise<EmbedExpansion | undefined> {
+  private async readEmbeds(texts: readonly string[], hostBlockId: string, marksReadable: boolean, shareable?: ShareableNotes, share?: PageShare, owner = false): Promise<EmbedExpansion | undefined> {
     const targets = texts.flatMap((text) => embedMatches(text)
       .map((match) => ({ blockId: match[1]!, ...(match[2] ? { fragmentId: match[2] } : {}) })));
     if (!targets.length) return undefined;
@@ -1762,7 +1835,8 @@ export class Publisher {
     for (const node of read.results) visit(node);
     const extensionBlocks = new Map([...ids].flatMap((id) => {
       const block = read.blocks[id];
-      const extension = block && !(marksReadable && isAnnotationBlock(block)) ? extensionSource(block) : undefined;
+      // The owner's pages show an extension's data as any note: it's his outline.
+      const extension = block && !owner && !(marksReadable && isAnnotationBlock(block)) ? extensionSource(block) : undefined;
       return extension ? [[id, extension] as const] : [];
     }));
     // A public note embedded here is read again: the index may be seconds old, and `public` holds per request.
@@ -1848,9 +1922,11 @@ export class Publisher {
    */
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
-    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; format?: "markdown" | "html"; share?: PageShare } = {},
+    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; owner?: boolean; format?: "markdown" | "html"; share?: PageShare } = {},
   ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[] }> {
     const { share } = options;
+    // The owner's own pages (the tailnet, signed in): `[publish::false]` and extensions' data aren't held back there.
+    const owner = !!options.owner && !share;
     const base = options.base ?? share?.base ?? this.basePathFor(audience);
     const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
@@ -1859,19 +1935,19 @@ export class Publisher {
     });
     // A mark's own page shows the mark (its id opens like any block's); the marks on it are drawn on its words.
     const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
-    const annotationRows = shownSubtree(whole).filter((row) => !row.locked && mark(row.block));
+    const annotationRows = shownSubtree(whole, owner).filter((row) => !row.locked && mark(row.block));
     const subtree = { ...whole, blocks: whole.blocks.filter((block) => !mark(block)) };
-    const rows = shownSubtree(subtree).filter((row) => !row.locked);
+    const rows = shownSubtree(subtree, owner).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
     const marksReadable = share ? share.comments : audience === "tailnet";
-    const embeds = await this.readEmbeds(shown, entry.blockId, marksReadable, this.shareable(audience, index, rows.map((row) => row.block.id)), share);
+    const embeds = await this.readEmbeds(shown, entry.blockId, marksReadable, this.shareable(audience, index, rows.map((row) => row.block.id)), share, owner);
     const { decorations, lines } = await this.readProjections(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
     const marks = withMarks ? await this.readMarks(rows.map((row) => row.block), annotationRows.map((row) => row.block)) : new Map();
     const order: PublishedAnnotation[] = [];
     let linked = await this.linkable(index, shown, pages, embeds, audience);
-    // On a tailnet page every note it names is a page too (PIE-782), not only published ones.
-    if (options.browse) linked = await this.browseIndex(linked, shown, pages, embeds);
+    // On a tailnet page every note it names is a page too (PIE-782), not only published ones; so in its Markdown.
+    if (options.browse || owner) linked = await this.browseIndex(linked, shown, pages, embeds);
     // Inside a share, a link goes only to a note inside it; any other is its label.
     if (share?.scope.kind === "note") {
       const inside = await this.inScope(linked.entries.map((candidate) => candidate.blockId), share);
@@ -1895,7 +1971,7 @@ export class Publisher {
       { id: entry.blockId, title: entry.title });
     // A tailnet page knows where each block is (publish-anchors.ts); Markdown and public pages carry nothing extra.
     const anchors: string[] = [];
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined, drawn);
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined, drawn, owner);
     return { markdown, marks: order, index: linked, components, anchors };
   }
 
@@ -1907,13 +1983,10 @@ export class Publisher {
   private liveHost(audience: PublishAudience, index: PublishedIndex, base: string, share?: PageShare): LiveHost {
     return {
       request: (request) => this.client.request(request as never),
+      // A note in Trash is never a row: a view of deleted notes (Trash itself) draws none of them.
       shown: async (ids) => {
-        const unique = [...new Set(ids)];
-        if (!unique.length) return new Set();
-        const locked = await this.lockedIds(unique);
-        let open = unique.filter((id) => !locked.has(id));
-        if (share) { const inside = await this.inScope(open, share); open = open.filter((id) => inside.has(id)); }
-        else if (audience === "public") { const shared = await this.publicNow(open); open = open.filter((id) => shared.has(id)); }
+        let open = [...await this.openIds(ids, share)];
+        if (!share && audience === "public") { const shared = await this.publicNow(open); open = open.filter((id) => shared.has(id)); }
         return new Set(open);
       },
       titles: async (ids) => new Map([...await this.titles([...new Set(ids)])].map(([id, title]) => [id, noteTitle(title)])),
@@ -2023,7 +2096,7 @@ export class Publisher {
   /** An attached markdown file rendered: its `((block))` and `[[page]]` links and its embeds, as a block's. */
   private async attachedMarkdown(entry: PublishedEntry, index: PublishedIndex, text: string, audience: PublishAudience): Promise<string> {
     const pages = await this.resolvePages([text]);
-    const embeds = await this.readEmbeds([text], entry.blockId, audience === "tailnet", this.shareable(audience, index, [entry.blockId]));
+    const embeds = await this.readEmbeds([text], entry.blockId, audience === "tailnet", this.shareable(audience, index, [entry.blockId]), undefined, audience === "tailnet");
     const linkable = await this.linkable(index, [text], pages, embeds, audience);
     return publishedText(text, { index: linkable, basePath: this.basePathFor(audience), pages, ...(embeds ? { embeds } : {}) }, { keepProperties: true });
   }
@@ -2101,7 +2174,7 @@ function renderEmbed(node: TransclusionNode | undefined, context: TextContext): 
   if (expansion.locked.has(node.blockId)) return placeholder(LOCKED_NOTE);
   const hidden = expansion.extensionHidden?.get(node.blockId);
   if (hidden) return placeholder(EXTENSION_HIDDEN(hidden));
-  if (node.kind === "view") return expansion.views?.get(node.blockId) ?? placeholder("a view; views are not published");
+  if (node.kind === "view") return expansion.views?.get(node.blockId) ?? placeholder("a view, not drawn here");
   const block = expansion.read.blocks[node.blockId];
   if (!block) return placeholder("missing note");
   // A mark shows its own words, from its title's line: not its generated heading and the store's line under it.
@@ -2233,12 +2306,6 @@ function browseEntry(block: ProjectedBlock, index: PublishedIndex): PublishedEnt
   const path = notePath(block, index);
   return { blockId: block.id, title: noteTitle(block.title ?? "") || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
 }
-
-/** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
-const summaryWords = (raw: string, titleOf: (blockId: string) => string | undefined = () => undefined) =>
-  plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf)
-    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
-    .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 
 /** The line a folder row summarises a note by: its first line of text after the title. */
 function summarySource(text: string): string | undefined {
@@ -2375,6 +2442,11 @@ function readerIndex(index: PublishedIndex): PublishedIndex {
   };
 }
 
+/** One of the outline's own views (`[system-view::trash]`, `bookmarks`): the service keeps it, nobody wrote it to read. */
+function isSystemView(block: Block): boolean {
+  return isVirtualBranchDefinition(block) && !!getProperty(block.properties, "system-view");
+}
+
 /** An annotation or a reply: drawn on its passage, never listed as a row of the note. */
 function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): boolean {
   const type = getProperty(block.properties ?? [], "type");
@@ -2387,9 +2459,10 @@ function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): bo
  * no/off/0) is left out with its own subtree; one marked `[publish::never]`
  * is a locked row (its place says "locked note") and its subtree is left out.
  * A block whose chain to the root is not in the result is left out. Decided
- * per block, not by result order.
+ * per block, not by result order. For the `owner` (his own pages on the tailnet or signed in) only the `never` lock
+ * holds: a `[publish::false]` block and an extension's records are shown as any other.
  */
-export function shownSubtree(subtree: ProjectedBlockCollection): Array<{ block: ProjectedVisibleBlock; locked: boolean }> {
+export function shownSubtree(subtree: ProjectedBlockCollection, owner = false): Array<{ block: ProjectedVisibleBlock; locked: boolean }> {
   const [root, ...descendants] = subtree.blocks;
   if (!root) return [];
   const byId = new Map(subtree.blocks.map((block) => [block.id, block]));
@@ -2407,9 +2480,9 @@ export function shownSubtree(subtree: ProjectedBlockCollection): Array<{ block: 
       return !!at && depth <= subtree.blocks.length &&
         (publishesExtension(at.properties ?? [], extension!) || optedIn(at.parentId, depth + 1));
     };
-    const value: Decision = parent === undefined || decide(parent) !== "shown" || intent === "off" ? "hidden"
+    const value: Decision = parent === undefined || decide(parent) !== "shown" || (intent === "off" && !owner) ? "hidden"
       // An extension's annotation (marginalia's highlight) is a mark on the words, not a record the extension keeps.
-      : extension && !isAnnotationBlock(block) && !optedIn(block.id) ? "hidden"
+      : extension && !owner && !isAnnotationBlock(block) && !optedIn(block.id) ? "hidden"
       : intent === "never" ? "locked" : "shown";
     decided.set(block.id, value);
     return value;
@@ -2437,8 +2510,9 @@ export function renderSubtreeMarkdown(
   under: ReadonlyMap<string, ReadonlyMap<number, string>> = new Map(),
   anchors?: string[],
   drawn: ReadonlyMap<string, ReadonlyMap<number, DrawnComponent>> = new Map(),
+  owner = false,
 ): string {
-  const [rootRow, ...rows] = shownSubtree(subtree);
+  const [rootRow, ...rows] = shownSubtree(subtree, owner);
   if (!rootRow) return "";
   const root = rootRow.block;
   const context: TextContext = { index, basePath, pages, ...(embeds ? { embeds } : {}) };

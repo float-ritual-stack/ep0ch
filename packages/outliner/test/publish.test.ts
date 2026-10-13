@@ -121,33 +121,40 @@ test("slug collisions resolve by age and show in the index", async () => {
   expect(assignPaths(blocks).map((entry) => entry.slug)).toEqual(["moths", `moths~${second.id.slice(0, 8)}`]);
 });
 
-test("a block without an attachment renders its subtree as markdown, leaving out [publish::false] branches", async () => {
-  const { store, get } = await setup();
+test("a block without an attachment renders its subtree as markdown: the public never gets a [publish::false] branch, the owner on the tailnet does", async () => {
+  const { store, get, publisher } = await setup();
   const hidden = store.create("Neighbour's gate code");
   const census = store.create("Pollinator census [publish::census] [page::Pollinator census]");
-  const plan = store.create(`Moth garden plan [publish::true] [page::Moth Garden] [owner::fern]\nPlant for the night shift.`);
+  const plan = store.create(`Moth garden plan [publish::public:moth-garden] [page::Moth Garden] [owner::fern]\nPlant for the night shift.`);
   const beds = store.create(`Beds [zone::north]\nsee ((${census.id})) and ((${hidden.id}))`, plan.id);
   store.create("Evening primrose", beds.id);
   const draft = store.create("Budget draft [publish::no]", plan.id);
   store.create("Seed invoice numbers", draft.id);
   store.create("Links to [[Pollinator census]] and [[Nowhere]]", plan.id);
 
-  const response = await get("/p/moth-garden");
+  const response = await publisher.handle(new Request("http://127.0.0.1/share/p/moth-garden"), "public");
   const markdown = await response.text();
   expect(markdown).toBe([
     "# Moth garden plan",
     "Plant for the night shift.",
     "",
     "- Beds",
-    `  see [Pollinator census](/p/census) and unpublished note`,
+    `  see unpublished note and unpublished note`,
     "  - Evening primrose",
-    "- Links to [Pollinator census](/p/census) and Nowhere",
+    "- Links to Pollinator census and Nowhere",
     "",
   ].join("\n"));
   expect(markdown).not.toContain("gate code");
   expect(markdown).not.toContain("Budget");
   expect(markdown).not.toContain("invoice");
   expect(markdown).not.toContain("::");
+
+  // The tailnet (and the signed-in web client) is the owner reading his own outline (PIE-789): the whole subtree, and
+  // every note it names is a page.
+  const own = await (await get("/p/moth-garden")).text();
+  expect(own).toContain(`see [Pollinator census](/p/census) and [Neighbour's gate code](/p/${hidden.id})`);
+  expect(own).toContain("- Budget draft\n  - Seed invoice numbers");
+  expect(own).not.toContain("::");
 
   // The whole subtree on one page: `?view=full` on the tailnet, where `?view=html` is the note's folder page.
   const html = await (await get("/p/moth-garden?view=full")).text();
@@ -367,9 +374,10 @@ test("titles and links never show an unpublished block's id or text; embeds show
   const census = store.create("Pollinator census [publish::census]");
   store.create(`Walk notes ((${hidden.id})) and !((${hidden.id})) and !((${census.id})) [publish::public:walk]`);
 
+  // On the tailnet (the owner, PIE-789) the reference is a link to the note's page; the public's names nothing.
   const markdown = await (await get("/p/walk")).text();
   expect(markdown).toBe([
-    "# Walk notes unpublished note and",
+    `# Walk notes [Neighbour's gate code 4471](/p/${hidden.id}) and`,
     "",
     "> Neighbour's gate code 4471",
     "> under the flowerpot",
@@ -386,7 +394,9 @@ test("titles and links never show an unpublished block's id or text; embeds show
   expect(html).toContain("<blockquote>");
   // An embed is never markdown's image syntax.
   expect(html).not.toContain("<img");
-  for (const body of [markdown, html]) expect(body).not.toContain(hidden.id);
+  const shared = await (await publisher.handle(new Request("http://127.0.0.1/share/p/walk"), "public")).text();
+  expect(shared).toStartWith("# Walk notes unpublished note and");
+  for (const body of [shared, html]) expect(body).not.toContain(hidden.id);
   // The index lists titles only: an embedded note's text never reaches it.
   for (const body of [await (await get("/index.json")).text(), await (await get("/index.txt")).text(), await (await get("/")).text()]) {
     expect(body).not.toContain(hidden.id);
@@ -509,7 +519,8 @@ test("any [publish::false] token wins over another [publish::…] on the same bl
   store.create("Escaped \\[publish::escaped]");
   const index = await (await get("/index.json")).json() as PublishedIndex;
   expect(index.entries.map((entry) => entry.slug)).toEqual(["pond"]);
-  expect(await (await get("/p/pond")).text()).toBe("# Pond survey\n");
+  // Under a published note, the owner's tailnet page still shows it (PIE-789); the index doesn't list it.
+  expect(await (await get("/p/pond")).text()).toBe("# Pond survey\n\n- Private tally\n");
 });
 
 test("rendered pages carry no script: raw html is text, script links are dropped", async () => {
@@ -524,6 +535,7 @@ test("rendered pages carry no script: raw html is text, script links are dropped
   expect(page.match(/<script[^>]*>/g)).toEqual([
     expect.stringMatching(/^<script src="\/_marginalia\/reader\.js\?v=[0-9a-f]+" defer>$/),
     expect.stringMatching(/^<script src="\/_marginalia\/webmcp\.js\?v=[0-9a-f]+" defer>$/),
+    expect.stringMatching(/^<script src="\/_marginalia\/search\.js\?v=[0-9a-f]+" defer>$/),
   ]);
   const html = page.replace(/<script[^>]*><\/script>/g, "");
   expect(html).not.toContain("<script");
@@ -1011,7 +1023,7 @@ test("open highlights and margin notes are drawn read-only on the HTML page; res
   expect(raw).toBe("# Greenhouse plan\n\nWater the tomatoes at dawn. Vent the **roof when** warm. Stake the beans.\n");
 });
 
-test("an annotation marked [publish::false] or under a [publish::never] row is not drawn", async () => {
+test("an annotation under a [publish::never] row is not drawn; one marked [publish::false] is the owner's to read on the tailnet", async () => {
   const { store, get } = await setup();
   const note = store.create("Seed shed [publish::true]\n\nLabel the trays.");
   const locked = store.create("Private bench [publish::never]\n\nThe spare key is under the pot.", note.id);
@@ -1021,8 +1033,7 @@ test("an annotation marked [publish::false] or under a [publish::never] row is n
   ]).annotations;
   expect(hidden).toBeDefined();
   const html = await (await get(`/p/${note.id}?view=html`)).text();
-  expect(html).not.toContain("<mark");
-  expect(html).not.toContain("Mine only");
+  expect(html).toContain("Mine only");
   expect(html).not.toContain("Move the key");
   expect(html).not.toContain("spare key");
 });

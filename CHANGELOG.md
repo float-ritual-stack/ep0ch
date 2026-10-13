@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The web client is your own reader (PIE-789)
+
+- **New:** a search box on every web page, on the tailnet and signed in at my.ep0ch.sh: the door's power bar search,
+  nearest notes first, each result its title, the line that matched and where it sits. `/` or ctrl+k opens it; on a
+  phone it's a sheet. A share link searches only what it shares.
+- **New:** `[[`, `((` and `#` complete in the web's comment and reply boxes, writing what the door writes.
+- **Changed:** on the tailnet and signed in, nothing is held back by `[publish::]` but `[publish::never]`: a
+  `[publish::false]` note, an extension's records ("… data, not published") and links to unpublished notes all show.
+  The public listener and share links hold back as before.
+- **Changed:** an outline's top level lists its notes; Trash and Bookmarks are no longer drawn as a board (Bookmarks is
+  a link at its foot), and a note in Trash never shows as an "untitled" row.
+
 ### The web client at my.ep0ch.sh, signed in
 
 - **New:** the tailnet's web client, whole, at `https://my.ep0ch.sh` behind a sign-in (GitHub through Clerk, only the

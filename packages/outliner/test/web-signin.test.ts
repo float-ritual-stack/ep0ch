@@ -208,6 +208,21 @@ test("a sign-in through Clerk lands on the page asked for, with a 30-day HttpOnl
   expect((await web.handle(new Request("https://rebound.example/pub/o/", { headers: { host: "rebound.example", ...html } }))).status).toBe(421);
 });
 
+test("signed in, it is the owner's reader (PIE-789): search in every outline and completion in the comment box, as on the tailnet", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  const found = await (await at(gate, "/pub/search?q=elephant+hawk", { cookie })).text();
+  expect(found).toContain(`href="/pub/p/${survey.id}"`);
+  expect(found).toContain("<b>elephant</b>");
+  const orchard = await (await at(gate, "/pub/o/orchard/search?q=old+pear", { cookie })).text();
+  expect(orchard).toContain("Pruning plan");
+  expect(orchard).toContain('action="/pub/o/orchard/search"');
+  const line = "see [[Field";
+  const completed = await (await at(gate, `/pub/_marginalia/complete?${new URLSearchParams({ line, col: String(line.length), page: survey.id })}`, { cookie, headers: { accept: "application/json" } })).json() as { items: { insertion: string }[] };
+  expect(completed.items[0]!.insertion).toBe("[[Field Notes]]");
+  for (const path of ["/pub/", `/pub/p/${survey.id}`, `/pub/p/${survey.id}?view=full`]) expect(await (await at(gate, path, { cookie })).text()).not.toMatch(/not published/i);
+});
+
 test("a write needs this origin as well as the session; a comment from the page lands as the person's", async () => {
   const gate = gateFor();
   const { cookie } = await signIn(gate);
