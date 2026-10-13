@@ -7,7 +7,7 @@
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
-import { ActionRefused, actionSet, def, agentLabel, asActor } from "../surface/actions";
+import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreview, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
@@ -231,7 +231,7 @@ export class Lanes implements SourceModel {
 
   /** The screen's hint here: the card trashed last before it (u restores it), what the board is doing after. */
   decorate(hint: string): string {
-    const undo = this.trashed ? chip(C.red) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${this.trashed.by})` : ""} · u restores ` + RESET + " " : "";
+    const undo = this.trashed ? chip(C.red) + ` TRASHED "${this.trashed.title}"${this.trashed.by ? ` by an agent (${agentWords(this.trashed.by)})` : ""} · u restores ` + RESET + " " : "";
     return undo + hint + (this.status && this.lanes.length ? paint(` · |14${this.status}`) : "");
   }
 

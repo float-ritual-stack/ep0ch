@@ -87,7 +87,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const now = (await board.get(note.id))!;
     expect(now.text).toContain(REMOTE_LINE);
     const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
-    expect(proposal?.text).toContain("from @mcp:chat.example.test: not applied, because its writer may propose changes here, not make them");
+    expect(proposal?.text).toContain("from @chat.example.test: not applied, because its writer may propose changes here, not make them");
     // Beside the note (PIE-725): its text names no proposal.
     expect(now.text).not.toContain(proposal!.id);
     expect((await board.comments(note.id))).toEqual([expect.objectContaining({ body: "Was that the peat-free kind?", quote: "two bags of compost", open: true })]);
@@ -519,6 +519,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // A persona within its principal is said with it (PIE-679).
     await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Seeds ordered.", requestId: "showcase-persona" } }, { level: "full", actor: actorOf({ sub: "stdio", clientId: "claude-code" }, { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki" }, "float-2"), uri: id => id });
     await until(() => String((app as any).message).startsWith("loki (claude-code@float-2) commented on"), "the persona said with its principal", 8000);
+    // A folder's .ep0ch names who works in it (ADR 0003): a stdio write from there carries that persona, recorded, never refused.
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const folder = mkdtempSync(`${tmpdir()}/showcase-persona-`);
+    try {
+      writeFileSync(`${folder}/.ep0ch`, 'ws = "showcase"\nagent = "testbot"\n');
+      await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Beds weeded.", requestId: "showcase-folder-persona" } }, { level: "full", actor: actorOf({ sub: "stdio", clientId: "claude-code", folder }, {}, "float-2"), uri: id => id });
+      await until(() => String((app as any).message).startsWith("testbot (claude-code@float-2) commented on"), "the folder's persona said with its principal", 8000);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
@@ -2962,7 +2971,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const queued = els.elements.find((e: any) => e.kind === "figure" && e.label.startsWith("queued"));
     expect(await app.act({ action: "element.open", tile: "2", args: { n: queued.n }, as: "test-agent" })).toMatchObject({ tab: "queued" });
     expect(await app.act({ action: "figure.tab", tile: "2", args: { tab: "doing" }, as: "test-agent" })).toMatchObject({ tab: "doing" });
-    // Density: compact cuts the long title with …; cozy wraps it to two lines, hanging past "PLOT-3 — "; comfortable three.
+    // Density: compact cuts the long title with …; cozy wraps it to two lines, hanging past "PLOT-3 — "; comfortable all of it.
     await until(() => half().includes("PLOT-3 — Mend"), "the review tab");
     expect(half()).toMatch(/PLOT-3 — Mend the netting[^\n]*…/);
     expect(await app.act({ action: "figure.density", tile: "1", args: { to: "cozy" }, as: "test-agent" })).toMatchObject({ density: "cozy" });
@@ -2977,6 +2986,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => half().includes("≡ comfortable"), "comfortable");
     h = hang();
     expect(h.third.slice(textAt, textAt + 1)).toMatch(/\S/);
+    // The whole title: no … on any of its lines.
+    {
+      const rows = half().split("\n"), i = rows.findIndex(r => r.includes("PLOT-3 — Mend")), at = rows[i]!.indexOf("PLOT-3");
+      const cellOf = (r: string) => { const rest = r.slice(at), end = rest.search(/[┊│]/); return end < 0 ? rest : rest.slice(0, end); };
+      const cells: string[] = [];
+      for (let j = i; j < rows.length && cellOf(rows[j]!).trim(); j++) cells.push(cellOf(rows[j]!).trim());
+      expect(cells.length).toBeGreaterThanOrEqual(3);
+      expect(cells.join(" ")).not.toContain("…");
+    }
     await expect(app.act({ action: "figure.density", tile: "1", args: { to: "roomy" }, as: "test-agent" })).rejects.toThrow(/compact, cozy, comfortable/);
     // The person, by keys: into the stage (the left reader), [ ] onto the first element (a tab), → and tab step on.
     await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });

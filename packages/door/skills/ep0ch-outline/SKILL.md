@@ -85,10 +85,11 @@ comment on the passage to change (`outline_comment` with the `quote`); the other
 changes only the thread, so a `propose` outline allows it. Check the thread's last comment before answering: nothing
 records whether a comment wants an answer. `outline_threads` with no note is the inbox (open threads anywhere,
 `lastFrom`, `mentions`, `since`): a scheduled check calls that. Each agent writes under its own name (the gateway's
-persona, the mod's `OUTLINER_ACTOR` or `EP0CH_AGENT`), so a thread shows who said what. A comment or reply already posted
-(yours, or one the person asks you to fix) is edited in place, not answered with a correction: `outline_reply` with
-`edit` (its id) and `observed` (its words as you read them). A comment that changed since is refused; read it again.
-It stays its author's and says "edited by" you.
+persona, `OUTLINER_ACTOR` or `EP0CH_AGENT`, else the folder's `.ep0ch` `agent = "<name>"`), so a thread shows who said
+what: the persona first, its principal (`claude-code@<machine>`) one step away. A comment or reply already
+posted (yours, or one the person asks you to fix) is edited in place, not answered with a correction: `outline_reply`
+with `edit` (its id) and `observed` (its words as you read them). A comment that changed since is refused; read it
+again. It stays its author's and says "edited by" you.
 
 On a page two agents work on, put the items that change (steps, outbox items) in child blocks, each with its own
 revision, so concurrent edits rarely collide.
@@ -335,7 +336,7 @@ Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `upda
 as numbers, blocks without it come last; a saved view sorts the same way with `[sort::due]`, and so does
 `ep0ch find --query … --sort due --direction asc`. A bad sort shows its
 refusal in the figure. For a ranking someone sets by hand, use a view's hand-set order instead (below). A `table` or `tabs` takes
-`density: compact | cozy | comfortable` (titles on one line, up to two, up to three with a blank line between rows;
+`density: compact | cozy | comfortable` (titles on one line, up to two cut with `…`, or whole with a blank line between rows;
 a wrapped title hangs past its work id); it is only the default: the person switches tabs and density in their
 reader (`figure.tab`, `figure.density`), which never writes the note. Group a long status list into one `tabs`
 figure rather than one table per status:

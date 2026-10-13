@@ -46,11 +46,11 @@ import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
+import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy, type EditFrame } from "./editor";
@@ -297,7 +297,7 @@ interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
   /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
-  title: { row: number; text: string; ink: string; big: boolean; col: number } | null;
+  title: { row: number; rows: number; text: string; ink: string; big: boolean; col: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
 }
@@ -663,7 +663,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -1072,7 +1072,7 @@ export class NoteSurface {
    */
   private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
     // The Work ID heads the title line (PIE-809), not this one.
-    const meta = [m.author ?? "?", bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
+    const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
@@ -1109,11 +1109,15 @@ export class NoteSurface {
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
-    const first = this.printed ? 1 : big ? 3 : 2;
+    // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
+    // here was the bug). The Work ID keeps the accent at the start of the first line.
+    const lines = big || width(title) <= w ? [title] : wrap(title, w);
+    const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
+    const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = (named.workId ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${named.title}`, w) : ink + pad(title, w)) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
 
   /**
@@ -1128,7 +1132,7 @@ export class NoteSurface {
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    this.headerSurface(lines, lines.length, w, shade, title ? [title.row] : []);
+    this.headerSurface(lines, lines.length, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
   }
 
@@ -1275,7 +1279,7 @@ export class NoteSurface {
     head.push(...unsentHead.lines,
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
-      ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
+      ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
@@ -1367,7 +1371,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
@@ -1469,7 +1473,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade, title ? (title.big ? [title.row, title.row + 1] : [title.row]) : []);
+    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.big ? 2 : title.rows }, (_, i) => title.row + i) : []);
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
@@ -3597,7 +3601,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${c.author}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` });
     }
     return out;
   }
@@ -5327,7 +5331,8 @@ export class NoteSurface {
     if (!d || !m || !rows) return null;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
-      if (r === 0) lines.push(Math.max(0, titleLine(m.text).line));   // the subject line
+      // The title's rows, wrapped (PIE-815): the subject line.
+      if (r >= d.titleRows[0] && r < d.titleRows[1]) lines.push(Math.max(0, titleLine(m.text).line));
       else if (r >= d.top) { const b = d.doc.source[r - d.top], l = b === undefined ? undefined : d.lines[b]; if (l !== undefined) lines.push(l); }
     }
     if (!lines.length) return null;
@@ -5337,7 +5342,7 @@ export class NoteSurface {
     const seen = s.text(rows);
     // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
     let r0 = s.start.row;
-    const lineOfRow = (r: number) => (r === 0 ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
+    const lineOfRow = (r: number) => (r >= d.titleRows[0] && r < d.titleRows[1] ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
     while (r0 > d.top && lineOfRow(r0 - 1) === lo) r0--;
     const before = s.start.col > (rows.margin?.(s.start.row) ?? 0) || r0 < s.start.row
       ? new Selection({ row: r0, col: rows.margin?.(r0) ?? 0 }, { row: s.start.row, col: s.start.col - 1 }).text(rows) : "";
@@ -5842,7 +5847,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
-  const title = ` ${c.open ? "■" : "·"} ${printable(c.author)} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const title = ` ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
   const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
@@ -5867,7 +5872,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   for (const r of c.replies) {
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
-    const head = "└ " + printable(r.author) + " · " + ago(r.at) + editedMark(r);
+    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
     let tail = "", col = 2 + width(head);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
       if (col + 1 + q.length > W - 1) break;
@@ -7488,7 +7493,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "figure.density": def({
-    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines) or comfortable (three, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (the whole title, however many lines, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
     keys: "= while a figure's tab or row is the [ ] position, ⏎ on its ≡ control, click it",
     touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
     args: {

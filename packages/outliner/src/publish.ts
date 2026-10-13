@@ -42,6 +42,7 @@ import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
+import { actorName } from "@ep0ch/outline-core/attribution";
 import type {
   AnnotationThread,
   Block,
@@ -1571,7 +1572,7 @@ export class Publisher {
       if (!root || !noteId || locked.has(noteId) || locked.has(reply.id)) continue;
       const isNew = fresh.has(reply.id);
       if (isNew) unreadCount += 1;
-      const by = reply.author === "user" ? "you" : (reply.actorId ?? "agent").replace(/^ext:/, "");
+      const by = reply.author === "user" ? "you" : (reply.actorId ? actorName(reply.actorId) : "agent").replace(/^ext:/, "");
       const quote = /^[A-Z][a-z-]{0,23} on “(.*)”$/.exec((root.text ?? "").split("\n")[0] ?? "")?.[1] ?? "";
       const said = plainBody(extractAnnotationBody(reply.text ?? "")).replace(/\s+/g, " ").trim();
       const href = `${base}${notePath(noteOf.get(noteId) ?? { id: noteId }, index)}#thread=${root.id}`;

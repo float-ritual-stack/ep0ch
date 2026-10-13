@@ -8,7 +8,7 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, isMachineName, mayCreate, missingOutline, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, isMachineName, mayCreate, missingOutline, parseDotEp0ch, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir, hostname } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
@@ -97,9 +97,12 @@ export function hostSocket(env: Record<string, string | undefined> = process.env
  */
 export function writeDotEp0ch(folder: string, name: string, replace = false, machine?: string): string {
   const file = join(resolve(folder), DOT_EP0CH);
-  const text = formatDotEp0ch(name, machine);
   let current: string | undefined;
   try { current = readFileSync(file, "utf8"); } catch { current = undefined; }
+  // The folder's persona stays with the folder when the outline it names changes.
+  let agent: string | undefined;
+  try { agent = current === undefined ? undefined : parseDotEp0ch(current, file).agent; } catch { agent = undefined; }
+  const text = formatDotEp0ch(name, machine, agent);
   if (current === text) return file;
   if (current !== undefined && !replace) throw new Error(`${file} already names an outline; it was left as it is`);
   writeFileSync(`${file}.${process.pid}.tmp`, text, { mode: 0o644 });

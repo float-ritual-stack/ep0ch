@@ -44,12 +44,17 @@ Then:
 
 `ep0ch help` lists every command.
 
-A folder names its outline with a two-line `.ep0ch`, names only:
+A folder names its outline with a short `.ep0ch`, names only:
 
 ```
 ws = "garden"
-machine = "box-a"   # optional
+machine = "box-a"   # optional: the outline is on another machine
+agent = "scout"     # optional: the persona agents working here write as
 ```
+
+`agent` is a recorded name, never a permission (ADR 0003): a write from this folder through the Claude mod, `ep0ch mcp`
+or `ep0ch act` shows as `scout`, with its principal (`scout/claude-code@box-a`) one step away. `OUTLINER_ACTOR` and
+`EP0CH_AGENT` still win over it; `ep0ch where` says which one a session has.
 
 ## Where to read next
 

@@ -5,7 +5,8 @@
 // Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -691,16 +692,23 @@ describe("principal and persona (PIE-679)", () => {
     expect(actorOf(stdio("claude-code"), { EP0CH_MCP_PERSONAS: "claude-code=loki" }, "float-2").actorId).toBe("mcp:claude-code@float-2");
   });
 
-  test("a persona can't cross principals: a claim another principal holds is refused, and a gateway can't claim one at all", () => {
+  test("a persona is recorded, never refused (ADR 0003): OUTLINER_ACTOR, EP0CH_AGENT, the folder's .ep0ch, then the machine's default", () => {
     const env = { EP0CH_MCP_PERSONAS: "claude-code@float-2=loki", EP0CH_AGENT: "loki" };
-    const claimed = personaClaim(stdio("claude-code"), env, "laptop");
-    expect(claimed.persona).toBeUndefined();
-    expect(claimed.refused).toContain("loki belongs to claude-code@float-2");
-    expect(actorOf(stdio("claude-code"), env, "laptop").actorId).toBe("mcp:claude-code@laptop");
-    // On its own principal the same claim is the persona; one nobody holds is a label for whoever declared it.
-    expect(actorOf(stdio("claude-code"), env, "float-2").actorId).toBe("mcp:loki/claude-code@float-2");
-    expect(actorOf(stdio("claude-code"), { EP0CH_AGENT: "scout" }, "laptop").actorId).toBe("mcp:scout/claude-code@laptop");
-    // The gateway reads no environment claim: only its own principal's entry.
+    // Claimed on another principal than the list gives it to: recorded as claimed, with the principal that says where it came from.
+    expect(personaClaim(stdio("claude-code"), env, "laptop")).toEqual({ persona: "loki" });
+    expect(actorOf(stdio("claude-code"), env, "laptop").actorId).toBe("mcp:loki/claude-code@laptop");
+    expect(actorOf(stdio("claude-code"), { EP0CH_AGENT: "scout", OUTLINER_ACTOR: "wren" }, "laptop").actorId).toBe("mcp:wren/claude-code@laptop");
+    // The folder a stdio server runs in names its persona in .ep0ch, over the machine's default and under the environment.
+    const folder = mkdtempSync(join(tmpdir(), "ep0ch-persona-"));
+    try {
+      writeFileSync(join(folder, ".ep0ch"), 'ws = "pond-notes"\nagent = "testbot"\n');
+      mkdirSync(join(folder, "sub"));
+      const here = { ...stdio("claude-code"), folder: join(folder, "sub") };
+      expect(actorOf(here, { EP0CH_MCP_PERSONAS: "claude-code@box-a=cowboy" }, "box-a").actorId).toBe("mcp:testbot/claude-code@box-a");
+      expect(actorOf(here, { EP0CH_AGENT: "scout" }, "box-a").actorId).toBe("mcp:scout/claude-code@box-a");
+      expect(actorOf({ ...stdio("claude-code"), folder }, {}, "box-a").actorId).toBe("mcp:testbot/claude-code@box-a");
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+    // The gateway reads no environment claim and no folder: only its own principal's entry.
     expect(actorOf(gateway, { EP0CH_AGENT: "loki" }, "float-2").actorId).toBe("mcp:chat.example.test");
   });
 

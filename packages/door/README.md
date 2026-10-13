@@ -751,15 +751,17 @@ Every write says two things (PIE-679). The **principal** is what auth proved and
 client (`claude.ai`), or, for stdio and the Claude mod, the client on this machine (`claude-code@float-2`,
 `claude-code@laptop`). The **persona** is a label declared on top, shown as `loki (claude-code@float-2)`; it is recorded
 in the write's actor id as `mcp:loki/claude-code@float-2` (the mod's as `loki/claude-code@float-2`), so the door, receipts,
-proposals and threads show both. A persona never crosses principals.
+proposals and threads show both. A persona is a recorded name, never a permission (ADR 0003): nothing checks it
+against a list or refuses it, and the principal beside it always says where the write came from.
 
 Name a connection with `EP0CH_MCP_PERSONAS` on the gateway's machine, in its environment or in `~/.config/ep0ch/mcp.env`:
 a comma list of `<who>=<name>`, `<who>` being the principal (`claude-code@float-2`, `claude.ai`) or the token's subject, so
 `claude.ai=daddy` makes its writes `mcp:daddy/claude.ai` (a subject wins over a principal; a name is letters, digits,
 `.`, `_`, `-`). A bare client name such as `claude-code` names no stdio principal, since it would reach every machine's.
-It is read at each write, so a change needs no restart. A stdio process or the mod may also declare its own persona,
-`OUTLINER_ACTOR`, else `EP0CH_AGENT`; it holds only where the list doesn't give that persona to another principal (the
-laptop's `claude-code` can't claim `loki` while the list says `claude-code@float-2=loki`). Older writes keep the actor id
+It is read at each write, so a change needs no restart. Which persona, first match wins: a named path's (below); `OUTLINER_ACTOR`, else `EP0CH_AGENT`; the
+`agent = "<persona>"` of the nearest `.ep0ch` from the folder a stdio server (or the mod's Claude session) runs in, so a
+project names who works in it (`agent = "loki"` beside `ws = "pie"`) on any machine and in any thread; then the list;
+else none. A persona claimed on a principal the list gives it to another is recorded as claimed (`loki/claude-code@laptop`). Older writes keep the actor id
 they were made with.
 
 **A path names the persona (PIE-804).** The gateway answers MCP at its resource path (`https://mcp.ep0ch.sh/mcp`) and at

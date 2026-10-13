@@ -81,8 +81,8 @@ A click, `show` and `door_open` share one open (`openNote` in
    without that tile is asked again naming no tile, and puts it where its own
    `open` puts notes, which never takes the person's keys. The mod never names a
    reader (a door refuses an agent that names the reader the person is on).
-   - The door says who opened it (`claude-code`, or `OUTLINER_ACTOR` /
-     `EP0CH_AGENT`), and an agent's open never moves the person's focus.
+   - The door says who opened it (the session's actor id, persona first), and
+     an agent's open never moves the person's focus.
    - If the door refuses (say it is on its menu, or the reader the tile links
      to holds an edit), its reason is the answer: the tool's denial or a toast.
      It is never shown somewhere else instead.
@@ -311,6 +311,11 @@ this session. Items are named by `ref` (a Work ID or block UUID; `item` still wo
 result is the command's JSON; a refusal (stale revision, unknown stage, unmerged
 delivery…) comes back as the CLI's reason.
 
+`work_body` and `note_section` replace text, so each one requires the
+`expectedRevision` you read with `outline_read`: without it nothing runs (the
+answer says to read first), and a block that changed since is refused. Text
+built from an older read never overwrites an edit made in between (PIE-631).
+
 An item can have several deliveries, one per PR. `work_deliver` takes a `key`
 (`door` → `PIE-123/door`); `work_complete` takes `deliveries` or `allMerged` and
 is refused, naming what is left, while any other delivery is incomplete; and
@@ -373,9 +378,12 @@ code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the do
   changed under it, or that `prose` refuses, becomes one proposal the person
   can apply.
 - Every write is `author: agent`, with the session id as provenance, and an
-  actor id: the call's `actor`, else `OUTLINER_ACTOR`, else `EP0CH_AGENT` (the
-  name the door shows for the agent), else `claude-code`. The workboard tools
-  use the same actor, from the environment.
+  actor id `<persona>/claude-code@<machine>`. The persona is the call's `actor`,
+  else `OUTLINER_ACTOR`, else `EP0CH_AGENT` (the name the door shows for the
+  agent), else the `agent = "<name>"` of the session folder's `.ep0ch` (as
+  `ep0ch where` reads it; ADR 0003), else none (`claude-code@<machine>` alone).
+  The workboard and door tools use the same actor id, so one agent's writes are
+  one actor. The binding card's "writes as" line says which persona and from where.
 
 ### Tool rows in the transcript
 

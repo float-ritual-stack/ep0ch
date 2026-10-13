@@ -11,7 +11,7 @@ import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
-import { subject, type Msg } from "../board";
+import { headedTitle, subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
@@ -19,7 +19,7 @@ import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
-import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
+import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
@@ -1040,6 +1040,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.moveCurrent(m, opts, by);
   }
 
+  /** Tiles whose border cut the note's title as drawn last (PIE-815): focusing one says it whole. */
+  private readonly cutTitles = new Set<number>();
   /** The tile that moved the current note last (a tree's selection, a reader's open), if it's still here. */
   private currentBy: number | undefined;
 
@@ -2744,6 +2746,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const title = !menus ? (float && width(head) > floatFits ? pad(head, floatFits) : head) + tail : width(head) + width(tail) <= fits ? head + tail
       // A float keeps how far down it is (it has no other place to say it); a tile in the layout keeps its name.
       : float ? pad(head, Math.max(1, fits - width(tail))) + tail : width(bare) <= fits ? bare : pad(head, fits);
+    // A title the border cuts (it ends in …) is said whole in the status line when the person's keys come to the tile
+    // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
+    const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.msg) : null;
+    if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
@@ -2870,7 +2876,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const withKind = said !== "";
       const room = withKind ? full : Math.max(12, avail - chips);
       if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
-      put(headOf(named.title, Math.max(4, room - (named.workId ? width(named.workId) + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
+      // Cut, it says so (PIE-815: `…`); the header inside has it whole, and the keys arriving say it in the status line.
+      const n = Math.max(4, room - (named.workId ? width(named.workId) + 3 : 0));
+      put(width(named.title) <= n ? named.title : headOf(named.title, n - 1).trimEnd() + "…", (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
       if (withKind) put(said, fg(C.dark), id);
       return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
@@ -4137,6 +4145,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const moved = t.id !== this.focus;
     this.apply({ op: "focus", tile: t.id }, actor);
     if (moved) { this.entered.clear(); this.panes.get(t.id)?.focused?.(this, actor); }
+    // Its border cut the note's title (PIE-815): the whole title in the status line, as the person arrives.
+    const p = this.panes.get(t.id);
+    if (moved && actor.kind === "user" && this.cutTitles.has(t.id) && p instanceof ReaderPane && p.msg) this.ctx.flash(headedTitle(p.msg));
     // The person's keys back on an edit or comment of theirs left open there: they're in it again (PIE-785, PIE-812).
     if (moved && actor.kind === "user") this.reenter();
     this.save(); this.redraw();
@@ -4649,7 +4660,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const t = this.tile(sel);
       const p = this.panes.get(t.id);
       if (!(p instanceof PtyPane) || !p.nvim) throw new ActionRefused(`${t.name} isn't an nvim tile the door is connected to; line= marks a line there`);
-      const extmark = await p.nvim.mark(m.line, `${reason} · by ${by}`, p.file);
+      const extmark = await p.nvim.mark(m.line, `${reason} · by ${authorName(by)}`, p.file);
       const mark = this.marksStore.add({ tile: t.name, line: m.line, file: p.file, extmark, reason, by });
       this.redraw();
       return { mark };

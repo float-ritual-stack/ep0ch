@@ -11,7 +11,7 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import { USER, type Activity, type Actor } from "../socket";
+import { authorName, USER, type Activity, type Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
@@ -637,8 +637,8 @@ export class ActivityPane implements Pane {
     this.view.place(this.sel, this.rows.length, h);
     return {
       lines: this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
-        const aw = Math.max(6, Math.min(16, Math.floor(w / 4), Math.max(...this.rows!.map(x => x.actor.length))));
-        const when = ago(r.at).padStart(4), actor = pad(r.actor, aw), subj = subject(r.block);
+        const aw = Math.max(6, Math.min(16, Math.floor(w / 4), Math.max(...this.rows!.map(x => authorName(x.actor).length))));
+        const when = ago(r.at).padStart(4), actor = pad(authorName(r.actor), aw), subj = subject(r.block);
         if (this.view.top + i === this.sel) return selected(focused) + pad(`${when} ${actor} ${subj}`, w) + RESET;
         const who = r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan;
         return fg(C.dark) + when + " " + fg(who) + actor + " " + fg(C.grey) + pad(subj, Math.max(1, w - aw - 6)) + RESET;

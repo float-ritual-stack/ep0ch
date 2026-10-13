@@ -99,7 +99,7 @@ describe('where this session runs', () => {
   })
 
   test('outside a door: no where-am-I block (the binding card still reads `ep0ch where` for this machine and folder)', async ($, on) => {
-    const s = sessionWith(on, {}, () => result(0, JSON.stringify({ inDoor: false, here: { machine: 'near-box', folder: START.cwd }, summary: 'stack: (nothing recorded) · not in a door' })))
+    const s = sessionWith(on, {}, () => result(0, JSON.stringify({ inDoor: false, here: { machine: 'near-box', folder: START.cwd, persona: null }, summary: 'stack: (nothing recorded) · not in a door' })))
     await $.session.start(START)
     await s.clock.settle()
     const { blocks } = await $.prompt.context({ blocks: CORE })

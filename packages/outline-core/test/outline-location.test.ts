@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatDotEp0ch, guessOutline, isMachineName, outlineOfFile, type LocationReader, nearestDotEp0ch, outlineLayout, outlinesFolder, parseDotEp0ch,
-  mayCreate, missingOutline, slugifyOutlineName, whichOutline,
+  mayCreate, missingOutline, sessionPersona, slugifyOutlineName, whichOutline,
 } from "../src/outline-location";
 
 /** A disk made of paths: files with their text, and folders that hold a `.git`. */
@@ -64,6 +64,22 @@ describe("which outline (PIE-530)", () => {
       expect(() => parseDotEp0ch(`ws = "pie"\nmachine = "${bad}"`, "/a/.ep0ch")).toThrow();
     }
     expect(() => formatDotEp0ch("pie", "sam@box")).toThrow("isn't a machine name");
+  });
+
+  test("a .ep0ch names the persona its folder's agents write as (ADR 0003): a name, checked like the others", () => {
+    expect(formatDotEp0ch("garden", undefined, "scout")).toBe('ws = "garden"\nagent = "scout"\n');
+    expect(parseDotEp0ch('ws = "garden"\nagent = "scout"\n', "/a/.ep0ch")).toEqual({ name: "garden", agent: "scout" });
+    expect(() => parseDotEp0ch('ws = "garden"\nagent = "a"\nagent = "b"', "/a/.ep0ch")).toThrow("at most one agent");
+    expect(() => parseDotEp0ch('ws = "garden"\nagent = "scout/claude-code@box"', "/a/.ep0ch")).toThrow("isn't a persona name");
+  });
+
+  test("a session's persona: OUTLINER_ACTOR, then EP0CH_AGENT, then the nearest .ep0ch's agent, else none", () => {
+    const fs = disk({ "/work/garden/.ep0ch": 'ws = "garden"\nagent = "scout"\n', "/work/shed/.ep0ch": 'ws = "shed"\n', "/work/bad/.ep0ch": "nonsense" });
+    expect(sessionPersona({ env: {}, folder: "/work/garden/beds", fs })).toEqual({ name: "scout", source: "file", file: "/work/garden/.ep0ch" });
+    expect(sessionPersona({ env: { EP0CH_AGENT: "wren" }, folder: "/work/garden", fs })).toEqual({ name: "wren", source: "EP0CH_AGENT" });
+    expect(sessionPersona({ env: { OUTLINER_ACTOR: "robin/claude-code@box-a", EP0CH_AGENT: "wren" }, folder: "/work/garden", fs })).toEqual({ name: "robin", source: "OUTLINER_ACTOR" });
+    expect(sessionPersona({ env: {}, folder: "/work/shed", fs })).toBeUndefined();
+    expect(sessionPersona({ env: {}, folder: "/work/bad", fs })).toBeUndefined();
   });
 
   test("the machine: --machine, then EP0CH_MACHINE, then the machine of the .ep0ch that names the same outline", () => {

@@ -26,7 +26,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseEnvFile } from "./backup/config";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
-import { composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { BoardAddress } from "./notes-cli";
@@ -61,6 +62,8 @@ export interface McpCaller {
    * default; `pathCap`). Asked with the outline, or with none for the connection's own default.
    */
   cap?: (where?: BoardAddress) => McpAccessLevel;
+  /** The folder a stdio server runs in: the nearest `.ep0ch`'s `agent` there names its persona (ADR 0003 §3). */
+  folder?: string;
 }
 
 /** The `call` argument a request may carry: an id the agent keeps across its requests ("daddy-2026-10-09-0103-k7f"). */
@@ -116,29 +119,30 @@ export function mcpSetting(env: Record<string, string | undefined>, key: string)
 }
 
 /**
- * The persona a caller writes under, on top of its principal, and why a claimed one was not used.
- *
- * A persona is a label: it maps only within the principal auth proved, never across. `EP0CH_MCP_PERSONAS` (in the
- * environment, else in `~/.config/ep0ch/mcp.env`) is a comma list of `<who>=<persona>`, `<who>` being the principal
- * (`claude-code@float-2`, or the gateway's `claude.ai`) or the token's subject. A stdio process may also declare its
- * own (`OUTLINER_ACTOR`, else `EP0CH_AGENT`), which holds only where the list does not give that persona to another
- * principal: `claude-code@laptop` claiming `loki` while the list says `claude-code@float-2=loki` is refused. Read at each
- * write, so a change takes effect without a restart. A subject wins over a principal, a list over a claim.
+ * The persona a caller writes as (ADR 0003 §3, as amended): a recorded name, never a permission, so nothing here refuses
+ * one. First match wins: the connection's own name for itself (the gateway's `/<name>/mcp` path); for stdio,
+ * `OUTLINER_ACTOR`, else `EP0CH_AGENT`, else the `agent` of the nearest `.ep0ch` from the folder it runs in
+ * (outline-core's `sessionPersona`); then this machine's default, `EP0CH_MCP_PERSONAS` (in the environment, else in
+ * `~/.config/ep0ch/mcp.env`), a comma list of `<who>=<persona>` where `<who>` is the token's subject or the principal
+ * (`claude-code@float-2`, the gateway's `claude.ai`), a subject winning; else none. The principal is always recorded
+ * beside it, so a persona never hides where a write came from. Read at each write, so a change takes effect without a restart.
  */
-export function personaClaim(caller: McpCaller, env: Record<string, string | undefined> = process.env, machine?: string): { persona?: string; refused?: string } {
+export function personaClaim(caller: McpCaller, env: Record<string, string | undefined> = process.env, machine?: string): { persona?: string } {
   // The connection's own name for itself (the gateway's path): what this caller writes as.
   if (caller.persona && PERSONAS.test(caller.persona)) return { persona: caller.persona };
+  if (caller.sub === STDIO_SUBJECT) {
+    const own = sessionPersona({ env, folder: caller.folder ?? "", fs: caller.folder ? DISK : NO_DISK });
+    if (own) return { persona: own.name };
+  }
   const principal = principalOf(caller, machine, env);
   const entries = (mcpSetting(env, "EP0CH_MCP_PERSONAS") ?? "").split(",").map(e => e.split("=").map(x => x.trim()) as [string, string]).filter(([k, v]) => k && v && PERSONAS.test(v));
   const map = new Map(entries);
   const listed = map.get(caller.sub) ?? map.get(principal);
-  if (listed) return { persona: listed };
-  const claim = caller.sub === STDIO_SUBJECT ? (env.OUTLINER_ACTOR?.trim() || env.EP0CH_AGENT?.trim() || undefined) : undefined;
-  if (!claim || !PERSONAS.test(claim)) return {};
-  const owner = entries.find(([who, persona]) => persona === claim && who !== principal && who !== caller.sub);
-  if (owner) return { refused: `${claim} belongs to ${owner[0]} in EP0CH_MCP_PERSONAS, not to ${principal}` };
-  return { persona: claim };
+  return listed ? { persona: listed } : {};
 }
+/** The disk as outline-core's location rule reads it, and no disk (a caller with no folder has no `.ep0ch`). */
+const DISK: LocationReader = { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync };
+const NO_DISK: LocationReader = { readFile: () => undefined, exists: () => false };
 /** A persona's name: what an actor id may hold before the `/`. */
 const PERSONAS = PERSONA_PATTERN;
 
@@ -383,7 +387,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     case "outline_resolve_thread": {
       const missing = await threadGone();
       if (missing) {
-        if (o.queued) return gone(write.input.resolved ? "Resolved" : "Reopened", missing, `(${write.input.resolved ? "resolve" : "reopen"} asked of ${o.actor.actorId}; nothing to change)`);
+        if (o.queued) return gone(write.input.resolved ? "Resolved" : "Reopened", missing, `(${write.input.resolved ? "resolve" : "reopen"} asked of ${actorLabel(o.actor.actorId)}; nothing to change)`);
         throw new Error(`No thread ${missing} on ${o.uri(write.blockId)}; outline_threads lists the note's threads.`);
       }
       const r = await tools.resolveThread(client, write.input, o.actor);
@@ -394,7 +398,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       const listed = marks.map(m => `((${m}))`).join(", ");
       if (kind !== "applied" || o.proposeOnly) {
         // A new block is a proposal at propose access: a comment on the note, for its owner to quote.
-        const body = `Proposed quote of ${listed} into a new block (${where === "note" ? "under this note" : where === "inbox" ? "in the Inbox" : `under ${where}`}), from ${o.actor.actorId}${write.input.text ? `:\n\n${String(write.input.text)}` : ""}`;
+        const body = `Proposed quote of ${listed} into a new block (${where === "note" ? "under this note" : where === "inbox" ? "in the Inbox" : `under ${where}`}), from ${actorLabel(o.actor.actorId)}${write.input.text ? `:\n\n${String(write.input.text)}` : ""}`;
         const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
         return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
       }
@@ -411,7 +415,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         return { outcome: "applied", uri: o.uri(made.id), said: `created ${o.uri(made.id)} under ${o.uri(write.blockId)}`, detail: made };
       }
       // A new block can't be a draft.patch: it is offered as a comment on its parent, for its owner to make.
-      const body = `Proposed new block under this note, from ${o.actor.actorId}:\n\n${String(write.input.text)}`;
+      const body = `Proposed new block under this note, from ${actorLabel(o.actor.actorId)}:\n\n${String(write.input.text)}`;
       const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
       return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
     }
