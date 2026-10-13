@@ -62,7 +62,8 @@ export interface MirrorState {
   error?: string;
 }
 
-export interface Drill { at: string; ok: boolean; detail: string }
+/** A restore drill: how it went, and `via` the hub when this machine couldn't reach its repository (PIE-810). */
+export interface Drill { at: string; ok: boolean; detail: string; via?: string }
 
 /**
  * Netmail (PIE-615): on the gateway's machine, each other machine's queued MCP writes; on a home machine, its last
@@ -83,6 +84,13 @@ export interface BackupState {
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
   drill?: Drill;
+  /** A drill that was due and couldn't run (the repository out of reach, and the hub too): since when, and why. */
+  drillWaiting?: { since: string; why: string };
+  /**
+   * How this machine's newest backups got to the repository when it couldn't reach it itself (PIE-810): through the
+   * hub, since when, and why. Cleared by a direct upload. Status, never an incident: the backups are there.
+   */
+  route?: { via: string; since: string; why: string };
   netmail?: NetmailState;
   /** Litestream replicators a change stopped and starting them again failed (outliner litestream-guard `stuckPauses`). */
   guard?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[];
@@ -93,6 +101,8 @@ export interface Alert {
   machine: string;
   checkedAt: string;
   incidents: Incident[];
+  /** The backups go through the hub (the repository out of reach): said on the status bar as status (BackupState.route). */
+  route?: { via: string; since: string; why: string };
   /** The incidents already announced (push, herdr): each once. */
   announced: string[];
 }
@@ -178,12 +188,16 @@ export function nextAlert(prev: Alert | null, found: Incident[], machine: string
 }
 
 /** What the door's status bar shows for the alert: nothing, a stale backup, or a check that stopped running. */
-export function alertMark(a: Alert | null, now: number): { text: string; say: string } | null {
+export function alertMark(a: Alert | null, now: number): { text: string; say: string; status?: boolean } | null {
   if (!a) return null;
   if (now - Date.parse(a.checkedAt) >= CHECK_LATE_MS) {
     return { text: "? backup", say: `the backup check last ran ${age(now - Date.parse(a.checkedAt))} ago (${hhmm(a.checkedAt)}) · ep0ch doctor says why` };
   }
-  if (!a.incidents.length) return null;
+  if (!a.incidents.length) {
+    // Backed up, the long way round: a status, not a problem (the work VPN keeps the laptop off the bucket).
+    if (a.route) return { text: `↪ backup`, say: `repository unreachable (work VPN?): sent through ${a.route.via} since ${hhmm(a.route.since)}`, status: true };
+    return null;
+  }
   const first = a.incidents[0]!;
   const more = a.incidents.length > 1 ? ` · +${a.incidents.length - 1} more (ep0ch doctor)` : "";
   return { text: `✗ backup${a.incidents.length > 1 ? ` ${a.incidents.length}` : ""}`, say: `${first.detail} · fix: ${first.fix}${more}` };

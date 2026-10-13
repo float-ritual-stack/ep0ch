@@ -352,9 +352,10 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
 }
 
 /** Restores each outline's newest snapshot (this machine's repository) into a temp folder and checks it. */
-export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say } = {}): Promise<{ ok: boolean; detail: string }> {
+export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say; machine?: string } = {}): Promise<{ ok: boolean; detail: string }> {
   const say = o.say ?? (() => {});
-  const repo = c.repoOf(c.machine);
+  // Another machine's (the hub drilling for one that can't reach its repository): that machine's repository.
+  const repo = c.repoOf(o.machine ?? c.machine);
   const list = await snapshots(c, repo);
   if ("error" in list) return { ok: false, detail: `can't list ${repo}: ${list.error}` };
   if (!list.length) return { ok: false, detail: `${repo} holds no outline snapshots` };
@@ -376,6 +377,21 @@ export async function drill(c: BackupConfig, o: { now?: () => number; say?: Say 
   return { ok, detail: `restored ${list.length} outline${list.length === 1 ? "" : "s"} from ${repo}: ${said.join("; ")}` };
 }
 
+/**
+ * The restore drill from here (PIE-810): against the repository when it answers; when it doesn't and a hub is named, on
+ * the hub, which restores this machine's snapshots from the same repository (`ep0ch backup drill --machine <this>`
+ * there); when neither can, it waits, said, and the last drill stands.
+ */
+export async function drillHere(c: BackupConfig, o: { now?: () => number; say?: Say; probe?: (repo: string) => Promise<string | null> } = {}): Promise<{ drill: { ok: boolean; detail: string; via?: string } } | { waiting: string }> {
+  const repo = c.repoOf(c.machine);
+  const why = c.hub ? await (o.probe ?? (await import("./relay")).unreachable)(repo) : null;
+  if (!why) return { drill: await drill(c, o) };
+  const { drillVia } = await import("./relay");
+  const r = await drillVia(c, c.hub!);
+  if ("error" in r) return { waiting: `${plainReason(why, { repo })}, and ${r.error}` };
+  return { drill: { ok: r.ok, detail: `through ${c.hub} (${plainReason(why, { repo })}): ${r.detail}`, via: c.hub! } };
+}
+
 /** How the job is run and read on this platform (what a fix says). */
 export const commandsHere = (platform = process.platform): Commands => ({
   run: "ep0ch backup run",
@@ -387,6 +403,7 @@ export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => nu
   const now = (o.now ?? Date.now)();
   const found = incidents(s, c.machine, now, commandsHere());
   const { alert, announce } = nextAlert(readAlert(c.state), found, c.machine, now);
+  if (s.route) alert.route = s.route;
   writeAlert(c.state, alert);
   if (announce.length) await (o.announce ?? (i => announceAll(c, i)))(announce);
   return alert;
@@ -454,12 +471,23 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     await netmailStep(c, s, { now, say, ...(o.verbose ? { verbose: true } : {}) });
     writeBackupState(c.state, s);
     const due = o.drill ?? (!s.drill || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
-    if (due && Object.values(s.outlines).some(x => x.snapshot)) {
+    if (due && Object.values(s.outlines).some(x => x.snapshot || x.relayed?.uploaded)) {
       o.step?.("restore drill");
-      const d = await drill(c, { now, say });
-      s.drill = { at: new Date(now()).toISOString(), ...d };
-      say(`${d.ok ? "✓" : "✗"} restore drill: ${d.detail}`);
+      const d = await drillHere(c, { now, say, probe: o.probe });
+      if ("waiting" in d) {
+        s.drillWaiting = { since: s.drillWaiting?.since ?? new Date(now()).toISOString(), why: d.waiting };
+        say(`· restore drill waits for the repository: ${d.waiting}`);
+      } else {
+        delete s.drillWaiting;
+        s.drill = { at: new Date(now()).toISOString(), ...d.drill };
+        say(`${d.drill.ok ? "✓" : "✗"} restore drill: ${d.drill.detail}`);
+      }
     }
+    // How the newest backups got there: through the hub while the repository is out of reach, else straight (status).
+    if (snap.relayed.length && !snap.uploaded.length) {
+      const why = snap.relayed.map(n => s.outlines[n]?.relayed?.why).find(Boolean) ?? "the repository didn't answer";
+      s.route = { via: c.hub!, since: s.route?.since ?? new Date(now()).toISOString(), why };
+    } else if (snap.uploaded.length) delete s.route;
     const sources = Object.entries(s.sources ?? {}).filter(([, x]) => x.error).map(([m]) => `${m}'s backups unreadable`);
     const ok = !snap.failed.length && !sources.length;
     s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [...(snap.failed.length ? [`failed: ${snap.failed.join(", ")}`] : []), ...(snap.uploaded.length ? [`uploaded ${snap.uploaded.join(", ")}`] : []), ...(snap.relayed.length ? [`relayed ${snap.relayed.join(", ")} via ${c.hub}`] : []), ...(!snap.failed.length && !snap.uploaded.length && !snap.relayed.length ? ["nothing changed"] : []), ...sources].join("; ") };

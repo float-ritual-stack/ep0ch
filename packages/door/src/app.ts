@@ -400,9 +400,9 @@ export class App implements Ctx {
   private extAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's backup mark sits, for a click (backups.alert). */
   private backupAt: { from: number; to: number; row: number } | null = null;
-  private backupRead: { at: number; mark: { text: string; say: string } | null } = { at: -Infinity, mark: null };
+  private backupRead: { at: number; mark: { text: string; say: string; status?: boolean } | null } = { at: -Infinity, mark: null };
   /** The backup job's alert (src/backup/alert.ts, in the state dir's backup/), read at most once a minute. */
-  backupAlert(): { text: string; say: string } | null {
+  backupAlert(): { text: string; say: string; status?: boolean } | null {
     const now = this.now();
     if (now - this.backupRead.at >= 60_000) this.backupRead = { at: now, mark: alertMark(readAlert(`${stateDir()}/backup`), now) };
     return this.backupRead.mark;
@@ -1302,7 +1302,8 @@ export class App implements Ctx {
     const tail = `${this.video} │ ${theme().name} │ on ${mins}m │ ${clock} `;
     // A stale backup (PIE-607): marked until it clears; a click says what and the fix (backups.alert).
     const backup = this.backupAlert();
-    const backupPart = backup ? `${fg(C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
+    // A status (backed up through the hub while the repository is out of reach) is quiet; a problem is red.
+    const backupPart = backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
     const newCount = this.whatChanged.count();
     const newPart = newCount ? `${fg(C.yellow)}+${newCount} new ${fg(C.lcyan)}│ ` : "";
     // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
