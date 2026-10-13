@@ -29,7 +29,7 @@ are its record. The outliner's entries from then are kept below, under
   Welcome or a board fills itself in the morning.
 - **Changed:** `key=<date>` clauses go through the query evaluator (they find the same text as before, plus the same
   day written another way).
-- **Run:** `ep0ch install --apply` on each machine (PROTOCOL changes: clients and the host update together).
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 157: clients and the host update together; no schema change).
 
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 
