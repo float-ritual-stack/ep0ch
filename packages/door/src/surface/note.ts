@@ -7444,7 +7444,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "figure.density": def({
-    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines) or comfortable (three, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (the whole title, however many lines, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
     keys: "= while a figure's tab or row is the [ ] position, ⏎ on its ≡ control, click it",
     touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
     args: {

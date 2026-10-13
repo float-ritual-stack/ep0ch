@@ -25,6 +25,15 @@ describe("a title's lines (density)", () => {
     // Compact: one line, cut.
     expect(titleLines(t, 30, 1)).toEqual([t.slice(0, 29) + "…"]);
   });
+  test("comfortable (no limit) draws the whole title however many lines it takes, never cut (PIE-815)", () => {
+    const q = "PLOT-12 — When the seed swap moves to the hall, who carries the trestle tables, who brings the urn, and does the borrowed kettle go back to the church hall before Sunday's service starts?";
+    const out = titleLines(q, 30, Infinity);
+    expect(out.length).toBeGreaterThan(3);
+    expect(out.join("")).not.toContain("…");
+    expect(out.map(l => l.trim()).join(" ")).toBe(q);
+    expect(out.every(l => width(l) <= 30)).toBe(true);
+    expect(titleLines(q, 30, 2)[1]!.endsWith("…")).toBe(true);
+  });
   test("a title with no id prefix continues at the column's edge; wide glyphs count as two cells", () => {
     expect(titleLines("plain words that wrap onto another line", 20, 2)[1]!.startsWith("wrap")).toBe(true);
     const wide = titleLines("KEY-9 · 漢字漢字漢字漢字漢字漢字漢字漢字漢字漢字", 16, 3);
