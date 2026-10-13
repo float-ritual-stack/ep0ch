@@ -78,6 +78,8 @@ const PAGE_RESOLVE_LIMIT = 200;
 const PAGE_RESOLVE_CONCURRENCY = 4;
 /** Levels the `[publish::never]` lock is looked for above a block; a deeper chain counts as locked. */
 const LOCK_WALK_LIMIT = 256;
+/** A crumb names at most this many notes above, as `tree.search` does (search-context.ts `ancestorPath`). */
+const CRUMB_LEVELS = 12;
 
 export type PublishedEntryType = PublishedFileType | "block";
 
@@ -117,6 +119,8 @@ export interface PublishedIndex {
   builtAt: string;
   /** Links to published notes are their labels (a note rendered for elsewhere with no publisher URL to link to). */
   labelsOnly?: boolean;
+  /** A `#tag` links to the notes carrying it (`<base>/search?q=%23tag`, PIE-800): only where a search is served, a tailnet page or a share's. */
+  tagSearch?: boolean;
 }
 
 /**
@@ -469,6 +473,8 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-card .q .rich,.mg-card .q .rich>p{display:inline;margin:0}
 .mg-card .rich blockquote{margin:.3rem 0;padding-left:.5rem;border-left:2px solid var(--rule);color:var(--dim)}
 .mg-setting{display:flex;gap:.25rem;align-items:center;margin:.5rem 0 .25rem}
+.mg-margin-bar{position:sticky;bottom:0;z-index:5;margin:2rem -1rem -4rem;padding:.35rem 1rem calc(.35rem + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--rule)}
+.mg-margin-bar .mg-setting{margin:0;font:14px/1.4 ui-sans-serif,system-ui,sans-serif}
 .mg-setting .who{margin-right:.35rem}
 .mg-ui .mg-setting button{min-height:36px;min-width:0;padding:0 .6rem;font-size:14px}
 .mg-ui .mg-setting button.on{border-color:#8a7a4a;color:#e0d2a8}
@@ -1228,7 +1234,36 @@ export class Publisher {
       shown: (ids) => this.openIds(ids, share),
       href: (blockId) => `${base}${index.entries.find((entry) => entry.blockId === blockId)?.path ?? `/p/${encodeURIComponent(blockId)}`}`,
       crumbs: !share || share.scope.kind === "outline",
+      ...(share?.scope.kind === "note" ? { under: share.scope.blockId } : {}),
+      crumbsOf: (ids) => this.crumbWords(ids),
     };
+  }
+
+  /**
+   * Each note's crumbs as `tree.search` says them (its ancestors' titles, top first, ` › ` between), read a level at a
+   * time for all of them at once: a tag's notes on a search page (PIE-800).
+   */
+  private async crumbWords(ids: readonly string[]): Promise<Map<string, string>> {
+    const parentOf = new Map<string, string | null>(), titleOf = new Map<string, string>();
+    let next = [...new Set(ids)];
+    for (let level = 0; next.length && level < CRUMB_LEVELS; level++) {
+      const read: { blocks: ProjectedBlock[] }[] = [];
+      for (let at = 0; at < next.length; at += MAX_BLOCK_READ_IDS) {
+        read.push(await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: next.slice(at, at + MAX_BLOCK_READ_IDS), fields: ["parent", "title"] }));
+      }
+      for (const block of read.flatMap((answer) => answer.blocks)) {
+        parentOf.set(block.id, block.parentId ?? null);
+        titleOf.set(block.id, noteTitle(block.title ?? "").slice(0, 90));
+      }
+      next = [...new Set(next.map((id) => parentOf.get(id)).filter((id): id is string => !!id && !parentOf.has(id)))];
+    }
+    const crumbs = new Map<string, string>();
+    for (const id of ids) {
+      const above: string[] = [];
+      for (let at = parentOf.get(id); at && above.length < CRUMB_LEVELS; at = parentOf.get(at)) above.unshift(titleOf.get(at) ?? "");
+      crumbs.set(id, above.filter(Boolean).join(" › ").slice(-500));
+    }
+    return crumbs;
   }
 
   /** Which of `ids` a page here shows: live (not in Trash), not locked, and inside the share when there is one. */
@@ -2066,6 +2101,8 @@ export class Publisher {
       const inside = await this.inScope(linked.entries.map((candidate) => candidate.blockId), share);
       linked = { ...linked, entries: linked.entries.filter((candidate) => inside.has(candidate.blockId)) };
     }
+    // Where the page has a search (the tailnet, a share), a #tag opens the notes carrying it (PIE-800).
+    if ((audience === "tailnet" || share) && !linked.labelsOnly) linked = { ...linked, tagSearch: true };
     const components: string[] = [];
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
@@ -2377,6 +2414,12 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const plain = stripFragmentAnchors(body).split("\n");
     body = body.split("\n").map((line, at) => (anchored.has(at) ? line : plain[at]!.replace(/[ \t]+$/, ""))).join("\n");
   }
+  // A #tag is a link to the notes carrying it (PIE-800), where the page has a search; never one inside a link's label.
+  if (index.tagSearch && !options.keepProperties) {
+    const inLink = [...blockReferenceOccurrences(body), ...pageAddressReferences(body)];
+    const tags = parsePropertyRecords(body).filter((record) => record.syntax === "hashtag" && !inLink.some((link) => record.start >= link.start && record.start < link.end));
+    for (const tag of tags.reverse()) body = body.slice(0, tag.start) + `[${tag.raw}](${tagHref(basePath, tag.value)})` + body.slice(tag.end);
+  }
   // Replacing links never adds or removes a line, so the code lines stay where they are.
   const code = codeLineSet(body);
   const inCode = (offset: number) => code.has(lineOf(body, offset));
@@ -2404,6 +2447,9 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   body = body.replace(EMBED_SENTINEL, (_, at: string) => { const shown = rendered[Number(at)] ?? ""; return `\n\n${isComponentSentinel(shown) ? shown : quote(shown)}\n\n`; });
   return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
+
+/** Where a `#tag` opens: the page's search for it, which lists the notes carrying it (publish-search.ts `tagOf`). */
+export const tagHref = (basePath: string, tag: string) => `${basePath}/search?q=${encodeURIComponent(`#${tag}`)}`;
 
 /** A `[file::path]` as Markdown: its name in code (the path stays where it is), linked when a published note serves that file. */
 function fileChip(source: string, index: PublishedIndex, basePath: string): string {

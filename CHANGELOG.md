@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Tags on the web open the notes carrying them; the margin setting stays in reach (PIE-800, web)
+
+- **Added:** a `#tag` on a tailnet or share page is a link to the notes tagged with it (nested tags too). Each row has
+  the title, the line with the tag and the note's crumbs. Inside a share, it lists only the share's notes.
+- **Changed:** the margin setting (off · current · all) is a bar held at the bottom of the window, not at the foot of a
+  long page. Selecting text still brings up its actions over it.
+
 ### The drawer agent's clipboard workaround changes nothing else (PIE-799)
 
 - **Checked:** under the pane's env, with Claude Code 2.1.296, nothing behaves differently: image paste (ctrl+v, a pasted

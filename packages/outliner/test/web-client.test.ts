@@ -452,6 +452,53 @@ test("search inside a share is the share's: only its notes, no crumbs above the 
   await client.request({ action: "shares.revoke", all: true });
 });
 
+test("a #tag on a page opens the notes carrying it: title, the tag's line and crumbs; a nested tag counts; inside a share only its notes", async () => {
+  const north = store.create("North bed plan #north-star\nWhat the north bed is for.\n- Keep it for brassicas. #north-star/beds\n- `#north-star` in code is no tag.", hub.id, "user");
+  const compost = store.create("Compost bays\nTurn the second bay. #north-star", swap.id, "user");
+  store.create("Bench notes\nA bench by the shed, someday. #wishlist", hub.id, "user");
+
+  // On the note's page each #tag is a link to its search; one in code stays code.
+  const shown = await page(`/pub/p/${north.id}`);
+  expect(hrefs(shown)).toEqual(expect.arrayContaining(["/pub/search?q=%23north-star", "/pub/search?q=%23north-star%2Fbeds"]));
+  expect(shown).toContain('<a href="/pub/search?q=%23north-star">#north-star</a>');
+  expect(shown).toContain("<code>#north-star</code>");
+
+  // The tag's page: the notes carrying it (the nested one too), each with the line that carries it and its crumbs.
+  const tagged = await page("/pub/search?q=%23north-star");
+  expect(tagged.match(/<h1>[^<]*<\/h1>/)?.[0]).toBe("<h1>#north-star</h1>");
+  expect(tagged.match(/<p class="dim">[^<]*<\/p>/)?.[0]).toBe('<p class="dim">2 notes tagged #north-star</p>');
+  const asked = await (await get("/pub/search?q=%23north-star&format=json", {})).json() as { tag: string; hits: { id: string; title: string; line: string; crumbs: string }[] };
+  expect(asked.tag).toBe("north-star");
+  expect(asked.hits.map((hit) => hit.id).sort()).toEqual([north.id, compost.id].sort());
+  expect(asked.hits.find((hit) => hit.id === north.id)).toMatchObject({ title: "North bed plan #north-star", line: "Keep it for brassicas. #north-star/beds", crumbs: "Field notes" });
+  expect(asked.hits.find((hit) => hit.id === compost.id)).toMatchObject({ line: "Turn the second bay. #north-star", crumbs: "Field notes › Seed swap" });
+  expect((await page("/pub/search?q=%23no-such-tag")).match(/<p class="dim">[^<]*<\/p>/)?.[0]).toBe('<p class="dim">No note here is tagged #no-such-tag.</p>');
+
+  // Inside a share of the seed swap: only its note carrying the tag, no crumbs, links that stay in the share. More notes
+  // outside it carry the tag than one answer lists: the share's is still found.
+  // (Under the moth survey, which comes before the seed swap in the outline, so first in the service's answer.)
+  const elsewhere = store.create("Tagged elsewhere", survey.id, "user");
+  for (let n = 0; n < 205; n++) store.create(`Bed ${n} #north-star`, elsewhere.id, "user");
+  const late = store.create("Late sowing\nBroad beans in November. #north-star", swap.id, "user");
+  await client.request({ action: "shares.start", scope: swap.id, ttl: "5m", comments: false });
+  const kept = JSON.parse(store.readMetadata("share_sessions")!) as { sessions: { token: string; state: string }[] };
+  const base = `/s/${kept.sessions.find((session) => session.state === "active")!.token}`;
+  expect(hrefs(await (await get(`${base}/p/${compost.id}`, browser, "public")).text())).toContain(`${base}/search?q=%23north-star`);
+  const inside = await (await get(`${base}/search?q=%23north-star&format=json`, {}, "public")).json() as { hits: { id: string; title: string; line: string; crumbs: string; href: string }[] };
+  expect(inside.hits.map((hit) => hit.id).sort()).toEqual([compost.id, late.id].sort());
+  expect(inside.hits.find((hit) => hit.id === compost.id)).toEqual({ id: compost.id, title: "Compost bays", line: "Turn the second bay. #north-star", crumbs: "", href: expect.stringMatching(new RegExp(`^${base}/`)) });
+  await client.request({ action: "shares.revoke", all: true });
+
+  // A public page has no search, so its tags are words.
+  const open = store.create("Open day [publish::public]\nCome and see the beds. #north-star", null, "user");
+  const public_ = await until("the public page", async () => {
+    const response = await get(`/share/p/${open.id}?view=html`, browser, "public");
+    return response.status === 200 && response.text();
+  });
+  expect(public_).toContain("Come and see the beds. #north-star");
+  expect(hrefs(public_).some((href) => href.includes("search"))).toBe(false);
+});
+
 test("completion in a comment box: [[, (( and # offer what the door's completer offers and insert what it writes", async () => {
   store.create("Pollinator walk #pollinators #pollen-count\nBees on the lavender.", hub.id, "user");
   const ask = async (text: string, at = text.length) =>
