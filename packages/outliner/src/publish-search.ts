@@ -10,6 +10,7 @@
 // ctrl+k), results as you type, and on a phone a sheet over the page. Inside a share the search is the share's: only
 // notes inside it, and no crumbs above a shared note.
 import { readFileSync } from "node:fs";
+import { pageAddressReferences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { HASHTAG_VALUE_PATTERN } from "@ep0ch/outline-core/property-grammar";
 import { tagMatches } from "@ep0ch/outline-core/query-atoms";
@@ -68,10 +69,21 @@ export interface SearchAnswer {
   tag?: string;
 }
 
+/** Each page link as it reads (its label, else its address without the brackets of links it holds), by the one link grammar. */
+function pageLinkWords(text: string): string {
+  let out = "";
+  let at = 0;
+  for (const page of pageAddressReferences(text, []).filter((p) => !p.nested)) {
+    out += text.slice(at, page.start) + (page.label ?? pageAddressText(page.displayAddress));
+    at = page.end;
+  }
+  return out + text.slice(at);
+}
+
 /** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
 export const summaryWords = (raw: string, titleOf: (blockId: string) => string | undefined = () => undefined) =>
-  plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf)
-    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[|\]\]/g, "")
+  pageLinkWords(plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf))
+
     .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 
 const titleWords = (title: string) => plainBody(title).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();
