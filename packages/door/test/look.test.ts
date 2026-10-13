@@ -358,8 +358,11 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
         expect(await d.app.act({ action: "tune.set", args: { row, value: v, level: "global" }, tile: "tune", as: "look-agent" })).toMatchObject({ value: v, at: "global" });
       await until(() => d.lines().some(l => /╭─.*tune/.test(l)), "the inspector's frame round, at rest", 5000);
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
+      // The header's surface is under its crumbs and meta lines; the title stands on the ground, off the band (PIE-809).
       const titleRow = d.lines().findIndex(l => l.includes("Bean row"));
-      expect(raw()[titleRow]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
+      expect(raw()[titleRow - 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
+      expect(raw()[titleRow + 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
+      expect(raw()[titleRow]).not.toContain(bgRgb(surfaceMix("blue", 0.6)!));
       const bodyRow = d.where("Net the brassicas").y;
       expect(raw()[bodyRow]).toContain(surfaceBg("raised", 2));
       // The inspector's frame in the tone (edge=box, amber) at rest.

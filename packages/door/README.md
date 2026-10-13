@@ -2204,9 +2204,9 @@ Bodies render with `src/doc.ts`:
   A river column keeps the same header (the reader's title, summary, byline and crumbs) above its scroll, so it
   takes the picture too. A note may open with its picture right under the subject (`[img::…]` on line 2): a media line
   is content, never the note's block properties.
-- **The title leads the header** (PIE-657). A reader's header is the breadcrumb (a dim eyebrow), the title (the one bright,
-  bold line: the theme's brightest in the tile with the keys, a clear step down in the others), one dim line (author, day,
-  work id, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
+- **The title leads the header** (PIE-657). A reader's header is the breadcrumb (a dim eyebrow), the title (the one bold
+  line, in the theme's heading colour, a Work ID first in the accent: `HOME-042 · <title>` (PIE-809), said once; off the
+  header's surface; a clear step down in a tile without the keys), one dim line (author, day, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
   line) and one blank row. The tile's frame bar says only `detail` while the header is on screen, and the title again when
   the tile is too short for it. With Kitty's text sizing (OSC 66; asked at start-up with two probes, a space at scale 2 then at scale 3, and only a cursor that moved by the scale both times counts; `EP0CH_SIZED=1|0` overrides) and a
   title that fits twice over, the title is drawn at double height: the canvas still holds it as one bold row with a blank

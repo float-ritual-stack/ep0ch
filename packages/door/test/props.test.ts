@@ -612,8 +612,8 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     const { view } = await shown({}, 100);
     const lines = view.lines.map(strip);
     expect(lines[0]!.trim()).toBe("top level");
-    expect(lines[1]!.trim()).toBe("Build the compost bin");
-    expect(lines[3]!).toContain("claude-code · 01-01-70 (00:00) · HUB-003 · i 4 properties · stage doing");   // wide enough for one line
+    expect(lines[1]!.trim()).toBe("HUB-003 · Build the compost bin");   // its Work ID first (PIE-809), off the meta line
+    expect(lines[3]!).toContain("claude-code · 01-01-70 (00:00) · i 4 properties · stage doing");   // wide enough for one line
     expect(lines[4]!.trim()).toBe("");
     expect(lines[5]).toContain("Outcome");
     // The title is bold and bright; the eyebrow and the meta line are dim.
@@ -625,11 +625,11 @@ describe("the reader's header leads with the title (PIE-657)", () => {
 
   test("double height where the terminal has text sizing and the title fits twice over; else bold on one row", async () => {
     const big = (await shown({}, 70)).view;
-    expect(big.placements?.map(p => ({ row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ row: 1, rows: 2, cols: 42, text: "Build the compost bin", scale: 2 }]);
+    expect(big.placements?.map(p => ({ row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ row: 1, rows: 2, cols: 62, text: "HUB-003 · Build the compost bin", scale: 2 }]);
     // Too narrow for twice the title's width: bold, one row, the meta line moves up.
     const narrow = (await shown({}, 30)).view;
     expect(narrow.placements ?? []).toEqual([]);
-    expect(strip(narrow.lines[1]!).trim()).toBe("Build the compost bin");
+    expect(strip(narrow.lines[1]!).trim()).toMatch(/^HUB-003 · Build the compost b/);
     expect(strip(narrow.lines[2]!)).toContain("claude-code");
     // No text sizing in the terminal: the same.
     const src = fakeSource(notes);
@@ -661,9 +661,10 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     expect(wide.s.click(at + 2, 3, wide.h)).toBe(true);
     expect(wide.s.click(2, 3, wide.h)).toBe(false);
     // Narrow: the summary takes a line of its own, so no chip is cut off the end of the byline.
+    // (At 60 the title with its Work ID is too wide for double height: one row, so the summary is on row 3.)
     const narrow = await shown({ summaryKeys: () => ["related-to"] }, 60);
-    expect(strip(narrow.view.lines[4]!)).toContain("related-to");
-    expect(narrow.s.click(strip(narrow.view.lines[4]!).indexOf("related-to") + "related-to ".length + 2, 4, narrow.h)).toBe(true);
+    expect(strip(narrow.view.lines[3]!)).toContain("related-to");
+    expect(narrow.s.click(strip(narrow.view.lines[3]!).indexOf("related-to") + "related-to ".length + 2, 3, narrow.h)).toBe(true);
   });
 
   test("a tile too short for the header leaves the title to its frame bar", () => {
