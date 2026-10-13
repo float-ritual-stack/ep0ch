@@ -500,20 +500,45 @@
    * A thread's card. At rest it's short: who, the words it's on (when they aren't marked on the page), its first lines
    * and how many replies. Open (the active card, `.on`), it's all of it with its actions. Tapping a resting card opens it.
    */
+  /** A thread that's been put away (PIE-791): seen, or a resolved one with something said on it. */
+  const isEarlier = (thread) => thread.lifecycle === "seen" || thread.lifecycle === "resolved";
+
+  /**
+   * A mark's words as the page draws a note's (references by title, links, Markdown: the server's renderer, so authored
+   * HTML is already text), or its plain words where it has marks of its own (they're drawn on those words) or no drawing.
+   */
+  function words(item, marks) {
+    if (!item.html || (marks && marks.length)) return ownText(item.id, item.body, marks || []);
+    const node = el("div", { class: "b rich", "data-mark": item.id });
+    node.innerHTML = item.html;
+    return node;
+  }
+
+  /**
+   * A thread's card. At rest it's short: who, the words it's on (when they aren't marked on the page), its TL;DR or its
+   * first lines, and how many replies. Open (the active card, `.on`), it's all of it, the discussion folded behind a
+   * TL;DR, with its actions on one row: Reply, Seen (or Back), Keep (or Unkeep), TL;DR, and ⋯ for Quote and Pick.
+   */
   function card(thread, top) {
     const bare = thread.kind === "highlight" && !thread.body && !thread.replies.length;
-    const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
-    node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at)].filter(Boolean).join(" · ") }));
+    const earlier = isEarlier(thread), kept = thread.lifecycle === "kept";
+    const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${earlier ? " earlier" : ""}${kept ? " kept" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
+    node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).join(" · ") }));
     if (thread.quote && !markOf(thread.id)) node.append(el("div", { class: "q", text: `“${thread.quote}”` }));
     const marks = thread.marks || [];
-    if (thread.body) node.append(ownText(thread.id, thread.body, marks));
-    if (top && thread.replies.length) node.append(el("div", { class: "sum", text: `${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"} · ${thread.replies[thread.replies.length - 1].by}` }));
+    const face = thread.tldr ? thread.replies.find((reply) => reply.id === thread.tldr) : null;
+    // A TL;DR is the thread's face; what it's about is folded behind it.
+    const discussion = face ? el("details", { class: "disc" }, el("summary", { text: `the discussion · ${(thread.body ? 1 : 0) + thread.replies.length - 1} more` })) : node;
+    if (face) node.append(el("div", { class: "tldr" }, el("span", { class: "k", text: "TL;DR" }), words(face)), discussion);
+    if (thread.body) discussion.append(words(thread, marks));
+    if (top && thread.replies.length && !face) node.append(el("div", { class: "sum", text: `${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"} · ${thread.replies[thread.replies.length - 1].by}` }));
     const nested = nest(marks);
-    if (nested) node.append(nested);
+    if (nested) discussion.append(nested);
     for (const reply of thread.replies) {
+      if (face && reply.id === face.id) continue;
       const replyMarks = reply.marks || [];
-      node.append(el("div", { class: `reply${picked.has(reply.id) ? " picked" : ""}`, "data-reply": reply.id },
-        el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}` }), ownText(reply.id, reply.body, replyMarks), nest(replyMarks),
+      discussion.append(el("div", { class: `reply${picked.has(reply.id) ? " picked" : ""}`, "data-reply": reply.id },
+        el("div", { class: "who", text: `${reply.by} · ${when(reply.at)}${reply.tldr ? " · TL;DR" : ""}` }), words(reply, replyMarks), nest(replyMarks),
         quotedLine(reply.quotedIn), el("div", { class: "mg-row" }, ...quoteButtons(reply.id))));
     }
     const quotes = quotedLine(thread.quotedIn);
@@ -526,24 +551,50 @@
     if (asked) node.append(el("div", { class: "who", text: "waiting for the answer…" }));
     if (top) node.addEventListener("click", (event) => {
       if (node.classList.contains("on") || !window.getSelection()?.isCollapsed) return;
-      if (event.target instanceof Element && event.target.closest("a, button, mark")) return;
+      if (event.target instanceof Element && event.target.closest("a, button, mark, summary")) return;
       activate(thread.id);
     });
     if (readOnly) return node;
     const row = el("div", { class: "mg-row" });
+    const verb = (action, label, quiet) => el("button", { type: "button", ...(quiet ? { class: "quiet" } : {}), text: label, onclick: () => act(action, { thread: thread.id }) });
     // A highlight's words take a comment or a question of their own.
-    const onWords = (action) => () => { const words = wordsOf(thread.id); if (words) compose(action, words); };
-    row.append(
-      ...(bare ? [
-        el("button", { type: "button", text: "Comment", onclick: onWords("comment") }),
-        ...(choices.some((choice) => choice.action === "ask") ? [el("button", { type: "button", text: "Ask", onclick: onWords("ask") })] : []),
-      ] : [el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) })]),
-      el("button", { type: "button", class: "quiet", text: bare ? "Remove" : "Resolve", onclick: () => act("resolve", { thread: thread.id }) }),
-      // A highlight quotes alone: picking several is for threads.
-      ...quoteButtons(thread.id).slice(0, bare ? 1 : undefined),
-    );
+    const onWords = (action) => () => { const picked = wordsOf(thread.id); if (picked) compose(action, picked); };
+    const primary = bare ? [
+      el("button", { type: "button", text: "Comment", onclick: onWords("comment") }),
+      ...(choices.some((choice) => choice.action === "ask") ? [el("button", { type: "button", text: "Ask", onclick: onWords("ask") })] : []),
+      verb(kept ? "unkeep" : "keep", kept ? "Unkeep" : "Keep"),
+      verb("resolve", "Remove", true),
+    ] : [
+      el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
+      verb(earlier ? "back" : "seen", earlier ? "Back" : "Seen"),
+      verb(kept ? "unkeep" : "keep", kept ? "Unkeep" : "Keep"),
+      el("button", { type: "button", text: face ? "Edit TL;DR" : "TL;DR", onclick: () => (face ? editTldr(node, thread, face, row) : act("tldr", { thread: thread.id })) }),
+    ];
+    // ⋯: the rest (Quote, and Pick for several), in the same row instead, so the row never wraps.
+    const rest = quoteButtons(thread.id).slice(0, bare ? 1 : undefined);
+    const more = el("button", { type: "button", class: "quiet", text: "⋯", "aria-label": "more: quote, pick", onclick: () => { row.replaceChildren(...rest, back); } });
+    const back = el("button", { type: "button", class: "quiet", text: "‹", "aria-label": "back", onclick: () => { row.replaceChildren(...primary, more); } });
+    row.append(...primary, more);
     node.append(row);
     return node;
+  }
+
+  /** The TL;DR edited (his own words over @margin's): a new one, the newest is the face. */
+  function editTldr(node, thread, face, row) {
+    if (!opening()) return;
+    const input = el("textarea", { class: "mg-in" });
+    input.value = face.body;
+    editor = input;
+    const why = el("p", { class: "why", hidden: "" });
+    const box = el("div", { class: "mg-reply" }, input, why);
+    const done = () => { box.remove(); row.hidden = false; editor = null; doneWriting(); };
+    const cancel = el("button", { type: "button", class: "quiet", text: "Cancel", onclick: () => done() });
+    const save = el("button", { type: "button", text: "Save", onclick: () =>
+      submit(input, [save, cancel], why, { action: "tldr", thread: thread.id, body: input.value, requestId: requestId() }, (answer) => { say(answer.said || "saved"); done(); }) });
+    box.append(el("div", { class: "mg-row" }, cancel, save));
+    row.hidden = true;
+    node.append(box);
+    input.focus();
   }
 
   /** The cards of the marks on a card's words, under them: a highlight's opens when its words are tapped. */
@@ -788,6 +839,38 @@
       el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said })));
   }
 
+  /**
+   * The margin's setting (PIE-791), this reader's own (kept in this browser): `current` (the default: open and kept
+   * threads, TL;DR faces; seen ones on the Earlier shelf at the foot), `all` (the seen ones in the margin too), or `off`
+   * (no cards: the marks stay on the words, and the foot lists every thread).
+   */
+  const MARGINS = ["off", "current", "all"];
+  let marginSetting = (() => { try { const kept = localStorage.getItem("ep0ch-margin"); return MARGINS.includes(kept) ? kept : "current"; } catch { return "current"; } })();
+  function setMargin(value) {
+    marginSetting = value;
+    try { localStorage.setItem("ep0ch-margin", value); } catch { /* this page only */ }
+    draw();
+  }
+
+  /** One line of the Earlier shelf: what it was and its first words; tapping opens it in place, under the line. */
+  function shelfRow(thread) {
+    const said = (thread.body || (thread.quote ? `“${thread.quote}”` : "")).replace(/\s+/g, " ").trim();
+    const item = el("li", { class: "earlier" });
+    const line = el("button", { type: "button", class: "quiet", "aria-expanded": "false", onclick: () => {
+      const open = item.querySelector(".mg-card");
+      if (open) { open.remove(); line.setAttribute("aria-expanded", "false"); return; }
+      const node = card(thread, true);
+      node.classList.add("on", "inplace");
+      item.append(node);
+      line.setAttribute("aria-expanded", "true");
+      markRead(thread.id);
+    } },
+    el("span", { class: "k", text: `${thread.kind} · ${thread.lifecycle}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}` }),
+    el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said }));
+    item.append(line);
+    return item;
+  }
+
   let watching = null;
   function draw() {
     if (busy()) return;
@@ -799,12 +882,16 @@
     for (const old of host.querySelectorAll('mark[data-placed="words"]')) old.replaceWith(...old.childNodes);
     host.normalize();
     margin.replaceChildren();
-    const whole = [], lost = [], rows = [];
+    main.dataset.margin = marginSetting;
+    const whole = [], lost = [], rows = [], shelf = [];
     for (const thread of threads) {
       const placed = !!markOf(thread.id) || placeByWords(thread);
+      // Put away: on the Earlier shelf, unless the margin shows all.
+      if (isEarlier(thread) && marginSetting !== "all") { shelf.push(shelfRow(thread)); continue; }
+      rows.push(indexRow(thread, placed || !thread.quote));
+      if (marginSetting === "off") continue;
       const node = card(thread, true);
       if (thread.id === active) node.classList.add("on");
-      rows.push(indexRow(thread, placed || !thread.quote));
       if (!placed) { (thread.quote ? lost : whole).push(node); continue; }
       if (wide.matches) margin.append(node);
       else {
@@ -815,9 +902,15 @@
       }
     }
     for (const node of marksOf(active || "")) node.classList.add("on");
-    // The foot of the note: every thread on it (the index), the note's own comments, and any card that couldn't be placed.
+    // The foot of the note: the margin's setting, every current thread (the index), the Earlier shelf, the note's own
+    // comments, and any card that couldn't be placed. With the shelf, the index is every thread on the note.
     const foot = el("div", { class: "mg-whole mg-ui" });
-    if (threads.length) foot.append(el("h2", { text: `On this note · ${threads.length}` }), el("ul", { class: "mg-index" }, ...rows));
+    if (threads.length) {
+      foot.append(el("div", { class: "mg-setting", role: "group", "aria-label": "the margin" }, el("span", { class: "who", text: "margin" }),
+        ...MARGINS.map((value) => el("button", { type: "button", class: value === marginSetting ? "on" : "quiet", "aria-pressed": String(value === marginSetting), text: value, onclick: () => setMargin(value) }))));
+      if (rows.length) foot.append(el("h2", { text: `On this note · ${rows.length}` }), el("ul", { class: "mg-index" }, ...rows));
+      if (shelf.length) foot.append(el("h2", { text: `Earlier · ${shelf.length}` }), el("ul", { class: "mg-index mg-shelf" }, ...shelf));
+    }
     foot.append(...whole);
     if (lost.length) foot.append(el("h2", { text: "Couldn't place" }), el("p", { class: "who", text: "Their words aren't on the page as it's drawn now." }), ...lost);
     if (readOnly) foot.append(el("div", { class: "who", text: readOnly }));

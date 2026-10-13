@@ -454,6 +454,25 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-index .k{display:block;font-size:12px;color:var(--dim)}
 .mg-index .x{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mg-leader{display:none}
+/* Attention (PIE-791): a TL;DR is the card's face, the discussion folded behind it; kept and seen say so quietly. */
+.mg-card .tldr{border-left:2px solid #6b8f5e;padding-left:.45rem;margin:.25rem 0}
+.mg-card .tldr .k{display:block;font-size:11px;letter-spacing:.06em;color:#8fbf7e}
+.mg-card .disc{margin-top:.35rem}
+.mg-card .disc>summary{cursor:pointer;font-size:12px;color:var(--dim);min-height:28px;line-height:28px}
+.mg-card.top:not(.on)>.disc,.mg-card.top:not(.on)>.tldr~.sum{display:none}
+.mg-card.top:not(.on)>.tldr>.b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.mg-card.kept{border-left-color:#6b8f5e}
+.mg-card.earlier{opacity:.8}
+.mg-card .rich{white-space:normal}
+.mg-card .rich>:first-child{margin-top:0}.mg-card .rich>:last-child{margin-bottom:0}
+.mg-card .rich p{margin:.3rem 0}
+.mg-card .rich blockquote{margin:.3rem 0;padding-left:.5rem;border-left:2px solid var(--rule);color:var(--dim)}
+.mg-setting{display:flex;gap:.25rem;align-items:center;margin:.5rem 0 .25rem}
+.mg-setting .who{margin-right:.35rem}
+.mg-ui .mg-setting button{min-height:36px;min-width:0;padding:0 .6rem;font-size:14px}
+.mg-ui .mg-setting button.on{border-color:#8a7a4a;color:#e0d2a8}
+.mg-shelf .mg-card.inplace{margin:.25rem .3rem .6rem}
+main.reader[data-margin=off] #mg-leader{display:none}
 .mg-card.on{border-color:#5a6170}
 /* A card's own words select like a note's (highlight, comment, ask on them); its controls don't. */
 .mg-card .b{user-select:text;-webkit-user-select:text}
@@ -711,6 +730,7 @@ export class Publisher {
       changed: (since, ms) => this.changed(since, ms),
       linkable: (ids, share) => this.linkableNotes(ids, share),
       find: (query, near, share) => this.findNotes(query, near, share),
+      render: (texts, share) => this.markWords(texts, share),
       // A share's tags are the outline's, so `#` completes on the tailnet only.
       complete: async (text, at, near, share) => completeAt(this.searchHost(share ? await this.shareIndex(share) : await this.readIndex(), share), text, at, near, !share),
       log: this.log,
@@ -1603,6 +1623,23 @@ export class Publisher {
       .slice(0, 12).map((match) => ({ id: match.block.id, title: match.title, path: share ? "" : match.path }));
   }
 
+  /**
+   * Marks' words as the page draws a note's (PIE-791): references by title and linked to their pages, page links
+   * resolved, Markdown drawn, callouts boxed; never a link to a locked note or one outside a share.
+   */
+  private async markWords(texts: readonly string[], share?: PageShare): Promise<string[]> {
+    const base = share?.base ?? this.basePath;
+    const index = share ? await this.shareIndex(share) : await this.readIndex();
+    const pages = await this.resolvePages(texts);
+    let linked = await this.browseIndex(await this.linkable(index, texts, pages), texts, pages);
+    if (share?.scope.kind === "note") {
+      const inside = await this.inScope(linked.entries.map((entry) => entry.blockId), share);
+      linked = { ...linked, entries: linked.entries.filter((entry) => inside.has(entry.blockId)) };
+    }
+    const callouts = await this.callouts();
+    return texts.map((text) => htmlViewLinks(renderMarkdownHtml(publishedText(text, { index: linked, basePath: base, pages }), callouts), linked, base));
+  }
+
   /** How many notes each of `ids` holds (annotations aren't notes), a few reads at a time. */
   private async childCounts(ids: readonly string[]): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
@@ -2079,7 +2116,7 @@ export class Publisher {
     await Promise.all(blocks.filter((block) => annotated.has(block.id)).slice(0, MAX_DECORATED_BLOCKS).map(async (block) => {
       try {
         const threads = await this.client.request<AnnotationThread[]>({
-          action: "annotations.list", query: { subject: { kind: "block", blockId: block.id }, includeResolved: false },
+          action: "annotations.list", query: { subject: { kind: "block", blockId: block.id }, includeResolved: true },
         });
         const marks = publishedAnnotations(block.text ?? "", threads.filter((thread) => {
           const subject = thread.resolvedTarget?.representation.subject;
