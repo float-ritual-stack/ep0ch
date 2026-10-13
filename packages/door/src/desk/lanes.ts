@@ -4,7 +4,6 @@
 // cards and notes (the composer), a card's steps, trash and restore, each agent's own selected card, and the lanes'
 // refresh from the change feed. The board is a screen spec on the desk (src/desk/screen-specs.ts); its readers row,
 // docks, floats and spines are the desk's. Every key and click runs an action (BOARD_ACTIONS, the source's).
-import { takeDropped } from "../paste-image";
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
@@ -893,7 +892,7 @@ export class Lanes implements SourceModel {
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
     // A new card has no reader beside it to open a link in: open it from the card once it's made.
     else if (cmd === "follow") this.host.ctx.flash("ctrl+l opens a link from a note's edit or a comment; a new card's links open once it's made");
-    else if (cmd === "image") { takeDropped(); this.host.ctx.flash("a picture goes into a note's edit or a comment; make the card, then e on it"); }
+    else if (cmd === "image") { this.host.ctx.flash("a picture goes into a note's edit or a comment; make the card, then e on it"); }
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c && this.host.ctx.copy?.(c.text) !== false) this.host.ctx.flash(`copied ${c.chars} chars`); this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.

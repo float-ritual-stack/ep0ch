@@ -322,11 +322,14 @@ export class Draft {
    * Put media line `line` in at the cursor (PIE-592): on its own line, after the cursor's line when that has text. One
    * undo step, as a paste is.
    */
-  putLine(line: string, by: Actor = USER) {
-    this.anchor = null;
-    if (this.line.trim()) { this.col = this.line.length; this.pasteText(`\n${line}`, by); }
-    else { this.col = 0; this.lines[this.row] = ""; this.pasteText(line, by); }
+  putLine(line: string, by: Actor = USER, replace?: { start: number; end: number }) {
+    // The cursor's line written again whole, in one step: without the path it came from (a dropped file's), and the
+    // media line under what's left of it, or in its place when nothing is.
+    const was = this.line, kept = (replace ? was.slice(0, replace.start) + was.slice(replace.end) : was).replace(/\s+$/, "");
+    this.anchor = { row: this.row, col: 0 }; this.col = was.length;
+    this.pasteText(kept.trim() ? `${kept}\n${line}` : line, by);
   }
+
 
   /** The text a put-aside draft was brought back with (its session's restore): esc twice on it unchanged drops it. */
   restored: string | null = null;
@@ -365,8 +368,8 @@ export class Draft {
       if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
-      // ctrl+v puts in the picture on the clipboard, or the file just dropped on the terminal (PIE-592): kept in the
-      // outline's folder, a media line here.
+      // ctrl+v puts in a picture (PIE-592): the image file whose path the cursor is on (a file dropped on the terminal
+      // pastes its path), else the clipboard's; kept in the outline's folder, a media line here.
       if (k.ch === "v") return "image";
       // ctrl+l follows the link the cursor is on (PIE-592): it opens beside the edit, which stays open.
       if (k.ch === "l") {

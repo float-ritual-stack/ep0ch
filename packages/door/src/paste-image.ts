@@ -1,5 +1,5 @@
 // A picture put into a draft (PIE-592): from the clipboard, or a file dropped on the terminal (which pastes its
-// path). Either way it's copied into the outline's own folder, `<outline folder>/media/`, and the draft gets a media
+// path, typed in as text like any paste: ctrl+v on it makes it a picture). Either way it's copied into the outline's own folder, `<outline folder>/media/`, and the draft gets a media
 // line, `[img::<path>]`, which the reader draws (src/media.ts, outline-core's media-line.ts). The terminal can't hand
 // over an image, so the clipboard is read on this machine: pbpaste's cousins on macOS, wl-paste or xclip on Linux.
 import { createHash } from "node:crypto";
@@ -13,20 +13,24 @@ const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".t
 /** Tests and other platforms say how the clipboard is read; null: this platform's way. */
 export const clipboardImageReader: { read: (() => Promise<Buffer | null>) | null } = { read: null };
 
-/** Run `cmd`, its stdout as bytes, or null when it isn't there, fails or takes too long. */
+/** Run `cmd`, its stdout as bytes, or null when it isn't there, fails or takes longer than `ms` (then it's killed). */
 async function bytesOf(cmd: string[], ms = 3000): Promise<Buffer | null> {
+  let p: ReturnType<typeof Bun.spawn> | null = null;
   try {
-    const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
-    const timer = setTimeout(() => p.kill(), ms);
-    const out = Buffer.from(await new Response(p.stdout).arrayBuffer());
-    clearTimeout(timer);
-    return (await p.exited) === 0 && out.length ? out : null;
-  } catch { return null; }
+    p = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const run = p;
+    const done = Promise.all([new Response(run.stdout as ReadableStream).arrayBuffer(), run.exited]);
+    const late = new Promise<null>(resolve => setTimeout(() => resolve(null), ms));
+    const r = await Promise.race([done, late]);
+    if (!r) { run.kill(9); return null; }
+    const out = Buffer.from(r[0]);
+    return r[1] === 0 && out.length ? out : null;
+  } catch { p?.kill(9); return null; }
 }
 
 /** `«data PNGf89504E47…»`, as osascript prints the clipboard's PNG, to its bytes. */
 const fromAppleData = (b: Buffer | null) => {
-  const m = b?.toString("latin1").match(/«data PNGf([0-9A-Fa-f]+)»/);
+  const m = b?.toString("utf8").match(/«data PNGf([0-9A-Fa-f]+)»/);
   return m ? Buffer.from(m[1]!, "hex") : null;
 };
 
@@ -48,6 +52,28 @@ export function noClipboardImage(): string {
   return "no picture on the clipboard (wl-paste or xclip reads it: install one), or drop the file on the terminal";
 }
 
+/**
+ * The image file path the cursor is on or just after in `line` (a file dropped on the terminal pastes its path:
+ * quoted, with escaped spaces, `~` too), for ctrl+v to turn into a picture: where it is (the quotes included) and the
+ * file. Only a path to an image file on this machine.
+ */
+export function imagePathAt(line: string, col: number): { start: number; end: number; path: string } | null {
+  const found = /(['"]?)((?:~|\/)[^'"\n]*?\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic))\1(?=$|[\s,.;:)\]])/gi;
+  for (let from = 0; from <= line.length;) {
+    found.lastIndex = from;
+    const m = found.exec(line);
+    if (!m) break;
+    const start = m.index, end = m.index + m[0].length;
+    // Quoted, it can follow anything (a drop right after other text); bare, it starts a word.
+    if (start <= col && col <= end && (m[1] || start === 0 || /[\s(\[]/.test(line[start - 1]!))) {
+      const path = droppedImage(m[0]);
+      if (path) return { start, end, path };
+    }
+    from = start + 1;
+  }
+  return null;
+}
+
 /** The one image file `text` names (a path dropped on the terminal: quoted or with escaped spaces, `~` too), or null. */
 export function droppedImage(text: string): string | null {
   const t = text.trim();
@@ -55,17 +81,6 @@ export function droppedImage(text: string): string | null {
   const r = resolveMediaPath(t);
   if (!r.exists || !isAbsolute(r.path)) return null;
   try { return statSync(r.path).isFile() ? r.path : null; } catch { return null; }
-}
-
-/**
- * An image file just dropped on the terminal (its path came as a paste), for the next `draft.image` to take: the App
- * turns that paste into ctrl+v (PIE-592). Taken once, and only for a moment.
- */
-let dropped: { path: string; at: number } | null = null;
-export function dropImage(path: string) { dropped = { path, at: Date.now() }; }
-export function takeDropped(): string | null {
-  const d = dropped; dropped = null;
-  return d && Date.now() - d.at < 2000 ? d.path : null;
 }
 
 /** The kind of picture `b` is, by its first bytes: its file extension. */

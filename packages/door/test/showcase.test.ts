@@ -517,9 +517,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
     const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
     const before = d.text;
-    // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it).
-    press({ kind: "paste", text: `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'` });
+    // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): typed in as
+    // text, as every paste is; ctrl+v on it makes it the picture.
+    const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
+    press({ kind: "paste", text: dropped });
+    expect(d.lines[d.row].endsWith(dropped)).toBe(true);
+    press({ kind: "char", ch: "v", ctrl: true });
     await until(() => d.text.includes("[img::"), "the dropped picture", 5000);
+    expect(d.text).not.toContain(dropped);
     const row = d.lines.findIndex((l: string) => l.startsWith("[img::"));
     expect(row).toBe(d.row);                                              // on its own line, the cursor after it
     const kept = d.lines[row].match(/^\[img::(.+)\]$/)![1]!;
@@ -529,7 +534,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const { clipboardImageReader } = await import("../src/paste-image");
     clipboardImageReader.read = async () => readFileSync(join(SHOWCASE_ASSETS, "allotment-dusk.jpg"));
     try {
-      press({ kind: "char", ch: "v", ctrl: true });
+      // A paste of nothing (the terminal's paste when the clipboard holds only a picture) is ctrl+v.
+      press({ kind: "paste", text: "" });
       await until(() => /^\[img::.+\.jpg\]$/.test(d.lines[d.row] ?? ""), "the clipboard's picture", 5000);
       // Nothing on the clipboard: said, and nothing written.
       clipboardImageReader.read = async () => null;
@@ -538,7 +544,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       await until(() => /no picture on the clipboard|without a desktop/.test(d.note), "the clipboard said empty", 5000);
       expect(d.text).toBe(was);
     } finally { clipboardImageReader.read = null; }
-    press({ kind: "char", ch: "z", ctrl: true }); press({ kind: "char", ch: "z", ctrl: true });
+    for (let i = 0; i < 3; i++) press({ kind: "char", ch: "z", ctrl: true });
     expect(d.text).toBe(before);
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 20_000);
