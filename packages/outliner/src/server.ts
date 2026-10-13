@@ -274,7 +274,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
  * to act) is refused, so an extension can't set another one off.
  */
-const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch", "annotations.update"]);
+const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",

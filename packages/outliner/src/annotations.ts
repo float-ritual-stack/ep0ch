@@ -797,7 +797,9 @@ export function formatAnnotationBlock(
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
   // `<when> <who>`: the person (`user`) or an agent's actor id.
-  if (options.edited) metadata.push(`[${ANNOTATION_EDITED_KEY}::${options.edited}${options.editedBy && /^[\w.@:/-]{1,80}$/.test(options.editedBy) ? ` ${options.editedBy}` : ""}]`);
+  // The editor's id kept to one property-safe word (no spaces or brackets), so who edited it is never dropped.
+  const editor = options.editedBy?.replace(/[^\w.@:/-]+/g, "-").slice(0, 80);
+  if (options.edited) metadata.push(`[${ANNOTATION_EDITED_KEY}::${options.edited}${editor ? ` ${editor}` : ""}]`);
   for (const [key, values] of Object.entries(normalized.properties ?? {})) for (const value of values) metadata.push(`[${key}::${value}]`);
   const lines = (first: string) => (normalized.body ? [first, metadata.join(" "), normalized.body] : [first, metadata.join(" ")]).join("\n");
   const text = lines(heading);
