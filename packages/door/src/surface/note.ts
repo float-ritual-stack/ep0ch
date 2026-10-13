@@ -296,7 +296,7 @@ interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
   /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
-  title: { row: number; text: string; ink: string; big: boolean; col: number } | null;
+  title: { row: number; rows: number; text: string; ink: string; big: boolean; col: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
 }
@@ -660,7 +660,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -1106,11 +1106,15 @@ export class NoteSurface {
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
-    const first = this.printed ? 1 : big ? 3 : 2;
+    // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
+    // here was the bug). The Work ID keeps the accent at the start of the first line.
+    const lines = big || width(title) <= w ? [title] : wrap(title, w);
+    const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
+    const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = (named.workId ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${named.title}`, w) : ink + pad(title, w)) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
 
   /**
@@ -1125,7 +1129,7 @@ export class NoteSurface {
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    this.headerSurface(lines, lines.length, w, shade, title ? [title.row] : []);
+    this.headerSurface(lines, lines.length, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
   }
 
@@ -1364,7 +1368,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
@@ -1466,7 +1470,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade, title ? (title.big ? [title.row, title.row + 1] : [title.row]) : []);
+    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.big ? 2 : title.rows }, (_, i) => title.row + i) : []);
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
@@ -5312,7 +5316,8 @@ export class NoteSurface {
     if (!d || !m || !rows) return null;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
-      if (r === 0) lines.push(Math.max(0, titleLine(m.text).line));   // the subject line
+      // The title's rows, wrapped (PIE-815): the subject line.
+      if (r >= d.titleRows[0] && r < d.titleRows[1]) lines.push(Math.max(0, titleLine(m.text).line));
       else if (r >= d.top) { const b = d.doc.source[r - d.top], l = b === undefined ? undefined : d.lines[b]; if (l !== undefined) lines.push(l); }
     }
     if (!lines.length) return null;
@@ -5322,7 +5327,7 @@ export class NoteSurface {
     const seen = s.text(rows);
     // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
     let r0 = s.start.row;
-    const lineOfRow = (r: number) => (r === 0 ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
+    const lineOfRow = (r: number) => (r >= d.titleRows[0] && r < d.titleRows[1] ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
     while (r0 > d.top && lineOfRow(r0 - 1) === lo) r0--;
     const before = s.start.col > (rows.margin?.(s.start.row) ?? 0) || r0 < s.start.row
       ? new Selection({ row: r0, col: rows.margin?.(r0) ?? 0 }, { row: s.start.row, col: s.start.col - 1 }).text(rows) : "";
