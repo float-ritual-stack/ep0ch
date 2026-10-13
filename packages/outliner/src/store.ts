@@ -93,6 +93,7 @@ import type {
   AnnotationBatchReceipt,
   AnnotationCreateInput,
   AnnotationLifecycleInput,
+  AnnotationUpdateInput,
   AnnotationListQuery,
   AnnotationReconcileInput,
   ResourceReconcileInput,
@@ -1265,6 +1266,11 @@ export class OutlinerStore {
     mutation: MutationProvenance,
   ): AnnotationRecord {
     return this.annotations.setLifecycle(input, mutation);
+  }
+
+  /** A posted comment's or reply's new words (PIE-763), revision-checked and stamped `edited`: `annotations.update`. */
+  updateAnnotation(input: AnnotationUpdateInput, mutation: MutationProvenance): AnnotationRecord {
+    return this.annotations.update(input, mutation);
   }
 
   /**

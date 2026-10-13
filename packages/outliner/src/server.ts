@@ -2775,6 +2775,10 @@ export class OutlinerServer {
             request.mutation,
           );
           break;
+        case "annotations.update":
+          if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.update needs mutation: who edits it ({ author: \"user\" } or { author: \"agent\", actorId })");
+          result = this.store.updateAnnotation(request.input, request.mutation);
+          break;
         case "annotations.tldr": {
           if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
           const root = this.store.getAnnotation(String(request.annotationId ?? ""));
@@ -3353,6 +3357,7 @@ export class OutlinerServer {
         blockId = request.input.annotationId;
         break;
       case "annotations.lifecycle":
+      case "annotations.update":
         domain = "content";
         blockId = request.input.annotationId;
         break;

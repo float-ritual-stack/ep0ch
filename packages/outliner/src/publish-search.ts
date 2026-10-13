@@ -19,6 +19,10 @@ import { stripFragmentAnchors } from "./fragments";
 import { parsePropertyRecords, stripPropertyTokens } from "./properties";
 import { plainBody } from "./publish-marginalia";
 import type { GotoSearchCollection, PageAddressMatch, PropertyCatalogItem } from "./types";
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+
+/** A summary line's heading, quote and list marks and its step box, left off. */
+const SUMMARY_LEAD = new RegExp(`^\\s*(?:#{1,6}\\s+|>\\s?|[-*+]\\s+(?:${STEP_BOX}\\s+)?|\\d+[.)]\\s+)+`);
 
 /** The search box's script, read once: served at `<base>/_marginalia/search.js` (publish-page.ts). */
 export const SEARCH_SCRIPT = readFileSync(new URL("./publish-search.js", import.meta.url), "utf8");
@@ -83,8 +87,7 @@ function pageLinkWords(text: string): string {
 /** A line of a note as summary words: references and embeds by `titleOf`, no Markdown marks, one line. */
 export const summaryWords = (raw: string, titleOf: (blockId: string) => string | undefined = () => undefined) =>
   pageLinkWords(plainBody(stripFragmentAnchors(stripPropertyTokens(raw)), titleOf))
-
-    .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+    .replace(SUMMARY_LEAD, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 
 const titleWords = (title: string) => plainBody(title).replace(/^\s*#{1,6}\s+/, "").replace(/\s{2,}/g, " ").trim();
 

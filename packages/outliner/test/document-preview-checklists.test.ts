@@ -523,3 +523,30 @@ test('Preview showing a note narrows, moves and widens with its step anchors',as
   expect(tasks(reader)).toHaveLength(2);
   expect(paint(reader)).toContain('Notes');
 }));
+
+test('Detail\'s step menu offers Approve and Reject (PIE-811): by key and by a click on the choice, written as their marks; space reopens an approved step',async()=>fixture(async client=>{
+  const source=['# Shed roof','','- [ ] Felt from the merchant ^felt','- [ ] Patch the gutter ^gutter'].join('\n');
+  const block=await client.request<Block>({action:'create',text:source});
+  const reader=new DocumentPreview(client,()=>{});
+  await reader.load({kind:'block',blockId:block.id});reader.focus();
+  const text=async()=>(await client.request<Block>({action:'get',blockId:block.id})).text;
+  // Keys: open the felt's menu, down to Approve (done, to do, Approve), Enter.
+  await click(reader,tasks(reader)[0]!.uri);
+  const menu=renderDocumentPreview(reader.state!,{x:0,y:0,width:30,height:12},'help');
+  const said=menu.lines.map(stripTerminalSequences).join('\n');
+  expect(said).toContain('[✓] Approve');
+  expect(said).toContain('[✗] Reject');
+  await reader.key({name:'down'},44,10,noDetail);await reader.key({name:'down'},44,10,noDetail);
+  await reader.key({name:'return'},44,10,noDetail);
+  expect(await text()).toContain('- [✓] Felt from the merchant ^felt');
+  // Mouse: the gutter's menu, a click on Reject.
+  await click(reader,tasks(reader)[1]!.uri);
+  const reject=renderDocumentPreview(reader.state!,{x:0,y:0,width:30,height:12},'help').controls!.find(control=>control.action.endsWith(':rejected'))!;
+  await reader.action(reject.action,noDetail);
+  expect(await text()).toContain('- [✗] Patch the gutter ^gutter');
+  expect(paint(reader)).toContain('[✗]');
+  // Space on the approved felt reopens it.
+  await click(reader,tasks(reader)[0]!.uri);await reader.key({name:'escape'},44,10,noDetail);
+  await reader.key({name:'space'},44,10,noDetail);
+  expect(await text()).toContain('- [ ] Felt from the merchant ^felt');
+}));

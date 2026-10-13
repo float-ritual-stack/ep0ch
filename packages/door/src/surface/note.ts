@@ -19,7 +19,7 @@ import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
-import { CommentSession, type CommentEnv } from "../comment";
+import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
@@ -31,7 +31,8 @@ import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, page
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
@@ -356,7 +357,7 @@ export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "contr
  * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
  * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
  */
-export type ThreadControl = "select" | "reply" | "seen" | "keep" | "tldr" | "card" | "quote" | "quoted";
+export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -384,7 +385,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -525,7 +526,7 @@ type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; 
 const PAGE_OFFER_MS = 60_000;
 
 /** Agent actions that open an edit or a comment session on the note. */
-const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
+const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "comment.edit", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
 const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr" };
 
@@ -665,6 +666,8 @@ export class NoteSurface {
   get linksIn(): string | null { return (this.modes.get("links") as LinksMode | null)?.block ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
   private replyOn: string | null = null;
+  /** The comment (or one of its replies) an Edit control asked to edit (PIE-763): the thread list opening next starts the edit. */
+  private editOn: { thread: string; reply?: string } | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
   private get foldSel(): string | null { return this.cur?.startsWith("fold:") ? this.cur.slice(5) : null; }
   private set foldSel(key: string | null) {
@@ -1426,7 +1429,7 @@ export class NoteSurface {
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
-      if (row >= 0 && row < room && c.from + bx < w) this.hits.push({ row: top + row, from: c.from + bx, to: Math.min(w, c.to + bx), thread: c.thread, elem: controlKey(c.thread, c.control) });
+      if (row >= 0 && row < room && c.from + bx < w) this.hits.push({ row: top + row, from: c.from + bx, to: Math.min(w, c.to + bx), thread: c.thread, elem: controlKey(c.thread, c.control, c.value) });
     }
     for (const [i, r] of (picks?.rows ?? []).entries()) {
       const row = r - this.scroll;
@@ -1795,7 +1798,9 @@ export class NoteSurface {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
         if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
-        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, box) + LINK_OFF : null;
+        // Drawn by its status (`[+]` as `[✓]`, rejected as ✘), where the box still reads as the step's status.
+        const shown = boxStatus(box) === st?.status ? STEP_BOXES[st.status] : box;
+        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
       },
     };
   }
@@ -2412,7 +2417,8 @@ export class NoteSurface {
     const m = this.msg;
     // A Reply control (PIE-420) asked for this: the list opens with the reply started, and goes when it's done.
     const replyOn = mine && mode === "threads" ? this.replyOn : null;
-    this.replyOn = null;
+    const editOn = mine && mode === "threads" ? this.editOn : null;
+    this.replyOn = null; this.editOn = null;
     if (!m || this.editing) return;
     // Text selected in the reader is where the passage picker starts: the same text, as a quote.
     const picked = mine && mode === "select" ? this.writeNext?.at ?? (this.selection ? this.sourceOf(this.selection) : null) : null;
@@ -2431,6 +2437,12 @@ export class NoteSurface {
     if (t >= 0) this.session.sel = t;
     const r = replyOn ? this.session.threads.findIndex(x => x.id === replyOn) : -1;
     if (r >= 0) { this.session.replyTo(r); this.session.fromReader = true; }
+    // An Edit control (PIE-763): the same editor, on the comment's or reply's words; saved (or esc'd), back to reading.
+    const ed = editOn ? this.session.threads.findIndex(x => x.id === editOn.thread) : -1;
+    if (ed >= 0) {
+      const why = this.session.editMark(ed, editOn!.reply);
+      if (why) host.ctx.flash(why); else this.session.fromReader = true;
+    }
     const p = this.session.passage;
     if (p && picked && fresh.text === m.text && picked.to > picked.from) { p.from = picked.from; p.to = picked.to; this.selection = null; }
     // Words selected in the reader (C, the passage toolbar's Comment and Ask): straight to writing at the passage, where
@@ -2786,7 +2798,7 @@ export class NoteSurface {
     // Nothing typed yet: nothing to lose, so it closes and the reader goes.
     if (!cs.dirty && !cs.busy) { cs.writing.close(); this.closeSession(); return null; }
     if (cs.busy) throw new ActionRefused(`${cs.busy} · wait for it to land`);
-    const what = cs.target?.kind === "reply" ? "reply" : cs.props?.kind === "question" ? "question" : "comment";
+    const what = cs.target?.kind === "reply" ? "reply" : cs.target?.kind === "edit" ? "edit" : cs.props?.kind === "question" ? "question" : "comment";
     this.modes.drop("grip");
     const ask: LeaveAsk = { what, name, args, ...(elem ? { elem } : {}) };
     this.leaving = ask;
@@ -2942,6 +2954,8 @@ export class NoteSurface {
     if (s.mode === "compose") this.revealComposer = true;
     const verb = s.mode === "threads" && !s.busy && s.threads[s.sel] ? ATTENTION_KEYS[ch(k) ?? ""] : undefined;
     if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id }, host, true); return true; }
+    // e edits the current thread's comment in the same editor (PIE-763); a reply's words: its [Edit] on the expanded thread.
+    if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "e") { void this.runKey("comment.edit", { thread: s.threads[s.sel]!.id }, host, true); return true; }
     // q quotes the current thread (or the ones space picked) into a new block; space picks.
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "q") { void this.runKey("quote", {}, host, true); return true; }
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === " ") { void this.runKey("thread.pick", {}, host, true); return true; }
@@ -3058,7 +3072,7 @@ export class NoteSurface {
     if (isUp(k) || isDown(k)) { void this.runKey("scroll", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
-    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: e.task.step.status === "done" ? "todo" : "done" }, host, true); return true; } }
+    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
     // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
     if (k.kind === "char" && k.ctrl && k.ch === "z") {
       const at = this.msg?.id ?? "";
@@ -3543,7 +3557,7 @@ export class NoteSurface {
     if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
     const t = this.session?.mode === "compose" ? this.session.target : null;
-    const own = t?.kind === "reply" ? panels.findIndex(p => p.thread === t.thread.id) : -1;
+    const own = t && t.kind !== "quote" ? panels.findIndex(p => p.thread === t.thread.id) : -1;
     const n = own >= 0 ? own + 1 : panels.length;
     const all = [...panels.slice(0, n), ...box, ...panels.slice(n)];
     const { doc: out, starts } = withRows(doc, all);
@@ -3575,6 +3589,7 @@ export class NoteSurface {
       return { selected: this.describeSelection(this.selection)?.text ?? null };
     }
     if (e.control === "reply") { this.replyOn = c.id; this.openThread(host); return { replying: c.id }; }
+    if (e.control === "edit") { this.editOn = { thread: c.id, ...(e.value ? { reply: e.value } : {}) }; this.openThread(host); return { editing: e.value ?? c.id }; }
     // Quote: the thread's mark, or the reply the control is on; the power bar asks where it goes.
     if (e.control === "quote") return this.runKey("quote", { threads: e.value ?? c.id }, host);
     if (e.control === "quoted" && e.value) return this.followTarget({ block: e.value } as Link, host, { link: true, fresh: false });
@@ -3687,7 +3702,7 @@ export class NoteSurface {
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
       // An extension's control is its own row.
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
-      const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
+      const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
@@ -4426,8 +4441,8 @@ export class NoteSurface {
     if (!e.task) return;
     this.setElem(e);
     this.reveal = true;
-    // Mark done first, as Detail's menu; on a done step, Mark to do.
-    this.picker = { key: e.key, list: this.choices(e.task.step.status === "done" ? 1 : 0), note: "", busy: false };
+    // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
   }
 
   /**
@@ -5739,7 +5754,7 @@ export class NoteSurface {
       s.writing?.dispose(); s.writing = null; s.target = null; s.passage = null; s.mode = "threads";
     }
     if (mode === "select" && s.mode !== "select") {
-      if (s.mode === "compose" && s.target?.kind === "reply") throw new ActionRefused("a reply is being written here; send or close it first");
+      if (s.mode === "compose" && s.target && s.target.kind !== "quote") throw new ActionRefused(`${s.target.kind === "reply" ? "a reply is being written" : "a comment is being edited"} here; ${s.target.kind === "reply" ? "send" : "save"} or close it first`);
       // `c` from the thread list, or picking again while writing: the text written so far rides along.
       await s.pick(this.commentEnv(host), s.mode === "compose");
     }
@@ -5811,7 +5826,7 @@ interface LineUndo { block: string; edits: LineEdit[]; by: string; context: stri
  */
 function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
   const edge = fg(C.yellow), inner = Math.max(8, W - 2);
-  const title = ` ${STEP_MARKS[ref.step.status]} ${printable(stepTitle(ref.step))} `;
+  const title = ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `;
   const room = Math.max(0, W - 2);
   const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
   const rows: number[] = [];
@@ -5867,7 +5882,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
-  const title = ` ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const title = ` ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
   const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
@@ -5891,16 +5906,22 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   quotedIn(c.quotedIn, "");
   for (const r of c.replies) {
     // Each reply is a mark too: its own [Quote].
-    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at), q = "[Quote]", on = cur === controlKey(c.id, "quote", r.id);
-    const fits = 2 + width(head) + 1 + q.length <= W - 1;
-    if (fits) controls.push({ thread: c.id, control: "quote", value: r.id, row: lines.length, from: 2 + width(head) + 1, to: 2 + width(head) + 1 + q.length, label: "Quote the reply" });
-    lines.push(edge + "│ " + fg(C.cyan) + head + RESET + (fits ? " " + (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET : ""));
+    // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
+    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
+    let tail = "", col = 2 + width(head);
+    for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
+      if (col + 1 + q.length > W - 1) break;
+      controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
+      tail += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
+      col += 1 + q.length;
+    }
+    lines.push(edge + "│ " + fg(C.cyan) + head + RESET + tail);
     for (const l of body(r.body, Math.max(2, inner - 2))) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
     quotedIn(r.quotedIn, "  ");
   }
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
   let row = edge + "│ ", col = 2;
-  ([["select", "Select"], ["reply", "Reply"], ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
+  ([["select", "Select"], ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as const] : []), ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
@@ -6281,8 +6302,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
   const kind = s.target?.kind;
   await s.send(surface.env(host, actor));
   if (s.error || s.mode === "compose") throw new ActionRefused(s.error ?? s.composer?.note ?? "not sent");
-  surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : "commented on this note");
-  return { sent: kind === "reply" ? "reply" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })) };
+  surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : kind === "edit" ? "edited a comment" : "commented on this note");
+  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })) };
 }
 
 /**
@@ -6678,7 +6699,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (e.kind === "figure" && e.link?.figure) {
         return surface.runFigureControl(e.link.figure, host, actor);
       }
-      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
+      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
       if (e.link?.ext && (e.kind === "control" || e.kind === "resource")) {
@@ -6697,7 +6718,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
-      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
+      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
       if (e.kind === "comment" && actor.kind === "agent") {
@@ -7070,6 +7091,34 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const s = await on.surface.ensureSession(on.host, "threads");
       const why = s.replyTo(findThread(s, thread), actor);
       if (why) throw new ActionRefused(why);
+      s.writing!.replace(body, actor);
+      return sendComment(on.surface, on.host, actor);
+    },
+  }),
+  "comment.edit": def({
+    summary: "edit a posted comment, or one of its replies (reply=), in the same editor it was written in (PIE-763). Left out body=, the person's editor opens on its words (ctrl+s saves, esc leaves it as it was, a click away saves it as an edit does); body= saves new words at once, as an agent's always does. Checked against the revision it was read at: an edit made meanwhile is refused (ctrl+r loads it), never overwritten. Attributed to whoever edits it; it shows as edited, its earlier words kept in its revisions",
+    keys: "e in the thread list (m); [Edit] on an expanded thread, or beside one of its replies",
+    touches: "draft", draft: "type", replay: "ask",
+    args: {
+      thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
+      reply: { type: "string", optional: true, about: "one of its replies to edit instead (its id, or its first 6+ characters); left out, the thread's own comment" },
+      body: { type: "string", optional: true, about: "the new words, saved at once; left out, the person's editor opens on the words as they are" },
+      observed: { type: "string", optional: true, about: "with body=: the words as you read them (threads lists them); an agent's edit needs it, so an edit made meanwhile is refused, never overwritten" },
+    },
+    async run({ thread, reply, body, observed }, on, actor) {
+      if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's edit is saved at once (the words it read are in threads)");
+      if (body !== undefined && observed === undefined && actor.kind === "agent") throw new ActionRefused("say observed=: the comment's words as you read them (threads lists them), so an edit made since isn't overwritten");
+      const s = await on.surface.ensureSession(on.host, "threads");
+      const i = findThread(s, thread);
+      // Checked before anything opens: the words read are still its words.
+      if (observed !== undefined) {
+        const th = s.threads[i]!, now = reply === undefined ? th : th.replies.find(x => x.id === reply || (reply.length >= 6 && x.id.startsWith(reply)));
+        if (now && now.body.trim() !== observed.trim()) throw new ActionRefused(`it changed since you read it; its words now: ${JSON.stringify(ellipsize(now.body, 300))} · read them again and edit those`);
+      }
+      const why = s.editMark(i, reply, actor);
+      if (why) throw new ActionRefused(why);
+      const t = s.target as Extract<NonNullable<typeof s.target>, { kind: "edit" }>;
+      if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body }; }
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },
@@ -7708,13 +7757,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "task.status": def({
-    summary: "set a checklist step's status (done, todo, waiting, problem) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
-    keys: "[ ] to a step, then ⏎ or a click on its box and x o w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
+    summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
+    keys: "[ ] to a step, then ⏎ or a click on its box and x o + - w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
     touches: "draft", draft: "write", replay: "ask",
-    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting or problem" } },
+    args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     async run({ to, ...which }, { surface, host }, actor) {
       const status = parseStatus(to);
-      if (!status) throw new ActionRefused(`to is done, todo, waiting or problem, not ${JSON.stringify(to)}`);
+      if (!status) throw new ActionRefused(`to is done, todo, waiting, problem, approved or rejected, not ${JSON.stringify(to)}`);
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, status, host, actor);
     },

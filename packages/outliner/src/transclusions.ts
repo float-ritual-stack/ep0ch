@@ -9,6 +9,7 @@ import { codeHides, codeSpanRanges, type SourceRange } from "@ep0ch/outline-core
 import { blockDisplayTitle } from "./references";
 import type { Block, ChecklistItem } from "./types";
 import { isVirtualBranchDefinition } from "./virtual-branches";
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 
 /** How many transclusions one document projects; the rest say EMBED LIMIT (Detail's rule). */
 export const MAX_EMBEDS_PER_DOCUMENT = 16;
@@ -175,7 +176,7 @@ export type TransclusionStep = Omit<ChecklistItem, "properties" | "text" | "mark
 /** Roughly what one step adds to an answer, for its byte budget. */
 const STEP_BYTES = 180;
 /** A line that could be a checklist step: only a note with one is parsed for steps. */
-const MAY_HOLD_STEP = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+\[[ xX~!]\]/m;
+const MAY_HOLD_STEP = new RegExp(`^[ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+${STEP_BOX}`, "m");
 
 /**
  * What a read needs from a note's text, worked out once per text and kept for the next reads: its steps,

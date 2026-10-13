@@ -791,6 +791,29 @@ export async function replyTo(
   return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, undefined, record.block.id)) }), thread: annotationId, reply: record.block.id };
 }
 
+/**
+ * A posted comment's or reply's words edited (PIE-763), as the agent: `mark` is the comment or reply, `observed` the
+ * words it read (or `revision`, the comment's revision as read), so an edit made meanwhile is refused, never
+ * overwritten. Who wrote it stays its author; the edit is the agent's, and the comment shows as edited by it.
+ */
+export async function editComment(
+  client: AgentToolsClient,
+  input: { mark: string; body: string; observed?: string; revision?: number },
+  actor: AgentActor,
+): Promise<CommentResult & { mark: string; revision: number; edited: string }> {
+  const body = requireText(input.body, "The comment's new words");
+  const annotationId = threadId(input.mark);
+  if (input.observed === undefined && input.revision === undefined) throw new WorkToolRefusal("Say which words you're changing: observed (the comment's words as you read them) or revision (its revision), so an edit made meanwhile isn't overwritten");
+  const now = await client.request<AnnotationRecord>({ action: "annotations.get", annotationId });
+  if (input.observed !== undefined && input.observed.trim() !== now.body.trim()) throw new WorkToolRefusal(`The comment changed since you read it; its words now: ${JSON.stringify(now.body.slice(0, 400))} (revision ${now.block.revision})`);
+  const record = await client.request<AnnotationRecord>({
+    action: "annotations.update",
+    input: { annotationId, expectedRevision: input.revision ?? now.block.revision, body },
+    mutation: mutationOf(actor),
+  });
+  return { ...commentResult(record, await warned(client, body, undefined, record.block.id)), mark: record.block.id, revision: record.block.revision, edited: record.edited ?? "" };
+}
+
 /** Resolves (or reopens) a comment thread, as the agent. */
 export async function resolveThread(
   client: AgentToolsClient,
@@ -1017,7 +1040,7 @@ export async function assignWorkId(
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "set-property", "assign-id", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1044,6 +1067,7 @@ export function runAgentOperation(
     case "create": return createBlock(client, any, writer());
     case "comment": return commentOn(client, any, writer());
     case "reply": return replyTo(client, any, writer());
+    case "edit-comment": return editComment(client, any, writer());
     case "resolve-thread": return resolveThread(client, any, writer());
     case "changes": return changesSince(client, any);
     case "patch": return patchDraft(client, any, writer());

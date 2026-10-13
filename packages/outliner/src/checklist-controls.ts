@@ -1,6 +1,10 @@
 import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type MappedDocument} from "./document-provenance";
 import {listItemFoldId} from "./document-folds";
-import {CHECKLIST_MARKS, checklistItems} from "./checklist-items";
+import {checklistItems} from "./checklist-items";
+import {boxStatus, STEP_BOX} from "@ep0ch/outline-core/checklist-marks";
+
+/** A step's header line up to its box (outline-core's grammar), past a presentation-only heading prefix. */
+const STEP_HEADER = new RegExp(`^(?:#{1,6}[ \\t]+)?(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+(${STEP_BOX})(?=[ \\t\\r\\n]|$)`);
 import {previewRegionActionUri, type PreviewRegion, type PreviewRegionState} from "./detail-preview-regions";
 import type {Block, ChecklistItem} from "./types";
 import type {DetailEmbedRange} from "./detail-embeds";
@@ -80,8 +84,8 @@ export function renderChecklistControls(source: MappedDocument, controls: readon
     const line = control.sourceSpan!.startLine, mapped = lines[line];
     if (!mapped) continue;
     // A note beginning with a list can acquire a presentation-only title prefix.
-    const match = /^(?:#{1,6}[ \t]+)?(?:[ \t]*>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+(\[[ xX~!]\])(?=[ \t\r\n]|$)/.exec(mapped.text);
-    if (!match || match[1]!.toLowerCase() !== CHECKLIST_MARKS[control.item.status]) continue;
+    const match = STEP_HEADER.exec(mapped.text);
+    if (!match || boxStatus(match[1]!) !== control.item.status) continue;
     const start = match[0].length - 3;
     let status = sliceDocument(mapped, start + 1, start + 2);
     if (status.text === "X") status = concatDocuments(status.runs.map(run => atomicDocument("x", run.origin)));

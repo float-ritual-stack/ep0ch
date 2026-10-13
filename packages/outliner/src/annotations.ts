@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty, parseProperties, stripProperties } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
-import { annotationProperties, annotationPropertyProblem, isMarkLifecycle, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
+import { ANNOTATION_EDITED_KEY, annotationProperties, annotationPropertyProblem, isMarkLifecycle, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {
   AnnotationAnchor,
   AnnotationPassage,
@@ -777,6 +777,9 @@ export function formatAnnotationBlock(
     readonly lifecycle?: AnnotationLifecycle;
     readonly promotedBlockIds?: readonly string[];
     readonly allowLegacy?: boolean;
+    /** When its words were last edited after posting (`annotations.update`) and by whom: kept on every rewrite of the block. */
+    readonly edited?: string;
+    readonly editedBy?: string;
   } = {},
 ): string {
   const normalized = normalizeAnnotationCreateInput(input, options.allowLegacy ?? false);
@@ -793,6 +796,10 @@ export function formatAnnotationBlock(
   ];
   if (parent) metadata.push(`[parent-annotation::${parent}]`);
   for (const promotedBlockId of options.promotedBlockIds ?? []) metadata.push(`[promoted-block::${identity(promotedBlockId, "Promoted block ID")}]`);
+  // `<when> <who>`: the person (`user`) or an agent's actor id.
+  // The editor's id kept to one property-safe word (no spaces or brackets), so who edited it is never dropped.
+  const editor = options.editedBy?.replace(/[^\w.@:/-]+/g, "-").slice(0, 80);
+  if (options.edited) metadata.push(`[${ANNOTATION_EDITED_KEY}::${options.edited}${editor ? ` ${editor}` : ""}]`);
   for (const [key, values] of Object.entries(normalized.properties ?? {})) for (const value of values) metadata.push(`[${key}::${value}]`);
   const lines = (first: string) => (normalized.body ? [first, metadata.join(" "), normalized.body] : [first, metadata.join(" ")]).join("\n");
   const text = lines(heading);
@@ -825,6 +832,10 @@ export interface AnnotationBlockContent {
   readonly parentAnnotationId?: string;
   /** Its own properties (`kind`, `tags`, `color`, any other), the store's keys left out. */
   readonly properties: Readonly<Record<string, readonly string[]>>;
+  /** When its words were last edited after it was posted (an ISO time); absent when never. */
+  readonly edited?: string;
+  /** Who edited them last: `user` (the person) or an agent's actor id. */
+  readonly editedBy?: string;
 }
 
 export function parseAnnotationBlockContent(block: Block): AnnotationBlockContent {
@@ -841,5 +852,6 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
     properties: annotationProperties(block.properties),
   };
   const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
-  return parentAnnotationId ? { ...content, parentAnnotationId } : content;
+  const [edited, editedBy] = (getProperty(block.properties, ANNOTATION_EDITED_KEY)?.trim() ?? "").split(/\s+/);
+  return { ...content, ...(parentAnnotationId ? { parentAnnotationId } : {}), ...(edited ? { edited } : {}), ...(edited && editedBy ? { editedBy } : {}) };
 }

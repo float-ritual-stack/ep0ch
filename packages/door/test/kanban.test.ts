@@ -406,6 +406,14 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect((await current(cards.shelf.id)).revision).toBe(rev);
     await until(() => !B().steps.busy, "the re-read");
     expect(B().describe().steps.items[1].text).toBe("loosen both brackets");
+    // + approves the step under the cursor and - rejects one (PIE-811), each written as its mark.
+    press({ kind: "char", ch: "+" });
+    await until(() => !B().steps.busy && B().steps.read.items[1].status === "approved", "the approval");
+    expect(message()).toMatch(/^approved: loosen both brackets · Level the shelf/);
+    press({ kind: "up" });
+    press({ kind: "char", ch: "-" });
+    await until(() => !B().steps.busy && B().steps.read.items[0].status === "rejected", "the rejection");
+    expect((await current(cards.shelf.id)).text).toMatch(/- \[✗\] find the spirit level \^t-[0-9a-f]+\n- \[✓\] loosen both brackets/);
     press({ kind: "esc" });
   });
 

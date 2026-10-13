@@ -301,6 +301,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.annotation.reply":
         await dispatch({ type: "annotation.thread.reply" });
         return true;
+      case "detail.annotation.edit":
+        await dispatch({ type: "annotation.thread.edit" });
+        return true;
       case "detail.annotation.lifecycle":
         await dispatch({ type: "annotation.thread.lifecycle" });
         return true;
@@ -453,6 +456,12 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
   }
 
   async function invokeAction(actionId: string): Promise<void> {
+    // An Edit link beside a reply names it (PIE-763): detail.annotation.edit:<reply id>, on the selected thread.
+    if (actionId.startsWith("detail.annotation.edit:")) {
+      if (!actionKeymap.isAvailable("detail.annotation.edit", "detail", activeScopes())) { await setStatus("Edit comment is unavailable here"); return; }
+      await dispatch({ type: "annotation.thread.edit", replyId: actionId.slice("detail.annotation.edit:".length) });
+      return;
+    }
     let label: string;
     try {
       label = actionKeymap.action(actionId).label;

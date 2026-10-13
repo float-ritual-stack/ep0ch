@@ -691,6 +691,9 @@ const effects: DetailEffects = {
   async setAnnotationLifecycle(input) {
     return client.request<AnnotationRecord>({ action: "annotations.lifecycle", input, mutation: { author: "user", actorId: "detail" } });
   },
+  async updateAnnotation(input) {
+    return client.request<AnnotationRecord>({ action: "annotations.update", input, mutation: { author: "user", actorId: "detail" } });
+  },
   async internFilesystem(path) {
     return client.request<InternResourceReceipt>({
       action: "resources.intern-filesystem",
@@ -1614,10 +1617,13 @@ async function readerAction(actionId: string): Promise<boolean> {
   if (actionId === "detail.reading.focus") { readingSurface.toggleFocus(); return true; }
   if (actionId === "detail.reading.close") { await readingSurface.closePreview(); return true; }
   if (actionId === "detail.reading.keep") { await readingSurface.keepPreview(viewport()); return true; }
-  if (readingSurface.active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.lifecycle")) {
+  if (readingSurface.active === inspection && (actionId === "detail.annotation.reply" || actionId === "detail.annotation.edit" || actionId.startsWith("detail.annotation.edit:") || actionId === "detail.annotation.lifecycle")) {
     const annotationId = inspection.state.selectedAnnotationId;
     if (!annotationId) { inspection.onServiceError(new Error("Select a comment before replying or resolving")); return true; }
-    await readingSurface.activatePreviewAction({type: actionId === "detail.annotation.reply" ? "annotation.thread.reply" : "annotation.thread.lifecycle", annotationId}, viewport(inspection));
+    const type = actionId === "detail.annotation.reply" ? "annotation.thread.reply" : actionId.startsWith("detail.annotation.edit") ? "annotation.thread.edit" : "annotation.thread.lifecycle";
+    // An Edit link beside a reply names it: detail.annotation.edit:<reply id>.
+    const replyId = actionId.startsWith("detail.annotation.edit:") ? actionId.slice("detail.annotation.edit:".length) : undefined;
+    await readingSurface.activatePreviewAction(type === "annotation.thread.edit" ? {type, annotationId, ...(replyId ? {replyId} : {})} : {type, annotationId}, viewport(inspection));
     return true;
   }
   if (readingSurface.active === inspection && ["detail.edit.begin", "detail.edit.external", "detail.edit.recover"].includes(actionId)) {
@@ -1763,6 +1769,7 @@ const readerVertical = new DetailReaderVerticalLayout(preview, inspectionLayout)
 const composer = new BufferComposer(() => {
   const reader = focusedReader();
   const reply = reader.state.annotationReplyDraft;
+  const editing = reader.state.annotationEditDraft;
   const thread = reply ? reader.state.annotationThreads.find(thread => thread.block.id === reply.annotationId) : null;
   const target = reader.state.annotationDraft?.target;
   const context = target?.anchor.kind === "text-quote"
@@ -1773,7 +1780,7 @@ const composer = new BufferComposer(() => {
         ? target.anchor.exact ?? ""
         : "";
   return {
-    title: reply ? "Reply to comment" : target?.referenceContext
+    title: editing ? "Edit comment" : reply ? "Reply to comment" : target?.referenceContext
       ? "Comment on this reference"
       : target?.anchor.kind === "whole-subject"
       ? "Comment on whole note"

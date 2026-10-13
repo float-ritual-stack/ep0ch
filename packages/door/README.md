@@ -244,7 +244,7 @@ the board's g m s), its elements and reading-ruler row (PIE-441) and its termina
 CP437; the key names and the terminal output are under every section) have no section yet, and its ids-not-names row
 (ADR 0001) is a rule for code, with nothing to show. The newest parts are in their rows' sections:
 a refused key said on the focused tile's frame, loud when pressed again (PIE-727), in `refusals`, the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the drawer in `drawer` (`^W a` puts its kettle in your drawer, another section keeps it, the same program; `alt+a` pulls the drawer up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, reading with a pen (a passage highlighted, defined, cited and asked about, the answer in the margin; the same on a file; a notebook of it all, PIE-751, PIE-753) in `marginalia`, a margin thread as one conversation and Recent replies (an answer on the person's thread, unread until a click on its card opens it; `@margin` in a reply asked again) in `margin-replies`, a margin's attention (a kept thread's TL;DR as its card, a seen one on the thread list's earlier shelf; `s`, `p`, `t`, PIE-791) in `margin-attention`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a comment written where you read it (four readers, inline, floating, split and popup; select, `C`, `ctrl+o`, PIE-770) in `composer`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, the Extensions hub beside the notifications hub's page (its README, what it adds, its demo boards answering what a pull wrote) in `ext-pages`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, claude.ai artifacts in a note (a React one and an HTML one, each a card that opens it running on its web page) in `artifacts`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, the component library (a page per component schema, the outline's own style among its values) in `library`, the power bar (`ctrl+k`: the stage's tiles as their tree, one folded to a spine, then what changed; a scope a prefix away) in `bar`, and the `^W` keys (a grouped keys box, `^W ?` opening the whole list on the bar to filter and press) in `wkeys`. It runs on an
+(`L`) in `entity`, a comment on a file's text (a Resource, PIE-650: C on a selection, the file never written) in `resource-comments`, reading with a pen (a passage highlighted, defined, cited and asked about, the answer in the margin; the same on a file; a notebook of it all, PIE-751, PIE-753) in `marginalia`, a margin thread as one conversation and Recent replies (an answer on the person's thread, unread until a click on its card opens it; `@margin` in a reply asked again) in `margin-replies`, a margin's attention (a kept thread's TL;DR as its card, a seen one on the thread list's earlier shelf; `s`, `p`, `t`, PIE-791; a posted comment edited with `e` and a reply with its `[Edit]`, PIE-763) in `margin-attention`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a comment written where you read it (four readers, inline, floating, split and popup; select, `C`, `ctrl+o`, PIE-770) in `composer`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, the Extensions hub beside the notifications hub's page (its README, what it adds, its demo boards answering what a pull wrote) in `ext-pages`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, claude.ai artifacts in a note (a React one and an HTML one, each a card that opens it running on its web page) in `artifacts`, a note's title leading its header (breadcrumb above, bold title, one dim line, double height through text sizing, the focused tile's brighter) in `title`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, the component library (a page per component schema, the outline's own style among its values) in `library`, the power bar (`ctrl+k`: the stage's tiles as their tree, one folded to a spine, then what changed; a scope a prefix away) in `bar`, and the `^W` keys (a grouped keys box, `^W ?` opening the whole list on the bar to filter and press) in `wkeys`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -1529,7 +1529,7 @@ the same plan's answer.
 |---|---|
 | `n` | a new card in the focused lane |
 | `N` | a note under the selected card |
-| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `w` waiting, `!` problem |
+| `s` | the selected card's checklist steps: `j k` pick, `space` done / to do, `x` done, `+` approve, `-` reject, `w` waiting, `!` problem |
 | `d` `d` | trash the selected card (and the notes under it); `u` restores it |
 
 - **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
@@ -1576,7 +1576,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
   prefix and exactly one active `type=work-queue` block for the project; otherwise its refusal is shown
   as it is (`Expected exactly one active work queue for project …`). A lost answer is looked for among the project's newest items, never retried.
 
-- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`), read with
+- **Steps** are the note's Markdown checklist items (`- [ ]`, `[x]`, `[~]`, `[!]`, `[✓]`, `[✗]`), read with
   `checklist.query` and changed one at a time with `checklist.update`, checked against the step's evidence
   as it was read: a step reworded since is refused and the list read again. A step without an id is named
   by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
@@ -1636,7 +1636,7 @@ The board's new-card composer is the same control too.
   rows hang under its text, not back at the left edge. The wrap is only drawn: the saved text is what you
   typed. Pasted text goes in as it came: a pasted line break or tab never continues a list or indents.
 - **Nothing you type is lost.** `Esc` twice on unsaved text doesn't drop it: it's **kept where you wrote it**
-  (an edit on its note, a comment on its note, a reply on its thread, a new card in its lane) and copied to
+  (an edit on its note, a comment on its note, a reply on its thread, an edit of a posted comment on that comment, a new card in its lane) and copied to
   `~/.local/state/ep0ch-door/drafts/`. The status bar says where. Opening the same draft again (`e`; `C` and a
   passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that came back unchanged
   lets it go, and says where its copy stays. Closing a screen, quitting and a dropped connection (`SIGHUP`) keep
@@ -1833,10 +1833,15 @@ in the lanes comments in the preview.
 | `J K` | extend / shrink the passage by a line |
 | `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
 | `Enter` | write the comment under the quote, in the note (as above); `Ctrl+S` sends, `Ctrl+X Ctrl+E` hands it to `$EDITOR` |
-| `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
-| `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it |
+| `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR, `C` a new comment |
+| `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it; its `[Edit]` (and each reply's) edits those words |
 | `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` and a passage bring it back) |
 
+- **Edit after posting (PIE-763):** `e` on a thread in the list, or `[Edit]` on an expanded thread or one of its replies,
+  opens its words in the same box. `Ctrl+S` saves, `Esc` leaves it as it was, and a click away saves it as an edit does.
+  It's checked against the revision you started from: an edit made meanwhile is refused, never overwritten (your text
+  is kept and copied; `ctrl+r` loads it as it is now). The thread then says "edited" ("edited by <who>" when someone
+  else edited your words), and its earlier words stay in its revisions. Who wrote it stays its author.
 - **One editor:** the box is the edit control every draft uses: the mouse selects (drag, double and triple
   click) and deletes, `ctrl+z` undoes, a paste is one step, `((` links a note and `^` or `#` after it picks a passage
   (PIE-762), `ctrl+p` previews it. The preview and the posted thread draw references by their titles and `!((embeds))`
@@ -2052,7 +2057,8 @@ restart (`extensions: horoscope added` on the status bar).
 
 ### Checklist steps
 
-Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem), in the note or
+Steps are Markdown checklist items (`- [ ]`, `1. [x]`, `[~]` waiting, `[!]` problem, `[✓]` approved, `[✗]` rejected:
+outline-core's `checklist-marks.ts`, PIE-811; `[+]` and `[-]` read as approved and rejected, for a keyboard), in the note or
 inside an embed of another note, anchored ones (`!((id^t-8a6d7f))`) too (PIE-472). The service says
 which items are steps and reads their status (`checklist.query`, and each embed's projection carries
 its own); each step's box is a control, and `[ ]` stops on it with the note's other elements. Every
@@ -2067,20 +2073,21 @@ change (yours or an agent's).
 | Keys | Action |
 |---|---|
 | `⏎`, a click (or right-click) on a step's box | the status choice opens under it: Detail's choices, in its order |
-| `x` `o` `w` `!` in the choice | mark done, to do, waiting, problem |
+| `x` `o` `+` `-` `w` `!` in the choice | mark done, to do, approved (Approve: your yes), rejected (Reject: your no), waiting, problem |
 | `y`, `a` in the choice | Copy step link (`((note^t-…))` to your clipboard), Make addressable; either gives the step a stable id |
 | `j k` `↑↓` `⏎`, a click on a row; `esc` | move, choose; cancel. The choice holds your keys until then |
-| `space` on the current step | done, or back to to do (as Detail's space) |
+| `space` on the current step | done, or back to to do from done, approved or rejected (as Detail's space) |
 | `ctrl+z` | undo the last step change you made while reading this note (or callout or image change, whichever was last) |
 
 The keys were picked after checking every screen's: `space` pages a reader everywhere else and keeps doing
 so unless a step is the current element in view; `ctrl+z` is undo wherever it's bound (here, and in a draft
-for an agent's patch); `x o w !`
+for an agent's patch); `x o + - w !`
 and `y a` only mean this while the choice is open (it takes the keys first on the board, the desk, the
-river and the BBS reader), and match the board's steps overlay (`x w !`) and the door's `y` for copy.
+river and the BBS reader), and match the board's steps overlay (`x + - w !`) and the door's `y` for copy. `+` and `-` are the marks a keyboard
+types for approved and rejected (`[+]`, `[-]`).
 
 Agents use `tasks` (the steps the reader draws, in the note and in its embeds), `task.status` (`n=` or
-`id=`, `to=done|todo|waiting|problem`), `task.undo` (its own last change) and `task.link`. An agent's
+`id=`, `to=done|todo|waiting|problem|approved|rejected`), `task.undo` (its own last change) and `task.link`. An agent's
 change is said in the status bar and the reader's header (`an agent (<id>) set "Sow the beans" to do →
 waiting · in !((…))`) and never moves your `[ ]` position, scroll or selection; the status choice is
 yours only.
@@ -2543,7 +2550,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `board.reload` | none: read the lanes again | `r` |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
-| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
+| `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem\|approved\|rejected` (default toggles done) | `s`, `j k`, `space x + - w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
 | `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles), `dir=v\|h` (vertical or horizontal spine); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c`, `alt+h` (alt+H horizontal), bare `-` folds and `+` `=` open the focused tile where it takes no text, `✦-` `✦=` (hyper), the ◂ ▾ on a tile's frame (alt+click horizontal) |
@@ -2596,7 +2603,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |
 | `block.tint`, `block.untint` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
-| `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |
+| `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem\|approved\|rejected` | `⏎` or a click on a box, then `x o + - w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
 | `task.link`, `task.menu` | `n` or `id` (the person's: default the step at their keys). `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard; `copy=false` only makes it addressable); `task.menu` opens the status choice and is the person's only | the choice's `y` and Make addressable; `⏎` on a box |
 | `props` | `full=true` | `i`, `I` |

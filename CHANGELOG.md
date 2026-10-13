@@ -10,6 +10,30 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A checklist step can be approved or rejected (PIE-811)
+
+- **Added:** two step states beside to do, done, waiting and problem: **approved** (`[✓]`, your yes) and **rejected**
+  (`[✗]`, your no). Pick Approve or Reject from a step's box: in the door's status choice (`+` and `-`, or a click), the
+  board's steps overlay, Detail's checklist menu, and now on your tailnet web pages, where every step's box is a button
+  that opens the same choices (by tap, or `x o + - w !` on a keyboard). Typing `[+]` or `[-]` in a note reads the same.
+- **Changed:** web pages draw each step's box as its state (☐ ✔ ✓ ✗ ~ !) instead of a grey checkbox that knew only
+  done; a share link's and a public page's boxes are drawn but don't change. `space` on an approved or rejected step
+  reopens it to to do. Approved counts as done in a step tally; rejected doesn't.
+- **For agents:** `checklist.query` (`statuses: ["approved"]`) tells them apart, and an approved step is the person's
+  yes (the ep0ch-outline and daily-brief skills say so).
+
+### Edit a comment or reply after it's posted (PIE-763)
+
+- **Added:** a posted comment or reply can be edited in the same editor it was written in: in the door (`e` in the
+  thread list, `[Edit]` on an expanded thread and on each reply), in Detail (`Shift+U`, or the Edit link on a comment
+  or reply), and on the web pages (Edit in a card's ⋯ and on each reply). Agents edit with `outline_reply` and `edit`
+  (the mod and the MCP), `outliner agent edit-comment`, or the door's `comment.edit`.
+- The edit is checked against the revision it started from, so one made meanwhile is refused and your words are kept.
+  The comment stays its author's and says "edited" (or "edited by" whoever did); its earlier words are its revisions.
+  Below a share link, only what was written through that link can be edited.
+- **Fixed:** a click on a reply's `[Quote]` on an expanded thread quoted the whole thread.
+- **Run:** a protocol bump: `ep0ch install --apply` on each machine, then restart the publishers.
+
 ### Writing papercuts from sysops-log (PIE-592)
 
 - **Added:** links work from an edit. `Ctrl+L` (or an alt- or ctrl-click) on a `[[page]]`, `((reference))` or

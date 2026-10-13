@@ -129,6 +129,7 @@ function computedDetailEffects(
     },
     async replyAnnotation() { throw new Error("Not used"); },
     async setAnnotationLifecycle() { throw new Error("Not used"); },
+    async updateAnnotation() { throw new Error("Not used"); },
     async createAnnotation() {
       return unavailable();
     },

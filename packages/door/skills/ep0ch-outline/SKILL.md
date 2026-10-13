@@ -86,7 +86,10 @@ changes only the thread, so a `propose` outline allows it. Check the thread's la
 records whether a comment wants an answer. `outline_threads` with no note is the inbox (open threads anywhere,
 `lastFrom`, `mentions`, `since`): a scheduled check calls that. Each agent writes under its own name (the gateway's
 persona, `OUTLINER_ACTOR` or `EP0CH_AGENT`, else the folder's `.ep0ch` `agent = "<name>"`), so a thread shows who said
-what: the persona first, its principal (`claude-code@<machine>`) one step away.
+what: the persona first, its principal (`claude-code@<machine>`) one step away. A comment or reply already
+posted (yours, or one the person asks you to fix) is edited in place, not answered with a correction: `outline_reply`
+with `edit` (its id) and `observed` (its words as you read them). A comment that changed since is refused; read it
+again. It stays its author's and says "edited by" you.
 
 On a page two agents work on, put the items that change (steps, outbox items) in child blocks, each with its own
 revision, so concurrent edits rarely collide.
@@ -117,6 +120,13 @@ revision, so concurrent edits rarely collide.
 - **Soft links resolve by context.** A ticket key, a date or `PR#12` under `[project::garden-club]` means that
   project's. Don't wrap every key in `[[…]]`; when a token is ambiguous, ask instead of guessing.
 - **Reuse their keys and values.** A new key is a decision; an existing one is a convention.
+- **A step's box is their answer.** Checklist items have six states (outline-core `checklist-marks.ts`): `[ ]` to
+  do, `[x]` done, `[~]` waiting, `[!]` problem, `[✓]` approved and `[✗]` rejected (`[+]` and `[-]` read the same).
+  **`[✓]` approved is the person's yes**: a "Needs you" item, a draft or a proposal they approved is a go, act on it.
+  **`[✗]` rejected is their no**: don't do it, and don't ask again unless something changed. `[x]` on a question is
+  "done" (seen, handled), not a yes; when the answer matters, ask for Approve or Reject. Read them with
+  `checklist.query` (`statuses: ["approved"]`), never by matching `[x]` yourself. Approved counts as done in a tally;
+  rejected is closed, not done.
 - **Readable.** Short sections, bold leads, one fact per bullet, a summary callout on long notes, history
   labelled as history. Fictional example of the shape:
 

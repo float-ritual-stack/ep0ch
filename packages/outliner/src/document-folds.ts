@@ -5,6 +5,11 @@ import {markdownSourceTokens, type MarkdownSourceToken} from './markdown-structu
 import {fragmentAnchors} from './fragments';
 import {previewRegionActionUri, type PreviewRegion, type PreviewRegionState} from './detail-preview-regions';
 import type {DetailCalloutRegion} from './detail-callouts';
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+
+/** A line's quote, list mark and step box (outline-core's box grammar), then the rest. */
+const HEADING_PREFIX = new RegExp(`^((?:[ \\t]*>[ \\t]?)*[ \\t]*(?:(?:[-+*]|\\d+[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?)?)(.*?)(\\r?\\n)?$`);
+const LIST_PREFIX = new RegExp(`^((?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?)`);
 
 export interface DocumentFold extends PreviewRegion {
   kind: 'document-fold';
@@ -119,7 +124,7 @@ export function foldDocument(source: MappedDocument, folds: readonly DocumentFol
     if (heading) {
       // Preserve list/quote prefixes, closing ATX hashes and Setext underlines.
       // Every line of a multiline heading points to the same disclosure.
-      const prefix = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?)?)(.*?)(\r?\n)?$/.exec(text)!;
+      const prefix = HEADING_PREFIX.exec(text)!;
       const atx = /^(#{1,6}[ \t]+)(.*)$/.exec(prefix[2]!);
       const underline = !atx && line === heading.headerEndLine && /^[ \t]*(?:=+|-+)[ \t]*$/.test(prefix[2]!);
       if (!underline) {
@@ -131,7 +136,7 @@ export function foldDocument(source: MappedDocument, folds: readonly DocumentFol
           headingLabel(label, marked.Lexer.lexInline(label.text), previewRegionActionUri(heading.activation!)), sliceDocument(mapped, end)]);
       }
     } else if (leading.length) {
-      const marker = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?)/.exec(text);
+      const marker = LIST_PREFIX.exec(text);
       if (marker) mapped = concatDocuments([sliceDocument(mapped, 0, marker[1]!.length), controls, sliceDocument(mapped, marker[1]!.length)]);
     }
     output.push(mapped);

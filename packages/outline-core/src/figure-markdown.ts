@@ -12,6 +12,7 @@
 // A figure's YAML stays its data form: when both give the same field, the YAML's wins (each kind says which fields
 // its Markdown gives).
 
+import { boxStatus, STEP_BOX, stepDone } from "./checklist-marks";
 import { closesCodeFence, codeFenceOpen } from "./code-fence";
 
 /** How a row is marked: bold (now, chosen, the accent) or italic (next, rejected, receding). */
@@ -25,7 +26,7 @@ export interface FigureRow {
   depth: number;
   /** Its number in an ordered list (`1.`), or null for a bullet. */
   ordinal: number | null;
-  /** `[x]` true, `[ ]` false, no box null. */
+  /** Done (`[x]`, or approved `[✓]`) true, any other box false, no box null. */
   done: boolean | null;
   /** What it says, without its bullet, box, emphasis markers or side note. */
   text: string;
@@ -53,7 +54,8 @@ export interface FigureMarkdown { rows: FigureRow[]; paragraphs: string[]; fence
 export const MAX_RUN = 1000;
 
 const ITEM = /^([ \t]*)(?:([-*+])|(\d+)[.)])[ \t]+(.*)$/;
-const BOX = /^\[([ xX])\][ \t]+/;
+// A step's box, by the one grammar (checklist-marks.ts): approved counts as done, as in a step tally.
+const BOX = new RegExp(`^(${STEP_BOX})[ \\t]+`);
 const NOTE = / — /;
 const PATH = /\s*(?:→|->)\s*/;
 const RUN = /^(.+?)\*(\d+)$/;
@@ -88,7 +90,7 @@ export function expandRuns(list: string): string[] {
 export function figureRow(source: string, line = 0, depth = 0, ordinal: number | null = null): FigureRow {
   let rest = source.trim(), done: boolean | null = null;
   const box = BOX.exec(rest);
-  if (box) { done = box[1] !== " "; rest = rest.slice(box[0].length); }
+  if (box) { done = stepDone(boxStatus(box[1]!)!); rest = rest.slice(box[0].length); }
   // Emphasis around the whole row, its side note inside (`**a — b**`): the row is marked, the note still its own.
   const outer = unwrapEmphasis(rest);
   const wrapped = outer.emphasis && NOTE.test(outer.text) ? outer.emphasis : null;

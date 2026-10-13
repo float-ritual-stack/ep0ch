@@ -17,6 +17,7 @@ import { bg, C, chip, fg, RESET } from "./style";
 import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;
@@ -953,7 +954,7 @@ const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "
 
 /** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
 export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
-const LIST_LEAD = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(\[[ xX~!]\](?:[ \t]+|$))?/;
+const LIST_LEAD = new RegExp(`^([ \\t]*)([-*+]|\\d{1,9}[.)])([ \\t]+)(${STEP_BOX}(?:[ \\t]+|$))?`);
 
 /** The list item `line` starts, or null. `- ` with nothing after it is an (empty) item; `-` alone isn't. */
 export function listLead(line: string): ListLead | null {
@@ -962,7 +963,7 @@ export function listLead(line: string): ListLead | null {
 }
 
 /** An empty item with a marker typed after it: `- -`, `  1. 2.`, `- [ ] *` (indent, the typed marker). */
-const TYPED_MARKER = /^([ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX~!]\][ \t]+)?([-*+]|\d{1,9}[.)])$/;
+const TYPED_MARKER = new RegExp(`^([ \\t]*)(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STEP_BOX}[ \\t]+)?([-*+]|\\d{1,9}[.)])$`);
 
 /** The marker after `m`: the same bullet, or the next number with the same closer. */
 export const nextMarker = (m: string) => (/^\d/.test(m) ? `${Number.parseInt(m, 10) + 1}${m.at(-1)}` : m);

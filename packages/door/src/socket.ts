@@ -80,7 +80,13 @@ export interface Comment {
   tldr?: { id: string; author: string; body: string; at: number };
   /** Where the quote sits in the note's current text (UTF-16 offsets), when the service could place it. */
   start: number | null; end: number | null;
-  replies: { id: string; author: string; body: string; at: number; quotedIn?: string[]; tldr?: boolean }[];
+  replies: { id: string; author: string; body: string; at: number; quotedIn?: string[]; tldr?: boolean; revision?: number; edited?: number; editedBy?: string }[];
+  /** Its block's revision: an edit of its words (`updateComment`) names it, so an edit made meanwhile is never overwritten. */
+  revision?: number;
+  /** When its words were last edited after it was posted (PIE-763), ms; absent when never. */
+  edited?: number;
+  /** Who edited them last: `user` (the person) or an agent's actor id. */
+  editedBy?: string;
   /**
    * Its own properties (ADR 0004 contract 6), open: `kind` (highlight, note, question…), `tags`, `color` (a theme
    * tone). A highlight is a thread with no body.
@@ -282,7 +288,9 @@ export type CreatePlan =
     }
   | { kind: "refused"; reason: string };
 
-export type StepStatus = "todo" | "done" | "waiting" | "problem";
+/** A step's status: outline-core's checklist grammar (checklist-marks.ts, PIE-811). */
+export type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
+import type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 /** One checklist step as `checklist.query` reads it. */
 export interface ChecklistStep {
   itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
@@ -988,13 +996,15 @@ export class SocketBoard implements Board {
     const when = (r: any) => Date.parse(r?.block?.createdAt ?? r?.createdAt ?? "") || 0;
     const offset = (v: unknown) => (typeof v === "number" ? v : null);
     const quoted = (r: any) => (Array.isArray(r?.quotedIn) && r.quotedIn.length ? { quotedIn: r.quotedIn.map(String) as string[] } : {});
+    // Its revision (an edit names it) and when it was edited after posting (PIE-763).
+    const kept = (r: any) => ({ ...(typeof r?.block?.revision === "number" ? { revision: r.block.revision as number } : {}), ...(Date.parse(r?.edited ?? "") ? { edited: Date.parse(r.edited), ...(typeof r.editedBy === "string" ? { editedBy: r.editedBy as string } : {}) } : {}) });
     return threads.map(t => {
       // resolvedTarget follows the quote through later edits; null means the service lost it. A comment on a Resource
       // that this note's link opened (its reference context) is placed on that link here, not at the file's offsets.
       const onResource = !blockId.startsWith(RESOURCE_NOTE) && t.originalTarget?.representation?.subject?.kind === "resource";
       const at = onResource ? t.resolvedTarget?.referenceContext?.anchor : t.resolvedTarget?.anchor;
       const lifecycle: MarkLifecycle = isMarkLifecycle(t.lifecycle) ? t.lifecycle : "open";
-      const replies = (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r), ...quoted(r), ...(isTldr(r.properties) ? { tldr: true } : {}) }));
+      const replies = (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r), ...quoted(r), ...kept(r), ...(isTldr(r.properties) ? { tldr: true } : {}) }));
       const tldr = replies.filter((r: { tldr?: boolean }) => r.tldr).at(-1);
       return {
         id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: markCurrent(lifecycle), lifecycle,
@@ -1003,7 +1013,7 @@ export class SocketBoard implements Board {
         start: placed && at?.kind === "text-quote" ? offset(at.start) : null, end: placed && at?.kind === "text-quote" ? offset(at.end) : null,
         replies,
         props: t.properties && typeof t.properties === "object" ? Object.fromEntries(Object.entries(t.properties).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).map(String)])) : {},
-        ...quoted(t),
+        ...quoted(t), ...kept(t),
       };
     }).sort((a, b) => Number(b.open) - Number(a.open) || b.at - a.at);
   }
@@ -1050,6 +1060,16 @@ export class SocketBoard implements Board {
       requestId, ...who, input: { annotationId, body, source },
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
+  }
+
+  /**
+   * A posted comment's or reply's new words (`annotations.update`, PIE-763), if it is still at `expectedRevision`:
+   * attributed to `actor`, marked edited, its earlier words kept in its block's revisions. The service refuses a stale
+   * one ("revision is stale"), so an edit made meanwhile is never overwritten.
+   */
+  async updateComment(annotationId: string, expectedRevision: number, body: string, actor: Actor = USER): Promise<{ id: string; revision: number; body: string }> {
+    const r = await this.request<{ block: { id: string; revision: number }; body: string }>("annotations.update", { input: { annotationId, expectedRevision, body }, mutation: mutationFor(actor) });
+    return { id: r.block.id, revision: r.block.revision, body: r.body };
   }
 
   /**
