@@ -15,7 +15,7 @@ import { Netmail, pullNetmail } from "../src/mcp-netmail";
 import { incidents, type BackupState } from "../src/backup/alert";
 import { readQueues } from "../src/backup/netmail";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { clientName, actorOf as actorOfIn, levelFor, personaClaim, principalOf, STDIO_SUBJECT } from "../src/mcp-writes";
+import { clientName, actorOf as actorOfIn, levelFor, pathCap, personaClaim, principalOf, STDIO_SUBJECT } from "../src/mcp-writes";
 import { remoteWrite } from "../src/app";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
@@ -193,6 +193,30 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     process.env.EP0CH_MCP_PATH_ACCESS = "warp=read";
     try { expect((await tool("list_outlines", {}, "warp")).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "read" }); }
     finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
+    // Per outline: the most specific entry wins, and the outline's own level still bounds it.
+    process.env.EP0CH_MCP_PATH_ACCESS = `gpty@garden-notes=full,gpty@attic-notes@${FAR}=read,gpty=propose`;
+    try {
+      const rows = (await tool("list_outlines", {}, "gpty")).json.outlines as { outline: string; access: string; writes?: string }[];
+      const at = (name: string) => rows.find(o => o.outline === name);
+      expect(at("garden-notes")).toMatchObject({ access: "full", writes: "applied" });
+      expect(at("pond-notes")).toMatchObject({ access: "propose", writes: "proposals" });
+      expect(at("quiet-notes")).toMatchObject({ access: "read" });               // its own level: a cap never raises it
+      expect(at("attic-notes")).toMatchObject({ access: "read" });               // a mirror, by outline@machine
+      await make("garden-notes", "shed", "Shed key rota");
+      const shed = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.shed! });
+      const shedNow = (await tool("outline_read", { uri: shed }, "gpty")).json;
+      expect((await tool("outline_set_property", { uri: shed, key: "keeper", value: "gpty", revision: shedNow.revision }, "gpty")).json.outcome).toBe("applied");
+    } finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
+    // A path open wide but shut for one outline: no write there, and no read either (reads check the cap too).
+    process.env.EP0CH_MCP_PATH_ACCESS = "gpty=full,gpty@pond-notes=none";
+    try {
+      const frogs = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+      expect((await tool("outline_read", { uri: frogs }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_threads", { uri: frogs }, "gpty")).isError).toBe(true);
+      expect((await tool("reader_view", { outline: "pond-notes" }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_comment", { uri: frogs, whole: true, body: "sneaking in" }, "gpty")).isError).toBe(true);
+      expect((await tool("outline_read", { uri: frogs })).isError).toBe(false);               // /mcp as before
+    } finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
     // /mcp: as before, the full outline's writes apply.
     expect((await tool("list_outlines", {})).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "full", writes: "applied" });
   });
@@ -628,6 +652,12 @@ describe("personas: who a connection writes as", () => {
     expect(actorOf(dcr, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }).actorId).toBe("mcp:chatgpt");
     expect(actorOf({ ...dcr, persona: "gpty" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt", EP0CH_MCP_PERSONAS: "chatgpt=daddy" }).actorId).toBe("mcp:gpty/chatgpt");
     expect(actorOf(dcr, {}).actorId).toBe("mcp:qFictionalDcr01");
+    // A path's cap per outline: outline@machine, then outline, then the path, then propose.
+    const cap = pathCap("gpty@gurgle=full, gpty@float-hub@laptop=read, gpty=propose, warp=none, bad=sideways", "gpty");
+    expect([cap({ outline: "gurgle", machine: "float-2" }), cap({ outline: "float-hub", machine: "laptop" }), cap({ outline: "float-hub", machine: "box-c" }), cap({ outline: "pie", machine: "float-2" }), cap()])
+      .toEqual(["full", "read", "propose", "propose", "propose"]);
+    expect(pathCap("warp=none", "warp")({ outline: "pie", machine: "float-2" })).toBe("none");
+    expect(pathCap("bad=sideways", "bad")()).toBe("propose");
     // A stdio client names itself: the registered-name list is the gateway's, for OAuth clients.
     expect(actorOf({ sub: STDIO_SUBJECT, clientId: "qFictionalDcr01" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }, "box-a").actorId).toBe("mcp:qFictionalDcr01@box-a");
     const home = scratchDir("ep0ch-persona-");
@@ -675,10 +705,10 @@ describe("principal and persona (PIE-679)", () => {
 
   test("the principal that made an outline writes with full whatever the setting; a person's none holds for all", () => {
     const status = { level: "read" as const, owner: "claude-code@float-2" };
-    expect(levelFor(status, stdio("claude-code"), "float-2")).toBe("full");
-    expect(levelFor(status, stdio("claude-code"), "laptop")).toBe("read");
-    expect(levelFor(status, gateway, "float-2")).toBe("read");
-    expect(levelFor({ ...status, level: "none" }, stdio("claude-code"), "float-2")).toBe("none");
-    expect(levelFor({ level: "read" }, stdio("claude-code"), "float-2")).toBe("read");
+    expect(levelFor(status, stdio("claude-code"), "float-2", undefined)).toBe("full");
+    expect(levelFor(status, stdio("claude-code"), "laptop", undefined)).toBe("read");
+    expect(levelFor(status, gateway, "float-2", undefined)).toBe("read");
+    expect(levelFor({ ...status, level: "none" }, stdio("claude-code"), "float-2", undefined)).toBe("none");
+    expect(levelFor({ level: "read" }, stdio("claude-code"), "float-2", undefined)).toBe("read");
   });
 });

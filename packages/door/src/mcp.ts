@@ -6,7 +6,7 @@
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
 import { createInterface } from "node:readline";
-import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
+import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
@@ -165,7 +165,7 @@ export function boundOutlines(board: Board, admin?: McpOutlineAdmin): McpOutline
       const rows: McpOutlineListing[] = [];
       const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       for (const b of [board, ...made.values()]) {
-        const status = await b.mcpAccessStatus(), level = levelFor(status, caller), writes = writesAt(level);
+        const status = await b.mcpAccessStatus(), level = levelFor(status, caller, undefined, b.address), writes = writesAt(level);
         const about = abouts.get(b.address.outline);
         rows.push({ ...b.address, uri: `ep0ch://${b.address.outline}@${b.address.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}), ...(about ? { about: aboutListing(about) } : {}) });
       }
@@ -267,7 +267,10 @@ const accessRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level
   : `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it, as of ${served.asOf})` : ""}; its owner runs \`ep0ch mcp access read --ws ${board.address.outline}\` on ${board.address.machine} to let MCP clients read it${served.source === "mirror" ? ", and the mirror follows with that change" : ""}.`;
 
 /** The status with the level this caller has: the principal that made a scratch outline writes with `full` (levelFor). */
-const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined): McpAccessStatus => ({ ...status, level: levelFor(status, caller) });
+const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where: BoardAddress): McpAccessStatus => {
+  const level = levelFor(status, caller, undefined, where);
+  return { ...status, level, canRead: status.canRead && level !== "none" };
+};
 
 async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
   const status = await target.board.mcpAccessStatus();
@@ -820,7 +823,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
   const target = await outlines.board(which);
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = withLevel(await board.mcpAccessStatus(), caller);
+  const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
   try {
@@ -974,7 +977,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (resourceRef && await isResourceRef(resourceRef)) {
     const target = await resourceBoard(outlines, args);
     if ("error" in target) return toolError(target.error);
-    const status = withLevel(await target.board.mcpAccessStatus(), caller);
+    const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
     try {
@@ -985,7 +988,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = withLevel(await target.board.mcpAccessStatus(), caller);
+  const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
   if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
