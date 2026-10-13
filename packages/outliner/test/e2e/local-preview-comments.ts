@@ -44,9 +44,9 @@ const result=await runHerdrScenario({
     assert.equal((await s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:other.id}}})).length,0);
     await s.keys(panes.tree,']');
     await s.waitVisible(panes.tree,'LOCAL WHOLE NOTE FEEDBACK');
-    const replyFrame=await s.waitFor('Reply visible',terminal.visible,text=>text.includes('Reply · Resolve'));
+    const replyFrame=await s.waitFor('Reply visible',terminal.visible,text=>text.includes('Reply · Seen'));
     const replyLines=replyFrame.split('\n');
-    const replyRow=replyLines.findIndex(line=>line.includes('Reply · Resolve'));
+    const replyRow=replyLines.findIndex(line=>line.includes('Reply · Seen'));
     const replyColumn=visibleWidth(replyLines[replyRow]!.slice(0,replyLines[replyRow]!.indexOf('Reply')));
     await terminal.write(`\x1b[<0;${replyColumn+1};${replyRow+1}M\x1b[<0;${replyColumn+1};${replyRow+1}m`);
     await s.waitVisible(panes.tree,'Write a comment');

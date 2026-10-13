@@ -1,3 +1,4 @@
+import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { FragmentCandidateCollection, FragmentCandidateQuery } from "./fragment-search";
@@ -2900,16 +2901,17 @@ export function createDetailController(
     if (annotationId && !selectAnnotationThread(annotationId, false)) return;
     const thread = selectedAnnotationThread(state);
     if (!thread) {
-      state.status = "Select a comment with [ or ] before resolving or reopening";
+      state.status = "Select a comment with [ or ] before marking it seen or bringing it back";
       return;
     }
     state.busy = true;
     try {
-      const lifecycle = thread.lifecycle === "open" ? "resolved" : "open";
+      // Seen puts a current thread away (PIE-791); an earlier one (seen or resolved) comes back open.
+      const lifecycle = markCurrent(thread.lifecycle) ? "seen" : "open";
       const updated = await effects.setAnnotationLifecycle({ annotationId: thread.block.id, lifecycle });
       state.annotationThreads = state.annotationThreads.map(current =>
         current.block.id === updated.block.id ? { ...updated, replies: current.replies } : current);
-      state.status = lifecycle === "resolved" ? "Comment resolved" : "Comment reopened";
+      state.status = lifecycle === "seen" ? "Comment seen: put away" : "Comment brought back";
     } catch (error) {
       state.status = errorMessage(error);
     } finally {

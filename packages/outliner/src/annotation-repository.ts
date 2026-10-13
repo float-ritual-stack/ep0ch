@@ -3,6 +3,7 @@ import {observeDocument} from "./document-provenance";
 import {resourceDocumentObservation} from "./document-resources";
 import { blockCommentTarget } from "./block-comments";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { isMarkLifecycle, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { resourceCommentSource, resourceCommentTarget } from "./resource-comments";
 import type { SequenceChange } from "./change-feed";
 import { blockAnnotationRepresentation } from "./annotation-representations";
@@ -494,7 +495,7 @@ export class AnnotationRepository {
       if (!block || block.effectiveDeletedRootId) return [];
       const content = parseAnnotationBlockContent(block);
       if (query.lifecycle && content.lifecycle !== query.lifecycle) return [];
-      if (query.includeResolved === false && content.lifecycle === "resolved") return [];
+      if (query.includeResolved === false && !markCurrent(content.lifecycle)) return [];
       const root = this.materialize(content, row);
       const replies = (repliesByParent.get(root.block.id) ?? [])
         .map((reply) => this.materialize(reply, row));
@@ -1069,7 +1070,7 @@ export class AnnotationRepository {
   setLifecycle(input: AnnotationLifecycleInput, mutation: MutationProvenance): AnnotationRecord {
     if (!input || typeof input !== "object") throw new Error("Annotation lifecycle input must be an object");
     const annotationId = text(input.annotationId, "Annotation ID");
-    if (input.lifecycle !== "open" && input.lifecycle !== "resolved") throw new Error("Unsupported annotation lifecycle");
+    if (!isMarkLifecycle(input.lifecycle)) throw new Error(`Unsupported annotation lifecycle: ${String(input.lifecycle)}; it's open, seen, kept or resolved`);
     const record = this.get(annotationId);
     if (record.parentAnnotationId) throw new Error("Annotation lifecycle belongs to the root thread");
     const promotedBlockIds = [...(record.promotedBlockIds ?? [])];
@@ -1289,6 +1290,8 @@ export class AnnotationRepository {
       author,
       provenance,
     );
+    // A new reply brings a thread that was put away back to its page (PIE-791): seen isn't closed.
+    if (root.lifecycle === "seen") this.setLifecycle({ annotationId: root.block.id, lifecycle: "open" }, { author, ...(provenance ?? {}) });
     return this.materialize(parseAnnotationBlockContent(block), this.targetRow(root.block.id));
   }
 

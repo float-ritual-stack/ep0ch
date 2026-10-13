@@ -506,3 +506,33 @@ test("the top level shows the outline's notes, not its system views: no Trash, n
   expect(top).not.toMatch(/<h2>(Board|View) /);
   expect(top).toMatch(/<footer><a href="\/pub\/p\/[0-9a-f-]+">bookmarks<\/a> · /);
 });
+
+// Attention, not tickets (PIE-791): Seen, Keep and TL;DR are the service's, shared by every client.
+
+test("seen puts a thread away and a new reply brings it back; kept stays current; a TL;DR is a [kind::tldr] reply, @margin's or the person's", async () => {
+  const note = store.create("Compost log\nThe heap turned warm after the rain.", hub.id, "user");
+  const made = await (await write({ page: note.id, action: "comment", quote: "turned warm", prefix: "The heap ", suffix: " after", body: "Check it again on Sunday.", requestId: "attention-01" })).json();
+  expect(made.ok).toBe(true);
+  const thread = made.thread as string;
+  const listed = async (includeResolved: boolean) => (await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: note.id }, includeResolved } }));
+  const state = async () => (await listed(true)).find((t) => t.block.id === thread)!;
+  const set = (lifecycle: string) => client.request<unknown>({ action: "annotations.lifecycle", input: { annotationId: thread, lifecycle } as never, mutation: { author: "user" } });
+
+  await set("seen");
+  expect((await state()).lifecycle).toBe("seen");
+  expect((await listed(false)).map((t) => t.block.id)).not.toContain(thread);
+  await client.request({ action: "annotations.reply", requestId: "attention-02", input: { annotationId: thread, body: "It's still warm.", source: "user" }, author: "user" });
+  expect((await state()).lifecycle).toBe("open");
+  await set("kept");
+  expect((await listed(false)).map((t) => t.block.id)).toContain(thread);
+  await expect(set("closed")).rejects.toThrow(/open, seen, kept or resolved/);
+
+  expect(await client.request<unknown>({ action: "annotations.tldr", annotationId: thread, mutation: { author: "user" } })).toEqual({ asked: "margin" });
+  const tldr = await until("@margin's TL;DR", async () => (await state()).replies.find((reply) => reply.properties?.kind?.[0] === "tldr"));
+  expect(tldr.block.author).toBe("agent");
+  expect(tldr.body).toContain("Check it again on Sunday.");
+  await client.request({ action: "annotations.tldr", annotationId: thread, body: "Warm after rain; check Sundays.", mutation: { author: "user" } });
+  const mine = (await state()).replies.filter((reply) => reply.properties?.kind?.[0] === "tldr").at(-1)!;
+  expect(mine).toMatchObject({ body: "Warm after rain; check Sundays.", block: { author: "user" } });
+  expect((await state()).lifecycle).toBe("kept");
+});

@@ -5,6 +5,7 @@
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
 import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
+import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -70,10 +71,15 @@ export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timest
 
 export interface Activity { cursor: number; block: Msg; author: string; actor: string; kind: string; at: number }
 export interface Comment {
+  /** `open`: current (PIE-791: open or kept, in the page's margin by default); seen and resolved are earlier. */
   id: string; author: string; body: string; quote: string; at: number; open: boolean;
+  /** How present it is (outline-core's annotation-marks.ts): open, seen, kept or resolved. */
+  lifecycle: MarkLifecycle;
+  /** Its newest TL;DR (a reply with `[kind::tldr]`): the thread's face, its discussion folded behind it. */
+  tldr?: { id: string; author: string; body: string; at: number };
   /** Where the quote sits in the note's current text (UTF-16 offsets), when the service could place it. */
   start: number | null; end: number | null;
-  replies: { id: string; author: string; body: string; at: number; quotedIn?: string[] }[];
+  replies: { id: string; author: string; body: string; at: number; quotedIn?: string[]; tldr?: boolean }[];
   /**
    * Its own properties (ADR 0004 contract 6), open: `kind` (highlight, note, question…), `tags`, `color` (a theme
    * tone). A highlight is a thread with no body.
@@ -965,11 +971,15 @@ export class SocketBoard implements Board {
       // that this note's link opened (its reference context) is placed on that link here, not at the file's offsets.
       const onResource = !blockId.startsWith(RESOURCE_NOTE) && t.originalTarget?.representation?.subject?.kind === "resource";
       const at = onResource ? t.resolvedTarget?.referenceContext?.anchor : t.resolvedTarget?.anchor;
+      const lifecycle: MarkLifecycle = isMarkLifecycle(t.lifecycle) ? t.lifecycle : "open";
+      const replies = (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r), ...quoted(r), ...(isTldr(r.properties) ? { tldr: true } : {}) }));
+      const tldr = replies.filter((r: { tldr?: boolean }) => r.tldr).at(-1);
       return {
-        id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: t.lifecycle !== "resolved",
+        id: t.block?.id ?? "", author: who(t), body: text(t), at: when(t), open: markCurrent(lifecycle), lifecycle,
+        ...(tldr ? { tldr: { id: tldr.id, author: tldr.author, body: tldr.body, at: tldr.at } } : {}),
         quote: String(t.originalTarget?.anchor?.exact ?? "").replace(/\s+/g, " ").trim(),
         start: placed && at?.kind === "text-quote" ? offset(at.start) : null, end: placed && at?.kind === "text-quote" ? offset(at.end) : null,
-        replies: (t.replies ?? []).map((r: any) => ({ id: r.block?.id ?? "", author: who(r), body: text(r), at: when(r), ...quoted(r) })),
+        replies,
         props: t.properties && typeof t.properties === "object" ? Object.fromEntries(Object.entries(t.properties).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).map(String)])) : {},
         ...quoted(t),
       };
@@ -1046,9 +1056,20 @@ export class SocketBoard implements Board {
     return this.request("blocks.markRead", { blocks, ...(reader ? { reader } : {}) });
   }
 
-  /** Resolve or reopen a thread. It sets a state rather than adding anything, so repeating it is harmless. */
-  async setLifecycle(annotationId: string, lifecycle: "open" | "resolved", actor: Actor = USER): Promise<void> {
+  /**
+   * How present a thread is (PIE-791): seen puts it away, kept keeps it, open brings it back, resolved closes a ticket.
+   * It sets a state rather than adding anything, so repeating it is harmless.
+   */
+  async setLifecycle(annotationId: string, lifecycle: MarkLifecycle, actor: Actor = USER): Promise<void> {
     await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: mutationFor(actor) });
+  }
+
+  /**
+   * A thread's TL;DR (PIE-791): with `body`, the one written (a reply with `[kind::tldr]`); without, the agent that
+   * answers in threads is asked to write it (it lands in the background). Says which agent was asked.
+   */
+  async tldr(annotationId: string, actor: Actor = USER, body?: string): Promise<{ asked?: string }> {
+    return this.request("annotations.tldr", { annotationId, ...(body ? { body } : {}), mutation: mutationFor(actor) });
   }
 
   /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */

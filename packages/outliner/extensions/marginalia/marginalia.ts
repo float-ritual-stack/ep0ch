@@ -103,9 +103,19 @@ async function run(command: string[], stdin: string): Promise<{ code: number; ou
   return { code, out: out.trim() };
 }
 
+/** A TL;DR of a thread from its own words: its first line, and the last turn's first sentence. */
+function plainTldr(thread: { author?: string; body?: string }[]): string {
+  const line = (text: string) => text.replace(/^@\S+\s*/, "").split(/\n/).map((part) => part.trim()).find(Boolean) ?? "";
+  const first = line(String(thread[0]?.body ?? "")) || "a mark on this passage";
+  const last = thread.length > 1 ? line(String(thread[thread.length - 1]?.body ?? "")).split(/(?<=[.!?])\s/)[0] ?? "" : "";
+  return `${first}${last && last !== first ? `\nLast: ${last}` : ""} (${thread.length} ${thread.length === 1 ? "turn" : "turns"})`;
+}
+
 async function answer(input: Record<string, any>): Promise<{ reply: string; session?: string }> {
   const command = request.config?.answer;
   if (!command?.length) {
+    // A TL;DR with no answer command: what the thread started on and where it ended, from its own words.
+    if (input.tldr) return { reply: plainTldr(Array.isArray(input.thread) ? input.thread : []) };
     const question = String(input.request ?? "").trim() || "what does this mean?";
     return { reply: fromTheText(String(input.note?.text ?? ""), input.passage as Passage | undefined, question) };
   }

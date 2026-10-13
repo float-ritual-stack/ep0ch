@@ -544,8 +544,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await mine("tile.focus", {}, reader);
     key(char("x"));                                                              // not in it yet: the board's x, refused
     expect(pane.session?.threads[0]?.open).toBe(false);
-    key({ kind: "enter" }); key(char("x"));
-    await until(() => pane.session?.threads[0]?.open === true, "reopened by the key");
+    key({ kind: "enter" }); key(char("s"));                                       // s brings an earlier thread back (PIE-791)
+    await until(() => pane.session?.threads[0]?.open === true, "brought back by the key");
     key({ kind: "esc" });
     expect(pane.session).toBeNull();
   });

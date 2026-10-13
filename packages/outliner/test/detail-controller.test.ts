@@ -916,7 +916,7 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
     const before = harness.controller.state.previewOffset;
     expect(before).toBeGreaterThan(0);
-    for (const lifecycle of ["resolved", "open"] as const) {
+    for (const lifecycle of ["seen", "open"] as const) {
       await harness.controller.dispatch({ type: "annotation.thread.lifecycle" }, viewport);
       const refresh = Promise.withResolvers<AnnotationThread[]>();
       harness.effects.listAnnotations = () => refresh.promise;
@@ -998,7 +998,7 @@ describe("detail controller projection and deferred refresh", () => {
     expect(submissions[1]!.input).toEqual({ annotationId: "annotation-1", body: "Human reply\nsecond line", source: "user" });
     expect(harness.controller.state.annotationThreads[0]!.replies[0]!.body).toBe("Human reply\nsecond line");
     expect(harness.controller.state.annotationReplyDraft).toBeUndefined();
-    for (const lifecycle of ["resolved", "open"] as const) {
+    for (const lifecycle of ["seen", "open"] as const) {
       await harness.controller.dispatch({ type: "annotation.thread.lifecycle" }, viewport);
       expect(harness.controller.state.annotationThreads[0]!.lifecycle).toBe(lifecycle);
     }
@@ -5769,7 +5769,7 @@ test("Preview native thread actions stay in place and protect both reader drafts
   expect(current.controller.state.buffer.text).toBe(draft);
   expect(replied).toEqual([{annotationId: "annotation-1", body: "Exact native reply", source: "user"}]);
   await surface.activatePreviewAction({type: "annotation.thread.lifecycle", annotationId: "annotation-1"}, viewport);
-  expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "resolved"}]);
+  expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "seen"}]);
   expect(current.calls.updates).toEqual([]);
 });
 

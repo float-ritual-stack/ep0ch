@@ -9,7 +9,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
-import type { Actor, SocketBoard } from "../socket";
+import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
@@ -30,6 +30,7 @@ export const SEED = {
   notebook: "Allotment notebook",
   whiteboard: "Kitchen whiteboard",
   shed: "Bike shed",
+  attention: "Pump rota",
   figures: "Allotment figures",
   plotJobs: "Plot jobs by stage",
   recipe: "Lentil soup",
@@ -1263,6 +1264,18 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const resolved = await board.comment("showcase-resolved", notes.shed.id, notes.shed.revision!, "Which hook are the inner tubes on?", quote(notes.shed.text, "The spare inner tubes"));
   await board.reply("showcase-reply", resolved.id, "The left one; I've written it in.", SEED_AGENT);
   await board.setLifecycle(resolved.id, "resolved");
+
+  // Attention, not tickets (PIE-791): a note whose margin holds one current comment, one kept with its TL;DR (the
+  // card's face), and one seen (on the earlier shelf, out of the margin).
+  notes.attention = await make(notes.root.id, `${SEED.attention}\n\nJune pumps the water butt on Mondays, Sam on Thursdays.\nThe hose reel sticks: oil it in spring.\nThe tap washer was replaced in March.\n\nIn a dry week both of us water the beds on Saturday morning.\nThe rota's kept on the shed door, written in pencil.\nAsk before borrowing the long hose.`);
+  const at = notes.attention;
+  await board.comment("showcase-attention-open", at.id, at.revision!, "Could we swap Thursdays in August?", quote(at.text, "Sam on Thursdays"));
+  const kept = await board.comment("showcase-attention-kept", at.id, at.revision!, "Which oil? The bike oil gums it up.", quote(at.text, "oil it in spring"));
+  await board.reply("showcase-attention-kept-reply", kept.id, "Sewing machine oil: thin, and it doesn't gum.", SEED_AGENT);
+  await board.setLifecycle(kept.id, "kept");
+  await board.tldr(kept.id, USER, "Sewing machine oil on the hose reel, each spring.");
+  const seen = await board.comment("showcase-attention-seen", at.id, at.revision!, "Who has the spare washers?", quote(at.text, "tap washer was replaced"));
+  await board.setLifecycle(seen.id, "seen");
 
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];

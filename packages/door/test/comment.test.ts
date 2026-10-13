@@ -62,7 +62,7 @@ describe("picking a passage", () => {
   test("draws the selection highlighted and marks lines that carry comments", () => {
     const p = new Passage(NOTE);
     const at = NOTE.indexOf("Ship");
-    const lines = p.render(60, 10, [{ id: "a", author: "user", body: "x", quote: "Ship", at: 0, open: true, start: at, end: at + 4, replies: [] }]);
+    const lines = p.render(60, 10, [{ id: "a", author: "user", body: "x", quote: "Ship", at: 0, open: true, lifecycle: "open" as const, start: at, end: at + 4, replies: [] }]);
     expect(plain(lines[1]!)).toBe("▐ Ship the release notes before Friday.");
     expect(lines[1]).toContain("\x1b[48;2;");         // highlighted
     expect(plain(lines[0]!).startsWith("  Launch")).toBe(true);
@@ -187,7 +187,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     }
   });
 
-  test("m, r: a reply lands on the thread; x resolves and x again reopens", async () => {
+  test("m, r: a reply lands on the thread; s puts it on the earlier shelf and s brings it back, p keeps it (PIE-791)", async () => {
     const b = await create(NOTE);
     await board.comment(`seed-${b.id}`, b.id, b.revision, "Seeded comment", { quote: "Ship", start: NOTE.indexOf("Ship") });
     const { pane, d } = await open(b.id, "m");
@@ -200,18 +200,23 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     let list = await threads(b.id);
     expect(list[0].replies.map((r: any) => r.body)).toEqual(["Me, on Thursday."]);
 
-    pane.key(char("x"), d);
+    pane.key(char("s"), d);
     await idle(pane);
-    await until(() => pane.session!.threads[0]?.open === false, "the thread to show resolved");
+    await until(() => pane.session!.threads[0]?.open === false, "the thread to show seen");
     list = await threads(b.id);
-    expect(list[0].lifecycle).toBe("resolved");
+    expect(list[0].lifecycle).toBe("seen");
+    expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain("0 current · 1 earlier");
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     expect(log.entries.find((e: any) => e.block.id === list[0].block.id)?.actorId).toBe(ACTOR_ID);
 
-    pane.key(char("x"), d);
+    pane.key(char("s"), d);
     await idle(pane);
     await until(() => pane.session!.threads[0]?.open === true, "the thread to show open");
     expect((await threads(b.id))[0].lifecycle).toBe("open");
+    pane.key(char("p"), d);
+    await idle(pane);
+    await until(() => pane.session!.threads[0]?.lifecycle === "kept", "the thread to show kept");
+    expect((await threads(b.id))[0].lifecycle).toBe("kept");
   });
 
   test("a send whose answer is lost is retried with the same request id and lands once", async () => {
@@ -378,7 +383,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
 
 describe("long comments in the thread list", () => {
   const long = Array.from({ length: 30 }, (_, i) => `line ${i + 1} of a long ramble about the garden shed`).join("\n");
-  const thread = (id: string, body: string) => ({ id, author: "user", body, quote: "", at: Date.now(), open: true, start: null, end: null, replies: [] });
+  const thread = (id: string, body: string) => ({ id, author: "user", body, quote: "", at: Date.now(), open: true, lifecycle: "open" as const, start: null, end: null, replies: [] });
   const msg = { id: "note-1", title: "Garden", text: "Garden\nbeans", revision: 1 } as any;
 
   test("the selected thread shows whole, another says how much more it has, and the wheel scrolls to the end", () => {

@@ -7,7 +7,7 @@ import type { DetailState } from "./detail-controller";
 import { renderMarkdownLine, sanitizeDynamicText } from "./terminal";
 import { blockReferenceDisplayText } from "./references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
-import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-marks";
+import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import type { RuleTone } from "@ep0ch/outline-core/rules";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { DETAIL_CALLOUT_TONES } from "./detail-callout-theme";
@@ -332,7 +332,7 @@ export function buildDetailAnnotationView(
       outlinerActionLink("detail.annotation.previous", "‹"),
       outlinerActionLink("detail.annotation.next", "›"),
       outlinerActionLink("detail.annotation.reply", "Reply"),
-      outlinerActionLink("detail.annotation.lifecycle", thread.lifecycle === "open" ? "Resolve" : "Reopen"),
+      outlinerActionLink("detail.annotation.lifecycle", markCurrent(thread.lifecycle) ? "Seen" : "Bring back"),
       `· ${thread.lifecycle}`,
     ].join(" "), width, "…"));
   }

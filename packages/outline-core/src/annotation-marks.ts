@@ -89,3 +89,25 @@ export function markTitleLine(text: string): { line: number; text: string } | nu
   }
   return { line: 0, text: lines[0]!.replace(/\*\*|__|`+/g, "").replace(/\s+/g, " ").trim() };
 }
+
+// ── Attention (PIE-791): how present a mark is, not whether it's closed ─────────────────────────────────────────────
+//
+// A mark's lifecycle (`annotation-status`) says how present it is on its page: `open` (it's there), `seen` (put away
+// on the Earlier shelf; a new reply brings it back), `kept` (it stays whatever else is put away) and `resolved` (a
+// ticket closed: reads as seen). A TL;DR is a reply with `[kind::tldr]`: the newest is the thread's face. Every client
+// (the door, Detail, the web) asks these, so they put away and bring back the same marks.
+
+export type MarkLifecycle = "open" | "seen" | "kept" | "resolved";
+export const MARK_LIFECYCLES: readonly MarkLifecycle[] = ["open", "seen", "kept", "resolved"];
+export const isMarkLifecycle = (value: unknown): value is MarkLifecycle => (MARK_LIFECYCLES as readonly unknown[]).includes(value);
+
+/** Whether a mark is in its page's margin by default (current): open and kept are; seen and resolved are earlier. */
+export function markCurrent(lifecycle: string | undefined): boolean {
+  return lifecycle !== "seen" && lifecycle !== "resolved";
+}
+
+/** A reply that's a thread's TL;DR (`[kind::tldr]`): its summary, written by @margin or by the person. */
+export const TLDR_KIND = "tldr";
+export function isTldr(props: Readonly<Record<string, readonly string[]>> | undefined): boolean {
+  return !!props && Object.hasOwn(props, "kind") && props.kind?.[0]?.trim().toLowerCase() === TLDR_KIND;
+}

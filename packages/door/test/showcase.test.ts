@@ -334,6 +334,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
+    // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.
+    "margin-attention": ["Pump rota", "TL;DR Sewing", "Could we swap"],
     // The plan's answered question beside Recent replies, which lists the answer.
     "margin-replies": ["Greenhouse plan for the spring", "question · ", "Recent replies"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
@@ -907,6 +909,21 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("margin attention: the kept thread's TL;DR is its card, the seen one is off the margin; thread.seen puts the current one on the earlier shelf and back=true brings it back (PIE-791)", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "margin-attention" }, as: "test-agent" })).toMatchObject({ key: "margin-attention" });
+    await until(() => screen().includes("TL;DR Sewing") && screen().includes("Could we swap"), "the rota's margin", 8000).catch(e => { console.log(screen()); throw e; });
+    expect(screen()).not.toContain("spare washers");
+    const rota = seeded.notes.attention;
+    const current = (await board.comments(rota.id)).find(t => t.body.startsWith("Could we swap"))!;
+    expect(await app.act({ action: "thread.seen", tile: "rota", args: { thread: current.id } })).toMatchObject({ lifecycle: "seen" });
+    expect((await board.comments(rota.id)).find(t => t.id === current.id)!.lifecycle).toBe("seen");
+    await until(() => screen().includes("1 current · 2 earlier"), "the thread list's shelves", 5000);
+    expect(await app.act({ action: "thread.seen", tile: "rota", args: { thread: current.id, back: true } })).toMatchObject({ lifecycle: "open" });
+    await until(() => screen().includes("2 current · 1 earlier"), "the thread back", 5000);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
   test("margin replies: Recent replies lists an agent's answer on the person's thread (not his note to self), unread until he opens the thread with a click on its card; @margin in a reply there is answered in the same thread; the question and a highlight quoted into one Inbox block (act, then the person's [Quote] and the power bar), each undone in one step", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "margin-replies" }, as: "test-agent" })).toMatchObject({ key: "margin-replies" });
@@ -956,7 +973,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await board.get(quoted.block).catch(() => null))?.deleted ?? true).toBe(true);
     expect((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn).toBeUndefined();
     // The person's: a click on the thread's [Quote], then the power bar asks where; ⏎ on its first row, the Inbox.
-    const quoteAt = () => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes("[Quote]") && l.includes("[Resolve]")); return { y, x: y < 0 ? -1 : ls[y]!.indexOf("[Quote]") }; };
+    const quoteAt = () => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes("[Quote]") && l.includes("[TL;DR]")); return { y, x: y < 0 ? -1 : ls[y]!.indexOf("[Quote]") }; };
     await until(() => quoteAt().y >= 0, "the open thread's [Quote]", 5000);
     const q = quoteAt();
     press({ kind: "mouse", action: "down", button: 0, x: q.x + 2, y: q.y }); press({ kind: "mouse", action: "up", button: 0, x: q.x + 2, y: q.y });

@@ -300,7 +300,8 @@ export interface BookmarkRemoveReceipt {
 }
 
 export type AnnotationSource = "user" | "agent";
-export type AnnotationLifecycle = "open" | "resolved";
+/** How present a mark is on its page (PIE-791, outline-core's annotation-marks.ts): open, seen, kept, resolved. */
+export type AnnotationLifecycle = import("@ep0ch/outline-core/annotation-marks").MarkLifecycle;
 
 export interface AnnotationAdapter {
   readonly id: string;
@@ -667,9 +668,9 @@ export interface AnnotationBatchReceipt {
 export interface AnnotationListQuery {
   /** The block (`{ kind: "block", blockId }`) or Resource (`{ kind: "resource", resourceId }`) the threads are on. */
   readonly subject: Exclude<AnnotationSubject, { readonly kind: "legacy-file" }>;
-  /** Only `open` or only `resolved` threads. */
+  /** Only threads in this lifecycle. */
   readonly lifecycle?: AnnotationLifecycle;
-  /** Resolved threads too (left out by default). */
+  /** Earlier threads too (seen and resolved: left out by default; open and kept are current). */
   readonly includeResolved?: boolean;
 }
 
@@ -2311,6 +2312,18 @@ export type OutlinerRequestAction =
       id: string;
       action: "annotations.lifecycle";
       input: AnnotationLifecycleInput;
+      mutation: MutationProvenance;
+    }
+  /**
+   * A thread's TL;DR (PIE-791): a reply with `[kind::tldr]`, the newest of which is the thread's face. With `body`, the
+   * one written (the person's, or an edit of @margin's); without, the agent that answers in threads is asked to write it.
+   */
+  | {
+      id: string;
+      action: "annotations.tldr";
+      annotationId: string;
+      body?: string;
+      requestId?: string;
       mutation: MutationProvenance;
     }
   /**

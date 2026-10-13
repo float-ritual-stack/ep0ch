@@ -1,5 +1,5 @@
 // Comments from a reader (EPD-004): pick a passage of the note's source, write a comment on it, reply to
-// a thread, resolve or reopen one. The service owns the rules: a comment names the note's revision and
+// a thread, and say how present it stays (PIE-791): seen puts it away, keep keeps it, TL;DR asks @margin for its face. The service owns the rules: a comment names the note's revision and
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings";
@@ -15,6 +15,7 @@ import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
 import { ago, rule, wrap } from "./text";
+import type { MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 
 /** CP437-safe marks, so snapshots and real VGA-font terminals draw them. */
 const MARK = "▐", OPEN = "■", DONE = "·";
@@ -156,7 +157,7 @@ export { Outgoing };
 // ── the session a reader holds while commenting ───────────────────────────────
 
 export interface CommentEnv {
-  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle"> & Partial<ReferenceBoard>;
+  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle" | "tldr"> & Partial<ReferenceBoard>;
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
@@ -239,7 +240,7 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true });
-    return `j k thread · PgUp PgDn or wheel scroll · r reply · x resolve/reopen · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
+    return `j k thread · PgUp PgDn or wheel scroll · r reply · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
   }
 
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
@@ -290,7 +291,6 @@ export class CommentSession {
     if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.view.reveal(); }
     else if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.view.reveal(); }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
-    else if (c === "x" && this.threads[this.sel]) void this.toggle(env);
     else if (c === "C") void this.pick(env);
     return "keep";
   }
@@ -409,23 +409,59 @@ export class CommentSession {
     env.redraw();
   }
 
-  async toggle(env: CommentEnv): Promise<void> {
+  /**
+   * How present the current thread stays (PIE-791): `seen` puts it on the earlier shelf, `kept` keeps it whatever else
+   * is put away, `open` brings it back, `resolved` closes a ticket. It sets a state, so trying again can't double it.
+   */
+  async attend(env: CommentEnv, to: MarkLifecycle): Promise<void> {
     const t = this.threads[this.sel];
     if (!t) return;
-    const to = t.open ? "resolved" : "open";
-    this.busy = t.open ? "resolving..." : "reopening..."; env.redraw();
+    const said = { seen: "seen: on the earlier shelf", kept: "kept", open: t.lifecycle === "kept" ? "unkept" : "brought back", resolved: "resolved" }[to];
+    this.busy = `${said}...`; env.redraw();
     try {
       await env.board.setLifecycle(t.id, to, env.actor ?? USER);
-      env.flash(to === "resolved" ? "resolved" : "reopened");
+      env.flash(said);
       this.busy = null;
       this.threads = await env.reloadComments();
       this.sel = Math.max(0, this.threads.findIndex(x => x.id === t.id)); this.view.reveal();
     } catch (e) {
       this.busy = null;
-      // Resolve/reopen sets a state, so trying again after no answer can't double anything.
-      this.error = `${to === "resolved" ? "resolve" : "reopen"} failed: ${e instanceof Error ? e.message : String(e)} · x tries again`;
+      this.error = `${said} failed: ${e instanceof Error ? e.message : String(e)} · try again`;
     }
     env.redraw();
+  }
+
+  /** Threads whose asked-for TL;DR this session is waiting to see land. */
+  private readonly waiting = new Set<string>();
+
+  /** `t`: @margin writes the current thread's TL;DR (it lands as a reply with [kind::tldr], the thread's face). */
+  async askTldr(env: CommentEnv): Promise<string | null> {
+    const t = this.threads[this.sel];
+    if (!t) return null;
+    try {
+      const r = await env.board.tldr(t.id, env.actor ?? USER);
+      env.flash(`@${r.asked ?? "margin"} is writing the TL;DR`);
+      // It lands in the background: read the thread again until its new face is there (an agent's write isn't
+      // always followed by an event this reader hears), for up to two minutes.
+      // One wait per thread; it ends when the reader has gone to another note (the thread isn't in its comments).
+      const before = t.tldr?.id;
+      if (!this.waiting.has(t.id)) {
+        this.waiting.add(t.id);
+        void (async () => {
+          for (let waited = 0; waited < 120_000; waited += 1500) {
+            await Bun.sleep(1500);
+            const now = (await env.reloadComments().catch(() => [])).find(x => x.id === t.id);
+            if (!now) return;
+            if (now.tldr && now.tldr.id !== before) { env.flash("the TL;DR is in"); env.redraw(); return; }
+          }
+        })().finally(() => this.waiting.delete(t.id));
+      }
+      return r.asked ?? null;
+    } catch (e) {
+      this.error = `no TL;DR: ${e instanceof Error ? e.message : String(e)}`;
+      env.redraw();
+      return null;
+    }
   }
 
   // ── drawing ─────────────────────────────────────────────────────────────────
@@ -470,20 +506,29 @@ export class CommentSession {
       ];
       return [...head, ...p.render(w, Math.max(1, h - head.length), this.threads)];
     }
-    // threads
+    // threads: the current ones (open and kept), then the earlier shelf (seen and resolved), a line each until chosen
     const open = this.threads.filter(t => t.open).length;
     const head = [
       fg(C.yellow) + pad(`» comments · ${title}`, w) + RESET,
-      fg(C.brown) + pad(`${open} open · ${this.threads.length - open} resolved`, w) + RESET,
+      fg(C.brown) + pad(`${open} current · ${this.threads.length - open} earlier`, w) + RESET,
       state ?? status(this.note || (this.threads.length ? "" : "no comments yet · C comments on a passage"), C.cyan),
       rule(w),
     ];
     const lines: string[] = [];
     let selAt = 0, selEnd = 0;
     this.threads.forEach((t, i) => {
+      if (!t.open && (i === 0 || this.threads[i - 1]!.open)) lines.push(fg(C.dark) + pad("── earlier ── s on one brings it back", w) + RESET);
       if (i === this.sel) selAt = lines.length;
-      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.open ? "open" : "resolved"}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
+      const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${t.author} · ${ago(t.at)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
       lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
+      // On the earlier shelf a thread is its one line until it's chosen.
+      if (!t.open && i !== this.sel) return;
+      // A thread with a TL;DR shows it, its discussion folded behind it, until it's chosen.
+      if (t.tldr && i !== this.sel) {
+        for (const l of wrap(`TL;DR ${t.tldr.body.replace(/\s+/g, " ")}`, w - 4).slice(0, 4)) lines.push("    " + fg(C.lgreen) + l + RESET);
+        lines.push("");
+        return;
+      }
       if (t.quote) for (const l of wrap(`"${t.quote}"`, w - 4).slice(0, 2)) lines.push(fg(t.open ? C.green : C.dark) + "  " + MARK + " " + l + RESET);
       if (t.start === null && t.quote) lines.push(fg(C.brown) + "    (the quoted words moved; the service couldn't place them)" + RESET);
       // The selected thread shows whole; the others show their start and say how much more there is.
@@ -493,7 +538,7 @@ export class CommentSession {
       for (const l of whole ? body : body.slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
       if (!whole) more(body.length - 4, "    ");
       for (const r of t.replies) {
-        const rl = wrap(`${r.author} · ${ago(r.at)}: ${r.body}`, w - 6);
+        const rl = wrap(`${r.author} · ${ago(r.at)}${r.tldr ? " · TL;DR" : ""}: ${r.body}`, w - 6);
         for (const [j, l] of (whole ? rl : rl.slice(0, 3)).entries()) lines.push(fg(C.cyan) + (j ? "      " : "    └ ") + l + RESET);
         if (!whole) more(rl.length - 3, "      ");
       }
