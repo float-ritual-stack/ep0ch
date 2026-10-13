@@ -76,13 +76,15 @@ function markdownLinkRanges(text: string): TextRange[] {
 
 /** Where page-link syntax is: each `[[…]]` whole, its brackets counted (outline-core), and a `[[` left open to its line's end. */
 export function pageSyntaxRanges(text: string): TextRange[] {
-  const ranges: TextRange[] = pageLinkRanges(text);
+  const closed = pageLinkRanges(text), ranges: TextRange[] = [...closed];
+  let next = 0;
   for (let at = text.indexOf("[["); at >= 0; at = text.indexOf("[[", at + 2)) {
-    const inside = ranges.find((range) => range.start <= at && at < range.end);
+    while (next < closed.length && closed[next]!.end <= at) next += 1;
+    const inside = closed[next] && closed[next]!.start <= at ? closed[next]! : undefined;
     if (inside) { at = inside.end - 2; continue; }
-    const lineEnd = text.slice(at).search(/\r?\n|$/);
-    ranges.push({ start: at, end: at + lineEnd });
-    at += Math.max(0, lineEnd - 2);
+    const newline = text.indexOf("\n", at), lineEnd = newline < 0 ? text.length : newline - (text[newline - 1] === "\r" ? 1 : 0);
+    ranges.push({ start: at, end: lineEnd });
+    at = Math.max(at, lineEnd - 2);
   }
   return ranges;
 }

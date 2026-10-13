@@ -5,6 +5,7 @@ import {
   linkOccurrences,
   pageAddressReferences,
   pageAddressText,
+  pageLinkRanges,
   referencedBlock,
   withoutFragmentAnchor,
 } from "../src/link-syntax";
@@ -52,6 +53,13 @@ test("brackets are counted: a page link holding another is one link to its whole
   // A stray ] still makes no page; a [[ left open at the line's end leaves the links it held standing.
   expect(pageAddressReferences("[[a]b]]").map(p => p.displayAddress)).toEqual([]);
   expect(pageAddressReferences("[[[[Shed]] notes\nnext").map(p => p.displayAddress)).toEqual(["Shed"]);
+  expect(pageLinkRanges("[[unfinished [[a #tag]]")).toEqual([{ start: 13, end: 23 }]);
+  // Brackets in code are text: they never pair with a link outside it.
+  expect(linkOccurrences("`[[` [[a]] `]]`").map(l => l.kind === "page" && l.displayAddress)).toEqual(["a"]);
+  // Many links on a line stay quick (no scan of every earlier link per link).
+  const many = "[[a]] ".repeat(20000), t0 = performance.now();
+  expect(pageAddressReferences(many)).toHaveLength(20000);
+  expect(performance.now() - t0).toBeLessThan(1000);
 });
 
 test("referencedBlock unwraps an id or one reference as written (the scan's grammar), and nothing else", () => {
