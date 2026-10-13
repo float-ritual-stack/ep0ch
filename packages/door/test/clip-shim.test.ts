@@ -11,6 +11,7 @@ import { CLIP_DIR, clipVars } from "../src/desk/herdr-agent";
 import { PTY_ACTIONS } from "../src/desk/pty-actions";
 import { PtyPane, cttyPrefix } from "../src/desk/pty";
 import { JsonLines, jsonLine } from "../src/jsonl";
+import { COPY_MAX } from "../src/surface/selection";
 import { until } from "./scratch";
 
 const SHIM = resolve(import.meta.dir, "../scripts/clip/wl-copy");
@@ -112,6 +113,9 @@ describe.skipIf(!cttyPrefix())("terminal.clip in the door", () => {
       // A request over the control socket (an agent, or the shim) gets the same rule, nothing more.
       expect(await PTY_ACTIONS.run("terminal.clip", { text: "Net the brassicas" }, on as any, { kind: "agent", id: "garden-agent" } as any)).toEqual({ tile: "drawer.agent", copied: 17 });
       expect(copies.at(-1)).toEqual(["Net the brassicas", "sh"]);
+      // Over the clipboard's cap: refused with its size, as a too-big OSC 52 is.
+      await PTY_ACTIONS.run("terminal.clip", { text: "x".repeat(COPY_MAX + 1) }, on as any, { kind: "user" } as any);
+      expect(copies.at(-1)).toEqual([{ tooBig: COPY_MAX + 1 }, "sh"]);
     } finally { p.dispose(); }
   }, 15_000);
 });

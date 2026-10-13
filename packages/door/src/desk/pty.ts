@@ -23,7 +23,7 @@ import { controlPath, controlPlace } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
-import { type Clip, cellsOf, Gesture, lineAt, Osc52Reader, paintRange, SELECT_BG, Selection, type SelectRows, TILE_COPY_RECENT_MS, wordAt } from "../surface/selection";
+import { type Clip, COPY_MAX, cellsOf, Gesture, lineAt, Osc52Reader, paintRange, SELECT_BG, Selection, type SelectRows, TILE_COPY_RECENT_MS, wordAt } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
@@ -473,20 +473,24 @@ export class PtyPane implements Pane {
   }
 
   /**
+   * The program copied `text` some other way than OSC 52 in its own output (PIE-797: Claude Code in a Herdr pane, which
+   * Herdr's direct attach doesn't pass OSC 52 on from, copies through the door's `wl-copy`, scripts/clip): the same as
+   * an OSC 52 it wrote, with the same rule (the person used the tile lately), cap and toast.
+   */
+  programCopied(text: string) {
+    const bytes = Buffer.byteLength(text);
+    this.copied(bytes > COPY_MAX ? { tooBig: bytes } : { text });
+  }
+
+  /** Named as its header names it (claude, sh), not by its layout name. */
+  private copyName(): string { return this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile"); }
+
+  /**
    * The program put `c` on the clipboard (OSC 52): passed on as the door's own copy, said as this tile's. Only while the
    * person is using the tile (they typed, pasted or clicked in it within TILE_COPY_RECENT_MS, whoever typed since): a
    * program in a tile they haven't used lately (an agent's shell, `tile.type`) can't fill their clipboard; the toast
    * says it didn't, and to click in it and copy again.
    */
-  /**
-   * The program copied `text` some other way than OSC 52 in its own output (PIE-797: Claude Code in a Herdr pane, which
-   * Herdr's direct attach doesn't pass OSC 52 on from, copies through the door's `wl-copy`, scripts/clip): the same as
-   * an OSC 52 it wrote, with the same rule (the person used the tile lately) and toast.
-   */
-  programCopied(text: string) { this.copied({ text }); }
-
-  /** Named as its header names it (claude, sh), not by its layout name. */
-  private copyName(): string { return this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile"); }
   private copied(c: Clip) {
     // Named as its header names it (claude, sh), not by its layout name.
     const from = this.copyName();

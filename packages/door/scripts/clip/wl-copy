@@ -7,6 +7,7 @@
 // `--primary` (the selection clipboard Claude also fills) is left alone. Never fails the copy: it always exits 0.
 import { openSync, writeSync, closeSync } from "node:fs";
 import { ask } from "../../src/jsonl";
+import { COPY_MAX as CAP } from "../../src/surface/selection";
 
 const args = process.argv.slice(2);
 // wl-copy's own forms: text as arguments (`wl-copy hello`), else on stdin; options with a value skipped.
@@ -21,11 +22,22 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "-c" || a === "--clear") clear = true;
   else if (!a.startsWith("-")) words.push(a);
 }
-// Stdin is read whole even when it's dropped, so whoever writes to it is never cut off.
-const text = words.length ? words.join(" ") : await new Response(Bun.stdin.stream()).text();
+// Stdin is read to its end even when it's dropped, so whoever writes to it is never cut off; past the door's cap it is
+// read and let go (the door says it was too big), never held.
+async function stdin(keep: boolean): Promise<string> {
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of Bun.stdin.stream()) {
+    size += chunk.length;
+    if (keep && size <= CAP) parts.push(chunk);
+  }
+  return size > CAP ? "x".repeat(CAP + 1) : Buffer.concat(parts).toString("utf8");
+}
+const text = words.length ? words.join(" ") : await stdin(!(primary || clear));
 if (primary || clear) process.exit(0);
 if (text) {
-  try {
+  // One over the cap goes only to the door, as a placeholder of its size, so the toast says it was too big.
+  if (Buffer.byteLength(text) <= CAP) try {
     const tty = openSync("/dev/tty", "w");
     writeSync(tty, `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`);
     closeSync(tty);
